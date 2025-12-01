@@ -12,6 +12,7 @@ const VincentDIndyDashboard = () => {
   const [currentView, setCurrentView] = useState('nicolas');
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nicolas : filtrer sur pianos sélectionnés
   const [showAllPianos, setShowAllPianos] = useState(false); // Technicien : voir tous les pianos
+  const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local
 
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
   const [filterUsage, setFilterUsage] = useState('all');
@@ -120,6 +121,13 @@ const VincentDIndyDashboard = () => {
       if (!showAllPianos) {
         result = result.filter(p => p.status === 'proposed');
       }
+
+      // Filtre de recherche par local (vue technicien)
+      if (searchLocal.trim()) {
+        result = result.filter(p =>
+          p.local.toLowerCase().includes(searchLocal.toLowerCase())
+        );
+      }
     }
 
     if (filterUsage !== 'all') {
@@ -151,7 +159,7 @@ const VincentDIndyDashboard = () => {
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showAllPianos]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showAllPianos, searchLocal]);
 
   // Actions
   const toggleProposed = async (id) => {
@@ -355,6 +363,17 @@ const VincentDIndyDashboard = () => {
             >
               Tous ({stats.total})
             </button>
+          </div>
+
+          {/* Barre de recherche par local */}
+          <div className="mt-2">
+            <input
+              type="text"
+              placeholder="Rechercher par local (ex: 301)"
+              value={searchLocal}
+              onChange={(e) => setSearchLocal(e.target.value)}
+              className="w-full px-3 py-2 border rounded text-sm"
+            />
           </div>
         </div>
 
