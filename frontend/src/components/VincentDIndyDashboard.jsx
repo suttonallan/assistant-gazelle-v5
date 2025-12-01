@@ -9,7 +9,8 @@ const VincentDIndyDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [currentView, setCurrentView] = useState('preparation');
+  const [currentView, setCurrentView] = useState('nicolas');
+  const [showOnlySelected, setShowOnlySelected] = useState(false); // Filtre pour voir uniquement les pianos sélectionnés
 
   // Clé pour le localStorage
   const STORAGE_KEY = 'vincent-dindy-pianos-data';
@@ -120,9 +121,12 @@ const VincentDIndyDashboard = () => {
   const pianosFiltres = useMemo(() => {
     let result = [...pianos];
 
-    if (currentView === 'suivi') {
-      // Afficher les pianos jaunes (proposed) et verts (completed)
-      result = result.filter(p => p.status === 'proposed' || p.status === 'completed');
+    if (currentView === 'nicolas') {
+      // Onglet Nicolas : par défaut tous les pianos, ou filtrer sur les jaunes/verts si demandé
+      if (showOnlySelected) {
+        result = result.filter(p => p.status === 'proposed' || p.status === 'completed');
+      }
+      // Sinon : tous les pianos (pas de filtre)
     } else if (currentView === 'technicien') {
       // Afficher uniquement les pianos jaunes (proposed)
       result = result.filter(p => p.status === 'proposed');
@@ -309,13 +313,13 @@ const VincentDIndyDashboard = () => {
           </div>
           {/* Onglets */}
           <div className="flex mt-2 text-xs">
-            {['preparation', 'suivi', 'technicien'].map(view => (
+            {['nicolas', 'technicien'].map(view => (
               <button
                 key={view}
                 onClick={() => setCurrentView(view)}
                 className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
               >
-                {view === 'preparation' ? '1.Prép' : view === 'suivi' ? '2.Suivi' : '3.Tech'}
+                {view === 'nicolas' ? 'Nicolas' : 'Technicien'}
               </button>
             ))}
           </div>
@@ -461,9 +465,8 @@ const VincentDIndyDashboard = () => {
         {/* Onglets */}
         <div className="flex">
           {[
-            { key: 'preparation', label: '1. Préparation' },
-            { key: 'suivi', label: '2. Suivi' },
-            { key: 'technicien', label: '3. Technicien' },
+            { key: 'nicolas', label: 'Nicolas' },
+            { key: 'technicien', label: 'Technicien' },
           ].map(tab => (
             <button
               key={tab.key}
@@ -480,10 +483,27 @@ const VincentDIndyDashboard = () => {
         </div>
       </div>
 
-      {/* Barre d'outils - Préparation */}
-      {currentView === 'preparation' && (
+      {/* Barre d'outils - Nicolas */}
+      {currentView === 'nicolas' && (
         <div className="bg-white rounded-lg shadow p-4 mb-4 space-y-3">
-          <div className="flex gap-4 flex-wrap items-center">
+          {/* Boutons de vue */}
+          <div className="flex gap-3 items-center">
+            <button
+              onClick={() => setShowOnlySelected(false)}
+              className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+            >
+              📋 Tous les pianos ({stats.total})
+            </button>
+            <button
+              onClick={() => setShowOnlySelected(true)}
+              className={`px-4 py-2 rounded text-sm font-medium ${showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+            >
+              🎯 Projet de tournée ({stats.proposed + stats.completed})
+            </button>
+          </div>
+
+          {/* Filtres */}
+          <div className="flex gap-4 flex-wrap items-center border-t pt-3">
             <select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} className="border rounded px-2 py-1 text-sm">
               <option value="all">Tous usages</option>
               {usages.map(u => <option key={u} value={u}>{u}</option>)}
@@ -498,6 +518,7 @@ const VincentDIndyDashboard = () => {
             </select>
           </div>
 
+          {/* Actions multiples */}
           <div className="flex gap-3 flex-wrap items-center border-t pt-3">
             <button onClick={selectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☑ Tous</button>
             <button onClick={deselectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☐ Aucun</button>
@@ -517,21 +538,12 @@ const VincentDIndyDashboard = () => {
         </div>
       )}
 
-      {/* Barre d'outils - Suivi */}
-      {currentView === 'suivi' && (
-        <div className="bg-white rounded-lg shadow p-4 mb-4">
-          <div className="text-sm text-gray-600">
-            Vue d'ensemble : pianos <span className="bg-yellow-200 px-2 py-0.5 rounded">jaunes (à faire)</span> et <span className="bg-green-200 px-2 py-0.5 rounded">verts (complétés)</span>. Cliquez pour ajouter des notes "À faire" pour le technicien.
-          </div>
-        </div>
-      )}
-
       {/* Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 border-b">
-              {currentView === 'preparation' && (
+              {currentView === 'nicolas' && (
                 <th className="px-2 py-3 w-10">
                   <input
                     type="checkbox"
@@ -546,7 +558,7 @@ const VincentDIndyDashboard = () => {
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
-              {currentView === 'suivi' && (
+              {currentView === 'nicolas' && (
                 <>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nicolas)</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-green-50">Travail / Obs. (Tech)</th>
@@ -564,12 +576,12 @@ const VincentDIndyDashboard = () => {
               return (
                 <tr
                   key={piano.id}
-                  className={`${getRowClass(piano)} ${currentView === 'preparation' ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  className={`${getRowClass(piano)} ${currentView === 'nicolas' ? 'cursor-pointer hover:opacity-80' : ''}`}
                   onClick={() => {
-                    if (currentView === 'preparation') toggleProposed(piano.id);
+                    if (currentView === 'nicolas') toggleProposed(piano.id);
                   }}
                 >
-                  {currentView === 'preparation' && (
+                  {currentView === 'nicolas' && (
                     <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
@@ -587,8 +599,8 @@ const VincentDIndyDashboard = () => {
                     {mois}
                   </td>
 
-                  {/* Colonnes pour l'onglet Suivi */}
-                  {currentView === 'suivi' && (
+                  {/* Colonnes pour l'onglet Nicolas */}
+                  {currentView === 'nicolas' && (
                     <>
                       {/* Colonne "À faire" de Nicolas */}
                       <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
