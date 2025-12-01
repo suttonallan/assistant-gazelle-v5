@@ -1,6 +1,7 @@
 {
   "name": "assistant-gazelle-v5-frontend",
   "version": "1.0.0",
+  "type": "module",
   "description": "Frontend pour Assistant Gazelle V5 - Module Vincent-d'Indy",
   "scripts": {
     "dev": "vite",
