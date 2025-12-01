@@ -10,6 +10,7 @@ import sqlite3
 import os
 from typing import Dict, Optional
 from .gazelle_api_client import GazelleAPIClient
+from .db_utils import get_db_path, ensure_db_directory
 
 
 class SyncManager:
@@ -20,13 +21,12 @@ class SyncManager:
         Initialise le gestionnaire de synchronisation.
         
         Args:
-            db_path: Chemin vers la base de données SQLite (défaut: db_test_v5.sqlite à la racine)
+            db_path: Chemin vers la base de données SQLite (défaut: utilise get_db_path())
         """
         if db_path is None:
-            # Chemin vers la racine du projet (remonte de 2 niveaux depuis core/)
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            db_path = os.path.join(project_root, 'db_test_v5.sqlite')
+            db_path = get_db_path()
         self.db_path = db_path
+        ensure_db_directory(db_path)
         self.api = GazelleAPIClient()
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row  # Permet l'accès par nom de colonne

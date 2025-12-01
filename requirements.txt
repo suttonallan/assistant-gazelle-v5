@@ -1,5 +1,10 @@
 # Dépendances pour Assistant Gazelle V5
 
+# API Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
 # Client HTTP pour les appels API
 requests>=2.31.0
 

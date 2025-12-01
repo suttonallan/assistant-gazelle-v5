@@ -23,3 +23,7 @@ token.json
 # Ignorer les exports de données V4 (utilisés pour l'import initial)
 *.csv
 *.sql
+
+# Ignorer les rapports des techniciens (données sensibles)
+reports/
+backups/
