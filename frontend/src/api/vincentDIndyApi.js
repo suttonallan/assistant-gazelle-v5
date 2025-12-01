@@ -66,3 +66,20 @@ export const getStats = async (apiUrl) => {
   return response.json();
 };
 
+export const updatePiano = async (apiUrl, pianoId, updates) => {
+  const response = await fetch(`${apiUrl}/vincent-dindy/pianos/${pianoId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+    throw new Error(error.detail || `Erreur ${response.status}`);
+  }
+
+  return response.json();
+};
+

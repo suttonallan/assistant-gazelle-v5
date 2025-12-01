@@ -225,4 +225,105 @@ class GitHubGistStorage:
         
         return response.status_code == 200
 
+    def get_piano_updates(self, piano_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère les modifications d'un piano depuis le Gist.
+
+        Args:
+            piano_id: ID du piano
+
+        Returns:
+            Dictionnaire des modifications ou None
+        """
+        if not self.gist_id:
+            return None
+
+        try:
+            response = requests.get(
+                f"{self.api_url}/{self.gist_id}",
+                headers=self._get_headers()
+            )
+
+            if response.status_code != 200:
+                return None
+
+            gist_data = response.json()
+            pianos_file = gist_data.get("files", {}).get("pianos_updates.json", {})
+
+            if not pianos_file:
+                return None
+
+            content = pianos_file.get("content", "{}")
+            data = json.loads(content)
+
+            return data.get("pianos", {}).get(piano_id)
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération des mises à jour piano: {e}")
+            return None
+
+    def update_piano(self, piano_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Sauvegarde les modifications d'un piano dans le Gist.
+
+        Args:
+            piano_id: ID du piano
+            updates: Dictionnaire des champs à mettre à jour
+
+        Returns:
+            True si mis à jour avec succès
+        """
+        if not self.gist_id:
+            # Créer un nouveau Gist si nécessaire
+            if not self.github_token:
+                raise ValueError("GITHUB_TOKEN requis pour créer un Gist")
+            self.create_gist()
+
+        if not self.github_token:
+            raise ValueError("GITHUB_TOKEN requis pour mettre à jour un Gist")
+
+        # Récupérer toutes les modifications existantes
+        try:
+            response = requests.get(
+                f"{self.api_url}/{self.gist_id}",
+                headers=self._get_headers()
+            )
+
+            pianos_data = {"pianos": {}}
+
+            if response.status_code == 200:
+                gist_data = response.json()
+                pianos_file = gist_data.get("files", {}).get("pianos_updates.json", {})
+                if pianos_file:
+                    content = pianos_file.get("content", "{}")
+                    pianos_data = json.loads(content)
+
+            # Mettre à jour ou créer l'entrée pour ce piano
+            if piano_id not in pianos_data["pianos"]:
+                pianos_data["pianos"][piano_id] = {}
+
+            pianos_data["pianos"][piano_id].update(updates)
+            pianos_data["pianos"][piano_id]["last_updated"] = datetime.now().isoformat()
+
+            # Sauvegarder dans le Gist
+            data = {
+                "files": {
+                    "pianos_updates.json": {
+                        "content": json.dumps(pianos_data, indent=2, ensure_ascii=False)
+                    }
+                }
+            }
+
+            response = requests.patch(
+                f"{self.api_url}/{self.gist_id}",
+                headers=self._get_headers(),
+                json=data
+            )
+
+            return response.status_code == 200
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la mise à jour du piano: {e}")
+            return False
+
 

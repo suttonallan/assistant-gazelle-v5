@@ -1,0 +1,42 @@
+Analyse complète du problème : le site web fonctionne mais la liste des pianos est vide.
+
+## Contexte
+- Frontend React déployé sur GitHub Pages : https://suttonallan.github.io/assistant-gazelle-v5/
+- Backend FastAPI déployé sur Render.com : https://assistant-gazelle-v5-api.onrender.com
+- CSV avec 90 pianos dans `data_csv_test/pianos_vincent_dindy.csv` (confirmé dans Git)
+- Le site s'affiche mais la liste des pianos est vide
+
+## Fichiers clés à examiner
+1. `api/vincent_dindy.py` - endpoint `/vincent-dindy/pianos` qui lit le CSV
+2. `frontend/src/components/VincentDIndyDashboard.jsx` - charge les pianos au montage avec useEffect
+3. `frontend/src/api/vincentDIndyApi.js` - fonction `getPianos()` qui fait fetch
+4. `.github/workflows/deploy-frontend.yml` - variable `VITE_API_URL` pour le build
+
+## Questions à résoudre
+1. Le CSV est-il accessible sur Render ? (le chemin pourrait être différent entre local et Render)
+2. L'API retourne-t-elle des données ? (tester : https://assistant-gazelle-v5-api.onrender.com/vincent-dindy/pianos)
+3. Le frontend appelle-t-il la bonne URL ? (`VITE_API_URL` est-il injecté au build GitHub Actions ?)
+4. Y a-t-il des erreurs CORS ou réseau dans la console du navigateur ?
+5. Le format du CSV correspond-il à ce que le code attend ? (colonnes : local, Piano, # série, Priorité , Type, À faire)
+
+## Code récent modifié
+- Ajout de logs détaillés dans `api/vincent_dindy.py` avec `logging.info()`
+- Amélioration de `get_csv_path()` pour essayer plusieurs chemins possibles
+- Ajout de `console.log()` dans le frontend pour tracer le chargement
+- Retourne des infos de debug dans la réponse JSON de l'API
+
+## Analyse demandée
+1. Lis tous les fichiers pertinents (API, frontend, workflow)
+2. Identifie les causes probables du problème
+3. Propose comment vérifier chaque hypothèse
+4. Suggère les corrections à apporter si nécessaire
+5. Donne un plan de test pour valider la solution
+
+## Points de vérification
+- Le CSV est bien dans Git (confirmé)
+- Le workflow GitHub Actions définit `VITE_API_URL`
+- L'API a CORS activé avec `allow_origins=["*"]`
+- Le frontend gère les erreurs et affiche des messages
+
+Analyse tout ça et dis-moi ton avis sur la cause probable et comment la résoudre.
+

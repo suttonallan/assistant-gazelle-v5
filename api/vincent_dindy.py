@@ -164,9 +164,20 @@ async def get_pianos():
                     "observations": ""
                 }
                 pianos.append(piano)
-        
+
         logging.info(f"✅ {len(pianos)} pianos chargés ({rows_processed} lignes traitées, {rows_skipped} ignorées)")
-        
+
+        # Appliquer les modifications depuis le Gist
+        try:
+            storage = get_gist_storage()
+            for piano in pianos:
+                updates = storage.get_piano_updates(piano["id"])
+                if updates:
+                    piano.update(updates)
+            logging.info(f"✅ Modifications Gist appliquées")
+        except Exception as e:
+            logging.warning(f"⚠️ Impossible d'appliquer les modifications Gist: {e}")
+
         return {
             "pianos": pianos,
             "count": len(pianos),
@@ -183,34 +194,45 @@ async def get_pianos():
         raise HTTPException(status_code=500, detail=error_detail)
 
 
+class PianoUpdate(BaseModel):
+    """Modèle pour la mise à jour d'un piano."""
+    status: Optional[str] = None
+    usage: Optional[str] = None
+    dernierAccord: Optional[str] = None
+    aFaire: Optional[str] = None
+    travail: Optional[str] = None
+    observations: Optional[str] = None
+
+
 @router.get("/pianos/{piano_id}", response_model=Dict[str, Any])
 async def get_piano(piano_id: str):
     """Récupère les détails d'un piano spécifique depuis le CSV."""
     try:
         csv_path = get_csv_path()
-        
+
         if not os.path.exists(csv_path):
             raise HTTPException(status_code=404, detail="Fichier CSV non trouvé")
-        
+
         with open(csv_path, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for idx, row in enumerate(reader, start=1):
                 # Nettoyer les noms de colonnes
                 serie = row.get("# série", "").strip() or row.get("série", "").strip()
                 current_id = serie if serie else f"piano_{idx}"
-                
+
                 if current_id == piano_id:
                     local = row.get("local", "").strip()
                     piano_name = row.get("Piano", "").strip()
                     priorite = row.get("Priorité", "").strip() or row.get("Priorité ", "").strip()
                     type_piano = row.get("Type", "").strip()
                     a_faire = row.get("À faire", "").strip()
-                    
+
                     status = "normal"
                     if priorite:
                         status = "proposed"
-                    
-                    return {
+
+                    # Récupérer les modifications depuis le Gist si elles existent
+                    piano_data = {
                         "id": current_id,
                         "local": local if local and local != "?" else "",
                         "piano": piano_name,
@@ -223,13 +245,68 @@ async def get_piano(piano_id: str):
                         "travail": "",
                         "observations": ""
                     }
-        
+
+                    # Appliquer les modifications depuis le Gist
+                    try:
+                        storage = get_gist_storage()
+                        updates = storage.get_piano_updates(current_id)
+                        if updates:
+                            piano_data.update(updates)
+                    except:
+                        pass  # Si pas de Gist, utiliser les données CSV
+
+                    return piano_data
+
         raise HTTPException(status_code=404, detail="Piano non trouvé")
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération: {str(e)}")
+
+
+@router.put("/pianos/{piano_id}", response_model=Dict[str, Any])
+async def update_piano(piano_id: str, update: PianoUpdate):
+    """Met à jour un piano (sauvegarde dans GitHub Gist)."""
+    try:
+        # Vérifier que le piano existe dans le CSV
+        csv_path = get_csv_path()
+        piano_exists = False
+
+        if os.path.exists(csv_path):
+            with open(csv_path, 'r', encoding='utf-8-sig') as f:
+                reader = csv.DictReader(f)
+                for idx, row in enumerate(reader, start=1):
+                    serie = row.get("# série", "").strip() or row.get("série", "").strip()
+                    current_id = serie if serie else f"piano_{idx}"
+                    if current_id == piano_id:
+                        piano_exists = True
+                        break
+
+        if not piano_exists:
+            raise HTTPException(status_code=404, detail="Piano non trouvé")
+
+        # Sauvegarder les modifications dans le Gist
+        storage = get_gist_storage()
+        update_data = {k: v for k, v in update.dict().items() if v is not None}
+        storage.update_piano(piano_id, update_data)
+
+        return {
+            "success": True,
+            "message": "Piano mis à jour avec succès",
+            "piano_id": piano_id,
+            "updates": update_data
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Configuration manquante: {str(e)}. Ajoutez GITHUB_TOKEN dans les variables d'environnement."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la mise à jour: {str(e)}")
 
 
 @router.post("/reports", response_model=Dict[str, Any])

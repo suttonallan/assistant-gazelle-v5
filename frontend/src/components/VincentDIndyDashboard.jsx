@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { submitReport, getReports, getPianos } from '../api/vincentDIndyApi';
+import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
 
 // Configuration de l'API - sera remplacée par la variable d'environnement en production
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
@@ -10,10 +10,9 @@ const VincentDIndyDashboard = () => {
   const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState('nicolas');
-  const [showOnlySelected, setShowOnlySelected] = useState(false); // Filtre pour voir uniquement les pianos sélectionnés
+  const [showOnlySelected, setShowOnlySelected] = useState(false); // Nicolas : filtrer sur pianos sélectionnés
+  const [showAllPianos, setShowAllPianos] = useState(false); // Technicien : voir tous les pianos
 
-  // Clé pour le localStorage
-  const STORAGE_KEY = 'vincent-dindy-pianos-data';
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
   const [filterUsage, setFilterUsage] = useState('all');
   const [filterAccordDepuis, setFilterAccordDepuis] = useState(0);
@@ -32,61 +31,50 @@ const VincentDIndyDashboard = () => {
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
-    const loadPianos = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        console.log('🔄 Chargement des pianos depuis:', API_URL);
-
-        // Vérifier si des données sont en localStorage
-        const savedData = localStorage.getItem(STORAGE_KEY);
-        if (savedData) {
-          try {
-            const parsed = JSON.parse(savedData);
-            console.log('💾 Données restaurées depuis localStorage:', parsed.length, 'pianos');
-            setPianos(parsed);
-            setLoading(false);
-            return; // Utiliser les données locales
-          } catch (e) {
-            console.warn('⚠️ Erreur lors du parsing localStorage, chargement depuis API');
-          }
-        }
-
-        // Charger depuis l'API si pas de données locales
-        const data = await getPianos(API_URL);
-        console.log('✅ Données reçues:', data);
-        console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
-
-        if (data.error) {
-          console.error('❌ Erreur API:', data.message);
-          setError(data.message || 'Erreur lors du chargement des pianos');
-          setPianos([]);
-        } else {
-          setPianos(data.pianos || []);
-          if (data.debug) {
-            console.log('🔍 Debug:', data.debug);
-          }
-        }
-      } catch (err) {
-        console.error('❌ Erreur lors du chargement des pianos:', err);
-        setError(err.message || 'Erreur lors du chargement des pianos');
-        // En cas d'erreur, on garde une liste vide plutôt que de planter
-        setPianos([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPianos();
+    loadPianosFromAPI();
   }, []);
 
-  // Sauvegarder automatiquement dans localStorage à chaque modification
-  useEffect(() => {
-    if (pianos.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(pianos));
-      console.log('💾 Données sauvegardées dans localStorage');
+  const loadPianosFromAPI = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('🔄 Chargement des pianos depuis:', API_URL);
+
+      const data = await getPianos(API_URL);
+      console.log('✅ Données reçues:', data);
+      console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
+
+      if (data.error) {
+        console.error('❌ Erreur API:', data.message);
+        setError(data.message || 'Erreur lors du chargement des pianos');
+        setPianos([]);
+      } else {
+        setPianos(data.pianos || []);
+        if (data.debug) {
+          console.log('🔍 Debug:', data.debug);
+        }
+      }
+    } catch (err) {
+      console.error('❌ Erreur lors du chargement des pianos:', err);
+      setError(err.message || 'Erreur lors du chargement des pianos');
+      setPianos([]);
+    } finally {
+      setLoading(false);
     }
-  }, [pianos]);
+  };
+
+  // Fonction pour sauvegarder un piano via l'API
+  const savePianoToAPI = async (pianoId, updates) => {
+    try {
+      await updatePiano(API_URL, pianoId, updates);
+      console.log('✅ Piano sauvegardé:', pianoId, updates);
+    } catch (err) {
+      console.error('❌ Erreur lors de la sauvegarde:', err);
+      alert(`Erreur lors de la sauvegarde: ${err.message}`);
+      // Recharger depuis l'API en cas d'erreur
+      await loadPianosFromAPI();
+    }
+  };
 
   const moisDepuisAccord = (dateStr) => {
     const date = new Date(dateStr);
@@ -128,8 +116,10 @@ const VincentDIndyDashboard = () => {
       }
       // Sinon : tous les pianos (pas de filtre)
     } else if (currentView === 'technicien') {
-      // Afficher uniquement les pianos jaunes (proposed)
-      result = result.filter(p => p.status === 'proposed');
+      // Afficher les pianos jaunes (proposed), ou tous si demandé
+      if (!showAllPianos) {
+        result = result.filter(p => p.status === 'proposed');
+      }
     }
 
     if (filterUsage !== 'all') {
@@ -161,15 +151,22 @@ const VincentDIndyDashboard = () => {
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showAllPianos]);
 
   // Actions
-  const toggleProposed = (id) => {
-    if (currentView === 'preparation') {
-      setPianos(pianos.map(p => 
-        p.id === id ? { ...p, status: p.status === 'proposed' ? 'normal' : 'proposed' } : p
-      ));
-    }
+  const toggleProposed = async (id) => {
+    const piano = pianos.find(p => p.id === id);
+    if (!piano) return;
+
+    const newStatus = piano.status === 'proposed' ? 'normal' : 'proposed';
+
+    // Mise à jour optimiste
+    setPianos(pianos.map(p =>
+      p.id === id ? { ...p, status: newStatus } : p
+    ));
+
+    // Sauvegarder via API
+    await savePianoToAPI(id, { status: newStatus });
   };
 
   const toggleSelected = (id) => {
@@ -184,23 +181,29 @@ const VincentDIndyDashboard = () => {
   const selectAll = () => setSelectedIds(new Set(pianosFiltres.map(p => p.id)));
   const deselectAll = () => setSelectedIds(new Set());
 
-  const batchSetStatus = (status) => {
-    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, status } : p));
-    setSelectedIds(new Set());
-  };
+  const batchSetStatus = async (status) => {
+    // Mise à jour optimiste
+    const updatedPianos = pianos.map(p => selectedIds.has(p.id) ? { ...p, status } : p);
+    setPianos(updatedPianos);
 
-  const batchSetUsage = (usage) => {
-    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, usage } : p));
-    setSelectedIds(new Set());
-  };
-
-  // Réinitialiser et recharger depuis l'API
-  const resetFromAPI = async () => {
-    if (!confirm('Êtes-vous sûr de vouloir réinitialiser et recharger les données depuis l\'API ? Toutes vos modifications locales seront perdues.')) {
-      return;
+    // Sauvegarder chaque piano via API
+    for (const id of selectedIds) {
+      await savePianoToAPI(id, { status });
     }
-    localStorage.removeItem(STORAGE_KEY);
-    window.location.reload();
+
+    setSelectedIds(new Set());
+  };
+
+  const batchSetUsage = async (usage) => {
+    // Mise à jour optimiste
+    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, usage } : p));
+
+    // Sauvegarder chaque piano via API
+    for (const id of selectedIds) {
+      await savePianoToAPI(id, { usage });
+    }
+
+    setSelectedIds(new Set());
   };
 
 
@@ -232,18 +235,25 @@ const VincentDIndyDashboard = () => {
         hours_worked: null
       };
 
-      // Envoyer à l'API
+      // Envoyer le rapport à l'API
       await submitReport(API_URL, report);
 
-      // Mettre à jour l'état local
-      setPianos(pianos.map(p => 
+      // Mise à jour optimiste
+      setPianos(pianos.map(p =>
         p.id === id ? { ...p, travail: travailInput, observations: observationsInput, status: 'completed' } : p
       ));
-      
+
+      // Sauvegarder le piano via API
+      await savePianoToAPI(id, {
+        travail: travailInput,
+        observations: observationsInput,
+        status: 'completed'
+      });
+
       // Passer au suivant
       const currentIndex = pianosFiltres.findIndex(p => p.id === id);
       const nextPiano = pianosFiltres[currentIndex + 1];
-      if (nextPiano && nextPiano.status === 'approved') {
+      if (nextPiano && nextPiano.status === 'proposed') {
         setExpandedPianoId(nextPiano.id);
         setTravailInput(nextPiano.travail || '');
         setObservationsInput(nextPiano.observations || '');
@@ -322,6 +332,21 @@ const VincentDIndyDashboard = () => {
                 {view === 'nicolas' ? 'Nicolas' : 'Technicien'}
               </button>
             ))}
+          </div>
+          {/* Bouton pour voir tous les pianos */}
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => setShowAllPianos(false)}
+              className={`flex-1 py-1 px-2 text-xs rounded ${!showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+            >
+              À faire ({stats.proposed})
+            </button>
+            <button
+              onClick={() => setShowAllPianos(true)}
+              className={`flex-1 py-1 px-2 text-xs rounded ${showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+            >
+              Tous ({stats.total})
+            </button>
           </div>
         </div>
 
@@ -453,11 +478,11 @@ const VincentDIndyDashboard = () => {
               </div>
             </div>
             <button
-              onClick={resetFromAPI}
+              onClick={loadPianosFromAPI}
               className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 border rounded"
-              title="Réinitialiser et recharger depuis l'API"
+              title="Rafraîchir les données depuis l'API"
             >
-              🔄 Recharger API
+              🔄 Rafraîchir
             </button>
           </div>
         </div>
@@ -609,21 +634,28 @@ const VincentDIndyDashboard = () => {
                             type="text"
                             value={aFaireInput}
                             onChange={(e) => setAFaireInput(e.target.value)}
-                            onKeyDown={(e) => {
+                            onKeyDown={async (e) => {
                               if (e.key === 'Enter') {
+                                // Mise à jour optimiste
                                 setPianos(pianos.map(p =>
                                   p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
                                 ));
                                 setEditingAFaireId(null);
                                 setAFaireInput('');
+                                // Sauvegarder via API
+                                await savePianoToAPI(piano.id, { aFaire: aFaireInput });
                               }
                             }}
-                            onBlur={() => {
+                            onBlur={async () => {
+                              // Mise à jour optimiste
                               setPianos(pianos.map(p =>
                                 p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
                               ));
                               setEditingAFaireId(null);
+                              const valueToSave = aFaireInput;
                               setAFaireInput('');
+                              // Sauvegarder via API
+                              await savePianoToAPI(piano.id, { aFaire: valueToSave });
                             }}
                             className="border rounded px-2 py-1 text-sm w-full"
                             placeholder="Instructions..."
