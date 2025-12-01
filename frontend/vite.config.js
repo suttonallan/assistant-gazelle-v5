@@ -6,6 +6,9 @@ export default defineConfig({
   base: '/assistant-gazelle-v5/',
   build: {
     outDir: 'dist'
+  },
+  css: {
+    postcss: './postcss.config.js'
   }
 })
 
