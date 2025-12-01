@@ -57,23 +57,22 @@ class TechnicianReport(BaseModel):
 def get_csv_path() -> str:
     """Retourne le chemin vers le fichier CSV des pianos.
     
-    Essaie plusieurs emplacements possibles pour gérer différents environnements.
+    Cherche d'abord dans api/data/ (recommandé), puis dans data_csv_test/ (fallback).
     """
-    # Liste des chemins possibles à essayer
+    # Liste des chemins possibles à essayer (par ordre de priorité)
     possible_paths = []
     
-    # 1. Chemin relatif depuis le fichier actuel (développement local)
+    # 1. Chemin relatif depuis le fichier actuel dans api/data/ (RECOMMANDÉ)
     current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    possible_paths.append(os.path.join(current_file_dir, 'data', 'pianos_vincent_dindy.csv'))
+    
+    # 2. Chemin depuis le répertoire courant dans api/data/ (Render)
+    possible_paths.append(os.path.join(os.getcwd(), 'api', 'data', 'pianos_vincent_dindy.csv'))
+    
+    # 3. Fallback : ancien chemin dans data_csv_test/ (pour compatibilité)
     project_root = os.path.dirname(os.path.dirname(current_file_dir))
     possible_paths.append(os.path.join(project_root, 'data_csv_test', 'pianos_vincent_dindy.csv'))
-    
-    # 2. Chemin depuis le répertoire courant (Render)
     possible_paths.append(os.path.join(os.getcwd(), 'data_csv_test', 'pianos_vincent_dindy.csv'))
-    
-    # 3. Chemin absolu depuis la racine du projet (si on est dans api/)
-    possible_paths.append(os.path.join(os.getcwd(), 'data_csv_test', 'pianos_vincent_dindy.csv'))
-    
-    # 4. Chemin relatif depuis le répertoire courant
     possible_paths.append('data_csv_test/pianos_vincent_dindy.csv')
     
     # Essayer chaque chemin jusqu'à trouver celui qui existe
