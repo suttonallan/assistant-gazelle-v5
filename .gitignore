@@ -27,3 +27,9 @@ token.json
 # Ignorer les rapports des techniciens (données sensibles)
 reports/
 backups/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local

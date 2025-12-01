@@ -45,3 +45,4 @@ def ensure_db_directory(db_path: str) -> None:
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir, exist_ok=True)
 
+

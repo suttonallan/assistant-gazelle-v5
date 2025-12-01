@@ -1,0 +1,560 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { submitReport, getReports } from '../api/vincentDIndyApi';
+
+// Configuration de l'API - sera remplacée par la variable d'environnement en production
+const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
+
+const VincentDIndyDashboard = () => {
+  const [pianos, setPianos] = useState([
+    { id: 1, local: '102', piano: 'Heintzman', serie: '149654', type: 'D', usage: '', dernierAccord: '2025-08-15', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 2, local: '103', piano: 'Kawai KX-21', serie: '23913', type: 'D', usage: '', dernierAccord: '2025-06-01', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 3, local: '103', piano: 'Yamaha C2', serie: '6145739', type: 'Q', usage: '', dernierAccord: '2025-03-10', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 4, local: '104', piano: 'Kawai HA-30', serie: '2286927', type: 'D', usage: '', dernierAccord: '2025-09-20', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 5, local: '201', piano: 'Heintzman', serie: '151241', type: 'D', usage: '', dernierAccord: '2025-05-01', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 6, local: '202', piano: 'Heintzman', serie: '98364', type: 'D', usage: '', dernierAccord: '2025-04-15', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 7, local: '203', piano: 'Yamaha U3', serie: '4521789', type: 'D', usage: '', dernierAccord: '2025-07-01', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 8, local: '301', piano: 'Steinway B', serie: '587412', type: 'Q', usage: '', dernierAccord: '2025-02-01', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 9, local: '301', piano: 'Yamaha C7', serie: '6234567', type: 'Q', usage: '', dernierAccord: '2024-12-01', aFaire: '', status: 'normal', travail: '', observations: '' },
+    { id: 10, local: '302', piano: 'Boston GP-178', serie: '123456', type: 'Q', usage: '', dernierAccord: '2025-01-15', aFaire: '', status: 'normal', travail: '', observations: '' },
+  ]);
+
+  const [currentView, setCurrentView] = useState('preparation');
+  const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
+  const [filterUsage, setFilterUsage] = useState('all');
+  const [filterAccordDepuis, setFilterAccordDepuis] = useState(0);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  
+  // Pour vue technicien - piano développé
+  const [expandedPianoId, setExpandedPianoId] = useState(null);
+  const [travailInput, setTravailInput] = useState('');
+  const [observationsInput, setObservationsInput] = useState('');
+
+  // Pour vue Nicolas - édition "à faire"
+  const [editingAFaireId, setEditingAFaireId] = useState(null);
+  const [aFaireInput, setAFaireInput] = useState('');
+
+  const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
+
+  const moisDepuisAccord = (dateStr) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    return Math.floor((now - date) / (1000 * 60 * 60 * 24 * 30));
+  };
+
+  const handleSort = (key) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <span className="text-gray-300 ml-1">⇅</span>;
+    return <span className="text-blue-600 ml-1">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>;
+  };
+
+  const ColumnHeader = ({ columnKey, children }) => (
+    <th
+      onClick={() => handleSort(columnKey)}
+      className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100 select-none"
+    >
+      <div className="flex items-center">
+        {children}
+        <SortIcon columnKey={columnKey} />
+      </div>
+    </th>
+  );
+
+  const pianosFiltres = useMemo(() => {
+    let result = [...pianos];
+
+    if (currentView === 'validation') {
+      result = result.filter(p => p.status === 'proposed');
+    } else if (currentView === 'technicien') {
+      result = result.filter(p => p.status === 'approved' || p.status === 'completed');
+    }
+
+    if (filterUsage !== 'all') {
+      result = result.filter(p => filterUsage === '' ? !p.usage : p.usage === filterUsage);
+    }
+    if (filterAccordDepuis > 0) {
+      result = result.filter(p => moisDepuisAccord(p.dernierAccord) >= filterAccordDepuis);
+    }
+
+    result.sort((a, b) => {
+      switch (sortConfig.key) {
+        case 'local':
+          return sortConfig.direction === 'asc' 
+            ? a.local.localeCompare(b.local, undefined, { numeric: true })
+            : b.local.localeCompare(a.local, undefined, { numeric: true });
+        case 'piano':
+          return sortConfig.direction === 'asc' ? a.piano.localeCompare(b.piano) : b.piano.localeCompare(a.piano);
+        case 'accord':
+          const aTime = new Date(a.dernierAccord).getTime();
+          const bTime = new Date(b.dernierAccord).getTime();
+          return sortConfig.direction === 'asc' ? aTime - bTime : bTime - aTime;
+        case 'mois':
+          const aMois = moisDepuisAccord(a.dernierAccord);
+          const bMois = moisDepuisAccord(b.dernierAccord);
+          return sortConfig.direction === 'asc' ? aMois - bMois : bMois - aMois;
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView]);
+
+  // Actions
+  const toggleProposed = (id) => {
+    if (currentView === 'preparation') {
+      setPianos(pianos.map(p => 
+        p.id === id ? { ...p, status: p.status === 'proposed' ? 'normal' : 'proposed' } : p
+      ));
+    }
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(pianosFiltres.map(p => p.id)));
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const batchSetStatus = (status) => {
+    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, status } : p));
+    setSelectedIds(new Set());
+  };
+
+  const batchSetUsage = (usage) => {
+    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, usage } : p));
+    setSelectedIds(new Set());
+  };
+
+  // Nicolas - approuver avec note "à faire"
+  const approveWithNote = (id) => {
+    setPianos(pianos.map(p => 
+      p.id === id ? { ...p, status: 'approved', aFaire: aFaireInput } : p
+    ));
+    setEditingAFaireId(null);
+    setAFaireInput('');
+  };
+
+  const rejectPiano = (id) => {
+    setPianos(pianos.map(p => p.id === id ? { ...p, status: 'normal', aFaire: '' } : p));
+  };
+
+  const approveAllSimple = () => {
+    setPianos(pianos.map(p => p.status === 'proposed' ? { ...p, status: 'approved' } : p));
+  };
+
+  // Technicien - toggle expand
+  const toggleExpand = (piano) => {
+    if (expandedPianoId === piano.id) {
+      setExpandedPianoId(null);
+    } else {
+      setExpandedPianoId(piano.id);
+      setTravailInput(piano.travail || '');
+      setObservationsInput(piano.observations || '');
+    }
+  };
+
+  // Technicien - sauvegarder (connecté à l'API)
+  const saveTravail = async (id) => {
+    const piano = pianos.find(p => p.id === id);
+    if (!piano) return;
+
+    try {
+      // Créer le rapport pour l'API
+      const report = {
+        technician_name: 'Technicien', // TODO: Récupérer depuis l'authentification
+        client_name: 'École Vincent-d\'Indy',
+        date: new Date().toISOString().split('T')[0],
+        report_type: 'maintenance',
+        description: `Travail effectué sur piano ${piano.piano} (Série: ${piano.serie}) - Local: ${piano.local}`,
+        notes: piano.aFaire ? `À faire: ${piano.aFaire}\n\nTravail: ${travailInput}\n\nObservations: ${observationsInput}` : `Travail: ${travailInput}\n\nObservations: ${observationsInput}`,
+        hours_worked: null
+      };
+
+      // Envoyer à l'API
+      await submitReport(API_URL, report);
+
+      // Mettre à jour l'état local
+      setPianos(pianos.map(p => 
+        p.id === id ? { ...p, travail: travailInput, observations: observationsInput, status: 'completed' } : p
+      ));
+      
+      // Passer au suivant
+      const currentIndex = pianosFiltres.findIndex(p => p.id === id);
+      const nextPiano = pianosFiltres[currentIndex + 1];
+      if (nextPiano && nextPiano.status === 'approved') {
+        setExpandedPianoId(nextPiano.id);
+        setTravailInput(nextPiano.travail || '');
+        setObservationsInput(nextPiano.observations || '');
+      } else {
+        setExpandedPianoId(null);
+      }
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde:', error);
+      alert('Erreur lors de la sauvegarde du rapport. Veuillez réessayer.');
+    }
+  };
+
+  const stats = {
+    total: pianos.length,
+    proposed: pianos.filter(p => p.status === 'proposed').length,
+    approved: pianos.filter(p => p.status === 'approved').length,
+    completed: pianos.filter(p => p.status === 'completed').length,
+  };
+
+  const getRowClass = (piano) => {
+    if (selectedIds.has(piano.id)) return 'bg-purple-200';
+    switch (piano.status) {
+      case 'proposed': return 'bg-yellow-200';
+      case 'approved': return 'bg-green-200';
+      case 'completed': return 'bg-blue-200';
+      default: return 'bg-white';
+    }
+  };
+
+  // ============ VUE TECHNICIEN (mobile-friendly) ============
+  if (currentView === 'technicien') {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        {/* Header compact */}
+        <div className="bg-white shadow p-3 sticky top-0 z-10">
+          <div className="flex justify-between items-center">
+            <h1 className="text-lg font-bold">🎹 Tournée</h1>
+            <div className="flex gap-2 text-xs">
+              <span className="px-2 py-1 bg-green-200 rounded">{stats.approved}</span>
+              <span className="px-2 py-1 bg-blue-200 rounded">{stats.completed} ✓</span>
+            </div>
+          </div>
+          {/* Onglets */}
+          <div className="flex mt-2 text-xs">
+            {['preparation', 'validation', 'technicien'].map(view => (
+              <button
+                key={view}
+                onClick={() => setCurrentView(view)}
+                className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
+              >
+                {view === 'preparation' ? '1.Prép' : view === 'validation' ? '2.Valid' : '3.Tech'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Liste accordéon */}
+        <div className="p-2 space-y-2">
+          {pianosFiltres.length === 0 ? (
+            <div className="bg-white rounded-lg p-6 text-center text-gray-500">
+              Aucun piano à faire. Nicolas doit approuver les pianos.
+            </div>
+          ) : (
+            pianosFiltres.map(piano => {
+              const isExpanded = expandedPianoId === piano.id;
+              const mois = moisDepuisAccord(piano.dernierAccord);
+              
+              return (
+                <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${piano.status === 'completed' ? 'bg-blue-100' : 'bg-white'}`}>
+                  {/* Ligne principale - cliquable */}
+                  <div 
+                    onClick={() => toggleExpand(piano)}
+                    className="p-3 flex justify-between items-center cursor-pointer active:bg-gray-100"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-gray-700">{piano.local}</span>
+                      <span className="text-gray-600">{piano.piano}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {piano.status === 'completed' && <span className="text-blue-600">✓</span>}
+                      <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>{mois}m</span>
+                      <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
+                    </div>
+                  </div>
+
+                  {/* Détails - développé */}
+                  {isExpanded && (
+                    <div className="border-t bg-gray-50 p-3 space-y-3">
+                      {/* Infos */}
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div><span className="text-gray-500">Série:</span> {piano.serie}</div>
+                        <div><span className="text-gray-500">Type:</span> {piano.type === 'D' ? 'Droit' : 'Queue'}</div>
+                        <div><span className="text-gray-500">Dernier:</span> {piano.dernierAccord}</div>
+                        <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
+                      </div>
+
+                      {/* Note "à faire" de Nicolas */}
+                      {piano.aFaire && (
+                        <div className="bg-yellow-100 p-2 rounded text-sm">
+                          <span className="font-medium">📋 À faire:</span> {piano.aFaire}
+                        </div>
+                      )}
+
+                      {/* Formulaire technicien */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">🔧 Travail effectué</label>
+                        <textarea
+                          value={travailInput}
+                          onChange={(e) => setTravailInput(e.target.value)}
+                          className="w-full border rounded p-2 text-sm h-20"
+                          placeholder="Accord, réglages..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">📝 Observations</label>
+                        <textarea
+                          value={observationsInput}
+                          onChange={(e) => setObservationsInput(e.target.value)}
+                          className="w-full border rounded p-2 text-sm h-20"
+                          placeholder="Problèmes, recommandations..."
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => saveTravail(piano.id)}
+                        className="w-full bg-green-500 text-white py-3 rounded-lg font-medium active:bg-green-600"
+                      >
+                        💾 Sauvegarder → Suivant
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============ VUES PRÉPARATION ET VALIDATION ============
+  return (
+    <div className="min-h-screen bg-gray-100 p-4">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow mb-4">
+        <div className="p-4 border-b">
+          <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
+          <div className="flex gap-4 mt-2 text-sm flex-wrap">
+            <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
+            <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} proposés</span>
+            <span className="px-2 py-1 bg-green-200 rounded">{stats.approved} approuvés</span>
+            <span className="px-2 py-1 bg-blue-200 rounded">{stats.completed} complétés</span>
+          </div>
+        </div>
+        
+        {/* Onglets */}
+        <div className="flex">
+          {[
+            { key: 'preparation', label: '1. Préparation' },
+            { key: 'validation', label: '2. Validation Nicolas' },
+            { key: 'technicien', label: '3. Technicien' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => { setCurrentView(tab.key); setSelectedIds(new Set()); }}
+              className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 ${
+                currentView === tab.key
+                  ? 'border-blue-500 text-blue-600 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Barre d'outils - Préparation */}
+      {currentView === 'preparation' && (
+        <div className="bg-white rounded-lg shadow p-4 mb-4 space-y-3">
+          <div className="flex gap-4 flex-wrap items-center">
+            <select value={filterUsage} onChange={(e) => setFilterUsage(e.target.value)} className="border rounded px-2 py-1 text-sm">
+              <option value="all">Tous usages</option>
+              {usages.map(u => <option key={u} value={u}>{u}</option>)}
+              <option value="">Sans usage</option>
+            </select>
+
+            <select value={filterAccordDepuis} onChange={(e) => setFilterAccordDepuis(parseInt(e.target.value))} className="border rounded px-2 py-1 text-sm">
+              <option value={0}>Tous</option>
+              <option value={3}>3+ mois</option>
+              <option value={6}>6+ mois</option>
+              <option value={12}>12+ mois</option>
+            </select>
+          </div>
+
+          <div className="flex gap-3 flex-wrap items-center border-t pt-3">
+            <button onClick={selectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☑ Tous</button>
+            <button onClick={deselectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☐ Aucun</button>
+
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
+                <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ Proposer</button>
+                <button onClick={() => batchSetStatus('normal')} className="px-3 py-1 rounded text-sm bg-white border">→ Retirer</button>
+                <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
+                  <option value="">Usage...</option>
+                  {usages.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Barre d'outils - Validation Nicolas */}
+      {currentView === 'validation' && (
+        <div className="bg-white rounded-lg shadow p-4 mb-4">
+          {stats.proposed > 0 ? (
+            <div className="flex gap-3 items-center">
+              <span className="text-sm text-gray-600">Approuver chaque piano avec une note "À faire"</span>
+              <span className="text-gray-300">|</span>
+              <button onClick={approveAllSimple} className="px-3 py-1 rounded text-sm bg-green-500 text-white">
+                ✓ Tout approuver ({stats.proposed})
+              </button>
+            </div>
+          ) : (
+            <div className="text-center text-gray-500">Aucun piano à valider.</div>
+          )}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b">
+              {currentView === 'preparation' && (
+                <th className="px-2 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === pianosFiltres.length && pianosFiltres.length > 0}
+                    onChange={(e) => e.target.checked ? selectAll() : deselectAll()}
+                    className="rounded"
+                  />
+                </th>
+              )}
+              <ColumnHeader columnKey="local">Local</ColumnHeader>
+              <ColumnHeader columnKey="piano">Piano</ColumnHeader>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
+              <ColumnHeader columnKey="mois">Mois</ColumnHeader>
+              {currentView === 'validation' && (
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire</th>
+              )}
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                {currentView === 'validation' ? 'Actions' : 'Statut'}
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {pianosFiltres.map((piano) => {
+              const mois = moisDepuisAccord(piano.dernierAccord);
+
+              return (
+                <tr
+                  key={piano.id}
+                  className={`${getRowClass(piano)} cursor-pointer hover:opacity-80`}
+                  onClick={() => {
+                    if (currentView === 'preparation') toggleProposed(piano.id);
+                    else if (currentView === 'validation') toggleSelected(piano.id);
+                  }}
+                >
+                  {currentView === 'preparation' && (
+                    <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(piano.id)}
+                        onChange={() => toggleSelected(piano.id)}
+                        className="rounded"
+                      />
+                    </td>
+                  )}
+                  <td className="px-3 py-3 text-sm font-medium">{piano.local}</td>
+                  <td className="px-3 py-3 text-sm">{piano.piano}</td>
+                  <td className="px-3 py-3 text-sm text-gray-500 font-mono">{piano.serie}</td>
+                  <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
+                  <td className={`px-3 py-3 text-sm font-medium ${mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
+                    {mois}
+                  </td>
+                  
+                  {/* Colonne "À faire" - Validation Nicolas */}
+                  {currentView === 'validation' && (
+                    <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
+                      {editingAFaireId === piano.id ? (
+                        <input
+                          type="text"
+                          value={aFaireInput}
+                          onChange={(e) => setAFaireInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') approveWithNote(piano.id); }}
+                          className="border rounded px-2 py-1 text-sm w-full"
+                          placeholder="Instructions..."
+                          autoFocus
+                        />
+                      ) : (
+                        <span 
+                          className="text-sm text-gray-400 cursor-text"
+                          onClick={() => { setEditingAFaireId(piano.id); setAFaireInput(piano.aFaire || ''); }}
+                        >
+                          {piano.aFaire || 'Cliquer pour ajouter...'}
+                        </span>
+                      )}
+                    </td>
+                  )}
+
+                  {/* Actions/Statut */}
+                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
+                    {currentView === 'validation' ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => approveWithNote(piano.id)}
+                          className="px-2 py-1 bg-green-500 text-white rounded text-xs"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          onClick={() => rejectPiano(piano.id)}
+                          className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+                        >
+                          ✗
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">Proposé</span>}
+                        {piano.status === 'approved' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Approuvé</span>}
+                        {piano.status === 'completed' && <span className="px-2 py-1 bg-blue-400 text-white rounded text-xs">Fait</span>}
+                        {piano.status === 'normal' && <span className="text-gray-400">-</span>}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {pianosFiltres.length === 0 && (
+          <div className="p-8 text-center text-gray-500">Aucun piano.</div>
+        )}
+      </div>
+
+      {/* Légende */}
+      <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> Proposé</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Approuvé</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Complété</span>
+      </div>
+    </div>
+  );
+};
+
+export default VincentDIndyDashboard;
+
