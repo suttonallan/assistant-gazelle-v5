@@ -55,11 +55,34 @@ class TechnicianReport(BaseModel):
 
 
 def get_csv_path() -> str:
-    """Retourne le chemin vers le fichier CSV des pianos."""
-    # Chemin vers la racine du projet
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    csv_path = os.path.join(project_root, 'data_csv_test', 'pianos_vincent_dindy.csv')
-    return csv_path
+    """Retourne le chemin vers le fichier CSV des pianos.
+    
+    Essaie plusieurs emplacements possibles pour gérer différents environnements.
+    """
+    # Liste des chemins possibles à essayer
+    possible_paths = []
+    
+    # 1. Chemin relatif depuis le fichier actuel (développement local)
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_file_dir))
+    possible_paths.append(os.path.join(project_root, 'data_csv_test', 'pianos_vincent_dindy.csv'))
+    
+    # 2. Chemin depuis le répertoire courant (Render)
+    possible_paths.append(os.path.join(os.getcwd(), 'data_csv_test', 'pianos_vincent_dindy.csv'))
+    
+    # 3. Chemin absolu depuis la racine du projet (si on est dans api/)
+    possible_paths.append(os.path.join(os.getcwd(), 'data_csv_test', 'pianos_vincent_dindy.csv'))
+    
+    # 4. Chemin relatif depuis le répertoire courant
+    possible_paths.append('data_csv_test/pianos_vincent_dindy.csv')
+    
+    # Essayer chaque chemin jusqu'à trouver celui qui existe
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    # Si aucun n'existe, retourner le premier (pour l'erreur)
+    return possible_paths[0]
 
 
 @router.get("/pianos", response_model=Dict[str, Any])
@@ -74,18 +97,37 @@ async def get_pianos():
     try:
         csv_path = get_csv_path()
         
+        # Debug: logger le chemin cherché
+        import logging
+        logging.info(f"🔍 Recherche du CSV à: {csv_path}")
+        logging.info(f"📁 Répertoire courant: {os.getcwd()}")
+        logging.info(f"📁 Fichier __file__: {__file__}")
+        
         if not os.path.exists(csv_path):
-            # Si le CSV n'existe pas, retourner une liste vide
+            # Si le CSV n'existe pas, retourner une liste vide avec message de debug
+            error_msg = f"Fichier CSV non trouvé: {csv_path}. Répertoire courant: {os.getcwd()}"
+            logging.error(f"❌ {error_msg}")
             return {
                 "pianos": [],
                 "count": 0,
-                "message": f"Fichier CSV non trouvé: {csv_path}. Ajoutez le fichier 'pianos_vincent_dindy.csv' dans data_csv_test/"
+                "error": True,
+                "message": error_msg,
+                "debug": {
+                    "csv_path": csv_path,
+                    "current_dir": os.getcwd(),
+                    "file_exists": os.path.exists(csv_path)
+                }
             }
         
+        logging.info(f"✅ CSV trouvé: {csv_path}")
         pianos = []
+        rows_processed = 0
+        rows_skipped = 0
+        
         with open(csv_path, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for idx, row in enumerate(reader, start=1):
+                rows_processed += 1
                 # Nettoyer les noms de colonnes (enlever espaces)
                 local = row.get("local", "").strip()
                 piano_name = row.get("Piano", "").strip()
@@ -96,6 +138,7 @@ async def get_pianos():
                 
                 # Ignorer les lignes vides ou sans piano
                 if not piano_name and not serie:
+                    rows_skipped += 1
                     continue
                 
                 # Générer un ID unique (index ou série si disponible)
@@ -123,13 +166,22 @@ async def get_pianos():
                 }
                 pianos.append(piano)
         
+        logging.info(f"✅ {len(pianos)} pianos chargés ({rows_processed} lignes traitées, {rows_skipped} ignorées)")
+        
         return {
             "pianos": pianos,
-            "count": len(pianos)
+            "count": len(pianos),
+            "debug": {
+                "rows_processed": rows_processed,
+                "rows_skipped": rows_skipped
+            }
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération des pianos: {str(e)}")
+        import traceback
+        error_detail = f"Erreur lors de la récupération des pianos: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.get("/pianos/{piano_id}", response_model=Dict[str, Any])

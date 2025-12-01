@@ -32,10 +32,23 @@ const VincentDIndyDashboard = () => {
       try {
         setLoading(true);
         setError(null);
+        console.log('🔄 Chargement des pianos depuis:', API_URL);
         const data = await getPianos(API_URL);
-        setPianos(data.pianos || []);
+        console.log('✅ Données reçues:', data);
+        console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
+        
+        if (data.error) {
+          console.error('❌ Erreur API:', data.message);
+          setError(data.message || 'Erreur lors du chargement des pianos');
+          setPianos([]);
+        } else {
+          setPianos(data.pianos || []);
+          if (data.debug) {
+            console.log('🔍 Debug:', data.debug);
+          }
+        }
       } catch (err) {
-        console.error('Erreur lors du chargement des pianos:', err);
+        console.error('❌ Erreur lors du chargement des pianos:', err);
         setError(err.message || 'Erreur lors du chargement des pianos');
         // En cas d'erreur, on garde une liste vide plutôt que de planter
         setPianos([]);
