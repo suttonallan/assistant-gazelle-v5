@@ -1,0 +1,8 @@
+# Dépendances pour Assistant Gazelle V5
+
+# Client HTTP pour les appels API
+requests>=2.31.0
+
+# Gestion des variables d'environnement (.env)
+python-dotenv>=1.0.0
+
