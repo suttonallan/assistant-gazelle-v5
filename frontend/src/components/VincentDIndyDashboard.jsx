@@ -10,6 +10,9 @@ const VincentDIndyDashboard = () => {
   const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState('preparation');
+
+  // Clé pour le localStorage
+  const STORAGE_KEY = 'vincent-dindy-pianos-data';
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
   const [filterUsage, setFilterUsage] = useState('all');
   const [filterAccordDepuis, setFilterAccordDepuis] = useState(0);
@@ -33,10 +36,26 @@ const VincentDIndyDashboard = () => {
         setLoading(true);
         setError(null);
         console.log('🔄 Chargement des pianos depuis:', API_URL);
+
+        // Vérifier si des données sont en localStorage
+        const savedData = localStorage.getItem(STORAGE_KEY);
+        if (savedData) {
+          try {
+            const parsed = JSON.parse(savedData);
+            console.log('💾 Données restaurées depuis localStorage:', parsed.length, 'pianos');
+            setPianos(parsed);
+            setLoading(false);
+            return; // Utiliser les données locales
+          } catch (e) {
+            console.warn('⚠️ Erreur lors du parsing localStorage, chargement depuis API');
+          }
+        }
+
+        // Charger depuis l'API si pas de données locales
         const data = await getPianos(API_URL);
         console.log('✅ Données reçues:', data);
         console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
-        
+
         if (data.error) {
           console.error('❌ Erreur API:', data.message);
           setError(data.message || 'Erreur lors du chargement des pianos');
@@ -59,6 +78,14 @@ const VincentDIndyDashboard = () => {
 
     loadPianos();
   }, []);
+
+  // Sauvegarder automatiquement dans localStorage à chaque modification
+  useEffect(() => {
+    if (pianos.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(pianos));
+      console.log('💾 Données sauvegardées dans localStorage');
+    }
+  }, [pianos]);
 
   const moisDepuisAccord = (dateStr) => {
     const date = new Date(dateStr);
@@ -161,6 +188,15 @@ const VincentDIndyDashboard = () => {
   const batchSetUsage = (usage) => {
     setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, usage } : p));
     setSelectedIds(new Set());
+  };
+
+  // Réinitialiser et recharger depuis l'API
+  const resetFromAPI = async () => {
+    if (!confirm('Êtes-vous sûr de vouloir réinitialiser et recharger les données depuis l\'API ? Toutes vos modifications locales seront perdues.')) {
+      return;
+    }
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
   };
 
 
@@ -403,11 +439,22 @@ const VincentDIndyDashboard = () => {
       {/* Header */}
       <div className="bg-white rounded-lg shadow mb-4">
         <div className="p-4 border-b">
-          <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
-          <div className="flex gap-4 mt-2 text-sm flex-wrap">
-            <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
-            <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
-            <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} complétés</span>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
+              <div className="flex gap-4 mt-2 text-sm flex-wrap">
+                <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
+                <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
+                <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} complétés</span>
+              </div>
+            </div>
+            <button
+              onClick={resetFromAPI}
+              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 border rounded"
+              title="Réinitialiser et recharger depuis l'API"
+            >
+              🔄 Recharger API
+            </button>
           </div>
         </div>
         
