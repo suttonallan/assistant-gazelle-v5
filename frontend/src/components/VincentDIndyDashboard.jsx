@@ -158,7 +158,15 @@ const VincentDIndyDashboard = () => {
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
-    const newStatus = piano.status === 'proposed' ? 'normal' : 'proposed';
+    // Cycle à 3 états : normal → proposed (jaune) → completed (vert) → normal
+    let newStatus;
+    if (piano.status === 'normal' || !piano.status) {
+      newStatus = 'proposed'; // Blanc → Jaune
+    } else if (piano.status === 'proposed') {
+      newStatus = 'completed'; // Jaune → Vert
+    } else if (piano.status === 'completed') {
+      newStatus = 'normal'; // Vert → Blanc
+    }
 
     // Mise à jour optimiste
     setPianos(pianos.map(p =>
