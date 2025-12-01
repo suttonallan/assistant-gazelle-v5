@@ -2,6 +2,28 @@
  * API client pour le module Vincent-d'Indy
  */
 
+export const getPianos = async (apiUrl) => {
+  const response = await fetch(`${apiUrl}/vincent-dindy/pianos`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+    throw new Error(error.detail || `Erreur ${response.status}`);
+  }
+
+  return response.json();
+};
+
+export const getPiano = async (apiUrl, pianoId) => {
+  const response = await fetch(`${apiUrl}/vincent-dindy/pianos/${pianoId}`);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+    throw new Error(error.detail || `Erreur ${response.status}`);
+  }
+
+  return response.json();
+};
+
 export const submitReport = async (apiUrl, report) => {
   const response = await fetch(`${apiUrl}/vincent-dindy/reports`, {
     method: 'POST',

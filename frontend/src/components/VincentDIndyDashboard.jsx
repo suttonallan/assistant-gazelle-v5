@@ -1,22 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { submitReport, getReports } from '../api/vincentDIndyApi';
+import { submitReport, getReports, getPianos } from '../api/vincentDIndyApi';
 
 // Configuration de l'API - sera remplacée par la variable d'environnement en production
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
 
 const VincentDIndyDashboard = () => {
-  const [pianos, setPianos] = useState([
-    { id: 1, local: '102', piano: 'Heintzman', serie: '149654', type: 'D', usage: '', dernierAccord: '2025-08-15', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 2, local: '103', piano: 'Kawai KX-21', serie: '23913', type: 'D', usage: '', dernierAccord: '2025-06-01', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 3, local: '103', piano: 'Yamaha C2', serie: '6145739', type: 'Q', usage: '', dernierAccord: '2025-03-10', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 4, local: '104', piano: 'Kawai HA-30', serie: '2286927', type: 'D', usage: '', dernierAccord: '2025-09-20', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 5, local: '201', piano: 'Heintzman', serie: '151241', type: 'D', usage: '', dernierAccord: '2025-05-01', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 6, local: '202', piano: 'Heintzman', serie: '98364', type: 'D', usage: '', dernierAccord: '2025-04-15', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 7, local: '203', piano: 'Yamaha U3', serie: '4521789', type: 'D', usage: '', dernierAccord: '2025-07-01', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 8, local: '301', piano: 'Steinway B', serie: '587412', type: 'Q', usage: '', dernierAccord: '2025-02-01', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 9, local: '301', piano: 'Yamaha C7', serie: '6234567', type: 'Q', usage: '', dernierAccord: '2024-12-01', aFaire: '', status: 'normal', travail: '', observations: '' },
-    { id: 10, local: '302', piano: 'Boston GP-178', serie: '123456', type: 'Q', usage: '', dernierAccord: '2025-01-15', aFaire: '', status: 'normal', travail: '', observations: '' },
-  ]);
+  const [pianos, setPianos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState('preparation');
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
@@ -34,6 +25,27 @@ const VincentDIndyDashboard = () => {
   const [aFaireInput, setAFaireInput] = useState('');
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
+
+  // Charger les pianos depuis l'API au montage du composant
+  useEffect(() => {
+    const loadPianos = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await getPianos(API_URL);
+        setPianos(data.pianos || []);
+      } catch (err) {
+        console.error('Erreur lors du chargement des pianos:', err);
+        setError(err.message || 'Erreur lors du chargement des pianos');
+        // En cas d'erreur, on garde une liste vide plutôt que de planter
+        setPianos([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPianos();
+  }, []);
 
   const moisDepuisAccord = (dateStr) => {
     const date = new Date(dateStr);
@@ -224,6 +236,33 @@ const VincentDIndyDashboard = () => {
 
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-lg text-gray-600">Chargement des pianos...</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+          <div className="text-center bg-white p-6 rounded-lg shadow">
+            <div className="text-red-600 mb-2">⚠️ Erreur</div>
+            <div className="text-sm text-gray-600">{error}</div>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+            >
+              Réessayer
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gray-100">
         {/* Header compact */}
@@ -335,6 +374,33 @@ const VincentDIndyDashboard = () => {
   }
 
   // ============ VUES PRÉPARATION ET VALIDATION ============
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg text-gray-600">Chargement des pianos...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center bg-white p-6 rounded-lg shadow">
+          <div className="text-red-600 mb-2">⚠️ Erreur</div>
+          <div className="text-sm text-gray-600">{error}</div>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       {/* Header */}

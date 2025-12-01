@@ -8,16 +8,19 @@ Utilise GitHub Gist pour le stockage persistant (gratuit).
 
 import json
 import os
-from datetime import datetime
+import csv
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from core.github_gist import GitHubGistStorage
+from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(prefix="/vincent-dindy", tags=["vincent-dindy"])
 
 # Initialiser le stockage Gist
 _gist_storage = None
+_api_client = None
 
 def get_gist_storage() -> GitHubGistStorage:
     """Retourne l'instance du stockage Gist (singleton)."""
@@ -25,6 +28,17 @@ def get_gist_storage() -> GitHubGistStorage:
     if _gist_storage is None:
         _gist_storage = GitHubGistStorage()
     return _gist_storage
+
+def get_api_client() -> GazelleAPIClient:
+    """Retourne l'instance du client API Gazelle (singleton)."""
+    global _api_client
+    if _api_client is None:
+        try:
+            _api_client = GazelleAPIClient()
+        except Exception as e:
+            print(f"⚠️ Erreur lors de l'initialisation du client API: {e}")
+            _api_client = None
+    return _api_client
 
 
 class TechnicianReport(BaseModel):
@@ -40,25 +54,131 @@ class TechnicianReport(BaseModel):
     hours_worked: Optional[float] = None
 
 
-def get_reports_dir() -> str:
+def get_csv_path() -> str:
+    """Retourne le chemin vers le fichier CSV des pianos."""
+    # Chemin vers la racine du projet
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    csv_path = os.path.join(project_root, 'data_csv_test', 'pianos_vincent_dindy.csv')
+    return csv_path
+
+
+@router.get("/pianos", response_model=Dict[str, Any])
+async def get_pianos():
     """
-    Retourne le chemin du dossier pour stocker les rapports.
+    Récupère tous les pianos depuis le CSV.
     
-    Note: Sur Render gratuit (sans persistent disk), les fichiers sont temporaires.
-    Les rapports seront perdus au redémarrage. Utilisez l'endpoint /push-to-gazelle
-    pour pousser les rapports vers Gazelle avant qu'ils ne soient perdus.
+    Format CSV attendu : local, Piano, # série, Priorité, Type, À faire
+    
+    Plus tard, on connectera avec l'API Gazelle.
     """
-    # En production (Render), utilise le volume persistant si disponible
-    persistent_disk = os.environ.get('RENDER_PERSISTENT_DISK_PATH')
-    if persistent_disk:
-        reports_dir = os.path.join(persistent_disk, 'reports')
-    else:
-        # Développement local ou Render gratuit (temporaire)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        reports_dir = os.path.join(project_root, 'reports')
-    
-    os.makedirs(reports_dir, exist_ok=True)
-    return reports_dir
+    try:
+        csv_path = get_csv_path()
+        
+        if not os.path.exists(csv_path):
+            # Si le CSV n'existe pas, retourner une liste vide
+            return {
+                "pianos": [],
+                "count": 0,
+                "message": f"Fichier CSV non trouvé: {csv_path}. Ajoutez le fichier 'pianos_vincent_dindy.csv' dans data_csv_test/"
+            }
+        
+        pianos = []
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for idx, row in enumerate(reader, start=1):
+                # Nettoyer les noms de colonnes (enlever espaces)
+                local = row.get("local", "").strip()
+                piano_name = row.get("Piano", "").strip()
+                serie = row.get("# série", "").strip() or row.get("série", "").strip()
+                priorite = row.get("Priorité", "").strip() or row.get("Priorité ", "").strip()
+                type_piano = row.get("Type", "").strip()
+                a_faire = row.get("À faire", "").strip()
+                
+                # Ignorer les lignes vides ou sans piano
+                if not piano_name and not serie:
+                    continue
+                
+                # Générer un ID unique (index ou série si disponible)
+                piano_id = serie if serie else f"piano_{idx}"
+                
+                # Déterminer le statut basé sur la priorité
+                status = "normal"
+                if priorite:
+                    # Si priorité existe, proposer le piano
+                    status = "proposed"
+                
+                # Formater les données pour correspondre au format attendu par le frontend
+                piano = {
+                    "id": piano_id,
+                    "local": local if local and local != "?" else "",
+                    "piano": piano_name,
+                    "serie": serie,
+                    "type": type_piano.upper() if type_piano else "D",  # D, Q, ou autre
+                    "usage": "",  # Pas dans le CSV pour l'instant
+                    "dernierAccord": "",  # Pas dans le CSV pour l'instant
+                    "aFaire": a_faire,
+                    "status": status,
+                    "travail": "",
+                    "observations": ""
+                }
+                pianos.append(piano)
+        
+        return {
+            "pianos": pianos,
+            "count": len(pianos)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération des pianos: {str(e)}")
+
+
+@router.get("/pianos/{piano_id}", response_model=Dict[str, Any])
+async def get_piano(piano_id: str):
+    """Récupère les détails d'un piano spécifique depuis le CSV."""
+    try:
+        csv_path = get_csv_path()
+        
+        if not os.path.exists(csv_path):
+            raise HTTPException(status_code=404, detail="Fichier CSV non trouvé")
+        
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for idx, row in enumerate(reader, start=1):
+                # Nettoyer les noms de colonnes
+                serie = row.get("# série", "").strip() or row.get("série", "").strip()
+                current_id = serie if serie else f"piano_{idx}"
+                
+                if current_id == piano_id:
+                    local = row.get("local", "").strip()
+                    piano_name = row.get("Piano", "").strip()
+                    priorite = row.get("Priorité", "").strip() or row.get("Priorité ", "").strip()
+                    type_piano = row.get("Type", "").strip()
+                    a_faire = row.get("À faire", "").strip()
+                    
+                    status = "normal"
+                    if priorite:
+                        status = "proposed"
+                    
+                    return {
+                        "id": current_id,
+                        "local": local if local and local != "?" else "",
+                        "piano": piano_name,
+                        "serie": serie,
+                        "type": type_piano.upper() if type_piano else "D",
+                        "usage": "",
+                        "dernierAccord": "",
+                        "aFaire": a_faire,
+                        "status": status,
+                        "travail": "",
+                        "observations": ""
+                    }
+        
+        raise HTTPException(status_code=404, detail="Piano non trouvé")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération: {str(e)}")
 
 
 @router.post("/reports", response_model=Dict[str, Any])
@@ -177,4 +297,3 @@ async def get_stats():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du calcul des stats: {str(e)}")
-

@@ -24,6 +24,9 @@ token.json
 *.csv
 *.sql
 
+# Exception : garder le CSV des pianos Vincent-d'Indy
+!data_csv_test/pianos_vincent_dindy.csv
+
 # Ignorer les rapports des techniciens (données sensibles)
 reports/
 backups/
