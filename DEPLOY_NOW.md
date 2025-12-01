@@ -31,15 +31,28 @@ Clique sur **Advanced** → **Environment Variables**, ajoute :
 ```
 GAZELLE_CLIENT_ID=yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE
 GAZELLE_CLIENT_SECRET=CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-*(Ces valeurs viennent de `config/# OAuth2 credentials.md`)*
+**Pour obtenir GITHUB_TOKEN** :
+1. Va sur [github.com/settings/tokens](https://github.com/settings/tokens)
+2. **Generate new token** → **Generate new token (classic)**
+3. Donne-lui un nom (ex: "assistant-gazelle-gist")
+4. Coche **gist** (permission pour créer/modifier des Gists)
+5. **Generate token** → **COPIE le token** (tu ne le verras qu'une fois !)
+6. Colle-le dans la variable `GITHUB_TOKEN` sur Render
 
-### Volume persistant (pour les rapports)
-Après avoir créé le service :
-1. Va dans **Settings**
-2. Active **Persistent Disk** (gratuit jusqu'à 1GB)
-3. Le code détectera automatiquement le chemin
+*(Les valeurs GAZELLE viennent de `config/# OAuth2 credentials.md`)*
+
+### ✅ Stockage persistant avec GitHub Gist
+
+**Les rapports sont stockés dans un Gist GitHub privé** (gratuit et persistant).
+
+- ✅ Gratuit
+- ✅ Persistant (même si Render redémarre)
+- ✅ Privé (seul toi y as accès)
+- ✅ Simple à utiliser
+- ✅ Ne complique pas le code (on peut toujours pousser vers Gazelle plus tard)
 
 6. Clique sur **Create Web Service**
 7. Attends 2-3 minutes pour le build
@@ -94,10 +107,20 @@ Une fois déployé, va sur :
 
 Tu verras l'interface Swagger pour tester l'API directement dans le navigateur !
 
+## ✅ Stockage persistant avec GitHub Gist
+
+Les rapports sont automatiquement sauvegardés dans un Gist GitHub privé :
+- ✅ **Gratuit** et illimité (tant que le Gist fait moins de 1MB)
+- ✅ **Persistant** : les données survivent aux redémarrages
+- ✅ **Privé** : seul toi y as accès
+- ✅ **Simple** : pas de configuration complexe
+
+Le Gist est créé automatiquement au premier rapport soumis.
+
 ## Prochaines étapes
 
 1. ✅ API déployée et fonctionnelle
-2. 🔄 Les rapports sont sauvegardés dans `reports/` (volume persistant)
-3. 📝 Plus tard : Créer un script pour pousser les rapports vers Gazelle
+2. ✅ Les rapports sont sauvegardés dans GitHub Gist (persistant)
+3. 📝 **Plus tard** : Créer un endpoint pour pousser les rapports vers Gazelle
 4. 🎨 Plus tard : Créer un frontend pour les techniciens
 
