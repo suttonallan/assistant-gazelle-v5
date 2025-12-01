@@ -12,8 +12,8 @@ import requests
 from dotenv import load_dotenv
 from typing import Dict, List, Optional, Any
 
-# Chemin vers le dossier de configuration
-CONFIG_DIR = os.path.join(os.path.dirname(__file__), 'config')
+# Chemin vers le dossier de configuration (remonte d'un niveau depuis core/)
+CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
 
 # Charger les variables d'environnement depuis config/.env
 env_path = os.path.join(CONFIG_DIR, '.env')

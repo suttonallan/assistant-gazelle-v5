@@ -10,8 +10,13 @@ import csv
 import os
 from difflib import SequenceMatcher
 
-DB_PATH = 'db_test_v5.sqlite'
-CSV_DIR = 'data_csv_test'
+import os
+
+# Chemin vers la racine du projet
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+DB_PATH = os.path.join(PROJECT_ROOT, 'db_test_v5.sqlite')
+CSV_DIR = os.path.join(PROJECT_ROOT, 'data_csv_test')
 MAPPING_FILE = os.path.join(CSV_DIR, 'MaintenanceAlerts_ClientMapping.csv')
 MAINTENANCE_ALERTS_FILE = os.path.join(CSV_DIR, 'MaintenanceAlerts.csv')
 

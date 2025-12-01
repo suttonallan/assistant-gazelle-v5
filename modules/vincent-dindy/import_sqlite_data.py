@@ -2,10 +2,13 @@ import sqlite3
 import csv
 import os
 
+# Chemin vers la racine du projet (remonte de 2 niveaux depuis modules/vincent-dindy/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Configuration (utilise les noms de fichiers que vous avez confirmés)
-DB_NAME = 'db_test_v5.sqlite'
-SCHEMA_FILE = 'schema.sql'
-CSV_DIR = 'data_csv_test'
+DB_NAME = os.path.join(PROJECT_ROOT, 'db_test_v5.sqlite')
+SCHEMA_FILE = os.path.join(PROJECT_ROOT, 'schema.sql')
+CSV_DIR = os.path.join(PROJECT_ROOT, 'data_csv_test')
 
 # Mapping des noms de tables CSV vers les noms de tables SQL
 TABLE_NAME_MAPPING = {

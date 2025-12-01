@@ -1,8 +1,11 @@
 import sqlite3
 import os
 
+# Chemin vers la racine du projet
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # CHANGEMENT CRITIQUE: Pointez vers la nouvelle base de données migrée
-DB_PATH = 'db_test_v5.sqlite'
+DB_PATH = os.path.join(PROJECT_ROOT, 'db_test_v5.sqlite')
 
 
 def get_db_connection():
