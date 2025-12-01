@@ -93,10 +93,12 @@ const VincentDIndyDashboard = () => {
   const pianosFiltres = useMemo(() => {
     let result = [...pianos];
 
-    if (currentView === 'validation') {
-      result = result.filter(p => p.status === 'proposed');
+    if (currentView === 'suivi') {
+      // Afficher les pianos jaunes (proposed) et verts (completed)
+      result = result.filter(p => p.status === 'proposed' || p.status === 'completed');
     } else if (currentView === 'technicien') {
-      result = result.filter(p => p.status === 'approved' || p.status === 'completed');
+      // Afficher uniquement les pianos jaunes (proposed)
+      result = result.filter(p => p.status === 'proposed');
     }
 
     if (filterUsage !== 'all') {
@@ -161,22 +163,6 @@ const VincentDIndyDashboard = () => {
     setSelectedIds(new Set());
   };
 
-  // Nicolas - approuver avec note "à faire"
-  const approveWithNote = (id) => {
-    setPianos(pianos.map(p => 
-      p.id === id ? { ...p, status: 'approved', aFaire: aFaireInput } : p
-    ));
-    setEditingAFaireId(null);
-    setAFaireInput('');
-  };
-
-  const rejectPiano = (id) => {
-    setPianos(pianos.map(p => p.id === id ? { ...p, status: 'normal', aFaire: '' } : p));
-  };
-
-  const approveAllSimple = () => {
-    setPianos(pianos.map(p => p.status === 'proposed' ? { ...p, status: 'approved' } : p));
-  };
 
   // Technicien - toggle expand
   const toggleExpand = (piano) => {
@@ -233,7 +219,6 @@ const VincentDIndyDashboard = () => {
   const stats = {
     total: pianos.length,
     proposed: pianos.filter(p => p.status === 'proposed').length,
-    approved: pianos.filter(p => p.status === 'approved').length,
     completed: pianos.filter(p => p.status === 'completed').length,
   };
 
@@ -241,8 +226,7 @@ const VincentDIndyDashboard = () => {
     if (selectedIds.has(piano.id)) return 'bg-purple-200';
     switch (piano.status) {
       case 'proposed': return 'bg-yellow-200';
-      case 'approved': return 'bg-green-200';
-      case 'completed': return 'bg-blue-200';
+      case 'completed': return 'bg-green-200';
       default: return 'bg-white';
     }
   };
@@ -283,19 +267,19 @@ const VincentDIndyDashboard = () => {
           <div className="flex justify-between items-center">
             <h1 className="text-lg font-bold">🎹 Tournée</h1>
             <div className="flex gap-2 text-xs">
-              <span className="px-2 py-1 bg-green-200 rounded">{stats.approved}</span>
-              <span className="px-2 py-1 bg-blue-200 rounded">{stats.completed} ✓</span>
+              <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
+              <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
             </div>
           </div>
           {/* Onglets */}
           <div className="flex mt-2 text-xs">
-            {['preparation', 'validation', 'technicien'].map(view => (
+            {['preparation', 'suivi', 'technicien'].map(view => (
               <button
                 key={view}
                 onClick={() => setCurrentView(view)}
                 className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
               >
-                {view === 'preparation' ? '1.Prép' : view === 'validation' ? '2.Valid' : '3.Tech'}
+                {view === 'preparation' ? '1.Prép' : view === 'suivi' ? '2.Suivi' : '3.Tech'}
               </button>
             ))}
           </div>
@@ -305,15 +289,15 @@ const VincentDIndyDashboard = () => {
         <div className="p-2 space-y-2">
           {pianosFiltres.length === 0 ? (
             <div className="bg-white rounded-lg p-6 text-center text-gray-500">
-              Aucun piano à faire. Nicolas doit approuver les pianos.
+              Aucun piano à faire. Nicolas doit proposer les pianos.
             </div>
           ) : (
             pianosFiltres.map(piano => {
               const isExpanded = expandedPianoId === piano.id;
               const mois = moisDepuisAccord(piano.dernierAccord);
-              
+
               return (
-                <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${piano.status === 'completed' ? 'bg-blue-100' : 'bg-white'}`}>
+                <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${piano.status === 'completed' ? 'bg-green-100' : 'bg-white'}`}>
                   {/* Ligne principale - cliquable */}
                   <div 
                     onClick={() => toggleExpand(piano)}
@@ -324,7 +308,7 @@ const VincentDIndyDashboard = () => {
                       <span className="text-gray-600">{piano.piano}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {piano.status === 'completed' && <span className="text-blue-600">✓</span>}
+                      {piano.status === 'completed' && <span className="text-green-600">✓</span>}
                       <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>{mois}m</span>
                       <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
                     </div>
@@ -422,9 +406,8 @@ const VincentDIndyDashboard = () => {
           <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
           <div className="flex gap-4 mt-2 text-sm flex-wrap">
             <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
-            <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} proposés</span>
-            <span className="px-2 py-1 bg-green-200 rounded">{stats.approved} approuvés</span>
-            <span className="px-2 py-1 bg-blue-200 rounded">{stats.completed} complétés</span>
+            <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
+            <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} complétés</span>
           </div>
         </div>
         
@@ -432,7 +415,7 @@ const VincentDIndyDashboard = () => {
         <div className="flex">
           {[
             { key: 'preparation', label: '1. Préparation' },
-            { key: 'validation', label: '2. Validation Nicolas' },
+            { key: 'suivi', label: '2. Suivi' },
             { key: 'technicien', label: '3. Technicien' },
           ].map(tab => (
             <button
@@ -475,7 +458,7 @@ const VincentDIndyDashboard = () => {
             {selectedIds.size > 0 && (
               <>
                 <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
-                <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ Proposer</button>
+                <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ À faire</button>
                 <button onClick={() => batchSetStatus('normal')} className="px-3 py-1 rounded text-sm bg-white border">→ Retirer</button>
                 <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
                   <option value="">Usage...</option>
@@ -487,20 +470,12 @@ const VincentDIndyDashboard = () => {
         </div>
       )}
 
-      {/* Barre d'outils - Validation Nicolas */}
-      {currentView === 'validation' && (
+      {/* Barre d'outils - Suivi */}
+      {currentView === 'suivi' && (
         <div className="bg-white rounded-lg shadow p-4 mb-4">
-          {stats.proposed > 0 ? (
-            <div className="flex gap-3 items-center">
-              <span className="text-sm text-gray-600">Approuver chaque piano avec une note "À faire"</span>
-              <span className="text-gray-300">|</span>
-              <button onClick={approveAllSimple} className="px-3 py-1 rounded text-sm bg-green-500 text-white">
-                ✓ Tout approuver ({stats.proposed})
-              </button>
-            </div>
-          ) : (
-            <div className="text-center text-gray-500">Aucun piano à valider.</div>
-          )}
+          <div className="text-sm text-gray-600">
+            Vue d'ensemble : pianos <span className="bg-yellow-200 px-2 py-0.5 rounded">jaunes (à faire)</span> et <span className="bg-green-200 px-2 py-0.5 rounded">verts (complétés)</span>. Cliquez pour ajouter des notes "À faire" pour le technicien.
+          </div>
         </div>
       )}
 
@@ -524,11 +499,14 @@ const VincentDIndyDashboard = () => {
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
-              {currentView === 'validation' && (
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire</th>
+              {currentView === 'suivi' && (
+                <>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nicolas)</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-green-50">Travail / Obs. (Tech)</th>
+                </>
               )}
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                {currentView === 'validation' ? 'Actions' : 'Statut'}
+                Statut
               </th>
             </tr>
           </thead>
@@ -539,10 +517,9 @@ const VincentDIndyDashboard = () => {
               return (
                 <tr
                   key={piano.id}
-                  className={`${getRowClass(piano)} cursor-pointer hover:opacity-80`}
+                  className={`${getRowClass(piano)} ${currentView === 'preparation' ? 'cursor-pointer hover:opacity-80' : ''}`}
                   onClick={() => {
                     if (currentView === 'preparation') toggleProposed(piano.id);
-                    else if (currentView === 'validation') toggleSelected(piano.id);
                   }}
                 >
                   {currentView === 'preparation' && (
@@ -562,56 +539,67 @@ const VincentDIndyDashboard = () => {
                   <td className={`px-3 py-3 text-sm font-medium ${mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
                     {mois}
                   </td>
-                  
-                  {/* Colonne "À faire" - Validation Nicolas */}
-                  {currentView === 'validation' && (
-                    <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
-                      {editingAFaireId === piano.id ? (
-                        <input
-                          type="text"
-                          value={aFaireInput}
-                          onChange={(e) => setAFaireInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') approveWithNote(piano.id); }}
-                          className="border rounded px-2 py-1 text-sm w-full"
-                          placeholder="Instructions..."
-                          autoFocus
-                        />
-                      ) : (
-                        <span 
-                          className="text-sm text-gray-400 cursor-text"
-                          onClick={() => { setEditingAFaireId(piano.id); setAFaireInput(piano.aFaire || ''); }}
-                        >
-                          {piano.aFaire || 'Cliquer pour ajouter...'}
-                        </span>
-                      )}
-                    </td>
+
+                  {/* Colonnes pour l'onglet Suivi */}
+                  {currentView === 'suivi' && (
+                    <>
+                      {/* Colonne "À faire" de Nicolas */}
+                      <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
+                        {editingAFaireId === piano.id ? (
+                          <input
+                            type="text"
+                            value={aFaireInput}
+                            onChange={(e) => setAFaireInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                setPianos(pianos.map(p =>
+                                  p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
+                                ));
+                                setEditingAFaireId(null);
+                                setAFaireInput('');
+                              }
+                            }}
+                            onBlur={() => {
+                              setPianos(pianos.map(p =>
+                                p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
+                              ));
+                              setEditingAFaireId(null);
+                              setAFaireInput('');
+                            }}
+                            className="border rounded px-2 py-1 text-sm w-full"
+                            placeholder="Instructions..."
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            className="text-sm cursor-text"
+                            onClick={() => { setEditingAFaireId(piano.id); setAFaireInput(piano.aFaire || ''); }}
+                          >
+                            {piano.aFaire || <span className="text-gray-400">Cliquer...</span>}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Colonne des notes du technicien */}
+                      <td className="px-3 py-3 bg-green-50 text-xs">
+                        {piano.travail && (
+                          <div><strong>Travail:</strong> {piano.travail}</div>
+                        )}
+                        {piano.observations && (
+                          <div className="mt-1"><strong>Obs:</strong> {piano.observations}</div>
+                        )}
+                        {!piano.travail && !piano.observations && (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                    </>
                   )}
 
-                  {/* Actions/Statut */}
-                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
-                    {currentView === 'validation' ? (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => approveWithNote(piano.id)}
-                          className="px-2 py-1 bg-green-500 text-white rounded text-xs"
-                        >
-                          ✓
-                        </button>
-                        <button
-                          onClick={() => rejectPiano(piano.id)}
-                          className="px-2 py-1 bg-red-500 text-white rounded text-xs"
-                        >
-                          ✗
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">Proposé</span>}
-                        {piano.status === 'approved' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Approuvé</span>}
-                        {piano.status === 'completed' && <span className="px-2 py-1 bg-blue-400 text-white rounded text-xs">Fait</span>}
-                        {piano.status === 'normal' && <span className="text-gray-400">-</span>}
-                      </>
-                    )}
+                  {/* Colonne Statut */}
+                  <td className="px-3 py-3 text-sm">
+                    {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
+                    {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
+                    {piano.status === 'normal' && <span className="text-gray-400">-</span>}
                   </td>
                 </tr>
               );
@@ -627,9 +615,8 @@ const VincentDIndyDashboard = () => {
       {/* Légende */}
       <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
         <span className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> Proposé</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Approuvé</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Complété</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
       </div>
     </div>
   );
