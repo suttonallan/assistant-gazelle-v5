@@ -198,28 +198,36 @@ const VincentDIndyDashboard = () => {
   const deselectAll = () => setSelectedIds(new Set());
 
   const batchSetStatus = async (status) => {
+    // Sauvegarder les IDs sélectionnés avant de vider
+    const idsToUpdate = Array.from(selectedIds);
+
     // Mise à jour optimiste
     const updatedPianos = pianos.map(p => selectedIds.has(p.id) ? { ...p, status } : p);
     setPianos(updatedPianos);
 
-    // Sauvegarder chaque piano via API
-    for (const id of selectedIds) {
+    // Désélectionner immédiatement
+    setSelectedIds(new Set());
+
+    // Sauvegarder chaque piano via API (utiliser idsToUpdate au lieu de selectedIds)
+    for (const id of idsToUpdate) {
       await savePianoToAPI(id, { status });
     }
-
-    setSelectedIds(new Set());
   };
 
   const batchSetUsage = async (usage) => {
+    // Sauvegarder les IDs sélectionnés avant de vider
+    const idsToUpdate = Array.from(selectedIds);
+
     // Mise à jour optimiste
     setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, usage } : p));
 
-    // Sauvegarder chaque piano via API
-    for (const id of selectedIds) {
+    // Désélectionner immédiatement
+    setSelectedIds(new Set());
+
+    // Sauvegarder chaque piano via API (utiliser idsToUpdate au lieu de selectedIds)
+    for (const id of idsToUpdate) {
       await savePianoToAPI(id, { usage });
     }
-
-    setSelectedIds(new Set());
   };
 
 
