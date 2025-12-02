@@ -11,7 +11,7 @@ const VincentDIndyDashboard = () => {
 
   const [currentView, setCurrentView] = useState('nicolas');
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nicolas : filtrer sur pianos sélectionnés
-  const [showAllPianos, setShowAllPianos] = useState(false); // Technicien : voir tous les pianos
+  const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local
 
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
@@ -117,8 +117,8 @@ const VincentDIndyDashboard = () => {
       }
       // Sinon : tous les pianos (pas de filtre)
     } else if (currentView === 'technicien') {
-      // Afficher les pianos jaunes (proposed), ou tous si demandé
-      if (!showAllPianos) {
+      // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
+      if (showOnlyProposed) {
         result = result.filter(p => p.status === 'proposed');
       }
 
@@ -159,7 +159,7 @@ const VincentDIndyDashboard = () => {
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showAllPianos, searchLocal]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal]);
 
   // Actions
   const toggleProposed = async (id) => {
@@ -357,19 +357,19 @@ const VincentDIndyDashboard = () => {
               </button>
             ))}
           </div>
-          {/* Bouton pour voir tous les pianos */}
+          {/* Boutons de filtrage */}
           <div className="mt-2 flex gap-2">
             <button
-              onClick={() => setShowAllPianos(false)}
-              className={`flex-1 py-1 px-2 text-xs rounded ${!showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
-            >
-              À faire ({stats.proposed})
-            </button>
-            <button
-              onClick={() => setShowAllPianos(true)}
-              className={`flex-1 py-1 px-2 text-xs rounded ${showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+              onClick={() => setShowOnlyProposed(false)}
+              className={`flex-1 py-1 px-2 text-xs rounded ${!showOnlyProposed ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
             >
               Tous ({stats.total})
+            </button>
+            <button
+              onClick={() => setShowOnlyProposed(true)}
+              className={`flex-1 py-1 px-2 text-xs rounded ${showOnlyProposed ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+            >
+              À faire ({stats.proposed})
             </button>
           </div>
 
@@ -389,7 +389,7 @@ const VincentDIndyDashboard = () => {
         <div className="p-2 space-y-2">
           {pianosFiltres.length === 0 ? (
             <div className="bg-white rounded-lg p-6 text-center text-gray-500">
-              Aucun piano à faire. Nicolas doit proposer les pianos.
+              {showOnlyProposed ? 'Aucun piano à faire.' : 'Aucun piano trouvé.'}
             </div>
           ) : (
             pianosFiltres.map(piano => {
