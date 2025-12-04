@@ -3,7 +3,7 @@
 Endpoints API pour le module Vincent-d'Indy.
 
 Gère la réception et le stockage des rapports des techniciens.
-Utilise GitHub Gist pour le stockage persistant (gratuit).
+Utilise Supabase pour le stockage persistant (rapide et fiable).
 """
 
 import json
@@ -13,21 +13,21 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from core.github_gist import GitHubGistStorage
+from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(prefix="/vincent-dindy", tags=["vincent-dindy"])
 
-# Initialiser le stockage Gist
-_gist_storage = None
+# Initialiser le stockage Supabase
+_supabase_storage = None
 _api_client = None
 
-def get_gist_storage() -> GitHubGistStorage:
-    """Retourne l'instance du stockage Gist (singleton)."""
-    global _gist_storage
-    if _gist_storage is None:
-        _gist_storage = GitHubGistStorage()
-    return _gist_storage
+def get_supabase_storage() -> SupabaseStorage:
+    """Retourne l'instance du stockage Supabase (singleton)."""
+    global _supabase_storage
+    if _supabase_storage is None:
+        _supabase_storage = SupabaseStorage()
+    return _supabase_storage
 
 def get_api_client() -> GazelleAPIClient:
     """Retourne l'instance du client API Gazelle (singleton)."""
@@ -167,16 +167,24 @@ async def get_pianos():
 
         logging.info(f"✅ {len(pianos)} pianos chargés ({rows_processed} lignes traitées, {rows_skipped} ignorées)")
 
-        # Appliquer les modifications depuis le Gist
+        # Appliquer les modifications depuis Supabase
         try:
-            storage = get_gist_storage()
+            storage = get_supabase_storage()
             for piano in pianos:
                 updates = storage.get_piano_updates(piano["id"])
                 if updates:
-                    piano.update(updates)
-            logging.info(f"✅ Modifications Gist appliquées")
+                    # Mapper les champs DB (snake_case) vers le format frontend (camelCase)
+                    if 'status' in updates:
+                        piano['status'] = updates['status']
+                    if 'a_faire' in updates:
+                        piano['aFaire'] = updates['a_faire']
+                    if 'travail' in updates:
+                        piano['travail'] = updates['travail']
+                    if 'observations' in updates:
+                        piano['observations'] = updates['observations']
+            logging.info(f"✅ Modifications Supabase appliquées")
         except Exception as e:
-            logging.warning(f"⚠️ Impossible d'appliquer les modifications Gist: {e}")
+            logging.warning(f"⚠️ Impossible d'appliquer les modifications Supabase: {e}")
 
         return {
             "pianos": pianos,
@@ -202,6 +210,7 @@ class PianoUpdate(BaseModel):
     aFaire: Optional[str] = None
     travail: Optional[str] = None
     observations: Optional[str] = None
+    updated_by: Optional[str] = None  # Email ou nom de l'utilisateur
 
 
 @router.get("/pianos/{piano_id}", response_model=Dict[str, Any])
@@ -231,7 +240,7 @@ async def get_piano(piano_id: str):
                     if priorite:
                         status = "proposed"
 
-                    # Récupérer les modifications depuis le Gist si elles existent
+                    # Récupérer les modifications depuis Supabase si elles existent
                     piano_data = {
                         "id": current_id,
                         "local": local if local and local != "?" else "",
@@ -246,14 +255,14 @@ async def get_piano(piano_id: str):
                         "observations": ""
                     }
 
-                    # Appliquer les modifications depuis le Gist
+                    # Appliquer les modifications depuis Supabase
                     try:
-                        storage = get_gist_storage()
+                        storage = get_supabase_storage()
                         updates = storage.get_piano_updates(current_id)
                         if updates:
                             piano_data.update(updates)
                     except:
-                        pass  # Si pas de Gist, utiliser les données CSV
+                        pass  # Si pas de modification Supabase, utiliser les données CSV
 
                     return piano_data
 
@@ -267,7 +276,7 @@ async def get_piano(piano_id: str):
 
 @router.put("/pianos/{piano_id}", response_model=Dict[str, Any])
 async def update_piano(piano_id: str, update: PianoUpdate):
-    """Met à jour un piano (sauvegarde dans GitHub Gist)."""
+    """Met à jour un piano (sauvegarde dans Supabase)."""
     try:
         # Vérifier que le piano existe dans le CSV
         csv_path = get_csv_path()
@@ -286,10 +295,30 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         if not piano_exists:
             raise HTTPException(status_code=404, detail="Piano non trouvé")
 
-        # Sauvegarder les modifications dans le Gist
-        storage = get_gist_storage()
-        update_data = {k: v for k, v in update.dict().items() if v is not None}
-        storage.update_piano(piano_id, update_data)
+        # Sauvegarder les modifications dans Supabase
+        storage = get_supabase_storage()
+
+        # Convertir les champs camelCase vers snake_case pour Supabase
+        update_dict = update.dict(exclude_none=True)
+        update_data = {}
+        for key, value in update_dict.items():
+            if key == 'aFaire':
+                update_data['a_faire'] = value
+            elif key == 'dernierAccord':
+                update_data['dernier_accord'] = value
+            elif key == 'updated_by':
+                update_data['updated_by'] = value
+            else:
+                # status, usage, travail, observations restent identiques
+                update_data[key] = value
+
+        success = storage.update_piano(piano_id, update_data)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500, 
+                detail="Échec de la sauvegarde dans Supabase. Vérifiez les logs du serveur."
+            )
 
         return {
             "success": True,
@@ -314,11 +343,11 @@ async def submit_report(report: TechnicianReport):
     """
     Soumet un rapport de technicien.
     
-    Le rapport est sauvegardé dans un Gist GitHub (persistant et gratuit).
+    Le rapport est sauvegardé dans Supabase (persistant et fiable).
     Plus tard, on pourra pousser ces rapports vers Gazelle.
     """
     try:
-        storage = get_gist_storage()
+        storage = get_supabase_storage()
         report_data = report.dict()
         
         # Ajouter le rapport au Gist
@@ -326,17 +355,17 @@ async def submit_report(report: TechnicianReport):
         
         return {
             "success": True,
-            "message": "Rapport reçu et sauvegardé dans GitHub Gist",
+            "message": "Rapport reçu et sauvegardé dans Supabase",
             "report_id": saved_report["id"],
             "submitted_at": saved_report["submitted_at"],
             "status": saved_report["status"]
         }
         
     except ValueError as e:
-        # Token GitHub manquant
+        # Configuration Supabase manquante
         raise HTTPException(
             status_code=400,
-            detail=f"Configuration manquante: {str(e)}. Ajoutez GITHUB_TOKEN dans les variables d'environnement Render."
+            detail=f"Configuration manquante: {str(e)}. Ajoutez SUPABASE_URL et SUPABASE_KEY dans les variables d'environnement."
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la sauvegarde: {str(e)}")
@@ -345,14 +374,14 @@ async def submit_report(report: TechnicianReport):
 @router.get("/reports", response_model=Dict[str, Any])
 async def list_reports(status: Optional[str] = None, limit: int = 50):
     """
-    Liste les rapports sauvegardés depuis GitHub Gist.
+    Liste les rapports sauvegardés depuis Supabase.
     
     Args:
         status: Filtrer par statut ("pending", "processed", "all")
         limit: Nombre maximum de rapports à retourner
     """
     try:
-        storage = get_gist_storage()
+        storage = get_supabase_storage()
         all_reports = storage.get_reports()
         
         # Filtrer par statut si demandé
@@ -375,9 +404,9 @@ async def list_reports(status: Optional[str] = None, limit: int = 50):
 
 @router.get("/reports/{report_id}", response_model=Dict[str, Any])
 async def get_report(report_id: str):
-    """Récupère un rapport spécifique par son ID depuis GitHub Gist."""
+    """Récupère un rapport spécifique par son ID depuis Supabase."""
     try:
-        storage = get_gist_storage()
+        storage = get_supabase_storage()
         report = storage.get_report(report_id)
         
         if not report:
@@ -391,11 +420,50 @@ async def get_report(report_id: str):
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération: {str(e)}")
 
 
+@router.get("/activity", response_model=Dict[str, Any])
+async def get_activity(limit: int = 20):
+    """
+    Récupère l'historique d'activité (qui a modifié quoi, quand).
+
+    Args:
+        limit: Nombre maximum d'activités à retourner
+
+    Returns:
+        Liste des activités récentes avec updated_by et updated_at
+    """
+    try:
+        storage = get_supabase_storage()
+        all_updates = storage.get_all_piano_updates()
+
+        # Convertir en liste triée par date (plus récent en premier)
+        activities = []
+        for piano_id, update_data in all_updates.items():
+            if update_data.get('updated_by') and update_data.get('updated_at'):
+                activities.append({
+                    "piano_id": piano_id,
+                    "updated_by": update_data.get('updated_by'),
+                    "updated_at": update_data.get('updated_at'),
+                    "status": update_data.get('status'),
+                    "observations": update_data.get('observations', '')
+                })
+
+        # Trier par date décroissante
+        activities.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
+
+        return {
+            "activities": activities[:limit],
+            "total": len(activities)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération de l'activité: {str(e)}")
+
+
 @router.get("/stats", response_model=Dict[str, Any])
 async def get_stats():
-    """Retourne des statistiques sur les rapports depuis GitHub Gist."""
+    """Retourne des statistiques sur les rapports depuis Supabase."""
     try:
-        storage = get_gist_storage()
+        storage = get_supabase_storage()
         reports = storage.get_reports()
         
         stats = {
