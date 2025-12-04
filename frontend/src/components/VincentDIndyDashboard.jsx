@@ -4,7 +4,7 @@ import { submitReport, getReports, getPianos, updatePiano } from '../api/vincent
 // Configuration de l'API - sera remplacée par la variable d'environnement en production
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
 
-const VincentDIndyDashboard = () => {
+const VincentDIndyDashboard = ({ currentUser }) => {
   const [pianos, setPianos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,9 +24,11 @@ const VincentDIndyDashboard = () => {
   const [travailInput, setTravailInput] = useState('');
   const [observationsInput, setObservationsInput] = useState('');
 
-  // Pour vue Nicolas - édition "à faire"
+  // Pour vue Nicolas - édition "à faire", "travail" et "observations"
   const [editingAFaireId, setEditingAFaireId] = useState(null);
   const [aFaireInput, setAFaireInput] = useState('');
+  const [editingTravailId, setEditingTravailId] = useState(null);
+  const [editingObservationsId, setEditingObservationsId] = useState(null);
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
@@ -67,8 +69,14 @@ const VincentDIndyDashboard = () => {
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
     try {
-      await updatePiano(API_URL, pianoId, updates);
-      console.log('✅ Piano sauvegardé:', pianoId, updates);
+      // Ajouter automatiquement la signature de l'utilisateur
+      const updatesWithUser = {
+        ...updates,
+        updated_by: currentUser?.email || currentUser?.name || 'Unknown'
+      };
+
+      await updatePiano(API_URL, pianoId, updatesWithUser);
+      console.log('✅ Piano sauvegardé par', currentUser?.name, ':', pianoId, updatesWithUser);
     } catch (err) {
       console.error('❌ Erreur lors de la sauvegarde:', err);
       alert(`Erreur lors de la sauvegarde: ${err.message}`);
@@ -397,7 +405,11 @@ const VincentDIndyDashboard = () => {
               const mois = moisDepuisAccord(piano.dernierAccord);
 
               return (
-                <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${piano.status === 'completed' ? 'bg-green-100' : 'bg-white'}`}>
+                <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
+                  piano.status === 'completed' ? 'bg-green-100' :
+                  piano.status === 'proposed' ? 'bg-yellow-100' :
+                  'bg-white'
+                }`}>
                   {/* Ligne principale - cliquable */}
                   <div 
                     onClick={() => toggleExpand(piano)}
@@ -621,7 +633,8 @@ const VincentDIndyDashboard = () => {
               {currentView === 'nicolas' && (
                 <>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nicolas)</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-green-50">Travail / Obs. (Tech)</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Travail (Tech)</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-purple-50">Observations (Tech)</th>
                 </>
               )}
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -706,16 +719,63 @@ const VincentDIndyDashboard = () => {
                         )}
                       </td>
 
-                      {/* Colonne des notes du technicien */}
-                      <td className="px-3 py-3 bg-green-50 text-xs">
-                        {piano.travail && (
-                          <div><strong>Travail:</strong> {piano.travail}</div>
+                      {/* Colonne Travail (éditable) */}
+                      <td className="px-3 py-3 bg-blue-50" onClick={(e) => e.stopPropagation()}>
+                        {editingTravailId === piano.id ? (
+                          <textarea
+                            value={travailInput}
+                            onChange={(e) => setTravailInput(e.target.value)}
+                            onBlur={async () => {
+                              setPianos(pianos.map(p =>
+                                p.id === piano.id ? { ...p, travail: travailInput } : p
+                              ));
+                              setEditingTravailId(null);
+                              const valueToSave = travailInput;
+                              setTravailInput('');
+                              await savePianoToAPI(piano.id, { travail: valueToSave });
+                            }}
+                            className="border rounded px-2 py-1 text-xs w-full"
+                            placeholder="Travail effectué..."
+                            rows="2"
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            className="text-xs cursor-text block"
+                            onClick={() => { setEditingTravailId(piano.id); setTravailInput(piano.travail || ''); }}
+                          >
+                            {piano.travail || <span className="text-gray-400">Cliquer...</span>}
+                          </span>
                         )}
-                        {piano.observations && (
-                          <div className="mt-1"><strong>Obs:</strong> {piano.observations}</div>
-                        )}
-                        {!piano.travail && !piano.observations && (
-                          <span className="text-gray-400">-</span>
+                      </td>
+                      
+                      {/* Colonne Observations (éditable) */}
+                      <td className="px-3 py-3 bg-purple-50" onClick={(e) => e.stopPropagation()}>
+                        {editingObservationsId === piano.id ? (
+                          <textarea
+                            value={observationsInput}
+                            onChange={(e) => setObservationsInput(e.target.value)}
+                            onBlur={async () => {
+                              setPianos(pianos.map(p =>
+                                p.id === piano.id ? { ...p, observations: observationsInput } : p
+                              ));
+                              setEditingObservationsId(null);
+                              const valueToSave = observationsInput;
+                              setObservationsInput('');
+                              await savePianoToAPI(piano.id, { observations: valueToSave });
+                            }}
+                            className="border rounded px-2 py-1 text-xs w-full"
+                            placeholder="Observations..."
+                            rows="2"
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            className="text-xs cursor-text block"
+                            onClick={() => { setEditingObservationsId(piano.id); setObservationsInput(piano.observations || ''); }}
+                          >
+                            {piano.observations || <span className="text-gray-400">Cliquer...</span>}
+                          </span>
                         )}
                       </td>
                     </>
