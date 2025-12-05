@@ -300,17 +300,18 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
   const stats = {
     total: pianos.length,
-    proposed: pianos.filter(p => p.status === 'proposed').length,
+    proposed: pianos.filter(p => p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== '')).length,
     completed: pianos.filter(p => p.status === 'completed').length,
   };
 
   const getRowClass = (piano) => {
     if (selectedIds.has(piano.id)) return 'bg-purple-200';
-    switch (piano.status) {
-      case 'proposed': return 'bg-yellow-200';
-      case 'completed': return 'bg-green-200';
-      default: return 'bg-white';
-    }
+    // Si complété → vert
+    if (piano.status === 'completed') return 'bg-green-200';
+    // Si proposed OU si "À faire" est rempli → jaune
+    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) return 'bg-yellow-200';
+    // Sinon → normal (blanc)
+    return 'bg-white';
   };
 
   // ============ VUE TECHNICIEN (mobile-friendly) ============
