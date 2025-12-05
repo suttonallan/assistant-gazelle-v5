@@ -87,112 +87,99 @@ def get_csv_path() -> str:
 @router.get("/pianos", response_model=Dict[str, Any])
 async def get_pianos():
     """
-    Récupère tous les pianos depuis le CSV.
-    
-    Format CSV attendu : local, Piano, # série, Priorité, Type, À faire
-    
-    Plus tard, on connectera avec l'API Gazelle.
+    Récupère tous les pianos depuis Supabase (source unique de vérité).
+
+    Le CSV n'est plus utilisé - toutes les données viennent de Supabase.
     """
     try:
-        csv_path = get_csv_path()
-        
-        # Debug: logger le chemin cherché
         import logging
-        logging.info(f"🔍 Recherche du CSV à: {csv_path}")
-        logging.info(f"📁 Répertoire courant: {os.getcwd()}")
-        logging.info(f"📁 Fichier __file__: {__file__}")
-        
-        if not os.path.exists(csv_path):
-            # Si le CSV n'existe pas, retourner une liste vide avec message de debug
-            error_msg = f"Fichier CSV non trouvé: {csv_path}. Répertoire courant: {os.getcwd()}"
-            logging.error(f"❌ {error_msg}")
+        logging.info(f"🔍 Chargement des pianos depuis Supabase")
+
+        # Lire directement depuis Supabase
+        storage = get_supabase_storage()
+        pianos_data = storage.get_all_piano_updates()
+
+        if not pianos_data:
+            logging.warning(f"⚠️ Aucun piano trouvé dans Supabase")
             return {
                 "pianos": [],
                 "count": 0,
-                "error": True,
-                "message": error_msg,
-                "debug": {
-                    "csv_path": csv_path,
-                    "current_dir": os.getcwd(),
-                    "file_exists": os.path.exists(csv_path)
-                }
+                "message": "Aucun piano dans la base de données"
             }
-        
-        logging.info(f"✅ CSV trouvé: {csv_path}")
+
+        # Transformer les données Supabase en format frontend
         pianos = []
-        rows_processed = 0
-        rows_skipped = 0
-        
-        with open(csv_path, 'r', encoding='utf-8-sig') as f:
-            reader = csv.DictReader(f)
-            for idx, row in enumerate(reader, start=1):
-                rows_processed += 1
-                # Nettoyer les noms de colonnes (enlever espaces)
-                local = row.get("local", "").strip()
-                piano_name = row.get("Piano", "").strip()
-                serie = row.get("# série", "").strip() or row.get("série", "").strip()
-                priorite = row.get("Priorité", "").strip() or row.get("Priorité ", "").strip()
-                type_piano = row.get("Type", "").strip()
-                a_faire = row.get("À faire", "").strip()
-                
-                # Ignorer les lignes vides ou sans piano
-                if not piano_name and not serie:
-                    rows_skipped += 1
-                    continue
-                
-                # Générer un ID unique (index ou série si disponible)
-                piano_id = serie if serie else f"piano_{idx}"
-                
-                # Déterminer le statut basé sur la priorité
-                status = "normal"
-                if priorite:
-                    # Si priorité existe, proposer le piano
-                    status = "proposed"
-                
-                # Formater les données pour correspondre au format attendu par le frontend
-                piano = {
-                    "id": piano_id,
-                    "local": local if local and local != "?" else "",
-                    "piano": piano_name,
-                    "serie": serie,
-                    "type": type_piano.upper() if type_piano else "D",  # D, Q, ou autre
-                    "usage": "",  # Pas dans le CSV pour l'instant
-                    "dernierAccord": "",  # Pas dans le CSV pour l'instant
-                    "aFaire": a_faire,
-                    "status": status,
-                    "travail": "",
-                    "observations": ""
-                }
-                pianos.append(piano)
+        for piano_id, data in pianos_data.items():
+            piano = {
+                "id": piano_id,
+                "local": data.get("local", ""),
+                "piano": data.get("piano", ""),
+                "serie": data.get("serie", piano_id),
+                "type": data.get("type", "D"),
+                "usage": data.get("usage", ""),
+                "dernierAccord": data.get("dernier_accord", ""),
+                "aFaire": data.get("a_faire", ""),
+                "status": data.get("status", "normal"),
+                "travail": data.get("travail", ""),
+                "observations": data.get("observations", "")
+            }
+            pianos.append(piano)
 
-        logging.info(f"✅ {len(pianos)} pianos chargés ({rows_processed} lignes traitées, {rows_skipped} ignorées)")
+        logging.info(f"✅ {len(pianos)} pianos chargés depuis Supabase")
 
-        # Appliquer les modifications depuis Supabase
-        try:
-            storage = get_supabase_storage()
-            for piano in pianos:
-                updates = storage.get_piano_updates(piano["id"])
-                if updates:
-                    # Mapper les champs DB (snake_case) vers le format frontend (camelCase)
-                    if 'status' in updates:
-                        piano['status'] = updates['status']
-                    if 'a_faire' in updates:
-                        piano['aFaire'] = updates['a_faire']
-                    if 'travail' in updates:
-                        piano['travail'] = updates['travail']
-                    if 'observations' in updates:
-                        piano['observations'] = updates['observations']
-            logging.info(f"✅ Modifications Supabase appliquées")
-        except Exception as e:
-            logging.warning(f"⚠️ Impossible d'appliquer les modifications Supabase: {e}")
+        # Fallback: si Supabase est vide, lire le CSV une seule fois pour initialiser
+        if len(pianos) == 0:
+            logging.info(f"📋 Supabase vide, import initial depuis CSV")
+            csv_path = get_csv_path()
+
+            if os.path.exists(csv_path):
+                with open(csv_path, 'r', encoding='utf-8-sig') as f:
+                    reader = csv.DictReader(f)
+                    for idx, row in enumerate(reader, start=1):
+                        local = row.get("local", "").strip()
+                        piano_name = row.get("Piano", "").strip()
+                        serie = row.get("# série", "").strip() or row.get("série", "").strip()
+                        type_piano = row.get("Type", "").strip()
+                        a_faire = row.get("À faire", "").strip()
+
+                        if not piano_name and not serie:
+                            continue
+
+                        piano_id = serie if serie else f"piano_{idx}"
+
+                        piano = {
+                            "id": piano_id,
+                            "local": local if local and local != "?" else "",
+                            "piano": piano_name,
+                            "serie": serie,
+                            "type": type_piano.upper() if type_piano else "D",
+                            "usage": "",
+                            "dernierAccord": "",
+                            "aFaire": a_faire,
+                            "status": "normal",
+                            "travail": "",
+                            "observations": ""
+                        }
+                        pianos.append(piano)
+
+                        # Sauvegarder dans Supabase pour la prochaine fois
+                        try:
+                            storage.update_piano(piano_id, {
+                                "local": piano["local"],
+                                "piano": piano["piano"],
+                                "serie": serie,
+                                "type": piano["type"],
+                                "a_faire": a_faire,
+                                "status": "normal"
+                            })
+                        except Exception as e:
+                            logging.warning(f"⚠️ Impossible de sauvegarder {piano_id} dans Supabase: {e}")
+
+                logging.info(f"✅ {len(pianos)} pianos importés depuis CSV et sauvegardés dans Supabase")
 
         return {
             "pianos": pianos,
-            "count": len(pianos),
-            "debug": {
-                "rows_processed": rows_processed,
-                "rows_skipped": rows_skipped
-            }
+            "count": len(pianos)
         }
         
     except Exception as e:
