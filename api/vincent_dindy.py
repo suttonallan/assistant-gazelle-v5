@@ -87,95 +87,83 @@ def get_csv_path() -> str:
 @router.get("/pianos", response_model=Dict[str, Any])
 async def get_pianos():
     """
-    Récupère tous les pianos depuis Supabase (source unique de vérité).
+    Récupère tous les pianos en fusionnant CSV (données fixes) + Supabase (modifications).
 
-    Le CSV n'est plus utilisé - toutes les données viennent de Supabase.
+    Architecture:
+    - CSV = Liste de référence des 91 pianos (local, piano, type, usage)
+    - Supabase = Modifications dynamiques (status, aFaire, travail, observations)
+    - Retour = Fusion des deux (CSV comme base, Supabase overlay)
     """
     try:
         import logging
-        logging.info(f"🔍 Chargement des pianos depuis Supabase")
+        logging.info(f"🔍 Chargement des pianos (CSV + Supabase)")
 
-        # Lire directement depuis Supabase
-        storage = get_supabase_storage()
-        pianos_data = storage.get_all_piano_updates()
-
-        if not pianos_data:
-            logging.warning(f"⚠️ Aucun piano trouvé dans Supabase")
-            return {
-                "pianos": [],
-                "count": 0,
-                "message": "Aucun piano dans la base de données"
-            }
-
-        # Transformer les données Supabase en format frontend
+        # 1. Charger la liste complète depuis le CSV (données FIXES)
+        csv_path = get_csv_path()
         pianos = []
-        for piano_id, data in pianos_data.items():
-            piano = {
-                "id": piano_id,
-                "local": data.get("local", ""),
-                "piano": data.get("piano", ""),
-                "serie": data.get("serie", piano_id),
-                "type": data.get("type", "D"),
-                "usage": data.get("usage", ""),
-                "dernierAccord": data.get("dernier_accord", ""),
-                "aFaire": data.get("a_faire", ""),
-                "status": data.get("status", "normal"),
-                "travail": data.get("travail", ""),
-                "observations": data.get("observations", "")
-            }
-            pianos.append(piano)
 
-        logging.info(f"✅ {len(pianos)} pianos chargés depuis Supabase")
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV introuvable: {csv_path}")
 
-        # Fallback: si Supabase est vide, lire le CSV une seule fois pour initialiser
-        if len(pianos) == 0:
-            logging.info(f"📋 Supabase vide, import initial depuis CSV")
-            csv_path = get_csv_path()
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for idx, row in enumerate(reader, start=1):
+                local = row.get("local", "").strip()
+                piano_name = row.get("Piano", "").strip()
+                serie = row.get("# série", "").strip() or row.get("série", "").strip()
+                type_piano = row.get("Type", "").strip()
+                usage = row.get("Usage", "").strip()
+                a_faire_csv = row.get("À faire", "").strip()
 
-            if os.path.exists(csv_path):
-                with open(csv_path, 'r', encoding='utf-8-sig') as f:
-                    reader = csv.DictReader(f)
-                    for idx, row in enumerate(reader, start=1):
-                        local = row.get("local", "").strip()
-                        piano_name = row.get("Piano", "").strip()
-                        serie = row.get("# série", "").strip() or row.get("série", "").strip()
-                        type_piano = row.get("Type", "").strip()
-                        a_faire = row.get("À faire", "").strip()
+                if not piano_name and not serie:
+                    continue
 
-                        if not piano_name and not serie:
-                            continue
+                piano_id = serie if serie else f"piano_{idx}"
 
-                        piano_id = serie if serie else f"piano_{idx}"
+                # Données de BASE depuis CSV (FIXES)
+                piano = {
+                    "id": piano_id,
+                    "local": local if local and local != "?" else "",
+                    "piano": piano_name,
+                    "serie": serie,
+                    "type": type_piano.upper() if type_piano else "D",
+                    "usage": usage,
+                    # Valeurs par défaut pour champs dynamiques
+                    "dernierAccord": "",
+                    "aFaire": a_faire_csv,
+                    "status": "normal",
+                    "travail": "",
+                    "observations": ""
+                }
+                pianos.append(piano)
 
-                        piano = {
-                            "id": piano_id,
-                            "local": local if local and local != "?" else "",
-                            "piano": piano_name,
-                            "serie": serie,
-                            "type": type_piano.upper() if type_piano else "D",
-                            "usage": "",
-                            "dernierAccord": "",
-                            "aFaire": a_faire,
-                            "status": "normal",
-                            "travail": "",
-                            "observations": ""
-                        }
-                        pianos.append(piano)
+        logging.info(f"📋 {len(pianos)} pianos chargés depuis CSV")
 
-                        # Sauvegarder dans Supabase pour la prochaine fois
-                        try:
-                            storage.update_piano(piano_id, {
-                                "local": piano["local"],
-                                "piano": piano["piano"],
-                                "serie": serie,
-                                "type": piano["type"],
-                                "a_faire": a_faire,
-                                "status": "normal"
-                            })
-                        except Exception as e:
-                            logging.warning(f"⚠️ Impossible de sauvegarder {piano_id} dans Supabase: {e}")
+        # 2. Charger les modifications depuis Supabase (DYNAMIQUES)
+        storage = get_supabase_storage()
+        supabase_updates = storage.get_all_piano_updates()
 
-                logging.info(f"✅ {len(pianos)} pianos importés depuis CSV et sauvegardés dans Supabase")
+        logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées")
+
+        # 3. FUSION: Appliquer les modifications Supabase sur les données CSV
+        for piano in pianos:
+            piano_id = piano["id"]
+            if piano_id in supabase_updates:
+                updates = supabase_updates[piano_id]
+
+                # Appliquer UNIQUEMENT les champs DYNAMIQUES depuis Supabase
+                if "dernier_accord" in updates:
+                    piano["dernierAccord"] = updates["dernier_accord"]
+                if "a_faire" in updates:
+                    piano["aFaire"] = updates["a_faire"]
+                if "status" in updates:
+                    piano["status"] = updates["status"]
+                if "travail" in updates:
+                    piano["travail"] = updates["travail"]
+                if "observations" in updates:
+                    piano["observations"] = updates["observations"]
+
+        logging.info(f"✅ Fusion complète: {len(pianos)} pianos retournés")
 
         return {
             "pianos": pianos,
@@ -325,21 +313,77 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         raise HTTPException(status_code=500, detail=f"Erreur lors de la mise à jour: {str(e)}")
 
 
+@router.put("/pianos/batch", response_model=Dict[str, Any])
+async def batch_update_pianos(updates: List[Dict[str, Any]]):
+    """
+    Met à jour plusieurs pianos en une seule requête (batch update).
+    Beaucoup plus rapide que plusieurs requêtes individuelles.
+
+    Body exemple:
+    [
+        {"piano_id": "A-001", "status": "top"},
+        {"piano_id": "A-002", "status": "proposed", "usage": "Enseignement"}
+    ]
+    """
+    try:
+        if not updates:
+            return {"success": True, "message": "Aucune mise à jour", "count": 0}
+
+        storage = get_supabase_storage()
+
+        # Préparer les données pour le batch
+        batch_data = []
+        for update in updates:
+            if "piano_id" not in update:
+                raise HTTPException(status_code=400, detail="Chaque mise à jour doit contenir 'piano_id'")
+
+            # Convertir les clés camelCase en snake_case pour Supabase
+            snake_case_update = {}
+            for key, value in update.items():
+                if key == "piano_id":
+                    snake_case_update["piano_id"] = value
+                elif key == "dernierAccord":
+                    snake_case_update["dernier_accord"] = value
+                elif key == "aFaire":
+                    snake_case_update["a_faire"] = value
+                else:
+                    snake_case_update[key] = value
+
+            batch_data.append(snake_case_update)
+
+        # Exécuter le batch update
+        success = storage.batch_update_pianos(batch_data)
+
+        if success:
+            return {
+                "success": True,
+                "message": f"{len(updates)} pianos mis à jour",
+                "count": len(updates)
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Échec de la mise à jour batch")
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur batch update: {str(e)}")
+
+
 @router.post("/reports", response_model=Dict[str, Any])
 async def submit_report(report: TechnicianReport):
     """
     Soumet un rapport de technicien.
-    
+
     Le rapport est sauvegardé dans Supabase (persistant et fiable).
     Plus tard, on pourra pousser ces rapports vers Gazelle.
     """
     try:
         storage = get_supabase_storage()
         report_data = report.dict()
-        
+
         # Ajouter le rapport au Gist
         saved_report = storage.add_report(report_data)
-        
+
         return {
             "success": True,
             "message": "Rapport reçu et sauvegardé dans Supabase",
@@ -347,7 +391,7 @@ async def submit_report(report: TechnicianReport):
             "submitted_at": saved_report["submitted_at"],
             "status": saved_report["status"]
         }
-        
+
     except ValueError as e:
         # Configuration Supabase manquante
         raise HTTPException(

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
 
 // Configuration de l'API - sera remplacée par la variable d'environnement en production
@@ -18,6 +18,9 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const [filterUsage, setFilterUsage] = useState('all');
   const [filterAccordDepuis, setFilterAccordDepuis] = useState(0);
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // Ref pour la checkbox "sélectionner tous"
+  const selectAllCheckboxRef = useRef(null);
   
   // Pour vue technicien - piano développé
   const [expandedPianoId, setExpandedPianoId] = useState(null);
@@ -169,6 +172,16 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     return result;
   }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal]);
 
+  // Gérer l'état indeterminate de la checkbox "sélectionner tous"
+  useEffect(() => {
+    if (selectAllCheckboxRef.current && pianosFiltres.length >= 0) {
+      const allSelected = selectedIds.size === pianosFiltres.length && pianosFiltres.length > 0;
+      const someSelected = selectedIds.size > 0 && selectedIds.size < pianosFiltres.length;
+      selectAllCheckboxRef.current.checked = allSelected;
+      selectAllCheckboxRef.current.indeterminate = someSelected;
+    }
+  }, [selectedIds.size, pianosFiltres.length]);
+
   // Actions
   const toggleProposed = async (id) => {
     const piano = pianos.find(p => p.id === id);
@@ -300,12 +313,15 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
   const stats = {
     total: pianos.length,
+    top: pianos.filter(p => p.status === 'top').length,
     proposed: pianos.filter(p => p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== '')).length,
     completed: pianos.filter(p => p.status === 'completed').length,
   };
 
   const getRowClass = (piano) => {
     if (selectedIds.has(piano.id)) return 'bg-purple-200';
+    // Si Top → brun
+    if (piano.status === 'top') return 'bg-amber-200';
     // Si complété → vert
     if (piano.status === 'completed') return 'bg-green-200';
     // Si proposed OU si "À faire" est rempli → jaune
@@ -350,6 +366,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
           <div className="flex justify-between items-center">
             <h1 className="text-lg font-bold">🎹 Tournée</h1>
             <div className="flex gap-2 text-xs">
+              {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
               <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
               <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
             </div>
@@ -407,6 +424,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
               return (
                 <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
+                  piano.status === 'top' ? 'bg-amber-100' :
                   piano.status === 'completed' ? 'bg-green-100' :
                   (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) ? 'bg-yellow-100' :
                   'bg-white'
@@ -521,6 +539,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
               <div className="flex gap-4 mt-2 text-sm flex-wrap">
                 <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
+                {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
                 <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
                 <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} complétés</span>
               </div>
@@ -599,6 +618,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
             {selectedIds.size > 0 && (
               <>
                 <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
+                <button onClick={() => batchSetStatus('top')} className="px-3 py-1 rounded text-sm bg-amber-400">→ Top</button>
                 <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ À faire</button>
                 <button onClick={() => batchSetStatus('normal')} className="px-3 py-1 rounded text-sm bg-white border">→ Retirer</button>
                 <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
@@ -619,8 +639,8 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               {currentView === 'nicolas' && (
                 <th className="px-2 py-3 w-10">
                   <input
+                    ref={selectAllCheckboxRef}
                     type="checkbox"
-                    checked={selectedIds.size === pianosFiltres.length && pianosFiltres.length > 0}
                     onChange={(e) => e.target.checked ? selectAll() : deselectAll()}
                     className="rounded"
                   />
@@ -784,6 +804,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
                   {/* Colonne Statut */}
                   <td className="px-3 py-3 text-sm">
+                    {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
                     {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
                     {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
                     {piano.status === 'normal' && <span className="text-gray-400">-</span>}
@@ -801,9 +822,10 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
       {/* Légende */}
       <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
+        <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
+        <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
+        <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
+        <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
       </div>
     </div>
   );
