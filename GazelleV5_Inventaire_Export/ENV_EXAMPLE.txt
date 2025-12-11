@@ -1,0 +1,19 @@
+# Configuration pour les scripts d'inventaire
+# Copiez ce fichier vers .env et remplissez les valeurs
+
+# ============================================
+# SUPABASE (PostgreSQL) - Configuration recommandée
+# ============================================
+SUPABASE_URL=https://xxxxx.supabase.co
+# OU utilisez les variables individuelles :
+# SUPABASE_HOST=xxxxx.supabase.co
+# SUPABASE_PORT=5432
+# SUPABASE_DATABASE=postgres
+# SUPABASE_USER=postgres
+SUPABASE_PASSWORD=votre_mot_de_passe_ici
+
+# ============================================
+# SQL SERVER (Fallback Windows uniquement)
+# ============================================
+# DB_CONN_STR=DRIVER={ODBC Driver 17 for SQL Server};SERVER=PIANOTEK\SQLEXPRESS;DATABASE=PianoTek;Trusted_Connection=yes;
+

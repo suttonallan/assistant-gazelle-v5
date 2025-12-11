@@ -8,6 +8,9 @@ pydantic>=2.0.0
 # Client HTTP pour les appels API
 requests>=2.31.0
 
+# Base de données - Supabase (PostgreSQL)
+psycopg2-binary>=2.9.9
+
 # Gestion des variables d'environnement (.env)
 python-dotenv>=1.0.0
 

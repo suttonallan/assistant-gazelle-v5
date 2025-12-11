@@ -3,10 +3,11 @@ import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import LoginScreen from './components/LoginScreen'
 import DashboardHome from './components/DashboardHome'
 import AlertesRV from './components/AlertesRV'
+import InventaireDashboard from './components/InventaireDashboard'
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard', 'pianos', ou 'alertes-rv'
+  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire'
 
   // Charger l'utilisateur depuis localStorage au démarrage
   useEffect(() => {
@@ -77,6 +78,16 @@ function App() {
                 >
                   🔔 Alertes RV
                 </button>
+                <button
+                  onClick={() => setCurrentView('inventaire')}
+                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                    currentView === 'inventaire'
+                      ? 'bg-blue-100 text-blue-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  📦 Inventaire
+                </button>
               </nav>
             )}
           </div>
@@ -101,6 +112,8 @@ function App() {
         <DashboardHome currentUser={currentUser} />
       ) : currentView === 'alertes-rv' ? (
         <AlertesRV currentUser={currentUser} />
+      ) : currentView === 'inventaire' ? (
+        <InventaireDashboard currentUser={currentUser} />
       ) : (
         <VincentDIndyDashboard currentUser={currentUser} />
       )}

@@ -19,6 +19,7 @@ config/*credentials*.md
 config/*secret*.md
 *.token.json
 token.json
+data/credentials.json
 
 # Ignorer les exports de données V4 (utilisés pour l'import initial)
 *.csv

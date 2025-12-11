@@ -1,0 +1,23 @@
+COMMANDES RAPIDES - WINDOWS POWERSHELL
+=======================================
+
+VÉRIFIER LE NOMBRE DE PRODUITS:
+-------------------------------
+$r = Invoke-RestMethod "http://localhost:8000/inventaire/catalogue"; Write-Host "Produits: $($r.count)"
+
+
+VÉRIFIER LE BACKEND:
+--------------------
+curl http://localhost:8000/health
+
+
+EXÉCUTER L'IMPORT:
+------------------
+cd "C:\Allan Python projets\assistant-gazelle\assistant-gazelle-v5"
+python scripts/import_gazelle_product_display.py
+
+
+TESTER LA CONNEXION:
+--------------------
+cd "C:\Allan Python projets\assistant-gazelle\assistant-gazelle-v5"
+python scripts/test_supabase_connection.py

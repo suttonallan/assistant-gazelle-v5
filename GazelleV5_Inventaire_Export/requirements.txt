@@ -1,0 +1,15 @@
+# Requirements pour les scripts d'inventaire
+# Installation: pip install -r requirements.txt
+
+# Base de données - Supabase (PostgreSQL)
+psycopg2-binary==2.9.9
+
+# Base de données - SQL Server (fallback Windows)
+pyodbc==5.0.1
+
+# Configuration (variables d'environnement)
+python-dotenv==1.0.0
+
+# Note: Les modules standard Python suivants sont inclus:
+# - os, sys, datetime, typing, logging, csv, json, pathlib
+

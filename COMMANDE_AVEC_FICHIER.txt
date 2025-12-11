@@ -1,0 +1,5 @@
+# Commande pour sauvegarder dans un fichier (plus fiable):
+
+cd "C:\Allan Python projets\assistant-gazelle\assistant-gazelle-web"
+python -u scripts/import_gazelle_product_display.py > import_result.txt 2>&1
+notepad import_result.txt

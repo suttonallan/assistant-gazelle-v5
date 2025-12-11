@@ -370,6 +370,48 @@ class GazelleAPIClient:
         
         print(f"✅ {len(all_invoices)} factures récupérées depuis l'API")
         return all_invoices
+    
+    def get_products(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Récupère tous les produits depuis l'API Gazelle.
+        
+        Args:
+            limit: Nombre maximum de produits par page (défaut: 1000)
+            
+        Returns:
+            Liste de dictionnaires contenant les données des produits
+        """
+        query = """
+        query GetProducts {
+            allProducts {
+                nodes {
+                    id
+                    sku
+                    name
+                    unitCost
+                    retailPrice
+                    active
+                    description
+                    unit
+                    supplier
+                    category
+                    createdAt
+                    updatedAt
+                }
+            }
+        }
+        """
+        
+        result = self._execute_query(query)
+        connection = result.get('data', {}).get('allProducts', {})
+        all_products = connection.get('nodes', [])
+        
+        # Limiter le nombre de résultats si nécessaire
+        if limit and len(all_products) > limit:
+            all_products = all_products[:limit]
+        
+        print(f"✅ {len(all_products)} produits récupérés depuis l'API Gazelle")
+        return all_products
 
 
 if __name__ == '__main__':

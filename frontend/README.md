@@ -37,3 +37,5 @@ VITE_API_URL=https://ton-api-url.com
 2. Le dossier `dist/` contient les fichiers statiques
 3. Configure GitHub Pages pour servir depuis `dist/` ou copie les fichiers dans `docs/`
 
+
+

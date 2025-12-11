@@ -1,0 +1,57 @@
+========================================
+SCHEMA REFERENCE: produits_catalogue
+========================================
+
+COLONNES VALIDES (après migrations 001 et 002)
+-----------------------------------------------
+
+COLONNES DE BASE (Migration 001):
+- id (UUID, PRIMARY KEY, auto-généré) ← NE PAS ENVOYER
+- code_produit (TEXT, UNIQUE, NOT NULL)
+- nom (TEXT, NOT NULL)
+- categorie (TEXT, NOT NULL)
+- description (TEXT, nullable)
+- unite_mesure (TEXT, default 'unité')
+- prix_unitaire (DECIMAL(10,2), nullable)
+- fournisseur (TEXT, nullable)
+- created_at (TIMESTAMPTZ, auto) ← NE PAS ENVOYER
+- updated_at (TIMESTAMPTZ, auto) ← NE PAS ENVOYER
+
+COLONNES DE CLASSIFICATION (Migration 002):
+- has_commission (BOOLEAN, default FALSE)
+- commission_rate (DECIMAL(5,2), default 0.00)
+- variant_group (TEXT, nullable)
+- variant_label (TEXT, nullable)
+- display_order (INTEGER, default 0)
+- is_active (BOOLEAN, default TRUE)
+- gazelle_product_id (INTEGER, nullable)
+- last_sync_at (TIMESTAMPTZ, nullable)
+
+COLONNES QUI N'EXISTENT PAS:
+❌ product_id → Utiliser gazelle_product_id
+❌ active → Utiliser is_active
+❌ ProductId → Utiliser gazelle_product_id
+❌ Active → Utiliser is_active
+
+MAPPING CORRECT (Gazelle V4 → Supabase V5):
+--------------------------------------------
+code_produit = Sku
+nom = Name
+categorie = Category
+description = Description
+unite_mesure = Unit
+prix_unitaire = UnitPrice
+fournisseur = Supplier
+has_commission = FALSE (n'existe pas dans V4)
+commission_rate = 0.00 (n'existe pas dans V4)
+variant_group = VariantGroup
+variant_label = VariantLabel
+display_order = DisplayOrder
+is_active = IsActive
+gazelle_product_id = ProductId
+last_sync_at = datetime.now()
+
+========================================
+CONSULTER CE DOCUMENT AVANT D'ÉCRIRE
+UN SCRIPT D'IMPORT/EXPORT!
+========================================

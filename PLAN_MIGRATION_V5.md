@@ -422,3 +422,5 @@ assistant-gazelle-v5/
 **Note**: Ce plan est évolutif. Commencer simple (Clients + MaintenanceAlerts), puis étendre progressivement.
 
 
+
+

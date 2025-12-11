@@ -134,3 +134,5 @@ Analyse tous les fichiers pertinents et propose :
   - Si `{"pianos": [...], "count": 90}` → l'API fonctionne, problème côté frontend
   - Si erreur 500 → problème dans le code Python
 
+
+
