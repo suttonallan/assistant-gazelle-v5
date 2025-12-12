@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from core.supabase_storage import SupabaseStorage
+from core.slack_notifier import SlackNotifier
 
 # Import du script de vérification de stock
 import sys
@@ -41,6 +42,12 @@ class ProduitCatalogueUpdate(BaseModel):
     unite_mesure: Optional[str] = None
     prix_unitaire: Optional[float] = None
     fournisseur: Optional[str] = None
+    has_commission: Optional[bool] = None
+    commission_rate: Optional[float] = None
+    variant_group: Optional[str] = None
+    variant_label: Optional[str] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 class AjustementStock(BaseModel):
@@ -50,6 +57,21 @@ class AjustementStock(BaseModel):
     emplacement: Optional[str] = "Atelier"
     motif: Optional[str] = ""
     created_by: Optional[str] = "system"
+
+
+class MiseAJourStock(BaseModel):
+    """Modèle pour mise à jour directe de quantité (format V4)."""
+    code_produit: str
+    technicien: str
+    quantite_stock: int
+    type_transaction: Optional[str] = "ajustement"
+    motif: Optional[str] = "Ajustement manuel"
+
+
+class CommentaireInventaire(BaseModel):
+    """Modèle pour commentaire rapide (notification Slack admin)."""
+    text: str
+    username: str
 
 
 # ============================================================
@@ -73,7 +95,7 @@ async def get_catalogue(
     categorie: Optional[str] = None,
     has_commission: Optional[bool] = None,
     variant_group: Optional[str] = None,
-    is_active: Optional[bool] = None  # None = tous les produits (pas de filtre)
+    is_active: Optional[bool] = None  # Changé: None au lieu de True (compatibilité avant migration 002)
 ):
     """
     Récupère le catalogue de produits avec filtres de classification.
@@ -82,7 +104,7 @@ async def get_catalogue(
         - categorie: Filtrer par catégorie (ex: "Cordes", "Feutres")
         - has_commission: Filtrer par commission (true/false)
         - variant_group: Filtrer par groupe de variantes (ex: "Cordes Piano")
-        - is_active: Filtrer par statut actif (None = tous, true = actifs seulement, false = inactifs seulement)
+        - is_active: Filtrer par statut actif (None = tous, avant migration 002)
     """
     try:
         storage = get_supabase_storage()
@@ -95,8 +117,6 @@ async def get_catalogue(
             filters["has_commission"] = has_commission
         if variant_group:
             filters["variant_group"] = variant_group
-        # Ne filtrer par is_active QUE si explicitement demandé
-        # Si None, on récupère tous les produits (même ceux sans is_active)
         if is_active is not None:
             filters["is_active"] = is_active
 
@@ -137,37 +157,6 @@ async def create_produit(produit: ProduitCatalogueCreate):
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
-@router.put("/catalogue/{code_produit}", response_model=Dict[str, Any])
-async def update_produit(code_produit: str, updates: ProduitCatalogueUpdate):
-    """
-    Met à jour un produit du catalogue.
-    """
-    try:
-        storage = get_supabase_storage()
-
-        # Ne garder que les champs fournis (non-None)
-        data = {k: v for k, v in updates.model_dump().items() if v is not None}
-        data["code_produit"] = code_produit
-
-        success = storage.update_data(
-            "produits_catalogue",
-            data,
-            id_field="code_produit",
-            upsert=False  # UPDATE uniquement
-        )
-
-        if success:
-            return {
-                "success": True,
-                "message": f"Produit {code_produit} mis à jour"
-            }
-        else:
-            raise HTTPException(status_code=404, detail=f"Produit {code_produit} introuvable")
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
-
-
 @router.delete("/catalogue/{code_produit}", response_model=Dict[str, Any])
 async def delete_produit(code_produit: str):
     """
@@ -197,7 +186,7 @@ async def delete_produit(code_produit: str):
 @router.get("/stock/{technicien}", response_model=Dict[str, Any])
 async def get_stock_technicien(technicien: str):
     """
-    Récupère l'inventaire complet d'un technicien avec les noms de produits.
+    Récupère l'inventaire complet d'un technicien.
 
     Path params:
         - technicien: Nom du technicien (ex: "Allan")
@@ -205,29 +194,68 @@ async def get_stock_technicien(technicien: str):
     try:
         storage = get_supabase_storage()
         inventaire = storage.get_inventaire_technicien(technicien)
-        
-        # Enrichir avec les noms de produits depuis le catalogue
-        catalogue = storage.get_data("produits_catalogue", filters={})
-        catalogue_dict = {p.get("code_produit"): p for p in catalogue}
-        
-        inventaire_enrichi = []
-        for item in inventaire:
-            code_produit = item.get("code_produit")
-            produit_catalogue = catalogue_dict.get(code_produit, {})
-            
-            # Ajouter les infos du catalogue
-            item_enrichi = item.copy()
-            item_enrichi["nom"] = produit_catalogue.get("nom", "-")
-            item_enrichi["categorie"] = produit_catalogue.get("categorie")
-            item_enrichi["unite_mesure"] = produit_catalogue.get("unite_mesure", "unité")
-            
-            inventaire_enrichi.append(item_enrichi)
 
         return {
             "technicien": technicien,
-            "inventaire": inventaire_enrichi,
-            "count": len(inventaire_enrichi)
+            "inventaire": inventaire,
+            "count": len(inventaire)
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.post("/stock", response_model=Dict[str, Any])
+async def mettre_a_jour_stock(maj: MiseAJourStock):
+    """
+    Met à jour directement le stock d'un produit (format V4).
+    Calcule automatiquement l'ajustement nécessaire.
+
+    Body:
+        - code_produit: Code du produit
+        - technicien: Nom du technicien
+        - quantite_stock: Nouvelle quantité absolue
+        - type_transaction: Type (défaut: "ajustement")
+        - motif: Raison de l'ajustement
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Récupérer la quantité actuelle
+        inventaire = storage.get_data(
+            "inventaire_techniciens",
+            filters={
+                "code_produit": maj.code_produit,
+                "technicien": maj.technicien
+            }
+        )
+
+        quantite_actuelle = 0
+        if inventaire:
+            quantite_actuelle = int(inventaire[0].get("quantite_stock", 0))
+
+        # Calculer l'ajustement
+        quantite_ajustement = maj.quantite_stock - quantite_actuelle
+
+        # Effectuer l'ajustement
+        success = storage.update_stock(
+            code_produit=maj.code_produit,
+            technicien=maj.technicien,
+            quantite_ajustement=quantite_ajustement,
+            emplacement="Atelier",
+            motif=maj.motif,
+            created_by="interface"
+        )
+
+        if success:
+            return {
+                "success": True,
+                "old_quantity": quantite_actuelle,
+                "new_quantity": maj.quantite_stock,
+                "message": f"Stock mis à jour pour {maj.technicien}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Échec de la mise à jour du stock")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
@@ -235,7 +263,7 @@ async def get_stock_technicien(technicien: str):
 @router.post("/stock/ajuster", response_model=Dict[str, Any])
 async def ajuster_stock(ajustement: AjustementStock):
     """
-    Ajuste le stock d'un produit pour un technicien.
+    Ajuste le stock d'un produit pour un technicien (delta).
 
     Body:
         - code_produit: Code du produit
@@ -268,6 +296,48 @@ async def ajuster_stock(ajustement: AjustementStock):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.post("/comment", response_model=Dict[str, Any])
+async def envoyer_commentaire(commentaire: CommentaireInventaire):
+    """
+    Envoie un commentaire rapide sur l'inventaire (notification Slack admin).
+    Format V4: Le technicien peut envoyer une demande/observation à l'admin via Slack.
+
+    Body:
+        - text: Texte du commentaire (ex: "Besoin urgent de coupelles brunes")
+        - username: Nom de l'utilisateur (ex: "Allan")
+
+    Returns:
+        Confirmation d'envoi
+    """
+    try:
+        # Envoyer notification Slack aux admins
+        success = SlackNotifier.notify_inventory_comment(
+            username=commentaire.username,
+            comment=commentaire.text,
+            notify_admin=True  # Notifier Allan (CTO)
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": "Commentaire envoyé, Slack a été notifié."
+            }
+        else:
+            # Ne pas bloquer si Slack échoue
+            return {
+                "success": True,
+                "message": "Commentaire enregistré (notification Slack échouée)."
+            }
+
+    except Exception as e:
+        print(f"⚠️ Erreur lors de l'envoi du commentaire: {e}")
+        # Ne pas renvoyer d'erreur HTTP pour ne pas bloquer l'utilisateur
+        return {
+            "success": True,
+            "message": "Commentaire enregistré (notification Slack échouée)."
+        }
 
 
 # ============================================================

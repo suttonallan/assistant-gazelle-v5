@@ -4,6 +4,7 @@ import LoginScreen from './components/LoginScreen'
 import DashboardHome from './components/DashboardHome'
 import AlertesRV from './components/AlertesRV'
 import InventaireDashboard from './components/InventaireDashboard'
+import InventaireTest from './components/InventaireTest'
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
