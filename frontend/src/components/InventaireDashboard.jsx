@@ -4,10 +4,12 @@ import ExportButton from './ExportButton'
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 // Configuration des techniciens (mappés depuis le guide V4)
+// IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets
+// Ordre fixe: ne peut pas être modifié dans l'interface (seulement display_order des produits dans Admin)
 const TECHNICIENS = [
   { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nicolas', username: 'nicolas' },
-  { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' }
+  { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
+  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nicolas', username: 'nicolas' }
 ]
 
 const InventaireDashboard = ({ currentUser }) => {
@@ -31,6 +33,19 @@ const InventaireDashboard = ({ currentUser }) => {
   const [editingProduct, setEditingProduct] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
 
+  // États pour onglet Types
+  const [selectedProducts, setSelectedProducts] = useState(new Set())
+  const [lastSelectedIndex, setLastSelectedIndex] = useState(null)
+  const [batchType, setBatchType] = useState('produit')
+  const [batchCommission, setBatchCommission] = useState(false)
+
+  // États pour onglet Sync Gazelle
+  const [gazelleProducts, setGazelleProducts] = useState([])
+  const [duplicates, setDuplicates] = useState([])
+  const [syncTab, setSyncTab] = useState('duplicates') // 'duplicates', 'import', 'manage'
+  const [draggedDuplicate, setDraggedDuplicate] = useState(null)
+  const [loadingGazelle, setLoadingGazelle] = useState(false)
+
   // Détection mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
 
@@ -50,17 +65,14 @@ const InventaireDashboard = ({ currentUser }) => {
       if (!catalogueRes.ok) throw new Error('Erreur chargement catalogue')
       const catalogueData = await catalogueRes.json()
 
-      // Charger les stocks de chaque technicien
-      const inventoryPromises = TECHNICIENS.map(tech =>
-        fetch(`${API_URL}/inventaire/stock/${tech.name}`)
-          .then(res => res.ok ? res.json() : { inventaire: [] })
-      )
-      const inventories = await Promise.all(inventoryPromises)
-
-      // Fusionner dans le format V4: products avec quantities{allan, nicolas, jeanphilippe}
+      // Créer le map de produits d'abord
       const productsMap = {}
-
       catalogueData.produits.forEach(prod => {
+        const quantities = {}
+        TECHNICIENS.forEach(tech => {
+          quantities[tech.username] = 0
+        })
+        
         productsMap[prod.code_produit] = {
           id: prod.code_produit,
           code_produit: prod.code_produit,
@@ -68,41 +80,81 @@ const InventaireDashboard = ({ currentUser }) => {
           original_name: prod.nom,
           sku: prod.code_produit,
           category: prod.categorie || 'Sans catégorie',
+          categorie: prod.categorie,
           variant_group: prod.variant_group,
           variant_label: prod.variant_label,
           prix_unitaire: prod.prix_unitaire,
           has_commission: prod.has_commission,
           commission_rate: prod.commission_rate,
+          type_produit: prod.type_produit,
           display_order: prod.display_order || 0,
           is_active: prod.is_active !== false,
-          quantities: {
-            allan: 0,
-            nicolas: 0,
-            jeanphilippe: 0
-          }
+          quantities
         }
       })
 
-      // Remplir les quantités depuis les inventaires
-      inventories.forEach((invData) => {
-        // Utiliser le champ 'technicien' retourné par l'API plutôt que l'index
-        const technicienName = invData.technicien
-        const tech = TECHNICIENS.find(t => t.name === technicienName)
+      // Charger les stocks de chaque technicien SÉQUENTIELLEMENT
+      console.log('🔍 === DÉBUT CHARGEMENT INVENTAIRES ===')
+      console.log('📋 Ordre TECHNICIENS:', TECHNICIENS.map(t => `${t.name} (${t.username})`).join(', '))
 
-        if (!tech) {
-          console.warn(`Technicien inconnu: ${technicienName}`)
-          return
-        }
+      for (const tech of TECHNICIENS) {
+        try {
+          console.log(`📦 Chargement pour: ${tech.name} (username: ${tech.username})`)
+          const res = await fetch(`${API_URL}/inventaire/stock/${tech.name}`)
+          if (res.ok) {
+            const invData = await res.json()
+            console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)
 
-        invData.inventaire?.forEach(item => {
-          if (productsMap[item.code_produit]) {
-            productsMap[item.code_produit].quantities[tech.username] = item.quantite_stock || 0
+            // Prendre les 3 premiers produits comme échantillon
+            const sampleItems = (invData.inventaire || []).slice(0, 3)
+            sampleItems.forEach(item => {
+              console.log(`   → ${item.code_produit}: ${item.quantite_stock} unités - ASSIGNÉ À "${tech.username}"`)
+            })
+
+            // Assigner les quantités - TOUJOURS utiliser le username du technicien de la boucle
+            // PAS celui retourné par l'API (pour éviter problèmes de casse/format)
+            invData.inventaire?.forEach(item => {
+              if (productsMap[item.code_produit]) {
+                productsMap[item.code_produit].quantities[tech.username] = item.quantite_stock || 0
+
+                // Debug détaillé pour les premiers items
+                if (item.code_produit === 'PROD-4' || item.code_produit === 'PROD-33') {
+                  console.log(`   🔧 ASSIGNATION: ${item.code_produit} → quantities["${tech.username}"] = ${item.quantite_stock}`)
+                }
+              }
+            })
           }
-        })
+        } catch (err) {
+          console.error(`❌ Erreur chargement inventaire ${tech.name}:`, err)
+        }
+      }
+
+      console.log('🏁 === FIN CHARGEMENT INVENTAIRES ===')
+
+      // Afficher un échantillon des quantités finales pour PROD-4 et PROD-33
+      console.log('📊 Vérification quantités finales:')
+      const testProducts = ['PROD-4', 'PROD-33']
+      testProducts.forEach(code => {
+        const prod = productsMap[code]
+        if (prod) {
+          console.log(`   ${code}:`)
+          console.log(`     Allan (quantities.allan) = ${prod.quantities.allan}`)
+          console.log(`     Nicolas (quantities.nicolas) = ${prod.quantities.nicolas}`)
+          console.log(`     Jean-Philippe (quantities.jeanphilippe) = ${prod.quantities.jeanphilippe}`)
+        }
       })
 
-      setProducts(Object.values(productsMap))
-      setCatalogueAdmin(Object.values(productsMap))
+      // Convertir en liste et trier UNIQUEMENT par display_order (pas de tri alphabétique)
+      const productsList = Object.values(productsMap)
+      productsList.sort((a, b) => {
+        const orderA = Number(a.display_order) || 999999
+        const orderB = Number(b.display_order) || 999999
+        return orderA - orderB
+      })
+      
+      
+      setProducts(productsList)
+      setCatalogueAdmin(productsList)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -129,21 +181,42 @@ const InventaireDashboard = ({ currentUser }) => {
 
   // Mise à jour de quantité (édition inline)
   const updateQuantity = async (productId, techUsername, newQuantity) => {
+    const quantityValue = parseInt(newQuantity) || 0
+    
+    // Mise à jour optimiste de l'état local (sans recharger la page)
+    setProducts(prevProducts => 
+      prevProducts.map(p => {
+        if (p.code_produit === productId) {
+          return {
+            ...p,
+            quantities: {
+              ...p.quantities,
+              [techUsername]: quantityValue
+            }
+          }
+        }
+        return p
+      })
+    )
+
     try {
-      // TODO: Adapter endpoint pour mise à jour
       const response = await fetch(`${API_URL}/inventaire/stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_produit: productId,
           technicien: TECHNICIENS.find(t => t.username === techUsername)?.name || 'Allan',
-          quantite_stock: parseInt(newQuantity) || 0,
+          quantite_stock: quantityValue,
           type_transaction: 'ajustement',
           motif: 'Ajustement manuel'
         })
       })
 
-      if (!response.ok) throw new Error('Erreur mise à jour')
+      if (!response.ok) {
+        // En cas d'erreur, recharger pour récupérer l'état correct
+        await loadInventory()
+        throw new Error('Erreur mise à jour')
+      }
 
       // Feedback visuel vert 1 seconde
       setUpdateFeedback(prev => ({ ...prev, [productId + techUsername]: true }))
@@ -155,9 +228,10 @@ const InventaireDashboard = ({ currentUser }) => {
         })
       }, 1000)
 
-      // Recharger l'inventaire
-      await loadInventory()
+      // Ne PAS recharger l'inventaire - la mise à jour optimiste suffit
     } catch (err) {
+      // En cas d'erreur, recharger pour récupérer l'état correct
+      await loadInventory()
       alert('Erreur: ' + err.message)
     }
   }
@@ -186,27 +260,24 @@ const InventaireDashboard = ({ currentUser }) => {
     }
   }
 
-  // Grouper produits par catégorie
+  // Grouper produits par catégorie (exclut les services de l'inventaire technicien)
   const groupByCategory = () => {
     const groups = {}
     products
       .filter(p => p.is_active !== false)
+      .filter(p => p.type_produit !== 'service') // Exclure les services
       .forEach(product => {
         const cat = product.categorie || 'Sans catégorie'
         if (!groups[cat]) groups[cat] = []
         groups[cat].push(product)
       })
 
-    // Trier chaque groupe par display_order puis nom
+    // Trier chaque groupe UNIQUEMENT par display_order (pas de tri alphabétique)
     Object.keys(groups).forEach(cat => {
       groups[cat].sort((a, b) => {
-        if (a.display_order !== b.display_order) {
-          return (a.display_order || 0) - (b.display_order || 0)
-        }
-        if (a.variant_group && b.variant_group && a.variant_group === b.variant_group) {
-          return (a.variant_label || '').localeCompare(b.variant_label || '')
-        }
-        return (a.nom || '').localeCompare(b.nom || '')
+        const orderA = Number(a.display_order) || 999999
+        const orderB = Number(b.display_order) || 999999
+        return orderA - orderB
       })
     })
 
@@ -352,19 +423,35 @@ const InventaireDashboard = ({ currentUser }) => {
           Transactions
         </button>
         {currentUserIsAdmin && (
-          <button
-            onClick={() => {
-              setActiveTab('admin')
-              setCatalogueAdmin([...products])
-            }}
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'admin'
-                ? 'border-b-2 border-blue-500 text-blue-600'
-                : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            Admin
-          </button>
+          <>
+            <button
+              onClick={() => {
+                setActiveTab('sync')
+              }}
+              className={`px-4 py-2 font-medium ${
+                activeTab === 'sync'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              🔄 Sync Gazelle
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('admin')
+                setCatalogueAdmin([...products])
+                setSelectedProducts(new Set())
+                setLastSelectedIndex(null)
+              }}
+              className={`px-4 py-2 font-medium ${
+                activeTab === 'admin'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Admin
+            </button>
+          </>
         )}
       </div>
 
@@ -372,34 +459,34 @@ const InventaireDashboard = ({ currentUser }) => {
       {activeTab === 'inventaire' && (
         <div>
           {/* Zone commentaire rapide */}
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              💬 Commentaire rapide (notifie le CTO via Slack)
+          <div className={`mb-4 bg-blue-50 border border-blue-200 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
+            <label className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-700 mb-2`}>
+              💬 Commentaire rapide {!isMobile && '(notifie le CTO via Slack)'}
             </label>
-            <div className="flex gap-2">
+            <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2`}>
               <input
                 type="text"
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && submitComment()}
-                placeholder="Ex: Besoin urgent de coupelles brunes..."
-                className="flex-1 border rounded px-3 py-2 text-sm"
+                placeholder={isMobile ? "Commentaire..." : "Ex: Besoin urgent de coupelles brunes..."}
+                className={`flex-1 border rounded ${isMobile ? 'px-2 py-2 text-base' : 'px-3 py-2 text-sm'}`}
               />
               <button
                 onClick={submitComment}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
+                className={`${isMobile ? 'w-full px-4 py-2.5' : 'px-4 py-2'} bg-blue-600 text-white rounded hover:bg-blue-700 font-medium ${isMobile ? 'text-base' : 'text-sm'}`}
               >
                 Envoyer
               </button>
             </div>
           </div>
 
-          {/* Tableau multi-colonnes avec sticky */}
-          <div className="bg-white rounded-lg shadow overflow-auto" style={{ maxHeight: '70vh' }}>
+          {/* Tableau multi-colonnes avec sticky - Optimisé mobile */}
+          <div className="bg-white rounded-lg shadow overflow-auto" style={{ maxHeight: isMobile ? '80vh' : '70vh' }}>
             <table className="min-w-full border-collapse">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase border-b sticky left-0 bg-gray-50 z-20">
+                  <th className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-left text-xs font-medium text-gray-500 uppercase border-b sticky left-0 bg-gray-50 z-20`}>
                     Produit
                   </th>
                   {TECHNICIENS.map(tech => {
@@ -410,9 +497,9 @@ const InventaireDashboard = ({ currentUser }) => {
                     return (
                       <th
                         key={tech.username}
-                        className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-b"
+                        className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center text-xs font-medium text-gray-500 uppercase border-b`}
                       >
-                        {tech.name}
+                        {isMobile ? tech.name.substring(0, 4) : tech.name}
                       </th>
                     )
                   })}
@@ -422,10 +509,10 @@ const InventaireDashboard = ({ currentUser }) => {
                 {Object.entries(categoryGroups).map(([category, categoryProducts]) => (
                   <React.Fragment key={category}>
                     {/* Ligne catégorie */}
-                    <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: '48px', zIndex: 9 }}>
+                    <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
                       <td
                         colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
-                        className="px-4 py-2 font-bold text-gray-800 border-b"
+                        className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
                         onClick={() => toggleCategory(category)}
                       >
                         {collapsedCategories.has(category) ? '▶' : '▼'} {category}
@@ -435,11 +522,11 @@ const InventaireDashboard = ({ currentUser }) => {
                     {/* Lignes produits */}
                     {!collapsedCategories.has(category) && categoryProducts.map(product => (
                       <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
-                        <td className="px-4 py-3 text-sm text-gray-900 sticky left-0 bg-white border-r font-medium" style={{ minWidth: '200px' }}>
-                          <div>
+                        <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
+                          <div className={isMobile ? 'text-xs' : 'text-sm'}>
                             {product.name}
                             {product.variant_label && (
-                              <span className="text-xs text-gray-500 ml-2">
+                              <span className="text-xs text-gray-500 ml-1">
                                 ({product.variant_label})
                               </span>
                             )}
@@ -463,7 +550,7 @@ const InventaireDashboard = ({ currentUser }) => {
                           return (
                             <td
                               key={tech.username}
-                              className="px-4 py-3 text-center"
+                              className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center`}
                             >
                               <input
                                 type="number"
@@ -472,7 +559,7 @@ const InventaireDashboard = ({ currentUser }) => {
                                 onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
                                 onFocus={(e) => e.target.select()}
                                 onClick={(e) => e.target.select()}
-                                className={`w-20 px-2 py-1 text-center border rounded text-sm ${
+                                className={`${isMobile ? 'w-16 text-base' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
                                   isMyColumn ? 'bg-green-50 border-green-300 font-bold' : 'border-gray-300'
                                 } ${hasFeedback ? 'bg-green-200' : ''}`}
                                 style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
@@ -535,40 +622,116 @@ const InventaireDashboard = ({ currentUser }) => {
         </div>
       )}
 
-      {/* ONGLET ADMIN (UI Admin V4) */}
+
+      {/* ONGLET ADMIN (UI Admin V4) - Fusionné avec Types */}
       {activeTab === 'admin' && currentUserIsAdmin && (
         <div>
+          {/* Barre d'actions batch (Types et Commissions) */}
+          {selectedProducts.size > 0 && (
+            <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="flex gap-4 items-center flex-wrap">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Type:</label>
+                  <select
+                    value={batchType}
+                    onChange={(e) => {
+                      setBatchType(e.target.value)
+                      if (e.target.value === 'fourniture') {
+                        setBatchCommission(false)
+                      }
+                    }}
+                    className="border rounded px-3 py-2 text-sm"
+                  >
+                    <option value="produit">Produit</option>
+                    <option value="service">Service</option>
+                    <option value="fourniture">Fourniture</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={batchCommission}
+                      onChange={(e) => setBatchCommission(e.target.checked)}
+                      disabled={batchType === 'fourniture'}
+                      className="w-4 h-4"
+                    />
+                    <span className={batchType === 'fourniture' ? 'text-gray-400' : 'text-gray-700'}>
+                      Commissionnable (10%)
+                    </span>
+                  </label>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    if (selectedProducts.size === 0) {
+                      alert('Sélectionnez au moins un produit')
+                      return
+                    }
+
+                    try {
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/batch-type-commission`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          codes_produit: Array.from(selectedProducts),
+                          type_produit: batchType,
+                          has_commission: batchCommission
+                        })
+                      })
+
+                      if (!response.ok) throw new Error('Erreur mise à jour')
+
+                      const result = await response.json()
+                      alert(result.message)
+
+                      await loadInventory()
+                      setSelectedProducts(new Set())
+                      setLastSelectedIndex(null)
+                    } catch (err) {
+                      alert('Erreur: ' + err.message)
+                    }
+                  }}
+                  disabled={selectedProducts.size === 0}
+                  className={`px-4 py-2 rounded font-medium ${
+                    selectedProducts.size > 0
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  Appliquer à {selectedProducts.size} produit{selectedProducts.size > 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="mb-4 flex justify-between items-center flex-wrap gap-4">
-            <div className="flex gap-4 items-center flex-wrap">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Rechercher: nom, code, catégorie, variante..."
-                className="border rounded px-3 py-2 text-sm w-80"
-              />
-              <button
-                onClick={() => loadInventory()}
-                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 font-medium"
-              >
-                🔄 Actualiser
-              </button>
-            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Rechercher: nom, code, catégorie, variante..."
+              className="border rounded px-3 py-2 text-sm w-80"
+            />
 
             <div className="flex gap-2">
               <ExportButton
                 data={catalogueAdmin}
                 filename="catalogue_admin"
               />
-              {hasChanges && (
-                <button
-                  onClick={saveOrder}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium"
-                >
-                  💾 Sauvegarder l'ordre
-                </button>
-              )}
+              <button
+                onClick={saveOrder}
+                className={`px-4 py-2 rounded font-medium ${
+                  hasChanges
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                }`}
+                disabled={!hasChanges}
+              >
+                💾 Sauvegarder l'ordre
+              </button>
             </div>
           </div>
 
@@ -577,21 +740,46 @@ const InventaireDashboard = ({ currentUser }) => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-4 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.size === filteredProducts.length && filteredProducts.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedProducts(new Set(filteredProducts.map(p => p.code_produit)))
+                        } else {
+                          setSelectedProducts(new Set())
+                        }
+                        setLastSelectedIndex(null)
+                      }}
+                      className="w-4 h-4"
+                      title="Sélectionner tous les produits"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ordre</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Commission</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variante</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Allan</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nicolas</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">JP</th>
+                  {TECHNICIENS.map(tech => (
+                    <th key={tech.username} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      {tech.name}
+                    </th>
+                  ))}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredProducts
                   .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                  .map((product, index) => (
+                  .map((product, index) => {
+                    const isSelected = selectedProducts.has(product.code_produit)
+                    const typeLabel = product.type_produit || '(non défini)'
+                    const hasCommission = product.has_commission || false
+                    
+                    return (
                   <tr
                     key={product.code_produit}
                     draggable
@@ -601,8 +789,44 @@ const InventaireDashboard = ({ currentUser }) => {
                     onDragEnd={handleDragEnd}
                     className={`hover:bg-gray-50 cursor-move ${
                       draggedItem?.code_produit === product.code_produit ? 'opacity-50' : ''
-                    } ${!product.is_active ? 'bg-gray-100 line-through text-gray-400' : ''}`}
+                    } ${!product.is_active ? 'bg-gray-100 line-through text-gray-400' : ''} ${isSelected ? 'bg-blue-50' : ''}`}
                   >
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedProducts)
+
+                          // Shift+Click : sélection range
+                          if (e.nativeEvent.shiftKey && lastSelectedIndex !== null) {
+                            const sortedFiltered = [...filteredProducts].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                            const start = Math.min(lastSelectedIndex, index)
+                            const end = Math.max(lastSelectedIndex, index)
+
+                            for (let i = start; i <= end; i++) {
+                              if (e.target.checked) {
+                                newSelected.add(sortedFiltered[i].code_produit)
+                              } else {
+                                newSelected.delete(sortedFiltered[i].code_produit)
+                              }
+                            }
+                          } else {
+                            // Clic simple : toggle
+                            if (e.target.checked) {
+                              newSelected.add(product.code_produit)
+                            } else {
+                              newSelected.delete(product.code_produit)
+                            }
+                          }
+
+                          setSelectedProducts(newSelected)
+                          setLastSelectedIndex(index)
+                        }}
+                        className="w-4 h-4"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       <div className="flex items-center gap-2">
                         <input
@@ -618,7 +842,13 @@ const InventaireDashboard = ({ currentUser }) => {
                             setCatalogueAdmin(updated)
                             setHasChanges(true)
                           }}
-                          className="w-16 border rounded px-2 py-1 text-sm"
+                          className={`w-20 border-2 rounded px-3 py-1 text-sm font-medium ${
+                            searchQuery
+                              ? 'border-blue-500 bg-blue-50 text-blue-900'
+                              : 'border-gray-300'
+                          }`}
+                          title="Modifier la position - Cliquez pour changer l'ordre d'affichage"
+                          placeholder="Position"
                         />
                         <div className="flex flex-col">
                           <button
@@ -657,6 +887,25 @@ const InventaireDashboard = ({ currentUser }) => {
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{product.code_produit}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{product.name}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{product.category}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        !product.type_produit ? 'bg-gray-100 text-gray-500 italic' :
+                        product.type_produit === 'service' ? 'bg-purple-100 text-purple-700' :
+                        product.type_produit === 'fourniture' ? 'bg-orange-100 text-orange-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>
+                        {typeLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center text-sm">
+                      {product.type_produit === 'fourniture' ? (
+                        <span className="text-gray-400 text-xs">- (bloqué)</span>
+                      ) : hasCommission ? (
+                        <span className="text-green-600 font-medium">✅ 10%</span>
+                      ) : (
+                        <span className="text-gray-400">❌</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
                       {product.variant_group && (
                         <div>
@@ -665,15 +914,28 @@ const InventaireDashboard = ({ currentUser }) => {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-center">
-                      {product.quantities?.allan || 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-center">
-                      {product.quantities?.nicolas || 0}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 text-center">
-                      {product.quantities?.jeanphilippe || 0}
-                    </td>
+                    {TECHNICIENS.map(tech => {
+                      const qty = product.quantities?.[tech.username] || 0
+                      const feedbackKey = product.code_produit + tech.username
+                      const hasFeedback = updateFeedback[feedbackKey]
+                      
+                      return (
+                        <td key={tech.username} className="px-4 py-3 text-sm text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            value={qty}
+                            onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => e.target.select()}
+                            className={`w-20 px-2 py-1 text-center border rounded text-sm ${
+                              hasFeedback ? 'bg-green-200 border-green-400' : 'border-gray-300'
+                            }`}
+                            style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
+                          />
+                        </td>
+                      )
+                    })}
                     <td className="px-4 py-3 text-sm">
                       <div className="flex gap-2">
                         <button
@@ -682,6 +944,7 @@ const InventaireDashboard = ({ currentUser }) => {
                             setShowEditModal(true)
                           }}
                           className="text-blue-600 hover:text-blue-800 font-medium text-xs"
+                          title="Modifier le produit"
                         >
                           ✏️
                         </button>
@@ -692,32 +955,371 @@ const InventaireDashboard = ({ currentUser }) => {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
-                                  ...product,
                                   is_active: !product.is_active
                                 })
                               })
-                              if (!response.ok) throw new Error('Erreur toggle')
+                              if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                                throw new Error(errorData.detail || 'Erreur toggle')
+                              }
                               await loadInventory()
                             } catch (err) {
                               alert('Erreur: ' + err.message)
                             }
                           }}
                           className={`font-medium text-xs ${
-                            product.is_active ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'
+                            product.is_active ? 'text-orange-600 hover:text-orange-800' : 'text-green-600 hover:text-green-800'
                           }`}
+                          title={product.is_active ? 'Masquer de l\'inventaire technicien (reste visible en Admin)' : 'Afficher dans l\'inventaire technicien'}
                         >
                           {product.is_active ? '🚫' : '✅'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(
+                              `⚠️ Supprimer définitivement "${product.name}" (${product.code_produit}) ?\n\n` +
+                              `Cette action est irréversible et supprimera aussi toutes les données d'inventaire associées.`
+                            )) {
+                              return
+                            }
+                            
+                            try {
+                              // Encoder le code_produit pour gérer les caractères spéciaux dans l'URL
+                              const encodedCode = encodeURIComponent(product.code_produit)
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/${encodedCode}`, {
+                                method: 'DELETE'
+                              })
+                              
+                              if (!response.ok) {
+                                let errorMessage = 'Erreur suppression'
+                                try {
+                                  const errorData = await response.json()
+                                  errorMessage = errorData.detail || errorData.message || errorMessage
+                                } catch {
+                                  errorMessage = `Erreur ${response.status}: ${response.statusText}`
+                                }
+                                throw new Error(errorMessage)
+                              }
+                              
+                              const result = await response.json().catch(() => ({}))
+                              alert(result.message || '✅ Produit supprimé définitivement')
+                              await loadInventory()
+                            } catch (err) {
+                              alert('Erreur: ' + err.message)
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-800 font-medium text-xs"
+                          title="Supprimer définitivement le produit"
+                        >
+                          🗑️
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                    )
+                  })}
               </tbody>
             </table>
             {filteredProducts.length === 0 && (
               <div className="p-8 text-center text-gray-500">Aucun produit trouvé</div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ONGLET SYNC GAZELLE (Mapping et fusion) */}
+      {activeTab === 'sync' && currentUserIsAdmin && (
+        <div>
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">🔄 Synchronisation Gazelle</h2>
+            <p className="text-sm text-gray-600">
+              Associez vos produits locaux avec Gazelle Master Service Items et synchronisez les prix
+            </p>
+          </div>
+
+          {/* Sub-tabs */}
+          <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setSyncTab('duplicates')}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'duplicates'
+                  ? 'border-b-2 border-purple-500 text-purple-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              🔍 Doublons suggérés
+            </button>
+            <button
+              onClick={() => setSyncTab('import')}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'import'
+                  ? 'border-b-2 border-purple-500 text-purple-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📥 Catalogue Gazelle
+            </button>
+          </div>
+
+          {/* Sub-tab: Doublons suggérés avec drag & drop */}
+          {syncTab === 'duplicates' && (
+            <div>
+              <div className="mb-4 flex gap-3 flex-wrap">
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoadingGazelle(true)
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/sync-gazelle`, { method: 'POST' })
+                      const data = await response.json()
+                      alert(
+                        `🔄 Synchronisation terminée!\n\n` +
+                        `✅ ${data.updated} produits mis à jour\n` +
+                        `📦 ${data.total} produits associés à Gazelle\n` +
+                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
+                      )
+                      await loadInventory()
+                    } catch (err) {
+                      alert('❌ Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-semibold shadow-md"
+                >
+                  {loadingGazelle ? '⏳ Synchronisation...' : '🔄 Sync auto (produits déjà associés)'}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoadingGazelle(true)
+                      const response = await fetch(`${API_URL}/inventaire/gazelle/find-duplicates?threshold=0.75`)
+                      
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
+                      
+                      const data = await response.json()
+                      const duplicatesList = data.duplicates || []
+                      const count = data.count !== undefined ? data.count : duplicatesList.length
+                      
+                      setDuplicates(duplicatesList)
+                      
+                      if (count > 0) {
+                        alert(`✅ ${count} doublon${count > 1 ? 's' : ''} potentiel${count > 1 ? 's' : ''} détecté${count > 1 ? 's' : ''}`)
+                      } else {
+                        alert('ℹ️ Aucun doublon détecté avec un seuil de similarité de 75%')
+                      }
+                    } catch (err) {
+                      alert('Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {loadingGazelle ? '⏳ Analyse...' : '🔍 Détecter nouveaux doublons'}
+                </button>
+                <span className="text-sm text-gray-600 self-center">
+                  {duplicates.length > 0 && `${duplicates.length} doublons trouvés`}
+                </span>
+              </div>
+
+              {duplicates.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Cliquez sur "Détecter les doublons" pour trouver les produits similaires entre votre catalogue et Gazelle
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-blue-800">
+                      💡 <strong>Glissez-déposez</strong> un produit Gazelle (violet) sur un produit local (bleu) pour les fusionner
+                    </p>
+                  </div>
+
+                  {duplicates.map((dup, idx) => (
+                    <div key={idx} className="border border-gray-300 rounded-lg p-4 bg-white">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Produit LOCAL (drop zone) */}
+                        <div
+                          className="border-2 border-blue-300 bg-blue-50 rounded p-3 relative"
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={async (e) => {
+                            e.preventDefault()
+                            if (draggedDuplicate && draggedDuplicate.gazelle_id) {
+                              const confirmMerge = window.confirm(
+                                `Associer "${draggedDuplicate.gazelle_nom}" (Gazelle) avec "${dup.local_nom}" ?\\n\\nPrix Gazelle: ${draggedDuplicate.price_diff.toFixed(2)}$ de différence`
+                              )
+                              if (confirmMerge) {
+                                try {
+                                  const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      code_produit: dup.local_code,
+                                      gazelle_product_id: draggedDuplicate.gazelle_id,
+                                      update_prices: true
+                                    })
+                                  })
+                                  if (!response.ok) throw new Error('Erreur association')
+
+                                  alert('✅ Produit associé!')
+                                  setDuplicates(duplicates.filter((_, i) => i !== idx))
+                                  await loadInventory()
+                                } catch (err) {
+                                  alert('Erreur: ' + err.message)
+                                }
+                              }
+                              setDraggedDuplicate(null)
+                            }
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded">LOCAL</span>
+                            <span className="font-mono text-xs text-gray-600">{dup.local_code}</span>
+                          </div>
+                          <p className="font-semibold text-gray-800 mb-1">{dup.local_nom}</p>
+                        </div>
+
+                        {/* Produit GAZELLE (draggable) */}
+                        <div
+                          draggable
+                          onDragStart={() => setDraggedDuplicate(dup)}
+                          onDragEnd={() => setDraggedDuplicate(null)}
+                          className="border-2 border-purple-300 bg-purple-50 rounded p-3 cursor-move hover:shadow-lg transition-shadow"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded">GAZELLE</span>
+                              <span className="text-xs font-bold text-green-600">{dup.similarity}%</span>
+                            </div>
+                          </div>
+                          <p className="font-semibold text-gray-800 mb-1">{dup.gazelle_nom}</p>
+                          <p className="text-xs text-gray-600">Diff prix: {dup.price_diff.toFixed(2)}$</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  code_produit: dup.local_code,
+                                  gazelle_product_id: dup.gazelle_id,
+                                  update_prices: true
+                                })
+                              })
+                              if (!response.ok) throw new Error('Erreur')
+                              alert('✅ Associé!')
+                              setDuplicates(duplicates.filter((_, i) => i !== idx))
+                              await loadInventory()
+                            } catch (err) {
+                              alert('Erreur: ' + err.message)
+                            }
+                          }}
+                          className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          ✓ Associer
+                        </button>
+                        <button
+                          onClick={() => setDuplicates(duplicates.filter((_, i) => i !== idx))}
+                          className="px-3 py-1 text-sm bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                        >
+                          ✕ Ignorer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sub-tab: Importer depuis Gazelle */}
+          {syncTab === 'import' && (
+            <div>
+              <button
+                onClick={async () => {
+                  try {
+                    setLoadingGazelle(true)
+                    const response = await fetch(`${API_URL}/inventaire/gazelle/products`)
+                    const data = await response.json()
+                    setGazelleProducts(data.products || [])
+                    alert(`${data.count} produits chargés`)
+                  } catch (err) {
+                    alert('Erreur: ' + err.message)
+                  } finally {
+                    setLoadingGazelle(false)
+                  }
+                }}
+                disabled={loadingGazelle}
+                className="mb-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+              >
+                {loadingGazelle ? '⏳ Chargement...' : '📥 Charger Master Service Items'}
+              </button>
+
+              {gazelleProducts.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Chargez les Master Service Items pour voir tous les produits Gazelle
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {gazelleProducts.map((gp, idx) => (
+                    <div key={idx} className="border rounded p-3 bg-white flex justify-between">
+                      <div className="flex-1">
+                        <p className="font-semibold">{gp.nom_fr}</p>
+                        {gp.description && <p className="text-sm text-gray-600">{gp.description}</p>}
+                        <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                          <span>Prix: {gp.prix_unitaire}$</span>
+                          <span>Groupe: {gp.groupe_fr}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const code = prompt('Code produit (ex: SRV-001):')
+                          if (!code) return
+                          try {
+                            await fetch(`${API_URL}/inventaire/catalogue`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                code_produit: code,
+                                nom: gp.nom_fr,
+                                categorie: gp.groupe_fr || 'Service',
+                                description: gp.description_fr,
+                                prix_unitaire: gp.prix_unitaire
+                              })
+                            })
+                            await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                code_produit: code,
+                                gazelle_product_id: gp.gazelle_id,
+                                update_prices: false
+                              })
+                            })
+                            alert('✅ Importé!')
+                            await loadInventory()
+                          } catch (err) {
+                            alert('Erreur: ' + err.message)
+                          }
+                        }}
+                        className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+                      >
+                        + Importer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

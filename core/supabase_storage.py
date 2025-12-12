@@ -14,9 +14,6 @@ import requests
 class SupabaseStorage:
     """Gère le stockage des modifications de pianos dans Supabase."""
     
-    # Flag pour savoir si commission_rate existe (cache)
-    _commission_columns_available = None
-    
     def __init__(self, supabase_url: Optional[str] = None, supabase_key: Optional[str] = None):
         """
         Initialise le stockage Supabase.
@@ -211,7 +208,8 @@ class SupabaseStorage:
         table_name: str,
         data: Dict[str, Any],
         id_field: str = "id",
-        upsert: bool = True
+        upsert: bool = True,
+        auto_timestamp: bool = True
     ) -> bool:
         """
         Méthode générique pour mettre à jour ou insérer des données dans n'importe quelle table Supabase.
@@ -221,6 +219,7 @@ class SupabaseStorage:
             data: Dictionnaire des données à sauvegarder
             id_field: Nom du champ servant d'identifiant unique (défaut: "id")
             upsert: Si True, utilise UPSERT (insert ou update). Si False, uniquement UPDATE.
+            auto_timestamp: Si True, ajoute automatiquement updated_at (défaut: True)
 
         Returns:
             True si l'opération a réussi
@@ -239,110 +238,17 @@ class SupabaseStorage:
             )
         """
         try:
-            # Correction automatique des colonnes incorrectes pour produits_catalogue
-            if table_name == "produits_catalogue":
-                # Vérifier si la migration 002 est exécutée (une seule fois, en cache)
-                if SupabaseStorage._commission_columns_available is None:
-                    # Tester si display_order existe (colonne de la migration 002)
-                    try:
-                        test_url = f"{self.api_url}/produits_catalogue?select=display_order&limit=1"
-                        test_response = requests.get(test_url, headers=self._get_headers())
-                        SupabaseStorage._commission_columns_available = test_response.status_code == 200
-                    except:
-                        SupabaseStorage._commission_columns_available = False
-                
-                # Colonnes de la migration 002
-                migration_002_columns = {
-                    "has_commission", "commission_rate", "variant_group", "variant_label",
-                    "display_order", "is_active", "gazelle_product_id", "last_sync_at"
-                }
-                
-                # Liste des colonnes de BASE (migration 001) - TOUJOURS disponibles
-                valid_columns = {
-                    "code_produit", "nom", "categorie", "description", "unite_mesure",
-                    "prix_unitaire", "fournisseur", "updated_at"
-                }
-                
-                # Ajouter les colonnes de la migration 002 seulement si elles existent
-                if SupabaseStorage._commission_columns_available:
-                    valid_columns.update(migration_002_columns)
-                else:
-                    # RETIRER TOUTES les colonnes de la migration 002 si elles n'existent pas
-                    for col in migration_002_columns:
-                        if col in data:
-                            del data[col]
-                
-                # Corrections automatiques (toutes les variantes possibles)
-                corrections = {
-                    "product_id": "gazelle_product_id",
-                    "ProductId": "gazelle_product_id",
-                    "PRODUCT_ID": "gazelle_product_id",
-                    "active": "is_active",
-                    "Active": "is_active",
-                    "IsActive": "is_active",
-                    "ACTIVE": "is_active",
-                }
-                
-                # Appliquer les corrections - VERSION ROBUSTE
-                corrected_data = {}
-                for key, value in data.items():
-                    # Ignorer les colonnes auto-générées
-                    if key in ("id", "created_at"):
-                        continue
-                    
-                    # Appliquer les corrections de noms (insensible à la casse)
-                    key_lower = key.lower()
-                    new_key = key  # Par défaut, garder le nom original
-                    
-                    # Chercher une correction (insensible à la casse)
-                    for old_key, new_key_val in corrections.items():
-                        if old_key.lower() == key_lower:
-                            new_key = new_key_val
-                            break
-                    
-                    # Garder uniquement les colonnes valides
-                    if new_key in valid_columns:
-                        if new_key not in corrected_data:  # Ne pas écraser si déjà présent
-                            corrected_data[new_key] = value
-                    # Ignorer silencieusement les colonnes invalides
-                
-                # Si commission_rate ou has_commission n'existent pas encore (migration 002 pas exécutée),
-                # les retirer AVANT d'envoyer pour éviter les erreurs
-                # On peut détecter ça en essayant une requête de test, mais pour l'instant on les retire
-                # si on a déjà eu une erreur précédemment (on pourrait mettre un flag, mais simplifions)
-                # Pour l'instant, on les garde et on les retirera seulement si erreur
-                
-                data = corrected_data
-                
-                # Vérifier que les colonnes requises sont présentes
-                if not data.get("code_produit"):
-                    raise ValueError("code_produit est requis pour produits_catalogue")
-            
-            # Ajouter updated_at automatiquement
-            if "updated_at" not in data:
+            # Ajouter updated_at automatiquement (sauf pour transactions)
+            if auto_timestamp and "updated_at" not in data:
                 data["updated_at"] = datetime.now().isoformat()
 
             headers = self._get_headers()
 
             if upsert:
                 # Mode UPSERT : insère ou met à jour
-                # Pour Supabase, si id_field n'est pas "id", on doit utiliser PATCH avec le filtre
-                if id_field != "id" and id_field in data:
-                    id_value = data[id_field]
-                    # Essayer d'abord un PATCH (update si existe)
-                    url = f"{self.api_url}/{table_name}?{id_field}=eq.{id_value}"
-                    response = requests.patch(url, headers=headers, json=data)
-                    
-                    # Si 404 (n'existe pas), faire un POST (insert)
-                    if response.status_code == 404:
-                        url = f"{self.api_url}/{table_name}"
-                        headers["Prefer"] = "return=representation"
-                        response = requests.post(url, headers=headers, json=data)
-                else:
-                    # UPSERT standard avec "id"
-                    headers["Prefer"] = "resolution=merge-duplicates"
-                    url = f"{self.api_url}/{table_name}"
-                    response = requests.post(url, headers=headers, json=data)
+                headers["Prefer"] = "resolution=merge-duplicates"
+                url = f"{self.api_url}/{table_name}"
+                response = requests.post(url, headers=headers, json=data)
             else:
                 # Mode UPDATE uniquement : requiert que l'enregistrement existe
                 if id_field not in data:
@@ -353,59 +259,14 @@ class SupabaseStorage:
                 response = requests.patch(url, headers=headers, json=data)
 
             if response.status_code in [200, 201, 204]:
+                print(f"✅ Données sauvegardées dans {table_name}")
                 return True
             else:
-                # Afficher l'erreur complète pour diagnostic
-                try:
-                    error_json = response.json()
-                    error_msg = error_json.get('message', response.text)
-                    error_full = f"❌ Erreur Supabase {response.status_code}: {error_msg}"
-                except:
-                    error_msg = response.text
-                    error_full = f"❌ Erreur Supabase {response.status_code}: {error_msg}"
-                
-                # Si l'erreur concerne une colonne de la migration 002, mettre à jour le flag et réessayer
-                migration_002_cols = ["commission_rate", "has_commission", "display_order", "is_active", 
-                                     "variant_group", "variant_label", "gazelle_product_id", "last_sync_at"]
-                if table_name == "produits_catalogue" and any(col in error_msg.lower() for col in migration_002_cols):
-                    # Marquer que la migration 002 n'est pas exécutée
-                    SupabaseStorage._commission_columns_available = False
-                    
-                    # Retirer TOUTES les colonnes de la migration 002
-                    for col in migration_002_cols:
-                        if col in data:
-                            del data[col]
-                    
-                    # Réessayer sans ces colonnes
-                    headers_retry = self._get_headers()
-                    if upsert:
-                        headers_retry["Prefer"] = "resolution=merge-duplicates"
-                        url_retry = f"{self.api_url}/{table_name}"
-                        response_retry = requests.post(url_retry, headers=headers_retry, json=data)
-                    else:
-                        id_value = data.get(id_field)
-                        if id_value:
-                            url_retry = f"{self.api_url}/{table_name}?{id_field}=eq.{id_value}"
-                            response_retry = requests.patch(url_retry, headers=headers_retry, json=data)
-                        else:
-                            response_retry = response
-                    
-                    if response_retry.status_code in [200, 201, 204]:
-                        return True
-                    else:
-                        # Si ça échoue encore, afficher l'erreur
-                        try:
-                            error_retry = response_retry.json().get('message', response_retry.text)
-                            print(f"❌ Erreur Supabase {response_retry.status_code}: {error_retry}", flush=True)
-                        except:
-                            print(f"❌ Erreur Supabase {response_retry.status_code}: {response_retry.text}", flush=True)
-                
-                print(error_full, flush=True)
+                print(f"❌ Erreur Supabase {response.status_code}: {response.text}")
                 return False
 
         except Exception as e:
-            error_msg = f"⚠️ Erreur lors de la mise à jour de {table_name}: {e}"
-            print(error_msg, flush=True)
+            print(f"⚠️ Erreur lors de la mise à jour de {table_name}: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -486,7 +347,15 @@ class SupabaseStorage:
             url = f"{self.api_url}/{table_name}?{id_field}=eq.{id_value}"
             response = requests.delete(url, headers=self._get_headers())
 
-            return response.status_code == 204
+            # Supabase peut retourner 204 (No Content) ou 200 (OK) pour une suppression réussie
+            if response.status_code in [200, 204]:
+                return True
+            elif response.status_code == 404:
+                print(f"⚠️ Élément non trouvé dans {table_name}: {id_field}={id_value}")
+                return False
+            else:
+                print(f"⚠️ Erreur lors de la suppression depuis {table_name}: Status {response.status_code}, {response.text}")
+                return False
 
         except Exception as e:
             print(f"⚠️ Erreur lors de la suppression depuis {table_name}: {e}")
@@ -571,16 +440,19 @@ class SupabaseStorage:
             nouveau_stock = stock_actuel + quantite_ajustement
 
             # 2. Mettre à jour l'inventaire
-            success = self.update_data(
-                "inventaire_techniciens",
-                {
-                    "code_produit": code_produit,
-                    "technicien": technicien,
-                    "quantite_stock": nouveau_stock,
-                    "emplacement": emplacement,
-                    "derniere_verification": datetime.now().isoformat()
-                }
-            )
+            data_inventaire = {
+                "code_produit": code_produit,
+                "technicien": technicien,
+                "quantite_stock": nouveau_stock,
+                "emplacement": emplacement,
+                "derniere_verification": datetime.now().isoformat()
+            }
+
+            # Ajouter l'id si l'inventaire existe déjà
+            if inventaire_id:
+                data_inventaire["id"] = inventaire_id
+
+            success = self.update_data("inventaire_techniciens", data_inventaire)
 
             if not success:
                 return False
@@ -600,7 +472,7 @@ class SupabaseStorage:
                 "created_by": created_by
             }
 
-            return self.update_data("transactions_inventaire", transaction_data)
+            return self.update_data("transactions_inventaire", transaction_data, auto_timestamp=False)
 
         except Exception as e:
             print(f"⚠️ Erreur lors de l'ajustement du stock: {e}")

@@ -19,41 +19,29 @@ config/*credentials*.md
 config/*secret*.md
 *.token.json
 token.json
-data/credentials.json
+
+# Cache de référence (peut être régénéré)
+.reference_cache.json
 
 # Ignorer les exports de données V4 (utilisés pour l'import initial)
 *.csv
 *.sql
 
-# Exception : garder le CSV des pianos Vincent-d'Indy
-!data_csv_test/pianos_vincent_dindy.csv
-!api/data/pianos_vincent_dindy.csv
-
 # Ignorer les rapports des techniciens (données sensibles)
 reports/
 backups/
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.env
-frontend/.env.local
-
-# Logs et fichiers temporaires
-*.log
-backend.log
-
-# Scripts temporaires
-*_temp.py
-*_test.py
-check_*.py
-PUSH_*.sh
-start-*.sh
-
-# Node modules à la racine (ne devrait pas exister)
-/node_modules/
-/package-lock.json
-/package.json
-
-# macOS
+# Fichiers système macOS
 .DS_Store
+**/.DS_Store
+
+# Fichiers temporaires et logs
+*.pid
+*.log
+*.log.*
+
+# Fichiers de credentials et variables d'environnement
+data/credentials.json
+frontend/.env.local
+.env.local
+.env.*.local
