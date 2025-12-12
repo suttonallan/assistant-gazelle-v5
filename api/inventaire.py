@@ -13,6 +13,7 @@ from core.supabase_storage import SupabaseStorage
 from core.slack_notifier import SlackNotifier
 from core.gazelle_api_client import GazelleAPIClient
 import difflib
+from datetime import datetime, timedelta
 
 # Import du script de vérification de stock
 import sys
@@ -782,7 +783,7 @@ async def get_gazelle_products():
 @router.get("/gazelle/find-duplicates", response_model=Dict[str, Any])
 async def find_duplicate_products(threshold: float = 0.80):
     """
-    Détecte les doublons potentiels entre le catalogue local et Gazelle.
+    Détecte les doublons potentiels dans le catalogue local et/ou avec Gazelle.
 
     Query params:
         - threshold: Seuil de similarité (0.0-1.0, défaut 0.80)
@@ -791,42 +792,83 @@ async def find_duplicate_products(threshold: float = 0.80):
         - success: bool
         - duplicates: Liste des paires de doublons potentiels
         - count: Nombre de doublons détectés
+        - gazelle_available: bool - Indique si Gazelle est disponible
     """
     try:
         storage = get_supabase_storage()
-        gazelle = GazelleAPIClient()
-
+        
         # Récupérer les produits locaux
         local_products = storage.get_data("produits_catalogue")
-
-        # Récupérer les produits Gazelle
-        gazelle_products = gazelle.get_products(limit=1000)
-
+        
         duplicates = []
+        gazelle_available = False
+        gazelle_products = []
 
-        # Comparer chaque produit local avec chaque produit Gazelle
-        for local in local_products:
-            local_name = local.get('nom', '').lower()
+        # Essayer de se connecter à Gazelle (optionnel)
+        try:
+            gazelle = GazelleAPIClient()
+            gazelle_products = gazelle.get_products(limit=1000)
+            gazelle_available = True
+        except (ValueError, FileNotFoundError) as e:
+            # Gazelle non configuré, on continue sans
+            gazelle_available = False
+            print(f"⚠️ Gazelle non disponible: {str(e)}. Détection de doublons uniquement dans le catalogue local.")
 
-            for gazelle_p in gazelle_products:
-                gazelle_name = gazelle_p.get('name', '').lower()
-
-                # Calculer similarité
-                similarity = fuzzy_similarity(local_name, gazelle_name)
-
+        # Détecter les doublons dans le catalogue local
+        for i, local1 in enumerate(local_products):
+            local1_name = local1.get('nom', '').lower()
+            local1_code = local1.get('code_produit', '')
+            
+            for j, local2 in enumerate(local_products[i+1:], start=i+1):
+                local2_name = local2.get('nom', '').lower()
+                local2_code = local2.get('code_produit', '')
+                
+                # Calculer similarité entre produits locaux
+                similarity = fuzzy_similarity(local1_name, local2_name)
+                
                 if similarity >= threshold:
                     duplicates.append({
-                        "local_code": local.get('code_produit'),
-                        "local_nom": local.get('nom'),
-                        "gazelle_id": gazelle_p.get('id'),
-                        "gazelle_sku": gazelle_p.get('sku'),
-                        "gazelle_nom": gazelle_p.get('name'),
+                        "local_code": local1_code,
+                        "local_nom": local1.get('nom'),
+                        "duplicate_code": local2_code,
+                        "duplicate_nom": local2.get('nom'),
                         "similarity": round(similarity * 100, 1),
-                        "price_diff": abs(
-                            float(local.get('prix_unitaire', 0)) -
-                            float(gazelle_p.get('unitPrice', 0))
-                        )
+                        "type": "local"
                     })
+
+        # Comparer avec Gazelle si disponible
+        if gazelle_available and gazelle_products:
+            for local in local_products:
+                local_name = local.get('nom', '')
+                if not local_name:
+                    continue
+
+                for gazelle_p in gazelle_products:
+                    # Utiliser name_fr (déjà extrait dans get_products)
+                    gazelle_name = gazelle_p.get('name_fr', '')
+                    if not gazelle_name:
+                        continue
+
+                    # Calculer similarité
+                    similarity = fuzzy_similarity(local_name, gazelle_name)
+
+                    if similarity >= threshold:
+                        duplicates.append({
+                            "local_code": local.get('code_produit'),
+                            "local_nom": local.get('nom'),
+                            "local_price": local.get('prix_unitaire', 0),
+                            "local_description": local.get('description', ''),
+                            "gazelle_id": gazelle_p.get('id'),
+                            "gazelle_nom": gazelle_p.get('name_fr', ''),
+                            "gazelle_price": float(gazelle_p.get('amount', 0)) / 100,  # Convertir centimes → dollars
+                            "gazelle_description": gazelle_p.get('description_fr', ''),
+                            "similarity": round(similarity * 100, 1),
+                            "price_diff": abs(
+                                float(local.get('prix_unitaire', 0)) -
+                                (float(gazelle_p.get('amount', 0)) / 100)  # Convertir centimes → dollars
+                            ),
+                            "type": "gazelle"
+                        })
 
         # Trier par similarité décroissante
         duplicates.sort(key=lambda x: x['similarity'], reverse=True)
@@ -835,7 +877,8 @@ async def find_duplicate_products(threshold: float = 0.80):
             "success": True,
             "duplicates": duplicates,
             "count": len(duplicates),
-            "threshold": threshold
+            "threshold": threshold,
+            "gazelle_available": gazelle_available
         }
 
     except Exception as e:
@@ -953,7 +996,7 @@ async def merge_products(merge: ProductMerge):
 class GazelleMapping(BaseModel):
     """Modèle pour mapping produit local <-> Gazelle."""
     code_produit: str
-    gazelle_product_id: int
+    gazelle_product_id: str  # ID Gazelle est une string (ex: "mit_CX6CvWXbjs08vg70")
     update_prices: bool = True
 
 
@@ -983,7 +1026,7 @@ async def map_to_gazelle_product(mapping: GazelleMapping):
         local_product = local_product[0]
 
         # Récupérer les données Gazelle
-        gazelle_products = gazelle.get_products(limit=1000, active_only=False)
+        gazelle_products = gazelle.get_products(limit=1000)
         gazelle_product = next((p for p in gazelle_products if p.get('id') == mapping.gazelle_product_id), None)
 
         if not gazelle_product:
@@ -991,21 +1034,23 @@ async def map_to_gazelle_product(mapping: GazelleMapping):
 
         # Préparer les données de mise à jour
         update_data = {
-            **local_product,
+            "code_produit": mapping.code_produit,
             "gazelle_product_id": mapping.gazelle_product_id,
-            "last_sync_at": "NOW()"
+            "last_sync_at": datetime.now().isoformat()
         }
 
-        # Mettre à jour les prix si demandé
+        # Mettre à jour les prix et infos si demandé
         if mapping.update_prices:
-            update_data["prix_unitaire"] = gazelle_product.get('unitPrice', local_product.get('prix_unitaire'))
+            update_data["prix_unitaire"] = float(gazelle_product.get('amount', 0)) / 100  # Convertir centimes → dollars
+            update_data["nom"] = gazelle_product.get('name_fr', local_product.get('nom'))
+            update_data["description"] = gazelle_product.get('description_fr', local_product.get('description'))
 
-        # Sauvegarder
+        # Sauvegarder (UPDATE seulement, pas UPSERT car le produit doit déjà exister)
         success = storage.update_data(
             "produits_catalogue",
             update_data,
             id_field="code_produit",
-            upsert=True
+            upsert=False  # Pas de création, juste mise à jour
         )
 
         if not success:
@@ -1071,6 +1116,99 @@ async def delete_product(code_produit: str):
         raise HTTPException(status_code=500, detail=f"Erreur suppression: {str(e)}")
 
 
+class GazelleImportProduct(BaseModel):
+    """Modèle pour import d'un produit Gazelle."""
+    gazelle_product_id: str
+    has_commission: bool = False
+    commission_rate: float = 0.0
+    categorie: str = "Services"  # Catégorie par défaut
+    type_produit: str = "service"  # Par défaut: service (pas d'inventaire)
+
+
+@router.post("/catalogue/import-gazelle", response_model=Dict[str, Any])
+async def import_gazelle_product(import_data: GazelleImportProduct):
+    """
+    Importe un produit Gazelle dans le catalogue local.
+
+    Utilise l'ID Gazelle comme code_produit.
+
+    Body:
+        - gazelle_product_id: ID du produit Gazelle (sera aussi le code_produit)
+        - has_commission: Si le produit a une commission (défaut: False)
+        - commission_rate: Taux de commission en % (défaut: 0)
+        - categorie: Catégorie du produit (défaut: "Services")
+        - type_produit: produit/service/fourniture (défaut: "service")
+
+    Returns:
+        - success: bool
+        - message: Message de confirmation
+        - product: Données du produit importé
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Vérifier si le produit existe déjà
+        existing = storage.get_data("produits_catalogue", filters={"code_produit": import_data.gazelle_product_id})
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Produit {import_data.gazelle_product_id} déjà importé"
+            )
+
+        # Récupérer les données depuis Gazelle
+        gazelle_client = GazelleAPIClient()
+        all_products = gazelle_client.get_products(limit=1000)
+
+        gazelle_product = next(
+            (p for p in all_products if p['id'] == import_data.gazelle_product_id),
+            None
+        )
+
+        if not gazelle_product:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Produit Gazelle {import_data.gazelle_product_id} introuvable"
+            )
+
+        # Créer le produit local avec l'ID Gazelle comme code_produit
+        new_product = {
+            "code_produit": import_data.gazelle_product_id,  # ← ID Gazelle utilisé comme code
+            "nom": gazelle_product.get('name_fr', ''),
+            "description": gazelle_product.get('description_fr', ''),
+            "prix_unitaire": float(gazelle_product.get('amount', 0)) / 100,  # Centimes → dollars
+            "categorie": import_data.categorie,
+            "type_produit": import_data.type_produit,
+            "has_commission": import_data.has_commission,
+            "commission_rate": import_data.commission_rate if import_data.has_commission else 0.0,
+            "gazelle_product_id": import_data.gazelle_product_id,
+            "last_sync_at": "NOW()",
+            "is_active": True,
+            "created_at": "NOW()",
+            "updated_at": "NOW()"
+        }
+
+        success = storage.update_data(
+            "produits_catalogue",
+            new_product,
+            id_field="code_produit",
+            upsert=True
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Échec de l'import")
+
+        return {
+            "success": True,
+            "message": f"Produit '{gazelle_product.get('name_fr')}' importé avec succès",
+            "product": new_product
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur import: {str(e)}")
+
+
 @router.post("/catalogue/sync-gazelle")
 async def sync_all_gazelle_products():
     """
@@ -1131,7 +1269,7 @@ async def sync_all_gazelle_products():
                 update_data = {
                     "code_produit": local_prod.get("code_produit"),
                     "nom": gazelle_prod.get("name_fr", local_prod.get("nom")),
-                    "prix_unitaire": float(gazelle_prod.get("amount", 0)),
+                    "prix_unitaire": float(gazelle_prod.get("amount", 0)) / 100,  # Convertir centimes → dollars
                     "description": gazelle_prod.get("description_fr", local_prod.get("description")),
                     "last_sync_at": datetime.now().isoformat()
                 }
@@ -1168,3 +1306,638 @@ async def sync_all_gazelle_products():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur synchronisation: {str(e)}")
+
+
+@router.post("/catalogue/sync-gazelle-smart")
+async def sync_gazelle_products_smart(force: bool = False, max_age_hours: int = 24):
+    """
+    Synchronise intelligemment les produits Gazelle - seulement si nécessaire.
+    
+    Ne fait appel à l'API que si :
+    - force=True (synchronisation forcée)
+    - Le produit n'a jamais été synchronisé (last_sync_at est None)
+    - La dernière synchronisation est plus ancienne que max_age_hours
+    
+    Args:
+        force: Forcer la synchronisation même si récente (défaut: False)
+        max_age_hours: Nombre d'heures avant de considérer une sync comme obsolète (défaut: 24)
+    
+    Returns:
+        Statistiques de synchronisation (updated, skipped, errors)
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        # 1. Récupérer tous les produits locaux qui ont un gazelle_product_id
+        local_products = storage.get_data(
+            "produits_catalogue",
+            filters={"is_active": True}
+        )
+        
+        linked_products = [
+            p for p in local_products
+            if p.get("gazelle_product_id") is not None
+        ]
+        
+        if not linked_products:
+            return {
+                "success": True,
+                "message": "Aucun produit associé à synchroniser",
+                "updated": 0,
+                "skipped": 0,
+                "total": 0,
+                "errors": []
+            }
+        
+        # 2. Filtrer les produits qui nécessitent une synchronisation
+        now = datetime.now()
+        products_to_sync = []
+        skipped_count = 0
+        
+        for local_prod in linked_products:
+            if force:
+                products_to_sync.append(local_prod)
+            else:
+                last_sync = local_prod.get("last_sync_at")
+                if last_sync is None:
+                    # Jamais synchronisé
+                    products_to_sync.append(local_prod)
+                else:
+                    # Vérifier l'âge de la dernière synchronisation
+                    try:
+                        last_sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
+                        if isinstance(last_sync_dt, datetime):
+                            age_hours = (now - last_sync_dt.replace(tzinfo=None)).total_seconds() / 3600
+                            if age_hours >= max_age_hours:
+                                products_to_sync.append(local_prod)
+                            else:
+                                skipped_count += 1
+                        else:
+                            products_to_sync.append(local_prod)
+                    except (ValueError, AttributeError):
+                        # Erreur de parsing, on synchronise pour être sûr
+                        products_to_sync.append(local_prod)
+        
+        if not products_to_sync:
+            return {
+                "success": True,
+                "message": f"Aucune synchronisation nécessaire ({skipped_count} produits déjà à jour)",
+                "updated": 0,
+                "skipped": skipped_count,
+                "total": len(linked_products),
+                "errors": []
+            }
+        
+        # 3. Récupérer les produits Gazelle (seulement si nécessaire)
+        try:
+            gazelle_client = GazelleAPIClient()
+            gazelle_products = gazelle_client.get_products(limit=1000)
+            gazelle_by_id = {p['id']: p for p in gazelle_products}
+        except (ValueError, FileNotFoundError) as e:
+            return {
+                "success": False,
+                "message": f"Gazelle non configuré: {str(e)}",
+                "updated": 0,
+                "skipped": skipped_count,
+                "total": len(linked_products),
+                "errors": [{"error": "Gazelle API non disponible"}]
+            }
+        
+        # 4. Mettre à jour seulement les produits qui nécessitent une sync
+        updated_count = 0
+        errors = []
+        
+        for local_prod in products_to_sync:
+            gazelle_id = local_prod.get("gazelle_product_id")
+            gazelle_prod = gazelle_by_id.get(gazelle_id)
+            
+            if not gazelle_prod:
+                errors.append({
+                    "code_produit": local_prod.get("code_produit"),
+                    "error": f"Produit Gazelle ID {gazelle_id} introuvable"
+                })
+                continue
+            
+            try:
+                # Vérifier si les données ont changé (comparer prix)
+                local_price = float(local_prod.get("prix_unitaire", 0))
+                gazelle_price = float(gazelle_prod.get("amount", 0)) / 100  # amount en cents
+                
+                # Préparer les données de mise à jour
+                update_data = {
+                    "code_produit": local_prod.get("code_produit"),
+                    "nom": gazelle_prod.get("name_fr", local_prod.get("nom")),
+                    "prix_unitaire": gazelle_price,
+                    "description": gazelle_prod.get("description_fr", local_prod.get("description")),
+                    "last_sync_at": now.isoformat()
+                }
+                
+                # Mettre à jour dans Supabase
+                success = storage.update_data(
+                    "produits_catalogue",
+                    update_data,
+                    id_field="code_produit",
+                    upsert=False
+                )
+                
+                if success:
+                    updated_count += 1
+                else:
+                    errors.append({
+                        "code_produit": local_prod.get("code_produit"),
+                        "error": "Échec mise à jour DB"
+                    })
+                    
+            except Exception as e:
+                errors.append({
+                    "code_produit": local_prod.get("code_produit"),
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "message": f"{updated_count}/{len(products_to_sync)} produits synchronisés ({skipped_count} déjà à jour)",
+            "updated": updated_count,
+            "skipped": skipped_count,
+            "total": len(linked_products),
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur synchronisation intelligente: {str(e)}")
+
+
+@router.post("/catalogue/import-all-msl")
+async def import_all_msl_items():
+    """
+    Importe TOUS les items du Master Service List (MSL) de Gazelle.
+    
+    Nécessaire pour :
+    - Calcul des commissions (besoin de tous les prix MSL)
+    - Mise à jour automatique de l'inventaire
+    - S'assurer que tous les items sont dans le système
+    
+    Crée ou met à jour les produits dans le catalogue local.
+    Les produits existants sont mis à jour, les nouveaux sont créés.
+    
+    Returns:
+        Statistiques d'import (created, updated, errors)
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        # 1. Récupérer TOUS les produits Gazelle MSL
+        try:
+            gazelle_client = GazelleAPIClient()
+            gazelle_products = gazelle_client.get_products(limit=1000)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Gazelle non configuré: {str(e)}. Impossible d'importer les items MSL."
+            )
+        
+        # 2. Récupérer les produits locaux existants
+        local_products = storage.get_data("produits_catalogue")
+        local_by_gazelle_id = {
+            p.get("gazelle_product_id"): p
+            for p in local_products
+            if p.get("gazelle_product_id") is not None
+        }
+        local_by_code = {p.get("code_produit"): p for p in local_products}
+        
+        # 3. Traiter chaque produit Gazelle
+        created_count = 0
+        updated_count = 0
+        errors = []
+        
+        for gazelle_prod in gazelle_products:
+            gazelle_id = gazelle_prod.get('id')
+            if not gazelle_id:
+                continue
+            
+            try:
+                # Générer un code_produit si nécessaire
+                sku = gazelle_prod.get('sku', '')
+                if sku:
+                    code_produit = sku
+                else:
+                    # Utiliser l'ID Gazelle comme code si pas de SKU
+                    code_produit = f"GAZ-{gazelle_id}"
+                
+                # Vérifier si le produit existe déjà
+                existing_prod = local_by_gazelle_id.get(gazelle_id) or local_by_code.get(code_produit)
+                
+                # Préparer les données
+                product_data = {
+                    "code_produit": code_produit,
+                    "gazelle_product_id": gazelle_id,
+                    "nom": gazelle_prod.get("name_fr", "") or gazelle_prod.get("name_en", ""),
+                    "prix_unitaire": float(gazelle_prod.get("amount", 0)) / 100,  # amount en cents
+                    "description": gazelle_prod.get("description_fr", "") or gazelle_prod.get("description_en", ""),
+                    "categorie": gazelle_prod.get("group_name_fr", "") or gazelle_prod.get("group_name_en", ""),
+                    "is_active": not gazelle_prod.get("isArchived", False),
+                    "last_sync_at": datetime.now().isoformat()
+                }
+                
+                if existing_prod:
+                    # Mettre à jour le produit existant
+                    product_data["code_produit"] = existing_prod.get("code_produit")
+                    success = storage.update_data(
+                        "produits_catalogue",
+                        product_data,
+                        id_field="code_produit",
+                        upsert=False
+                    )
+                    if success:
+                        updated_count += 1
+                    else:
+                        errors.append({
+                            "code_produit": code_produit,
+                            "error": "Échec mise à jour"
+                        })
+                else:
+                    # Créer un nouveau produit
+                    # Ajouter les champs requis pour la création
+                    product_type = gazelle_prod.get("type", "").lower()
+                    product_name = (gazelle_prod.get("name_fr", "") or gazelle_prod.get("name_en", "")).lower()
+                    
+                    # Déterminer l'usage par défaut selon le type et le nom
+                    # Services = commission uniquement (ex: "Grand entretien", "Tuning")
+                    is_service = (
+                        "service" in product_type or 
+                        "entretien" in product_name or 
+                        "tuning" in product_name or
+                        "réparation" in product_name or
+                        "maintenance" in product_name
+                    )
+                    
+                    # Matériaux = inventaire (peuvent aussi avoir commission si vendus)
+                    is_material = (
+                        "material" in product_type or 
+                        "fourniture" in product_type.lower() or
+                        "corde" in product_name or
+                        "feutre" in product_name or
+                        "buvard" in product_name or
+                        "gaine" in product_name
+                    )
+                    
+                    # Par défaut:
+                    # - Services = commission uniquement (ex: "Grand entretien")
+                    # - Matériaux = inventaire uniquement (ex: "Buvard", "Gaine")
+                    # - Matériaux vendus = inventaire ET commission (à définir manuellement après import)
+                    #   Exemple: une corde vendue au client = inventaire (tracking) + commission (vente)
+                    
+                    # Déterminer usage_type
+                    if is_service and not is_material:
+                        usage_type = "commission"
+                    elif is_material and not is_service:
+                        usage_type = "inventory"
+                    elif is_service and is_material:
+                        usage_type = "both"
+                    else:
+                        usage_type = "both"  # Par défaut si indéterminé
+                    
+                    product_data.update({
+                        "type": gazelle_prod.get("type", ""),
+                        "display_order": gazelle_prod.get("order", 0),
+                        "has_commission": is_service,  # Services ont commission par défaut, matériaux à définir manuellement
+                        "is_active": True,
+                        # Usage: services = commission, matériaux = inventaire
+                        # Peut être modifié manuellement après import pour combiner les deux
+                        "is_commission_item": is_service,
+                        "is_inventory_item": is_material,
+                        "usage_type": usage_type
+                    })
+                    
+                    # Utiliser upsert=True pour créer le produit
+                    success = storage.update_data(
+                        "produits_catalogue",
+                        product_data,
+                        id_field="code_produit",
+                        upsert=True
+                    )
+                    if success:
+                        created_count += 1
+                    else:
+                        errors.append({
+                            "code_produit": code_produit,
+                            "error": "Échec création"
+                        })
+                        
+            except Exception as e:
+                errors.append({
+                    "gazelle_id": gazelle_id,
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "message": f"Import MSL terminé: {created_count} créés, {updated_count} mis à jour",
+            "created": created_count,
+            "updated": updated_count,
+            "total_msl": len(gazelle_products),
+            "errors": errors if errors else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur import MSL: {str(e)}")
+
+
+# ============================================================
+# Routes pour gestion des règles de consommation (Service → Matériel)
+# ============================================================
+
+class ServiceConsumptionRule(BaseModel):
+    """Modèle pour une règle de consommation service → matériel."""
+    service_gazelle_id: str
+    service_code_produit: Optional[str] = None
+    material_code_produit: str
+    quantity: float = 1.0
+    is_optional: bool = False
+    notes: Optional[str] = None
+
+
+@router.post("/service-consumption/rules")
+async def create_consumption_rule(rule: ServiceConsumptionRule):
+    """
+    Crée une règle de consommation (service → matériel).
+    
+    Exemple: "Entretien annuel" → consomme 1 buvard, 1 gaine, parfois 1 doublure
+    
+    Note: Pour créer plusieurs règles en une fois, utilisez /service-consumption/rules/batch
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        rule_data = {
+            "service_gazelle_id": rule.service_gazelle_id,
+            "service_code_produit": rule.service_code_produit,
+            "material_code_produit": rule.material_code_produit,
+            "quantity": rule.quantity,
+            "is_optional": rule.is_optional,
+            "notes": rule.notes
+        }
+        
+        success = storage.update_data(
+            "service_inventory_consumption",
+            rule_data,
+            id_field="id",
+            upsert=True
+        )
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Règle de consommation créée/mise à jour"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Échec création règle")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+class BatchServiceConsumptionRules(BaseModel):
+    """Modèle pour créer plusieurs règles de consommation en une fois."""
+    service_gazelle_id: str
+    service_code_produit: Optional[str] = None
+    materials: List[Dict[str, Any]]  # Liste de {material_code_produit, quantity, is_optional, notes}
+
+
+@router.post("/service-consumption/rules/batch")
+async def create_consumption_rules_batch(batch: BatchServiceConsumptionRules):
+    """
+    Crée plusieurs règles de consommation pour un service en une fois.
+    
+    Utile quand un service utilise plusieurs produits (ex: "Entretien annuel" → buvard + gaine + doublure).
+    
+    Exemple de requête:
+    {
+        "service_gazelle_id": "12345",
+        "service_code_produit": "ENT-ANN",
+        "materials": [
+            {"material_code_produit": "BUV-001", "quantity": 1.0, "is_optional": false},
+            {"material_code_produit": "GAIN-001", "quantity": 1.0, "is_optional": false},
+            {"material_code_produit": "DOUB-001", "quantity": 1.0, "is_optional": true, "notes": "Parfois utilisé"}
+        ]
+    }
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        created_count = 0
+        errors = []
+        
+        for material in batch.materials:
+            try:
+                rule_data = {
+                    "service_gazelle_id": batch.service_gazelle_id,
+                    "service_code_produit": batch.service_code_produit,
+                    "material_code_produit": material.get("material_code_produit"),
+                    "quantity": float(material.get("quantity", 1.0)),
+                    "is_optional": material.get("is_optional", False),
+                    "notes": material.get("notes")
+                }
+                
+                # Utiliser la contrainte UNIQUE pour éviter les doublons
+                # (service_gazelle_id, material_code_produit)
+                success = storage.update_data(
+                    "service_inventory_consumption",
+                    rule_data,
+                    id_field="id",
+                    upsert=True
+                )
+                
+                if success:
+                    created_count += 1
+                else:
+                    errors.append({
+                        "material_code_produit": material.get("material_code_produit"),
+                        "error": "Échec création"
+                    })
+                    
+            except Exception as e:
+                errors.append({
+                    "material_code_produit": material.get("material_code_produit", "unknown"),
+                    "error": str(e)
+                })
+        
+        return {
+            "success": True,
+            "message": f"{created_count}/{len(batch.materials)} règles créées/mises à jour",
+            "created": created_count,
+            "total": len(batch.materials),
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.get("/service-consumption/rules")
+async def get_consumption_rules(
+    service_gazelle_id: Optional[str] = None,
+    group_by_service: bool = False
+):
+    """
+    Récupère les règles de consommation.
+    
+    Query params:
+        - service_gazelle_id: Filtrer par service (optionnel)
+        - group_by_service: Si true, groupe les règles par service (défaut: false)
+    
+    Returns:
+        - Si group_by_service=false: Liste plate de toutes les règles
+        - Si group_by_service=true: Dict organisé par service avec liste de matériaux
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        filters = {}
+        if service_gazelle_id:
+            filters["service_gazelle_id"] = service_gazelle_id
+        
+        rules = storage.get_data("service_inventory_consumption", filters=filters)
+        
+        if group_by_service:
+            # Grouper par service
+            grouped = {}
+            for rule in rules:
+                service_id = rule.get("service_gazelle_id")
+                if service_id not in grouped:
+                    grouped[service_id] = {
+                        "service_gazelle_id": service_id,
+                        "service_code_produit": rule.get("service_code_produit"),
+                        "materials": []
+                    }
+                grouped[service_id]["materials"].append({
+                    "material_code_produit": rule.get("material_code_produit"),
+                    "quantity": rule.get("quantity"),
+                    "is_optional": rule.get("is_optional"),
+                    "notes": rule.get("notes"),
+                    "rule_id": rule.get("id")
+                })
+            
+            return {
+                "success": True,
+                "services": list(grouped.values()),
+                "count": len(rules),
+                "services_count": len(grouped)
+            }
+        else:
+            return {
+                "success": True,
+                "rules": rules,
+                "count": len(rules)
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.delete("/service-consumption/rules/{rule_id}")
+async def delete_consumption_rule(rule_id: str):
+    """Supprime une règle de consommation."""
+    try:
+        storage = SupabaseStorage()
+        
+        success = storage.delete_data("service_inventory_consumption", rule_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": "Règle supprimée"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Règle non trouvée")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.post("/service-consumption/apply-from-invoice")
+async def apply_consumption_from_invoice(
+    invoice_id: str,
+    invoice_item_id: str,
+    service_gazelle_id: str,
+    technicien: str,
+    date_service: str
+):
+    """
+    Applique les règles de consommation depuis un item de facture.
+    
+    Args:
+        invoice_id: ID de la facture
+        invoice_item_id: ID de l'item de facture
+        service_gazelle_id: ID Gazelle du service facturé
+        technicien: Nom du technicien
+        date_service: Date du service (ISO format)
+    
+    Returns:
+        Liste des consommations appliquées
+    """
+    try:
+        storage = SupabaseStorage()
+        
+        # 1. Récupérer les règles de consommation pour ce service
+        rules = storage.get_data(
+            "service_inventory_consumption",
+            filters={"service_gazelle_id": service_gazelle_id}
+        )
+        
+        if not rules:
+            return {
+                "success": True,
+                "message": "Aucune règle de consommation pour ce service",
+                "consumptions": []
+            }
+        
+        # 2. Appliquer chaque règle (créer une transaction d'inventaire)
+        consumptions = []
+        
+        for rule in rules:
+            material_code = rule.get("material_code_produit")
+            quantity = float(rule.get("quantity", 1.0))
+            is_optional = rule.get("is_optional", False)
+            
+            # Créer l'enregistrement d'impact
+            impact_data = {
+                "invoice_id": invoice_id,
+                "invoice_item_id": invoice_item_id,
+                "service_gazelle_id": service_gazelle_id,
+                "service_code_produit": rule.get("service_code_produit"),
+                "material_code_produit": material_code,
+                "quantity_consumed": quantity,
+                "technicien": technicien,
+                "date_service": date_service,
+                "processed": False
+            }
+            
+            # Enregistrer l'impact (sera traité plus tard pour mettre à jour l'inventaire)
+            storage.update_data(
+                "invoice_item_inventory_impact",
+                impact_data,
+                id_field="id",
+                upsert=True
+            )
+            
+            consumptions.append({
+                "material_code": material_code,
+                "quantity": quantity,
+                "is_optional": is_optional
+            })
+        
+        return {
+            "success": True,
+            "message": f"{len(consumptions)} consommation(s) enregistrée(s)",
+            "consumptions": consumptions
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")

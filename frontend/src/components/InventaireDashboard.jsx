@@ -45,6 +45,11 @@ const InventaireDashboard = ({ currentUser }) => {
   const [syncTab, setSyncTab] = useState('duplicates') // 'duplicates', 'import', 'manage'
   const [draggedDuplicate, setDraggedDuplicate] = useState(null)
   const [loadingGazelle, setLoadingGazelle] = useState(false)
+  const [selectedGazelleIds, setSelectedGazelleIds] = useState(new Set())
+  const [batchCategorie, setBatchCategorie] = useState('Services')
+  const [batchType, setBatchType] = useState('service')
+  const [batchHasCommission, setBatchHasCommission] = useState(false)
+  const [batchCommissionRate, setBatchCommissionRate] = useState(0)
 
   // Détection mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -976,42 +981,45 @@ const InventaireDashboard = ({ currentUser }) => {
                         </button>
                         <button
                           onClick={async () => {
+                            const isActive = product.is_active !== false
+                            const newStatus = !isActive
+
                             if (!window.confirm(
-                              `⚠️ Supprimer définitivement "${product.name}" (${product.code_produit}) ?\n\n` +
-                              `Cette action est irréversible et supprimera aussi toutes les données d'inventaire associées.`
+                              isActive
+                                ? `📦 Archiver "${product.name}" (${product.code_produit}) ?\n\nLe produit sera masqué de l'inventaire mais les données seront conservées.`
+                                : `✅ Réactiver "${product.name}" (${product.code_produit}) ?\n\nLe produit redeviendra visible dans l'inventaire.`
                             )) {
                               return
                             }
-                            
+
                             try {
-                              // Encoder le code_produit pour gérer les caractères spéciaux dans l'URL
-                              const encodedCode = encodeURIComponent(product.code_produit)
-                              const response = await fetch(`${API_URL}/inventaire/catalogue/${encodedCode}`, {
-                                method: 'DELETE'
+                              const response = await fetch(`${API_URL}/inventaire/catalogue`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  code_produit: product.code_produit,
+                                  is_active: newStatus
+                                })
                               })
-                              
+
                               if (!response.ok) {
-                                let errorMessage = 'Erreur suppression'
-                                try {
-                                  const errorData = await response.json()
-                                  errorMessage = errorData.detail || errorData.message || errorMessage
-                                } catch {
-                                  errorMessage = `Erreur ${response.status}: ${response.statusText}`
-                                }
-                                throw new Error(errorMessage)
+                                throw new Error('Erreur mise à jour statut')
                               }
-                              
-                              const result = await response.json().catch(() => ({}))
-                              alert(result.message || '✅ Produit supprimé définitivement')
+
+                              alert(newStatus ? '✅ Produit réactivé' : '📦 Produit archivé')
                               await loadInventory()
                             } catch (err) {
                               alert('Erreur: ' + err.message)
                             }
                           }}
-                          className="text-red-600 hover:text-red-800 font-medium text-xs"
-                          title="Supprimer définitivement le produit"
+                          className={`font-medium text-lg ${
+                            product.is_active !== false
+                              ? 'text-red-600 hover:text-red-800'
+                              : 'text-green-600 hover:text-green-800'
+                          }`}
+                          title={product.is_active !== false ? 'Archiver (masquer)' : 'Réactiver'}
                         >
-                          🗑️
+                          {product.is_active !== false ? '🔴' : '✅'}
                         </button>
                       </div>
                     </td>
@@ -1069,11 +1077,17 @@ const InventaireDashboard = ({ currentUser }) => {
                   onClick={async () => {
                     try {
                       setLoadingGazelle(true)
-                      const response = await fetch(`${API_URL}/inventaire/catalogue/sync-gazelle`, { method: 'POST' })
+                      // Utiliser le endpoint optimisé qui ne synchronise que si nécessaire
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/sync-gazelle-smart?force=false&max_age_hours=24`, { method: 'POST' })
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
                       const data = await response.json()
                       alert(
-                        `🔄 Synchronisation terminée!\n\n` +
+                        `🔄 Synchronisation intelligente terminée!\n\n` +
                         `✅ ${data.updated} produits mis à jour\n` +
+                        `⏭️ ${data.skipped || 0} produits déjà à jour (synchronisation non nécessaire)\n` +
                         `📦 ${data.total} produits associés à Gazelle\n` +
                         (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
                       )
@@ -1091,6 +1105,38 @@ const InventaireDashboard = ({ currentUser }) => {
                 </button>
                 <button
                   onClick={async () => {
+                    if (!confirm('⚠️ Importer TOUS les items du Master Service List (MSL) ?\n\nCela va créer/mettre à jour tous les produits dans le catalogue local.\nNécessaire pour le calcul des commissions et la mise à jour automatique.')) {
+                      return
+                    }
+                    try {
+                      setLoadingGazelle(true)
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/import-all-msl`, { method: 'POST' })
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
+                      const data = await response.json()
+                      alert(
+                        `📥 Import MSL terminé!\n\n` +
+                        `✨ ${data.created} nouveaux produits créés\n` +
+                        `🔄 ${data.updated} produits mis à jour\n` +
+                        `📦 ${data.total_msl} items dans le MSL\n` +
+                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
+                      )
+                      await loadInventory()
+                    } catch (err) {
+                      alert('❌ Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold shadow-md"
+                >
+                  {loadingGazelle ? '⏳ Import...' : '📥 Importer tous les items MSL'}
+                </button>
+                <button
+                  onClick={async () => {
                     try {
                       setLoadingGazelle(true)
                       const response = await fetch(`${API_URL}/inventaire/gazelle/find-duplicates?threshold=0.75`)
@@ -1103,14 +1149,23 @@ const InventaireDashboard = ({ currentUser }) => {
                       const data = await response.json()
                       const duplicatesList = data.duplicates || []
                       const count = data.count !== undefined ? data.count : duplicatesList.length
+                      const gazelleAvailable = data.gazelle_available || false
                       
                       setDuplicates(duplicatesList)
                       
+                      let message = ''
                       if (count > 0) {
-                        alert(`✅ ${count} doublon${count > 1 ? 's' : ''} potentiel${count > 1 ? 's' : ''} détecté${count > 1 ? 's' : ''}`)
+                        message = `✅ ${count} doublon${count > 1 ? 's' : ''} potentiel${count > 1 ? 's' : ''} détecté${count > 1 ? 's' : ''}`
+                        if (!gazelleAvailable) {
+                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
+                        }
                       } else {
-                        alert('ℹ️ Aucun doublon détecté avec un seuil de similarité de 75%')
+                        message = 'ℹ️ Aucun doublon détecté avec un seuil de similarité de 75%'
+                        if (!gazelleAvailable) {
+                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
+                        }
                       }
+                      alert(message)
                     } catch (err) {
                       alert('Erreur: ' + err.message)
                     } finally {
@@ -1139,7 +1194,11 @@ const InventaireDashboard = ({ currentUser }) => {
                     </p>
                   </div>
 
-                  {duplicates.map((dup, idx) => (
+                  {duplicates.map((dup, idx) => {
+                    // Vérifier que c'est bien un doublon Gazelle (pas local-local)
+                    if (!dup.gazelle_id) return null
+
+                    return (
                     <div key={idx} className="border border-gray-300 rounded-lg p-4 bg-white">
                       <div className="grid grid-cols-2 gap-4">
                         {/* Produit LOCAL (drop zone) */}
@@ -1149,28 +1208,23 @@ const InventaireDashboard = ({ currentUser }) => {
                           onDrop={async (e) => {
                             e.preventDefault()
                             if (draggedDuplicate && draggedDuplicate.gazelle_id) {
-                              const confirmMerge = window.confirm(
-                                `Associer "${draggedDuplicate.gazelle_nom}" (Gazelle) avec "${dup.local_nom}" ?\\n\\nPrix Gazelle: ${draggedDuplicate.price_diff.toFixed(2)}$ de différence`
-                              )
-                              if (confirmMerge) {
-                                try {
-                                  const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      code_produit: dup.local_code,
-                                      gazelle_product_id: draggedDuplicate.gazelle_id,
-                                      update_prices: true
-                                    })
+                              try {
+                                const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    code_produit: dup.local_code,
+                                    gazelle_product_id: draggedDuplicate.gazelle_id,
+                                    update_prices: true
                                   })
-                                  if (!response.ok) throw new Error('Erreur association')
+                                })
+                                if (!response.ok) throw new Error('Erreur association')
 
-                                  alert('✅ Produit associé!')
-                                  setDuplicates(duplicates.filter((_, i) => i !== idx))
-                                  await loadInventory()
-                                } catch (err) {
-                                  alert('Erreur: ' + err.message)
-                                }
+                                // Pas d'alert, juste supprimer de la liste
+                                setDuplicates(duplicates.filter((_, i) => i !== idx))
+                                await loadInventory()
+                              } catch (err) {
+                                alert('❌ Erreur: ' + err.message)
                               }
                               setDraggedDuplicate(null)
                             }
@@ -1181,6 +1235,7 @@ const InventaireDashboard = ({ currentUser }) => {
                             <span className="font-mono text-xs text-gray-600">{dup.local_code}</span>
                           </div>
                           <p className="font-semibold text-gray-800 mb-1">{dup.local_nom}</p>
+                          <p className="text-xs text-gray-600">Prix: {(dup.local_price || 0).toFixed(2)}$</p>
                         </div>
 
                         {/* Produit GAZELLE (draggable) */}
@@ -1193,11 +1248,12 @@ const InventaireDashboard = ({ currentUser }) => {
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                               <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded">GAZELLE</span>
-                              <span className="text-xs font-bold text-green-600">{dup.similarity}%</span>
+                              <span className="text-xs font-bold text-green-600">{(dup.similarity || 0).toFixed(1)}%</span>
                             </div>
                           </div>
-                          <p className="font-semibold text-gray-800 mb-1">{dup.gazelle_nom}</p>
-                          <p className="text-xs text-gray-600">Diff prix: {dup.price_diff.toFixed(2)}$</p>
+                          <p className="font-semibold text-gray-800 mb-1">{dup.gazelle_nom || 'N/A'}</p>
+                          <p className="text-xs text-gray-600">Prix: {(dup.gazelle_price || 0).toFixed(2)}$</p>
+                          <p className="text-xs text-gray-600">Diff: {(dup.price_diff || 0).toFixed(2)}$</p>
                         </div>
                       </div>
 
@@ -1215,11 +1271,11 @@ const InventaireDashboard = ({ currentUser }) => {
                                 })
                               })
                               if (!response.ok) throw new Error('Erreur')
-                              alert('✅ Associé!')
+                              // Pas d'alert, juste supprimer de la liste
                               setDuplicates(duplicates.filter((_, i) => i !== idx))
                               await loadInventory()
                             } catch (err) {
-                              alert('Erreur: ' + err.message)
+                              alert('❌ Erreur: ' + err.message)
                             }
                           }}
                           className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
@@ -1234,7 +1290,8 @@ const InventaireDashboard = ({ currentUser }) => {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1268,54 +1325,175 @@ const InventaireDashboard = ({ currentUser }) => {
                   Chargez les Master Service Items pour voir tous les produits Gazelle
                 </div>
               ) : (
-                <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {gazelleProducts.map((gp, idx) => (
-                    <div key={idx} className="border rounded p-3 bg-white flex justify-between">
-                      <div className="flex-1">
-                        <p className="font-semibold">{gp.nom_fr}</p>
-                        {gp.description && <p className="text-sm text-gray-600">{gp.description}</p>}
-                        <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                          <span>Prix: {gp.prix_unitaire}$</span>
-                          <span>Groupe: {gp.groupe_fr}</span>
-                        </div>
-                      </div>
+                <div>
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-sm text-blue-800">
+                    💡 <strong>Import automatique</strong> : L'ID Gazelle sera utilisé comme code produit (masqué dans l'interface)
+                  </div>
+
+                  {/* Configuration batch */}
+                  <div className="bg-gray-50 border border-gray-300 rounded p-4 mb-4">
+                    <div className="flex items-center gap-4 mb-3">
+                      <span className="font-semibold text-sm">Configuration batch ({selectedGazelleIds.size} sélectionnés)</span>
                       <button
-                        onClick={async () => {
-                          const code = prompt('Code produit (ex: SRV-001):')
-                          if (!code) return
-                          try {
-                            await fetch(`${API_URL}/inventaire/catalogue`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                code_produit: code,
-                                nom: gp.nom_fr,
-                                categorie: gp.groupe_fr || 'Service',
-                                description: gp.description_fr,
-                                prix_unitaire: gp.prix_unitaire
-                              })
-                            })
-                            await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                code_produit: code,
-                                gazelle_product_id: gp.gazelle_id,
-                                update_prices: false
-                              })
-                            })
-                            alert('✅ Importé!')
-                            await loadInventory()
-                          } catch (err) {
-                            alert('Erreur: ' + err.message)
+                        onClick={() => {
+                          if (selectedGazelleIds.size === gazelleProducts.length) {
+                            setSelectedGazelleIds(new Set())
+                          } else {
+                            setSelectedGazelleIds(new Set(gazelleProducts.map(gp => gp.id)))
                           }
                         }}
-                        className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+                        className="text-sm text-blue-600 hover:underline"
                       >
-                        + Importer
+                        {selectedGazelleIds.size === gazelleProducts.length ? '❌ Tout désélectionner' : '✅ Tout sélectionner'}
                       </button>
                     </div>
-                  ))}
+
+                    <div className="flex gap-3 flex-wrap items-center">
+                      <select
+                        value={batchCategorie}
+                        onChange={(e) => setBatchCategorie(e.target.value)}
+                        className="px-3 py-2 border rounded"
+                      >
+                        <option value="Services">Services</option>
+                        <option value="Pièces">Pièces</option>
+                        <option value="Fournitures">Fournitures</option>
+                        <option value="Accessoires">Accessoires</option>
+                      </select>
+
+                      <select
+                        value={batchType}
+                        onChange={(e) => setBatchType(e.target.value)}
+                        className="px-3 py-2 border rounded"
+                      >
+                        <option value="service">Service (pas d'inventaire)</option>
+                        <option value="produit">Produit (avec inventaire)</option>
+                        <option value="fourniture">Fourniture (inventaire, pas commission)</option>
+                      </select>
+
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={batchHasCommission}
+                          onChange={(e) => setBatchHasCommission(e.target.checked)}
+                        />
+                        <span className="text-sm">Commission</span>
+                      </label>
+
+                      <input
+                        type="number"
+                        value={batchCommissionRate}
+                        onChange={(e) => setBatchCommissionRate(parseFloat(e.target.value) || 0)}
+                        placeholder="Taux %"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        className="w-24 px-3 py-2 border rounded"
+                      />
+
+                      <button
+                        onClick={async () => {
+                          if (selectedGazelleIds.size === 0) {
+                            alert('⚠️ Aucun produit sélectionné')
+                            return
+                          }
+
+                          const selectedProducts = gazelleProducts.filter(gp => selectedGazelleIds.has(gp.id))
+                          let imported = 0
+                          let errors = []
+
+                          for (const gp of selectedProducts) {
+                            try {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/import-gazelle`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  gazelle_product_id: gp.id,
+                                  has_commission: batchHasCommission,
+                                  commission_rate: batchCommissionRate,
+                                  categorie: batchCategorie,
+                                  type_produit: batchType
+                                })
+                              })
+
+                              if (response.ok) {
+                                imported++
+                              } else {
+                                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                                errors.push(`${gp.name_fr}: ${errorData.detail}`)
+                              }
+                            } catch (err) {
+                              errors.push(`${gp.name_fr}: ${err.message}`)
+                            }
+                          }
+
+                          // Retirer les produits importés de la liste
+                          setGazelleProducts(gazelleProducts.filter(gp => !selectedGazelleIds.has(gp.id)))
+                          setSelectedGazelleIds(new Set())
+
+                          alert(
+                            `✅ Import terminé!\n\n` +
+                            `${imported} produits importés\n` +
+                            (errors.length > 0 ? `\n⚠️ ${errors.length} erreurs:\n${errors.slice(0, 5).join('\n')}` : '')
+                          )
+
+                          await loadInventory()
+                        }}
+                        disabled={selectedGazelleIds.size === 0}
+                        className="ml-auto px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-semibold disabled:opacity-50"
+                      >
+                        ➕ Importer sélection ({selectedGazelleIds.size})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Liste des produits */}
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                    {gazelleProducts.map((gp, idx) => (
+                      <div
+                        key={idx}
+                        className={`border rounded p-3 ${selectedGazelleIds.has(gp.id) ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedGazelleIds.has(gp.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedGazelleIds)
+                              if (e.target.checked) {
+                                newSet.add(gp.id)
+                              } else {
+                                newSet.delete(gp.id)
+                              }
+                              setSelectedGazelleIds(newSet)
+                            }}
+                            className="mt-1"
+                          />
+
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900">{gp.name_fr}</p>
+                            {gp.description_fr && <p className="text-sm text-gray-600 mt-1">{gp.description_fr}</p>}
+                            <div className="flex gap-3 mt-2 text-xs">
+                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded">Prix: {(parseFloat(gp.amount || 0) / 100).toFixed(2)}$</span>
+                              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded">Groupe: {gp.group_name_fr || 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setGazelleProducts(gazelleProducts.filter((_, i) => i !== idx))
+                              const newSet = new Set(selectedGazelleIds)
+                              newSet.delete(gp.id)
+                              setSelectedGazelleIds(newSet)
+                            }}
+                            className="px-2 py-1 text-gray-400 hover:text-red-600 text-lg"
+                            title="Masquer de la liste"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
