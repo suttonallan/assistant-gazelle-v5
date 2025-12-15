@@ -31,6 +31,38 @@ class GazelleQueries:
             'asutton@piano-tek.com': None,  # Admin voit tous les RV
             'info@piano-tek.com': None  # Louise (assistante) voit tous les RV
         }
+        
+        # Mapping ID utilisateur Supabase -> nom technicien
+        # Source: docs/REFERENCE_COMPLETE.md
+        self.technicien_id_mapping = {
+            'usr_ofYggsCDt2JAVeNP': 'Allan',
+            'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
+            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
+        }
+        
+        # Mapping inverse: nom -> ID (pour les requêtes)
+        self.technicien_name_to_id = {
+            'Nick': 'usr_HcCiFk7o0vZ9xAI0',
+            'Nicolas': 'usr_HcCiFk7o0vZ9xAI0',
+            'Jean-Philippe': 'usr_ReUSmIJmBF86ilY1',
+            'Allan': 'usr_ofYggsCDt2JAVeNP'
+        }
+        
+        # Mapping ID utilisateur Supabase -> nom technicien
+        # Source: docs/REFERENCE_COMPLETE.md
+        self.technicien_id_mapping = {
+            'usr_ofYggsCDt2JAVeNP': 'Allan',
+            'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
+            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
+        }
+        
+        # Mapping inverse: nom -> ID (pour les requêtes)
+        self.technicien_name_to_id = {
+            'Nick': 'usr_HcCiFk7o0vZ9xAI0',
+            'Nicolas': 'usr_HcCiFk7o0vZ9xAI0',
+            'Jean-Philippe': 'usr_ReUSmIJmBF86ilY1',
+            'Allan': 'usr_ofYggsCDt2JAVeNP'
+        }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
         """
@@ -68,33 +100,41 @@ class GazelleQueries:
         try:
             # Requête via REST API Supabase
             # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
+            # Pour les clients, on utilisera title si client_external_id est None
             url = f"{self.storage.api_url}/gazelle_appointments"
             url += f"?select=*"
 
             # Plage de dates ou date exacte
+            # Note: La colonne s'appelle appointment_date (pas date)
             if start_date and end_date:
                 start_str = start_date.strftime('%Y-%m-%d')
                 end_str = end_date.strftime('%Y-%m-%d')
-                url += f"&date=gte.{start_str}"
-                url += f"&date=lte.{end_str}"
+                url += f"&appointment_date=gte.{start_str}"
+                url += f"&appointment_date=lte.{end_str}"
             else:
                 if date is None:
                     date = datetime.now()
                 date_str = date.strftime('%Y-%m-%d')
-                url += f"&date=eq.{date_str}"
+                url += f"&appointment_date=eq.{date_str}"
 
             # Filtrer par technicien si spécifié
+            # Note: technicien peut être un nom (Nick) ou un ID (usr_xxx)
             if technicien:
-                url += f"&technician=eq.{technicien}"
+                # Mapper le nom vers l'ID si nécessaire
+                technicien_filter = self.technicien_name_to_id.get(technicien, technicien)
+                url += f"&technicien=eq.{technicien_filter}"
 
             url += f"&limit={limit}"
-            url += "&order=date.asc,time.asc"
+            url += "&order=appointment_date.asc,appointment_time.asc"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
 
             if response.status_code == 200:
-                return response.json()
+                appointments = response.json()
+                # Enrichir avec les noms de clients si client_external_id est présent
+                # Note: Pour l'instant, on utilise title comme nom de client
+                return appointments
             elif response.status_code == 404:
                 # Table n'existe pas encore - c'est normal, les RV ne sont pas encore synchronisés
                 print(f"⚠️ Table gazelle_appointments n'existe pas encore (404). Les rendez-vous ne sont pas encore synchronisés.")
@@ -264,14 +304,18 @@ class GazelleQueries:
         try:
             # Compter les RV dans la période
             # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
+            # Note: La colonne s'appelle appointment_date (pas date)
             url = f"{self.storage.api_url}/gazelle_appointments"
             url += "?select=id"
-            url += f"&date=gte.{start_str}"
-            url += f"&date=lte.{end_str}"
+            url += f"&appointment_date=gte.{start_str}"
+            url += f"&appointment_date=lte.{end_str}"
 
             # Filtrer par technicien si spécifié
+            # Note: technicien peut être un nom (Nick) ou un ID (usr_xxx)
             if technicien:
-                url += f"&technician=eq.{technicien}"
+                # Mapper le nom vers l'ID si nécessaire
+                technicien_filter = self.technicien_name_to_id.get(technicien, technicien)
+                url += f"&technicien=eq.{technicien_filter}"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
@@ -283,7 +327,8 @@ class GazelleQueries:
                 summary['appointments_count'] = 0
 
             # Compter les entrées timeline
-            url = f"{self.storage.api_url}/gazelle.timeline_entries"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.timeline_entries)
+            url = f"{self.storage.api_url}/gazelle_timeline_entries"
             url += "?select=id"
             url += f"&created_at=gte.{start_date.isoformat()}"
             url += f"&created_at=lte.{end_date.isoformat()}"

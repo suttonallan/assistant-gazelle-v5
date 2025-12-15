@@ -38,6 +38,8 @@ class ChatResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
     vector_search_used: bool = False
     vector_results: Optional[list] = None
+    # Données structurées pour l'interactivité frontend
+    structured_data: Optional[Dict[str, Any]] = None
 
 
 class HealthResponse(BaseModel):
@@ -129,6 +131,28 @@ async def chat(request: ChatRequest):
 
         # 5. Formater la réponse
         answer = _format_response(query_type, results)
+        
+        # 6. Préparer les données structurées pour l'interactivité frontend
+        structured_data = None
+        if query_type == QueryType.APPOINTMENTS:
+            # Enrichir les appointments avec les IDs clients pour permettre les clics
+            appointments_data = results.get('data', [])
+            structured_data = {
+                'appointments': [
+                    {
+                        'id': appt.get('id'),
+                        'external_id': appt.get('external_id'),
+                        'client_external_id': appt.get('client_external_id'),
+                        'client_name': _extract_client_name(appt),
+                        'appointment_date': appt.get('appointment_date'),
+                        'appointment_time': appt.get('appointment_time'),
+                        'location': appt.get('location', ''),
+                        'description': appt.get('description', ''),
+                        'technicien': appt.get('technicien', '')
+                    }
+                    for appt in appointments_data
+                ]
+            }
 
         return ChatResponse(
             question=question,
@@ -136,7 +160,8 @@ async def chat(request: ChatRequest):
             query_type=query_type.value,
             confidence=confidence,
             data=results,
-            vector_search_used=False
+            vector_search_used=False,
+            structured_data=structured_data
         )
 
     except Exception as e:
@@ -226,19 +251,40 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
             response = f"📅 **{count} rendez-vous le {date}:**\n\n"
 
         for appt in data[:10]:  # Limiter à 10 pour éviter les réponses trop longues
-            date_str = appt.get('date', '')
-            time = appt.get('time', 'N/A')
-            client = appt.get('client_name', 'Client inconnu')
-            address = appt.get('address', '')
+            # Extraire les données de l'appointment
+            appointment_date = appt.get('appointment_date', '')
+            appointment_time = appt.get('appointment_time', 'N/A')
+            
+            # Extraire le nom du client
+            client_name = _extract_client_name(appt)
+            client_external_id = appt.get('client_external_id', '')
+            
+            # Extraire la ville depuis la jointure (si présente)
+            client_data = appt.get('gazelle_clients', {})
+            if isinstance(client_data, list) and len(client_data) > 0:
+                client_data = client_data[0]
+            client_city = client_data.get('city', '') if isinstance(client_data, dict) else ''
+            
+            location = appt.get('location', '')
+            description = appt.get('description', '')
 
             # Afficher la date seulement si c'est une plage
             if date_range:
-                response += f"- **{date_str} {time}** : {client}"
+                response += f"- **{appointment_date} {appointment_time}** : {client_name}"
             else:
-                response += f"- **{time}** : {client}"
+                response += f"- **{appointment_time}** : {client_name}"
 
-            if address:
-                response += f" ({address})"
+            # Ajouter la ville ou l'adresse si disponible
+            if client_city:
+                response += f" ({client_city})"
+            elif location:
+                response += f" ({location})"
+            
+            # Ajouter description si disponible et différente du titre
+            if description and description != client_name:
+                desc_short = description[:50].replace('\n', ' ')
+                response += f" - {desc_short}"
+            
             response += "\n"
 
         if count > 10:
@@ -321,6 +367,40 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
 
     else:
         return "Type de requête non supporté."
+
+
+def _extract_client_name(appt: Dict[str, Any]) -> str:
+    """
+    Extrait le nom du client depuis un appointment.
+    
+    Args:
+        appt: Dictionnaire appointment
+        
+    Returns:
+        Nom du client ou 'Client inconnu'
+    """
+    # 1. Essayer depuis la jointure gazelle_clients (si présente)
+    client_data = appt.get('gazelle_clients', {})
+    if isinstance(client_data, list) and len(client_data) > 0:
+        client_data = client_data[0]
+    
+    if client_data and isinstance(client_data, dict):
+        name = client_data.get('company_name')
+        if name:
+            return name
+    
+    # 2. Fallback: utiliser title (contient souvent le nom du client)
+    title = appt.get('title', '')
+    if title and title.strip():
+        return title.strip()
+    
+    # 3. Dernier recours: description
+    description = appt.get('description', '')
+    if description and description.strip():
+        # Prendre les premiers mots de la description
+        return description.strip().split('\n')[0].split('.')[0][:50]
+    
+    return 'Client inconnu'
 
 
 def _format_vector_response(results: list) -> str:

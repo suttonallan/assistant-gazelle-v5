@@ -93,7 +93,11 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
       const assistantMessage = {
         role: 'assistant',
         content: data.answer || "Désolé, je n'ai pas pu traiter votre demande.",
-        metadata: data.metadata || {}
+        metadata: {
+          query_type: data.query_type,
+          confidence: data.confidence
+        },
+        structured_data: data.structured_data || null
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -183,6 +187,42 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
               }`}
             >
               <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+
+              {/* Données structurées pour appointments (clients cliquables) */}
+              {msg.structured_data?.appointments && (
+                <div className="mt-3 space-y-2">
+                  {msg.structured_data.appointments.map((appt, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 cursor-pointer transition-colors"
+                      onClick={() => {
+                        if (appt.client_external_id) {
+                          // Ouvrir les détails du client
+                          handleSendMessage(`cherche client ${appt.client_external_id}`)
+                        }
+                      }}
+                      title={appt.client_external_id ? "Cliquer pour voir les détails du client" : ""}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-medium text-blue-600 hover:text-blue-800">
+                            {appt.client_name}
+                          </span>
+                          {appt.location && (
+                            <span className="text-gray-500 text-xs ml-2">({appt.location})</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {appt.appointment_time}
+                        </div>
+                      </div>
+                      {appt.description && (
+                        <div className="text-xs text-gray-600 mt-1">{appt.description}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Métadonnées (query_type, confidence, etc.) */}
               {msg.metadata && (
