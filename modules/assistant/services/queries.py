@@ -31,7 +31,7 @@ class GazelleQueries:
             'asutton@piano-tek.com': None,  # Admin voit tous les RV
             'info@piano-tek.com': None  # Louise (assistante) voit tous les RV
         }
-        
+
         # Mapping ID utilisateur Supabase -> nom technicien
         # Source: docs/REFERENCE_COMPLETE.md
         self.technicien_id_mapping = {
@@ -39,23 +39,7 @@ class GazelleQueries:
             'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
             'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
         }
-        
-        # Mapping inverse: nom -> ID (pour les requêtes)
-        self.technicien_name_to_id = {
-            'Nick': 'usr_HcCiFk7o0vZ9xAI0',
-            'Nicolas': 'usr_HcCiFk7o0vZ9xAI0',
-            'Jean-Philippe': 'usr_ReUSmIJmBF86ilY1',
-            'Allan': 'usr_ofYggsCDt2JAVeNP'
-        }
-        
-        # Mapping ID utilisateur Supabase -> nom technicien
-        # Source: docs/REFERENCE_COMPLETE.md
-        self.technicien_id_mapping = {
-            'usr_ofYggsCDt2JAVeNP': 'Allan',
-            'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
-            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
-        }
-        
+
         # Mapping inverse: nom -> ID (pour les requêtes)
         self.technicien_name_to_id = {
             'Nick': 'usr_HcCiFk7o0vZ9xAI0',
@@ -167,14 +151,18 @@ class GazelleQueries:
 
         try:
             # Construire la requête de recherche
-            # Supabase REST API supporte ilike pour recherche insensible à la casse
             # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.clients)
             url = f"{self.storage.api_url}/gazelle_clients"
             url += "?select=*"
 
-            # Rechercher dans nom, prénom, ville
             search_query = search_terms[0] if search_terms else ""
-            url += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*)"
+
+            # Si c'est un ID Gazelle (cli_xxx), chercher par external_id exact
+            if search_query.startswith('cli_'):
+                url += f"&external_id=eq.{search_query}"
+            else:
+                # Sinon, recherche textuelle insensible à la casse dans nom, prénom, ville
+                url += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*,company_name.ilike.*{search_query}*)"
 
             url += f"&limit={limit}"
 
@@ -214,9 +202,14 @@ class GazelleQueries:
             url = f"{self.storage.api_url}/gazelle_pianos"
             url += "?select=*"
 
-            # Rechercher dans marque, modèle, numéro de série, ville
             search_query = search_terms[0] if search_terms else ""
-            url += f"&or=(brand.ilike.*{search_query}*,model.ilike.*{search_query}*,serial_number.ilike.*{search_query}*,city.ilike.*{search_query}*)"
+
+            # Si c'est un ID Gazelle (pia_xxx), chercher par external_id exact
+            if search_query.startswith('pia_'):
+                url += f"&external_id=eq.{search_query}"
+            else:
+                # Sinon, recherche textuelle dans marque, modèle, numéro de série, ville
+                url += f"&or=(brand.ilike.*{search_query}*,model.ilike.*{search_query}*,serial_number.ilike.*{search_query}*,city.ilike.*{search_query}*)"
 
             url += f"&limit={limit}"
 

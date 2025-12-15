@@ -236,10 +236,12 @@ class ConversationalParser:
             'un', 'une', 'des', 'piano', 'pianos'
         ]
 
-        words = question.lower().split()
+        # Préserver la casse pour les IDs Gazelle (cli_xxx, pia_xxx, etc.)
+        # mais comparer les stop words en minuscules
+        words = question.split()
         search_terms = [
             word for word in words
-            if word not in stop_words and len(word) > 2
+            if word.lower() not in stop_words and len(word) > 2
         ]
 
         return search_terms
