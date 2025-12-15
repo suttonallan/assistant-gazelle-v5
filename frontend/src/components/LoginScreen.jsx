@@ -3,7 +3,7 @@ import { useState } from 'react'
 const USERS = [
   { id: 1, name: 'Allan', email: 'allan@pianotekinc.com', role: 'admin', pin: '6342' },
   { id: 2, name: 'Louise', email: 'louise@pianotekinc.com', role: 'admin', pin: '6343' },
-  { id: 3, name: 'Nicolas', email: 'nicolas@pianotekinc.com', role: 'technician', pin: '6344' },
+  { id: 3, name: 'Nick', email: 'nicolas@pianotekinc.com', role: 'technician', pin: '6344' },
   { id: 4, name: 'JP', email: 'jp@pianotekinc.com', role: 'technician', pin: '6345' },
 ]
 

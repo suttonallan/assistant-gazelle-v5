@@ -14,3 +14,6 @@ psycopg2-binary>=2.9.9
 # Gestion des variables d'environnement (.env)
 python-dotenv>=1.0.0
 
+# Tests (optionnel - pour tests d'intégration)
+pytest>=7.4.0
+

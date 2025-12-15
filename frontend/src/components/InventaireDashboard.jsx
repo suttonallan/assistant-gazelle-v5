@@ -9,7 +9,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const TECHNICIENS = [
   { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
   { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nicolas', username: 'nicolas' }
+  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' }
 ]
 
 const InventaireDashboard = ({ currentUser }) => {
@@ -47,7 +47,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const [loadingGazelle, setLoadingGazelle] = useState(false)
   const [selectedGazelleIds, setSelectedGazelleIds] = useState(new Set())
   const [batchCategorie, setBatchCategorie] = useState('Services')
-  const [batchType, setBatchType] = useState('service')
+  const [batchGazelleType, setBatchGazelleType] = useState('service')
   const [batchHasCommission, setBatchHasCommission] = useState(false)
   const [batchCommissionRate, setBatchCommissionRate] = useState(0)
 
@@ -144,7 +144,7 @@ const InventaireDashboard = ({ currentUser }) => {
         if (prod) {
           console.log(`   ${code}:`)
           console.log(`     Allan (quantities.allan) = ${prod.quantities.allan}`)
-          console.log(`     Nicolas (quantities.nicolas) = ${prod.quantities.nicolas}`)
+          console.log(`     Nick (quantities.nicolas) = ${prod.quantities.nicolas}`)
           console.log(`     Jean-Philippe (quantities.jeanphilippe) = ${prod.quantities.jeanphilippe}`)
         }
       })
@@ -1361,8 +1361,8 @@ const InventaireDashboard = ({ currentUser }) => {
                       </select>
 
                       <select
-                        value={batchType}
-                        onChange={(e) => setBatchType(e.target.value)}
+                        value={batchGazelleType}
+                        onChange={(e) => setBatchGazelleType(e.target.value)}
                         className="px-3 py-2 border rounded"
                       >
                         <option value="service">Service (pas d'inventaire)</option>
@@ -1411,7 +1411,7 @@ const InventaireDashboard = ({ currentUser }) => {
                                   has_commission: batchHasCommission,
                                   commission_rate: batchCommissionRate,
                                   categorie: batchCategorie,
-                                  type_produit: batchType
+                                  type_produit: batchGazelleType
                                 })
                               })
 

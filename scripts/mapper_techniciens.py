@@ -22,22 +22,24 @@ os.chdir(project_dir)
 sys.path.insert(0, project_dir)
 
 from core.supabase_storage import SupabaseStorage
+from core.reference_manager import get_reference_manager
 import requests
 
 # Forcer le flush immédiat
 sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
 
-# Mapping manuel des IDs Supabase vers noms
-# À ajuster selon vos vrais techniciens
-# Les IDs viennent de l'import (usr_xxx)
+# Charger le mapping depuis la référence
+ref_manager = get_reference_manager()
+ref_manager.ensure_reference_consulted("mapping_techniciens")
+
+# Récupérer le mapping depuis la référence
 MAPPING_TECHNICIENS = {
-    "usr_HcCiFk7o0vZ9xAI0": "Allan",  # À vérifier
-    "usr_ofYggsCDt2JAVeNP": "Nicolas",  # À vérifier
-    "usr_ReUSmIJmBF86ilY1": "Jean-Philippe",  # À vérifier
-    # Ajoutez d'autres mappings si nécessaire
+    "usr_ofYggsCDt2JAVeNP": ref_manager.get_technicien_name("usr_ofYggsCDt2JAVeNP") or "Allan",
+    "usr_HcCiFk7o0vZ9xAI0": ref_manager.get_technicien_name("usr_HcCiFk7o0vZ9xAI0") or "Nicolas",
+    "usr_ReUSmIJmBF86ilY1": ref_manager.get_technicien_name("usr_ReUSmIJmBF86ilY1") or "Jean-Philippe",
 }
 
-print("🔄 Mapping des techniciens...", flush=True)
+print("🔄 Mapping des techniciens (correction inversion)...", flush=True)
 print()
 
 def mapper_techniciens():
@@ -102,9 +104,14 @@ def mapper_techniciens():
         print(f"   ✅ Mis à jour: {mis_a_jour}", flush=True)
         print(f"   ⚠️  Non mappés: {non_mappes}", flush=True)
         
+        # Mettre à jour la référence après succès
+        if mis_a_jour > 0:
+            ref_manager.update_after_success("technicien_mapping", MAPPING_TECHNICIENS)
+            print("✅ Référence mise à jour automatiquement", flush=True)
+        
         if non_mappes > 0:
             print()
-            print("💡 Pour mapper les IDs restants, ajoutez-les dans MAPPING_TECHNICIENS", flush=True)
+            print("💡 Pour mapper les IDs restants, ajoutez-les dans docs/REFERENCE_COMPLETE.md", flush=True)
         
     except Exception as e:
         print(f"\n❌ Erreur fatale: {e}", flush=True)
@@ -114,3 +121,4 @@ def mapper_techniciens():
 
 if __name__ == "__main__":
     mapper_techniciens()
+

@@ -22,7 +22,8 @@ from api.vincent_dindy import router as vincent_dindy_router
 from api.alertes_rv import router as alertes_rv_router
 from api.inventaire import router as inventaire_router
 from api.catalogue_routes import router as catalogue_router
-from api.product_mapping import router as product_mapping_router
+from api.tournees import router as tournees_router
+from api.assistant import router as assistant_router
 
 app = FastAPI(
     title="Assistant Gazelle V5 API",
@@ -44,7 +45,8 @@ app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
 app.include_router(catalogue_router)
-app.include_router(product_mapping_router)
+app.include_router(tournees_router)
+app.include_router(assistant_router)
 
 
 @app.get("/")
@@ -58,7 +60,8 @@ async def root() -> Dict[str, Any]:
             "alertes-rv",
             "humidity-alerts",
             "place-des-arts",
-            "inventory"
+            "inventory",
+            "assistant"
         ],
         "endpoints": {
             "vincent-dindy": {
@@ -80,6 +83,10 @@ async def root() -> Dict[str, Any]:
             "catalogue": {
                 "add": "POST /api/catalogue/add",
                 "list": "GET /api/catalogue"
+            },
+            "assistant": {
+                "chat": "POST /assistant/chat",
+                "health": "GET /assistant/health"
             }
         }
     }

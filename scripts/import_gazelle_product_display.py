@@ -10,48 +10,23 @@ depuis SQL Server Gazelle (V4) vers Supabase produits_catalogue (V5).
 - ÉCRITURE dans V5 (Supabase) - Nouvelle base de données
 - V4 continue de fonctionner normalement, on ne le touche pas
 
-📋 RÉFÉRENCE SCHEMA:
-- Consulter docs/SCHEMA_PRODUITS_CATALOGUE.md pour les colonnes valides
-- Ne jamais inventer de noms de colonnes!
-- Utiliser UNIQUEMENT les colonnes définies dans les migrations 001 et 002
+📚 RÉFÉRENCE OBLIGATOIRE:
+- Consulter docs/REFERENCE_COMPLETE.md pour:
+  * Noms de colonnes valides (NE JAMAIS inventer)
+  * Mapping V4 → V5
+  * Schéma des tables Supabase
+  * Colonnes qui existent/n'existent pas dans SQL Server
 """
 
 import sys
 import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Charger les variables d'environnement depuis .env
-env_path = Path(__file__).parent.parent / '.env'
-if env_path.exists():
-    load_dotenv(env_path)
-    print(f"✅ [DEBUG] Variables d'environnement chargées depuis: {env_path}", flush=True)
-else:
-    print(f"⚠️  [DEBUG] Fichier .env non trouvé: {env_path}", flush=True)
-
-# Forcer le flush immédiat pour PowerShell
-sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
-
-# Changer vers le répertoire du projet (parent du dossier scripts)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-project_dir = os.path.dirname(script_dir)
-os.chdir(project_dir)
 
 # Ajouter le répertoire parent au path
-sys.path.insert(0, project_dir)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-print("🔍 [DEBUG] Démarrage du script...", flush=True)
-print(f"🔍 [DEBUG] Répertoire de travail: {os.getcwd()}", flush=True)
-print(f"🔍 [DEBUG] Python path: {sys.path[0]}", flush=True)
-
-try:
-    from core.supabase_storage import SupabaseStorage
-    print("✅ [DEBUG] Import SupabaseStorage réussi", flush=True)
-except Exception as e:
-    print(f"❌ [DEBUG] Erreur import SupabaseStorage: {e}", flush=True)
-    raise
+from core.supabase_storage import SupabaseStorage
 
 
 class GazelleProductDisplayImporter:
@@ -59,14 +34,7 @@ class GazelleProductDisplayImporter:
 
     def __init__(self):
         """Initialise l'importateur."""
-        print("🔍 [DEBUG] Initialisation de GazelleProductDisplayImporter...", flush=True)
-        try:
-            print("🔍 [DEBUG] Création de SupabaseStorage...", flush=True)
-            self.storage = SupabaseStorage()
-            print("✅ [DEBUG] SupabaseStorage créé avec succès", flush=True)
-        except Exception as e:
-            print(f"❌ [DEBUG] Erreur création SupabaseStorage: {e}", flush=True)
-            raise
+        self.storage = SupabaseStorage()
         self.stats = {
             "total_processed": 0,
             "updated": 0,
@@ -74,7 +42,6 @@ class GazelleProductDisplayImporter:
             "errors": 0,
             "skipped": 0
         }
-        print("✅ [DEBUG] Importer initialisé", flush=True)
 
     def fetch_from_gazelle(self) -> List[Dict[str, Any]]:
         """
@@ -130,88 +97,9 @@ class GazelleProductDisplayImporter:
         ORDER BY pd.DisplayOrder, p.Sku
         """
 
-        # Détecter si on est sur Windows (PC) pour utiliser SQL Server
-        if sys.platform == "win32":
-            try:
-                import pyodbc
-                print("🔌 Connexion à SQL Server Gazelle (source)...", flush=True)
-                
-                # Configuration SQL Server depuis variables d'environnement
-                db_conn_str = os.environ.get('DB_CONN_STR') or os.environ.get('SQL_SERVER_CONN_STR')
-                
-                if not db_conn_str:
-                    # Essayer une configuration par défaut
-                    server = os.environ.get('SQL_SERVER', 'PIANOTEK\\SQLEXPRESS')
-                    database = os.environ.get('SQL_DATABASE', 'PianoTek')
-                    db_conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};Trusted_Connection=yes;"
-                
-                conn = pyodbc.connect(db_conn_str)
-                cursor = conn.cursor()
-                
-                # Requête SQL pour récupérer les produits avec ProductDisplay
-                # Utilise les VRAIES colonnes qui existent dans SQL Server
-                query = """
-                SELECT
-                    p.ProductId,
-                    p.Sku AS code_produit,
-                    p.Name AS nom,
-                    COALESCE(pd.Category, 'Produit') AS categorie,
-                    NULL AS description,
-                    'unité' AS unite_mesure,
-                    COALESCE(p.UnitCost, 0) AS prix_unitaire,
-                    NULL AS fournisseur,
-                    pd.VariantGroup AS variant_group,
-                    pd.VariantLabel AS variant_label,
-                    COALESCE(pd.DisplayOrder, 0) AS display_order,
-                    COALESCE(pd.Active, p.Active, 1) AS is_active
-                FROM inv.Products p
-                LEFT JOIN inv.ProductDisplay pd ON p.ProductId = pd.ProductId
-                WHERE p.Active = 1
-                ORDER BY pd.DisplayOrder, p.Sku
-                """
-                
-                cursor.execute(query)
-                rows = cursor.fetchall()
-                
-                # Convertir les rows en dictionnaires
-                columns = [column[0] for column in cursor.description]
-                produits = []
-                for row in rows:
-                    produit_dict = dict(zip(columns, row))
-                    # Nettoyer les valeurs NULL et s'assurer que code_produit existe
-                    for key, value in produit_dict.items():
-                        if value is None:
-                            produit_dict[key] = None
-                        elif isinstance(value, str):
-                            produit_dict[key] = value.strip() if value else None
-                    
-                    # Si code_produit est NULL ou vide, utiliser ProductId comme fallback
-                    if not produit_dict.get("code_produit"):
-                        product_id = produit_dict.get("ProductId")
-                        if product_id:
-                            produit_dict["code_produit"] = f"PROD-{product_id}"
-                    
-                    produits.append(produit_dict)
-                
-                conn.close()
-                
-                print(f"✅ {len(produits)} produits récupérés depuis Gazelle SQL Server", flush=True)
-                print("   Note: has_commission et commission_rate initialisés à FALSE/0.00 (configurés dans V5)", flush=True)
-                
-                return produits
-                
-            except ImportError:
-                print("⚠️  pyodbc non installé. Installez avec: pip install pyodbc", flush=True)
-                return []
-            except Exception as e:
-                print(f"❌ Erreur de connexion SQL Server: {e}", flush=True)
-                return []
-        else:
-            # Sur Mac, pas d'implémentation SQL Server
-            print("⚠️  TODO: Implémenter fetch_from_gazelle()", flush=True)
-            print("   Voir la documentation dans le fichier pour la requête SQL", flush=True)
-            print("⚠️  [DEBUG] Retour d'une liste vide - aucun produit à importer", flush=True)
-            return []
+        print("⚠️  TODO: Implémenter fetch_from_gazelle()")
+        print("   Voir la documentation dans le fichier pour la requête SQL")
+        return []
 
     def map_gazelle_to_supabase(self, gazelle_product: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -223,22 +111,13 @@ class GazelleProductDisplayImporter:
         Returns:
             Produit au format Supabase
         """
-        # Récupérer code_produit - peut être dans différentes clés
-        code_produit = gazelle_product.get("code_produit") or gazelle_product.get("Sku") or gazelle_product.get("SKU")
-        
-        # Si toujours pas de code, utiliser ProductId comme fallback
-        if not code_produit:
-            product_id = gazelle_product.get("ProductId")
-            if product_id:
-                code_produit = f"PROD-{product_id}"
-        
         return {
-            "code_produit": code_produit,
-            "nom": gazelle_product.get("nom") or gazelle_product.get("Name") or "Produit sans nom",
-            "categorie": gazelle_product.get("categorie") or gazelle_product.get("Category") or "Produit",
+            "code_produit": gazelle_product.get("code_produit"),
+            "nom": gazelle_product.get("nom"),
+            "categorie": gazelle_product.get("categorie", "Produit"),
             "description": gazelle_product.get("description"),
-            "unite_mesure": gazelle_product.get("unite_mesure") or "unité",
-            "prix_unitaire": float(gazelle_product.get("prix_unitaire") or gazelle_product.get("UnitCost") or 0),
+            "unite_mesure": gazelle_product.get("unite_mesure", "unité"),
+            "prix_unitaire": float(gazelle_product.get("prix_unitaire", 0)),
             "fournisseur": gazelle_product.get("fournisseur"),
             # Nouvelles colonnes de classification
             "has_commission": bool(gazelle_product.get("has_commission", False)),
@@ -264,7 +143,7 @@ class GazelleProductDisplayImporter:
         try:
             code_produit = product_data.get("code_produit")
             if not code_produit:
-                print(f"  ⚠️  Produit sans code, ignoré", flush=True)
+                print(f"  ⚠️  Produit sans code, ignoré")
                 self.stats["skipped"] += 1
                 return False
 
@@ -283,19 +162,19 @@ class GazelleProductDisplayImporter:
 
             if success:
                 if existing:
-                    print(f"  ✅ {code_produit}: Mis à jour", flush=True)
+                    print(f"  ✅ {code_produit}: Mis à jour")
                     self.stats["updated"] += 1
                 else:
-                    print(f"  ✅ {code_produit}: Créé", flush=True)
+                    print(f"  ✅ {code_produit}: Créé")
                     self.stats["created"] += 1
                 return True
             else:
-                print(f"  ❌ {code_produit}: Échec", flush=True)
+                print(f"  ❌ {code_produit}: Échec")
                 self.stats["errors"] += 1
                 return False
 
         except Exception as e:
-            print(f"  ❌ Erreur: {e}", flush=True)
+            print(f"  ❌ Erreur: {e}")
             self.stats["errors"] += 1
             return False
 
@@ -309,26 +188,26 @@ class GazelleProductDisplayImporter:
         Returns:
             Statistiques d'importation
         """
-        print("🔄 Importation des classifications de produits depuis Gazelle...", flush=True)
-        print("", flush=True)
+        print("🔄 Importation des classifications de produits depuis Gazelle...")
+        print()
 
         if dry_run:
-            print("⚠️  MODE DRY-RUN: Aucune modification ne sera effectuée", flush=True)
-            print("", flush=True)
+            print("⚠️  MODE DRY-RUN: Aucune modification ne sera effectuée")
+            print()
 
         # Récupérer les produits depuis Gazelle
-        print("📥 Récupération depuis Gazelle inv.ProductDisplay...", flush=True)
+        print("📥 Récupération depuis Gazelle inv.ProductDisplay...")
         gazelle_products = self.fetch_from_gazelle()
 
         if not gazelle_products:
-            print("⚠️  Aucun produit récupéré depuis Gazelle", flush=True)
+            print("⚠️  Aucun produit récupéré depuis Gazelle")
             return self.stats
 
-        print(f"   {len(gazelle_products)} produits récupérés", flush=True)
-        print("", flush=True)
+        print(f"   {len(gazelle_products)} produits récupérés")
+        print()
 
         # Importer chaque produit
-        print("📦 Importation des produits...", flush=True)
+        print("📦 Importation des produits...")
         for gazelle_product in gazelle_products:
             self.stats["total_processed"] += 1
 
@@ -338,16 +217,16 @@ class GazelleProductDisplayImporter:
             if not dry_run:
                 self.import_product(product_data)
             else:
-                print(f"  🔍 [DRY-RUN] {product_data.get('code_produit')}: {product_data.get('nom')}", flush=True)
+                print(f"  🔍 [DRY-RUN] {product_data.get('code_produit')}: {product_data.get('nom')}")
 
         # Afficher les statistiques
-        print("", flush=True)
-        print("📊 Statistiques d'importation:", flush=True)
-        print(f"   Total traité: {self.stats['total_processed']}", flush=True)
-        print(f"   ✅ Créés: {self.stats['created']}", flush=True)
-        print(f"   ✅ Mis à jour: {self.stats['updated']}", flush=True)
-        print(f"   ⚠️  Ignorés: {self.stats['skipped']}", flush=True)
-        print(f"   ❌ Erreurs: {self.stats['errors']}", flush=True)
+        print()
+        print("📊 Statistiques d'importation:")
+        print(f"   Total traité: {self.stats['total_processed']}")
+        print(f"   ✅ Créés: {self.stats['created']}")
+        print(f"   ✅ Mis à jour: {self.stats['updated']}")
+        print(f"   ⚠️  Ignorés: {self.stats['skipped']}")
+        print(f"   ❌ Erreurs: {self.stats['errors']}")
 
         return self.stats
 
@@ -367,15 +246,9 @@ def main():
 
     args = parser.parse_args()
 
-    print("🔍 [DEBUG] Arguments parsés", flush=True)
-    print(f"🔍 [DEBUG] Dry-run: {args.dry_run}", flush=True)
-
     try:
-        print("🔍 [DEBUG] Création de l'importer...", flush=True)
         importer = GazelleProductDisplayImporter()
-        print("🔍 [DEBUG] Lancement de l'import...", flush=True)
         stats = importer.run(dry_run=args.dry_run)
-        print("🔍 [DEBUG] Import terminé", flush=True)
 
         # Code de sortie basé sur les erreurs
         if stats["errors"] > 0:
@@ -384,7 +257,7 @@ def main():
             sys.exit(0)
 
     except Exception as e:
-        print(f"\n❌ Erreur fatale: {e}", flush=True)
+        print(f"\n❌ Erreur fatale: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

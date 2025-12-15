@@ -204,6 +204,46 @@ async def delete_produit(code_produit: str):
 # Routes pour l'Inventaire par Technicien
 # ============================================================
 
+@router.get("/techniciens/all", response_model=Dict[str, Any])
+async def get_all_techniciens_inventory():
+    """
+    Récupère l'inventaire de TOUS les techniciens.
+
+    Utilisé par les dashboards de Nick, Louise et Jean-Philippe.
+
+    Returns:
+        - inventory: Liste de tous les items avec technicien, produit, quantité, emplacement
+        - count: Nombre total d'items
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Récupérer toutes les entrées de la table inventaire_techniciens
+        all_inventory = storage.get_data("inventaire_techniciens")
+
+        # OPTIMISATION: Charger tout le catalogue une seule fois
+        catalogue = storage.get_data("produits_catalogue")
+        catalogue_map = {p['code_produit']: p for p in catalogue}
+
+        # Enrichir avec les noms de produits depuis le catalogue
+        for item in all_inventory:
+            code_produit = item.get('code_produit')
+            if code_produit and code_produit in catalogue_map:
+                produit = catalogue_map[code_produit]
+                item['nom_produit'] = produit.get('nom', code_produit)
+                item['description'] = produit.get('description', '')
+            else:
+                item['nom_produit'] = code_produit
+
+        return {
+            "success": True,
+            "inventory": all_inventory,
+            "count": len(all_inventory)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération inventaire: {str(e)}")
+
+
 @router.get("/stock/{technicien}", response_model=Dict[str, Any])
 async def get_stock_technicien(technicien: str):
     """

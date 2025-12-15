@@ -10,7 +10,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const [error, setError] = useState(null);
 
   const [currentView, setCurrentView] = useState('nicolas');
-  const [showOnlySelected, setShowOnlySelected] = useState(false); // Nicolas : filtrer sur pianos sélectionnés
+  const [showOnlySelected, setShowOnlySelected] = useState(false); // Nick : filtrer sur pianos sélectionnés
   const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local
 
@@ -27,7 +27,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const [travailInput, setTravailInput] = useState('');
   const [observationsInput, setObservationsInput] = useState('');
 
-  // Pour vue Nicolas - édition "à faire", "travail" et "observations"
+  // Pour vue Nick - édition "à faire", "travail" et "observations"
   const [editingAFaireId, setEditingAFaireId] = useState(null);
   const [aFaireInput, setAFaireInput] = useState('');
   const [editingTravailId, setEditingTravailId] = useState(null);
@@ -122,7 +122,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     let result = [...pianos];
 
     if (currentView === 'nicolas') {
-      // Onglet Nicolas : par défaut tous les pianos, ou filtrer sur les jaunes/verts si demandé
+      // Onglet Nick : par défaut tous les pianos, ou filtrer sur les jaunes/verts si demandé
       if (showOnlySelected) {
         result = result.filter(p => p.status === 'proposed' || p.status === 'completed');
       }
@@ -379,7 +379,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                 onClick={() => setCurrentView(view)}
                 className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
               >
-                {view === 'nicolas' ? 'Nicolas' : 'Technicien'}
+                {view === 'nicolas' ? 'Nick' : 'Technicien'}
               </button>
             ))}
           </div>
@@ -456,7 +456,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                         <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
                       </div>
 
-                      {/* Note "à faire" de Nicolas */}
+                      {/* Note "à faire" de Nick */}
                       {piano.aFaire && (
                         <div className="bg-yellow-100 p-2 rounded text-sm">
                           <span className="font-medium">📋 À faire:</span> {piano.aFaire}
@@ -557,7 +557,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
         {/* Onglets */}
         <div className="flex">
           {[
-            { key: 'nicolas', label: 'Nicolas' },
+            { key: 'nicolas', label: 'Nick' },
             { key: 'technicien', label: 'Technicien' },
           ].map(tab => (
             <button
@@ -575,7 +575,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
         </div>
       </div>
 
-      {/* Barre d'outils - Nicolas */}
+      {/* Barre d'outils - Nick */}
       {currentView === 'nicolas' && (
         <div className="bg-white rounded-lg shadow p-4 mb-4 space-y-3">
           {/* Boutons de vue */}
@@ -653,7 +653,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               {currentView === 'nicolas' && (
                 <>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nicolas)</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Travail (Tech)</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-purple-50">Observations (Tech)</th>
                 </>
@@ -693,10 +693,10 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                     {mois}
                   </td>
 
-                  {/* Colonnes pour l'onglet Nicolas */}
+                  {/* Colonnes pour l'onglet Nick */}
                   {currentView === 'nicolas' && (
                     <>
-                      {/* Colonne "À faire" de Nicolas */}
+                      {/* Colonne "À faire" de Nick */}
                       <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
                         {editingAFaireId === piano.id ? (
                           <input

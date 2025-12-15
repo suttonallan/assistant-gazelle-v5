@@ -307,7 +307,9 @@ class GazelleAPIClient:
             allPianos {
                 nodes {
                     id
-                    clientId
+                    client {
+                        id
+                    }
                     make
                     model
                     serialNumber
@@ -330,14 +332,120 @@ class GazelleAPIClient:
         
         print(f"✅ {len(all_pianos)} pianos récupérés depuis l'API")
         return all_pianos
-    
+
+    def get_appointments(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Récupère tous les rendez-vous depuis l'API Gazelle (allEventsBatched).
+
+        Utilise la pagination automatique pour récupérer tous les événements.
+        Pattern copié depuis V4 (Import_daily_update.py lignes 257-268).
+
+        Args:
+            limit: Nombre maximum d'appointments à retourner (None = tous)
+
+        Returns:
+            Liste de dictionnaires contenant les données des rendez-vous
+        """
+        from datetime import datetime, timedelta
+        import time
+
+        # Période : 60 jours dans le passé → 90 jours dans le futur (config V4)
+        start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+        end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
+
+        # Requête GraphQL (copié de V4 - ligne 258)
+        query = """
+        query($first: Int, $after: String, $filters: PrivateAllEventsFilter) {
+          allEventsBatched(first: $first, after: $after, filters: $filters) {
+            nodes {
+              id
+              title
+              start
+              duration
+              isAllDay
+              notes
+              client { id }
+              type
+              status
+              user { id }
+              createdBy { id }
+              confirmedByClient
+              source
+              travelMode
+              allEventPianos(first: 10) {
+                nodes {
+                  piano { id }
+                }
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+        """
+
+        # Filtres (copié de V4 - ligne 259)
+        filters = {
+            "startOn": start_date,
+            "endOn": end_date,
+            "type": ["APPOINTMENT", "PERSONAL", "MEMO", "SYNCED"]
+        }
+
+        # Pagination automatique (pattern V4 - lignes 136-189)
+        all_events = []
+        cursor = None
+        page_size = 100
+        page_count = 0
+
+        print(f"📅 Récupération appointments ({start_date} → {end_date})...")
+
+        while True:
+            page_count += 1
+            time.sleep(0.2)  # Délai entre requêtes (V4)
+
+            variables = {
+                "first": page_size,
+                "after": cursor,
+                "filters": filters
+            }
+
+            result = self._execute_query(query, variables)
+
+            if not result:
+                break
+
+            data_connection = result.get('data', {}).get('allEventsBatched', {})
+            if not data_connection:
+                break
+
+            nodes = data_connection.get('nodes', [])
+            all_events.extend(nodes)
+
+            print(f"   Page {page_count}: {len(nodes)} appointments récupérés (total: {len(all_events)})")
+
+            # Vérifier si page suivante
+            page_info = data_connection.get('pageInfo', {})
+            if not page_info.get('hasNextPage'):
+                break
+
+            cursor = page_info.get('endCursor')
+
+        # Limiter si nécessaire
+        if limit and len(all_events) > limit:
+            all_events = all_events[:limit]
+
+        print(f"✅ {len(all_events)} appointments récupérés depuis l'API")
+        return all_events
+
     def get_invoices(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Récupère toutes les factures depuis l'API.
-        
+
         Args:
             limit: Nombre maximum de factures par page (défaut: 100)
-            
+
         Returns:
             Liste de dictionnaires contenant les données des factures
         """
@@ -359,59 +467,91 @@ class GazelleAPIClient:
             }
         }
         """
-        
+
         result = self._execute_query(query)
         connection = result.get('data', {}).get('allInvoices', {})
         all_invoices = connection.get('nodes', [])
-        
+
         # Limiter le nombre de résultats si nécessaire
         if limit and len(all_invoices) > limit:
             all_invoices = all_invoices[:limit]
-        
+
         print(f"✅ {len(all_invoices)} factures récupérées depuis l'API")
         return all_invoices
-    
-    def get_products(self, limit: int = 1000) -> List[Dict[str, Any]]:
+
+    def get_products(self, limit: int = 500) -> List[Dict[str, Any]]:
         """
-        Récupère tous les produits depuis l'API Gazelle.
-        
+        Récupère tous les produits depuis Master Service Items (catalogue de services).
+
         Args:
-            limit: Nombre maximum de produits par page (défaut: 1000)
-            
+            limit: Nombre maximum de produits par page (défaut: 500)
+
         Returns:
-            Liste de dictionnaires contenant les données des produits
+            Liste de dictionnaires contenant les données des produits/services
         """
         query = """
-        query GetProducts {
-            allProducts {
-                nodes {
+        query GetMasterServiceItems {
+            allMasterServiceItems {
+                id
+                name
+                description
+                educationDescription
+                amount
+                duration
+                isTaxable
+                isArchived
+                isTuning
+                type
+                order
+                masterServiceGroup {
                     id
-                    sku
                     name
-                    unitCost
-                    retailPrice
-                    active
-                    description
-                    unit
-                    supplier
-                    category
-                    createdAt
-                    updatedAt
                 }
+                createdAt
+                updatedAt
             }
         }
         """
-        
+
         result = self._execute_query(query)
-        connection = result.get('data', {}).get('allProducts', {})
-        all_products = connection.get('nodes', [])
-        
+        all_products = result.get('data', {}).get('allMasterServiceItems', [])
+
+        # Transformer les données pour extraire les langues FR et EN
+        products_transformed = []
+        for p in all_products:
+            # Extraire nom FR/EN depuis I18nString
+            name_i18n = p.get('name', {})
+            name_fr = name_i18n.get('fr_CA', name_i18n.get('fr', ''))
+            name_en = name_i18n.get('en_US', name_i18n.get('en', ''))
+
+            # Extraire description FR/EN
+            desc_i18n = p.get('description', {})
+            desc_fr = desc_i18n.get('fr_CA', desc_i18n.get('fr', ''))
+            desc_en = desc_i18n.get('en_US', desc_i18n.get('en', ''))
+
+            # Extraire groupe de service
+            service_group = p.get('masterServiceGroup', {})
+            group_name_i18n = service_group.get('name', {})
+            group_name_fr = group_name_i18n.get('fr_CA', group_name_i18n.get('fr', ''))
+            group_name_en = group_name_i18n.get('en_US', group_name_i18n.get('en', ''))
+
+            products_transformed.append({
+                **p,
+                'name_fr': name_fr,
+                'name_en': name_en,
+                'description_fr': desc_fr,
+                'description_en': desc_en,
+                'group_name_fr': group_name_fr,
+                'group_name_en': group_name_en,
+                'group_id': service_group.get('id')
+            })
+
         # Limiter le nombre de résultats si nécessaire
-        if limit and len(all_products) > limit:
-            all_products = all_products[:limit]
-        
-        print(f"✅ {len(all_products)} produits récupérés depuis l'API Gazelle")
-        return all_products
+        if limit and len(products_transformed) > limit:
+            products_transformed = products_transformed[:limit]
+
+        print(f"✅ {len(products_transformed)} produits/services récupérés depuis Master Service Items")
+        return products_transformed
 
 
 if __name__ == '__main__':
