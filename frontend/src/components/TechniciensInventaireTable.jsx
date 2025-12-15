@@ -1,0 +1,333 @@
+import React, { useState, useEffect } from 'react'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+// Configuration des techniciens
+const TECHNICIENS = [
+  { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
+  { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
+  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' }
+]
+
+/**
+ * Composant réutilisable pour afficher l'inventaire des techniciens
+ * Identique à l'onglet "Inventaire" de l'admin
+ */
+const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [comment, setComment] = useState('')
+  const [collapsedCategories, setCollapsedCategories] = useState(new Set())
+  const [updateFeedback, setUpdateFeedback] = useState({})
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  const currentUsername = currentUser?.email?.split('@')[0] || 'test'
+  const currentUserIsAdmin = currentUser?.email === 'allan@example.com'
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  useEffect(() => {
+    loadInventory()
+  }, [])
+
+  const loadInventory = async () => {
+    try {
+      setLoading(true)
+      const catalogueRes = await fetch(`${API_URL}/inventaire/catalogue`)
+      if (!catalogueRes.ok) throw new Error('Erreur chargement catalogue')
+      const catalogueData = await catalogueRes.json()
+
+      // Créer le map de produits
+      const productsMap = {}
+      catalogueData.produits.forEach(prod => {
+        const quantities = {}
+        TECHNICIENS.forEach(tech => {
+          quantities[tech.username] = 0
+        })
+
+        productsMap[prod.code_produit] = {
+          id: prod.code_produit,
+          code_produit: prod.code_produit,
+          name: prod.nom,
+          category: prod.categorie || 'Sans catégorie',
+          variant_label: prod.variant_label,
+          display_order: prod.display_order || 0,
+          is_active: prod.is_active !== false,
+          quantities
+        }
+      })
+
+      // Mapping pour convertir les noms de techniciens de la DB vers les usernames
+      const technicienMapping = {
+        'Nicolas': 'nicolas',
+        'Nick': 'nicolas',
+        'nicolas': 'nicolas',
+        'nicolas@example.com': 'nicolas',
+        'Allan': 'allan',
+        'allan': 'allan',
+        'allan@example.com': 'allan',
+        'Jean-Philippe': 'jeanphilippe',
+        'jeanphilippe': 'jeanphilippe',
+        'jeanphilippe@example.com': 'jeanphilippe'
+      }
+
+      // Charger les quantités réelles
+      const inventaireRes = await fetch(`${API_URL}/inventaire/techniciens/all`)
+      if (inventaireRes.ok) {
+        const inventaireData = await inventaireRes.json()
+        inventaireData.inventory?.forEach(item => {
+          if (productsMap[item.code_produit]) {
+            // Essayer de mapper le nom du technicien
+            let techUsername = technicienMapping[item.technicien]
+
+            // Si pas trouvé, essayer avec l'email
+            if (!techUsername && item.technicien?.includes('@')) {
+              const emailPart = item.technicien.split('@')[0].toLowerCase()
+              techUsername = technicienMapping[emailPart] || emailPart
+            }
+
+            // Si toujours pas trouvé, utiliser le nom en lowercase
+            if (!techUsername) {
+              techUsername = item.technicien?.toLowerCase().replace('-', '')
+            }
+
+            if (productsMap[item.code_produit].quantities[techUsername] !== undefined) {
+              productsMap[item.code_produit].quantities[techUsername] = item.quantite_stock || 0
+            }
+          }
+        })
+      }
+
+      setProducts(Object.values(productsMap).filter(p => p.is_active))
+    } catch (err) {
+      console.error('Erreur chargement inventaire:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateQuantity = async (codeProduit, techUsername, newValue) => {
+    const newQty = parseInt(newValue) || 0
+
+    // Mise à jour optimiste de l'UI
+    setProducts(prev => prev.map(p =>
+      p.code_produit === codeProduit
+        ? { ...p, quantities: { ...p.quantities, [techUsername]: newQty } }
+        : p
+    ))
+
+    // Feedback visuel
+    const feedbackKey = codeProduit + techUsername
+    setUpdateFeedback(prev => ({ ...prev, [feedbackKey]: true }))
+    setTimeout(() => {
+      setUpdateFeedback(prev => {
+        const newFeedback = { ...prev }
+        delete newFeedback[feedbackKey]
+        return newFeedback
+      })
+    }, 500)
+
+    // Sauvegarder dans la DB
+    try {
+      await fetch(`${API_URL}/inventaire/techniciens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code_produit: codeProduit,
+          technicien: techUsername + '@example.com',
+          quantite_stock: newQty,
+          emplacement: 'Atelier'
+        })
+      })
+    } catch (err) {
+      console.error('Erreur sauvegarde:', err)
+      // Recharger en cas d'erreur
+      await loadInventory()
+    }
+  }
+
+  const submitComment = async () => {
+    if (!comment.trim()) return
+
+    try {
+      await fetch(`${API_URL}/slack/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `💬 **${currentUser?.name || 'Technicien'}**: ${comment}`,
+          channel: 'inventory'
+        })
+      })
+      alert('✅ Commentaire envoyé!')
+      setComment('')
+    } catch (err) {
+      alert('❌ Erreur envoi commentaire: ' + err.message)
+    }
+  }
+
+  const toggleCategory = (category) => {
+    setCollapsedCategories(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(category)) {
+        newSet.delete(category)
+      } else {
+        newSet.add(category)
+      }
+      return newSet
+    })
+  }
+
+  // Grouper par catégorie
+  const categoryGroups = products.reduce((acc, product) => {
+    const cat = product.category || 'Sans catégorie'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(product)
+    return acc
+  }, {})
+
+  // Trier les produits par display_order dans chaque catégorie
+  Object.keys(categoryGroups).forEach(cat => {
+    categoryGroups[cat].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+  })
+
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Chargement...</div>
+  }
+
+  return (
+    <div>
+      {/* Zone commentaire rapide */}
+      {allowComment && (
+        <div className={`mb-4 bg-blue-50 border border-blue-200 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
+          <label className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-700 mb-2`}>
+            💬 Commentaire rapide {!isMobile && '(notifie le CTO via Slack)'}
+          </label>
+          <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2`}>
+            <input
+              type="text"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submitComment()}
+              placeholder={isMobile ? "Commentaire..." : "Ex: Besoin urgent de coupelles brunes..."}
+              className={`flex-1 border rounded ${isMobile ? 'px-2 py-2 text-base' : 'px-3 py-2 text-sm'}`}
+            />
+            <button
+              onClick={submitComment}
+              className={`${isMobile ? 'w-full px-4 py-2.5' : 'px-4 py-2'} bg-blue-600 text-white rounded hover:bg-blue-700 font-medium ${isMobile ? 'text-base' : 'text-sm'}`}
+            >
+              Envoyer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tableau multi-colonnes avec sticky - Optimisé mobile */}
+      <div className="bg-white rounded-lg shadow overflow-auto" style={{ maxHeight: isMobile ? '80vh' : '70vh' }}>
+        <table className="min-w-full border-collapse">
+          <thead className="bg-gray-50 sticky top-0 z-10">
+            <tr>
+              <th className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-left text-xs font-medium text-gray-500 uppercase border-b sticky left-0 bg-gray-50 z-20`}>
+                Produit
+              </th>
+              {TECHNICIENS.map(tech => {
+                // Filtre mobile: affiche uniquement colonne utilisateur si pas admin
+                if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
+                  return null
+                }
+
+                // Abréviations mobiles personnalisées
+                const mobileNames = {
+                  'Allan': 'Alla',
+                  'Jean-Philippe': 'J-Ph',
+                  'Nick': 'Nick'
+                }
+
+                return (
+                  <th
+                    key={tech.username}
+                    className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center text-xs font-medium text-gray-500 uppercase border-b`}
+                  >
+                    {isMobile ? (mobileNames[tech.name] || tech.name.substring(0, 4)) : tech.name}
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(categoryGroups).map(([category, categoryProducts]) => (
+              <React.Fragment key={category}>
+                {/* Ligne catégorie */}
+                <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
+                  <td
+                    colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
+                    className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
+                    onClick={() => toggleCategory(category)}
+                  >
+                    {collapsedCategories.has(category) ? '▶' : '▼'} {category}
+                  </td>
+                </tr>
+
+                {/* Lignes produits */}
+                {!collapsedCategories.has(category) && categoryProducts.map(product => (
+                  <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
+                    <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
+                      <div className={isMobile ? 'text-xs' : 'text-sm'}>
+                        {product.name}
+                        {product.variant_label && (
+                          <span className="text-xs text-gray-500 ml-1">
+                            ({product.variant_label})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {product.code_produit}
+                      </div>
+                    </td>
+
+                    {TECHNICIENS.map(tech => {
+                      // Filtre mobile
+                      if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
+                        return null
+                      }
+
+                      const qty = product.quantities?.[tech.username] || 0
+                      const isMyColumn = tech.username === currentUsername
+                      const feedbackKey = product.code_produit + tech.username
+                      const hasFeedback = updateFeedback[feedbackKey]
+
+                      return (
+                        <td
+                          key={tech.username}
+                          className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center`}
+                        >
+                          <input
+                            type="number"
+                            min="0"
+                            value={qty}
+                            onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => e.target.select()}
+                            className={`${isMobile ? 'w-16 text-base' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
+                              isMyColumn ? 'bg-green-50 border-green-300 font-bold' : 'border-gray-300'
+                            } ${hasFeedback ? 'bg-green-200' : ''}`}
+                            style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
+                          />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export default TechniciensInventaireTable
