@@ -24,6 +24,25 @@ class GazelleQueries:
         """
         self.storage = storage or SupabaseStorage()
 
+        # Mapping email -> nom technicien dans Gazelle
+        self.technicien_mapping = {
+            'nicolas@pianotekinc.com': 'Nick',
+            'jp@pianotekinc.com': 'Jean-Philippe',
+            'allan@pianotekinc.com': None  # Admin voit tous les RV
+        }
+
+    def _get_technicien_from_email(self, email: str) -> Optional[str]:
+        """
+        Retourne le nom du technicien depuis son email.
+
+        Args:
+            email: Email de l'utilisateur
+
+        Returns:
+            Nom du technicien ou None (pour admin)
+        """
+        return self.technicien_mapping.get(email.lower())
+
     def get_appointments(
         self,
         date: Optional[datetime] = None,
@@ -47,7 +66,8 @@ class GazelleQueries:
         """
         try:
             # Requête via REST API Supabase
-            url = f"{self.storage.api_url}/gazelle.appointments"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
+            url = f"{self.storage.api_url}/gazelle_appointments"
             url += f"?select=*"
 
             # Plage de dates ou date exacte
@@ -62,8 +82,9 @@ class GazelleQueries:
                 date_str = date.strftime('%Y-%m-%d')
                 url += f"&date=eq.{date_str}"
 
+            # Filtrer par technicien si spécifié
             if technicien:
-                url += f"&technicien=eq.{technicien}"
+                url += f"&technician=eq.{technicien}"
 
             url += f"&limit={limit}"
             url += "&order=date.asc,time.asc"
@@ -73,6 +94,10 @@ class GazelleQueries:
 
             if response.status_code == 200:
                 return response.json()
+            elif response.status_code == 404:
+                # Table n'existe pas encore - c'est normal, les RV ne sont pas encore synchronisés
+                print(f"⚠️ Table gazelle_appointments n'existe pas encore (404). Les rendez-vous ne sont pas encore synchronisés.")
+                return []
             else:
                 print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
                 return []
@@ -102,7 +127,8 @@ class GazelleQueries:
         try:
             # Construire la requête de recherche
             # Supabase REST API supporte ilike pour recherche insensible à la casse
-            url = f"{self.storage.api_url}/gazelle.clients"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.clients)
+            url = f"{self.storage.api_url}/gazelle_clients"
             url += "?select=*"
 
             # Rechercher dans nom, prénom, ville
@@ -143,7 +169,8 @@ class GazelleQueries:
             return []
 
         try:
-            url = f"{self.storage.api_url}/gazelle.pianos"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.pianos)
+            url = f"{self.storage.api_url}/gazelle_pianos"
             url += "?select=*"
 
             # Rechercher dans marque, modèle, numéro de série, ville
@@ -183,7 +210,8 @@ class GazelleQueries:
             Liste d'événements timeline
         """
         try:
-            url = f"{self.storage.api_url}/gazelle.timeline_entries"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.timeline_entries)
+            url = f"{self.storage.api_url}/gazelle_timeline_entries"
             url += "?select=*"
             url += f"&entity_id=eq.{entity_id}"
             url += f"&entity_type=eq.{entity_type}"
@@ -234,19 +262,24 @@ class GazelleQueries:
 
         try:
             # Compter les RV dans la période
-            url = f"{self.storage.api_url}/gazelle.appointments"
+            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
+            url = f"{self.storage.api_url}/gazelle_appointments"
             url += "?select=id"
             url += f"&date=gte.{start_str}"
             url += f"&date=lte.{end_str}"
 
+            # Filtrer par technicien si spécifié
             if technicien:
-                url += f"&technicien=eq.{technicien}"
+                url += f"&technician=eq.{technicien}"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
 
             if response.status_code == 200:
                 summary['appointments_count'] = len(response.json())
+            elif response.status_code == 404:
+                # Table n'existe pas encore - c'est normal
+                summary['appointments_count'] = 0
 
             # Compter les entrées timeline
             url = f"{self.storage.api_url}/gazelle.timeline_entries"
@@ -267,7 +300,8 @@ class GazelleQueries:
     def execute_query(
         self,
         query_type: QueryType,
-        params: Dict[str, Any]
+        params: Dict[str, Any],
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute une requête selon le type et les paramètres.
@@ -275,11 +309,15 @@ class GazelleQueries:
         Args:
             query_type: Type de requête (QueryType)
             params: Paramètres extraits par le parser
+            user_id: Email de l'utilisateur (pour filtrer ses RV)
 
         Returns:
             Résultats de la requête
         """
         if query_type == QueryType.APPOINTMENTS:
+            # Mapper email -> nom technicien pour le filtre
+            technicien = self._get_technicien_from_email(user_id) if user_id else None
+
             # Vérifier s'il y a une période (ex: "cette semaine")
             period = params.get('period')
 
@@ -287,7 +325,11 @@ class GazelleQueries:
                 # Plage de dates
                 start_date = period['start_date']
                 end_date = period['end_date']
-                appointments = self.get_appointments(start_date=start_date, end_date=end_date)
+                appointments = self.get_appointments(
+                    start_date=start_date,
+                    end_date=end_date,
+                    technicien=technicien
+                )
 
                 return {
                     'type': 'appointments',
@@ -302,7 +344,7 @@ class GazelleQueries:
                 # Date unique
                 dates = params.get('dates', [])
                 date = dates[0] if dates else datetime.now()
-                appointments = self.get_appointments(date=date)
+                appointments = self.get_appointments(date=date, technicien=technicien)
 
                 return {
                     'type': 'appointments',

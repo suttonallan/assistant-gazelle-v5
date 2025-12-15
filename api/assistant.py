@@ -125,7 +125,7 @@ async def chat(request: ChatRequest):
 
         # 4. Exécuter la requête
         queries = get_queries()
-        results = queries.execute_query(query_type, params)
+        results = queries.execute_query(query_type, params, user_id=request.user_id)
 
         # 5. Formater la réponse
         answer = _format_response(query_type, results)
