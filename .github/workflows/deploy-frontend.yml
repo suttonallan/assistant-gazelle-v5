@@ -9,6 +9,8 @@ on:
       - '.github/workflows/deploy-frontend.yml'
       - 'data_csv_test/pianos_vincent_dindy.csv'
       - 'api/vincent_dindy.py'
+      - 'api/assistant.py'
+      - 'modules/assistant/**'
 
 jobs:
   build-and-deploy:
