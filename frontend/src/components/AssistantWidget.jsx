@@ -1,0 +1,258 @@
+import { useState, useRef, useEffect } from 'react'
+
+/**
+ * Widget Assistant Conversationnel
+ *
+ * Composant réutilisable pour tous les profils (Admin, Nick, Louise, Jean-Philippe).
+ * Adapte les suggestions et les commandes selon le rôle de l'utilisateur.
+ *
+ * Props:
+ * - currentUser: Objet utilisateur {name, email, role}
+ * - role: Rôle de l'utilisateur ('admin', 'nick', 'louise', 'jeanphilippe')
+ * - compact: Mode compact (false par défaut)
+ */
+export default function AssistantWidget({ currentUser, role = 'admin', compact = false }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const messagesEndRef = useRef(null)
+
+  // Scroll automatique vers le bas
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // Message de bienvenue selon le rôle
+  const getWelcomeMessage = () => {
+    const welcomeMessages = {
+      admin: "👋 Bonjour Allan ! Je peux vous aider avec les stats, les imports, les recherches de clients, etc.",
+      nick: "👋 Salut Nick ! Je peux t'aider avec tes tournées, tes rendez-vous et ton inventaire.",
+      louise: "👋 Bonjour Louise ! Je peux t'aider avec les rendez-vous, les recherches de clients et les stats.",
+      jeanphilippe: "👋 Salut Jean-Philippe ! Je peux t'aider avec tes rendez-vous, les pianos et ton stock."
+    }
+    return welcomeMessages[role] || welcomeMessages.admin
+  }
+
+  // Suggestions rapides selon le rôle
+  const getSuggestions = () => {
+    const suggestions = {
+      admin: [
+        { text: ".aide", description: "Voir toutes les commandes" },
+        { text: ".mes rv", description: "Mes prochains rendez-vous" },
+        { text: ".stats", description: "Statistiques du système" },
+        { text: ".cherche Yamaha", description: "Chercher un client/piano" }
+      ],
+      nick: [
+        { text: ".mes rv", description: "Mes prochains rendez-vous" },
+        { text: ".prochaines tournées", description: "Mes tournées à venir" },
+        { text: ".stock cordes", description: "Stock de cordes disponible" },
+        { text: ".aide", description: "Voir toutes les commandes" }
+      ],
+      louise: [
+        { text: ".rv demain", description: "Rendez-vous de demain" },
+        { text: ".cherche client", description: "Chercher un client" },
+        { text: ".stats mois", description: "Stats du mois" },
+        { text: ".aide", description: "Voir toutes les commandes" }
+      ],
+      jeanphilippe: [
+        { text: ".mes rv", description: "Mes prochains rendez-vous" },
+        { text: ".piano [numéro]", description: "Infos d'un piano" },
+        { text: ".stock marteaux", description: "Stock de marteaux" },
+        { text: ".aide", description: "Voir toutes les commandes" }
+      ]
+    }
+    return suggestions[role] || suggestions.admin
+  }
+
+  // Envoyer une question à l'assistant
+  const handleSendMessage = async (text = inputValue) => {
+    if (!text.trim()) return
+
+    const userMessage = { role: 'user', content: text }
+    setMessages(prev => [...prev, userMessage])
+    setInputValue('')
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('http://localhost:8000/assistant/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: text,
+          user_id: currentUser?.email || 'anonymous'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      const assistantMessage = {
+        role: 'assistant',
+        content: data.answer || "Désolé, je n'ai pas pu traiter votre demande.",
+        metadata: data.metadata || {}
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+    } catch (error) {
+      console.error('Erreur assistant:', error)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ Erreur: ${error.message}. Vérifiez que l'API est démarrée.`,
+        error: true
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Bouton d'ouverture (floating button en bas à droite)
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => {
+          setIsOpen(true)
+          if (messages.length === 0) {
+            setMessages([{
+              role: 'assistant',
+              content: getWelcomeMessage()
+            }])
+          }
+        }}
+        className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg transition-all hover:scale-110 z-50"
+        title="Ouvrir l'assistant"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+        </svg>
+        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+          ?
+        </span>
+      </button>
+    )
+  }
+
+  // Widget ouvert
+  return (
+    <div className={`fixed ${compact ? 'bottom-6 right-6' : 'bottom-6 right-6'} w-96 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 flex flex-col`}
+      style={{ height: compact ? '400px' : '600px' }}>
+
+      {/* Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-lg flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          <h3 className="font-semibold">Assistant Gazelle</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMessages([])}
+            className="text-white/80 hover:text-white text-sm"
+            title="Effacer l'historique"
+          >
+            🗑️
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/80 hover:text-white"
+            title="Fermer"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+        {messages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[80%] rounded-lg p-3 ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white'
+                  : msg.error
+                  ? 'bg-red-100 text-red-800 border border-red-300'
+                  : 'bg-white border border-gray-200 text-gray-800'
+              }`}
+            >
+              <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+
+              {/* Métadonnées (query_type, confidence, etc.) */}
+              {msg.metadata && (
+                <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                  <div>Type: {msg.metadata.query_type}</div>
+                  {msg.metadata.confidence && (
+                    <div>Confiance: {(msg.metadata.confidence * 100).toFixed(0)}%</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-white border border-gray-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-gray-500">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <span className="text-sm">Réflexion en cours...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Suggestions rapides */}
+      {messages.length <= 1 && (
+        <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
+          <div className="text-xs text-gray-500 mb-2">Suggestions :</div>
+          <div className="flex flex-wrap gap-2">
+            {getSuggestions().map((suggestion, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSendMessage(suggestion.text)}
+                className="px-3 py-1 text-xs bg-white border border-gray-300 rounded-full hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                title={suggestion.description}
+              >
+                {suggestion.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="p-4 border-t border-gray-200 bg-white rounded-b-lg">
+        <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="Posez votre question..."
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            disabled={isLoading}
+          />
+          <button
+            type="submit"
+            disabled={isLoading || !inputValue.trim()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          >
+            Envoyer
+          </button>
+        </form>
+        <div className="mt-2 text-xs text-gray-500 text-center">
+          Tapez <code className="bg-gray-100 px-1 rounded">.aide</code> pour voir les commandes
+        </div>
+      </div>
+    </div>
+  )
+}
