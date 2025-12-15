@@ -25,11 +25,14 @@ class GazelleQueries:
         self.storage = storage or SupabaseStorage()
 
         # Mapping email -> nom technicien dans Gazelle
+        # Note: Les techniciens voient leurs propres RV par défaut avec ".mes rv"
+        # Pour voir tous les RV, demander "tous les rv" ou "les rv de tous"
+        # Louise (assistante) n'est pas technicienne → doit utiliser "tous les rv"
         self.technicien_mapping = {
             'nlessard@piano-tek.com': 'Nick',
             'jpreny@gmail.com': 'Jean-Philippe',
-            'asutton@piano-tek.com': None,  # Admin voit tous les RV
-            'info@piano-tek.com': None  # Louise (assistante) voit tous les RV
+            'asutton@piano-tek.com': 'Allan',  # Admin est aussi technicien
+            'info@piano-tek.com': None  # Louise n'est PAS technicienne
         }
 
         # Mapping ID utilisateur Supabase -> nom technicien
@@ -37,7 +40,8 @@ class GazelleQueries:
         self.technicien_id_mapping = {
             'usr_ofYggsCDt2JAVeNP': 'Allan',
             'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
-            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
+            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe',
+            # Louise n'a pas encore d'ID Supabase assigné
         }
 
         # Mapping inverse: nom -> ID (pour les requêtes)
@@ -46,6 +50,7 @@ class GazelleQueries:
             'Nicolas': 'usr_HcCiFk7o0vZ9xAI0',
             'Jean-Philippe': 'usr_ReUSmIJmBF86ilY1',
             'Allan': 'usr_ofYggsCDt2JAVeNP'
+            # Louise n'est pas technicienne, pas dans ce mapping
         }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
@@ -356,6 +361,17 @@ class GazelleQueries:
         if query_type == QueryType.APPOINTMENTS:
             # Mapper email -> nom technicien pour le filtre
             technicien = self._get_technicien_from_email(user_id) if user_id else None
+
+            # Si l'utilisateur n'est pas un technicien (technicien == None après mapping)
+            # et qu'il demande "mes rv", retourner un message d'erreur explicatif
+            if user_id and technicien is None:
+                return {
+                    'type': 'appointments',
+                    'date': datetime.now().strftime('%Y-%m-%d'),
+                    'count': 0,
+                    'data': [],
+                    'message': "Vous n'êtes pas technicien et n'avez donc pas de rendez-vous assignés. Utilisez 'tous les rv' ou 'tous les rv demain' pour voir l'agenda complet."
+                }
 
             # Vérifier s'il y a une période (ex: "cette semaine")
             period = params.get('period')

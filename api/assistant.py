@@ -234,6 +234,10 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
         Réponse formatée en texte
     """
     if query_type == QueryType.APPOINTMENTS:
+        # Vérifier s'il y a un message d'erreur (ex: non-technicien demandant "mes rv")
+        if 'message' in results:
+            return results['message']
+
         count = results.get('count', 0)
         date = results.get('date', '')
         date_range = results.get('date_range')
