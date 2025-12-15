@@ -6,14 +6,14 @@
 export const ROLES = {
   admin: {
     name: 'Administrateur',
-    email: 'allan@pianotekinc.com',
+    email: 'asutton@piano-tek.com',
     permissions: ['*'], // Tout
     dashboards: ['inventaire', 'commissions', 'stats', 'admin', 'sync_gazelle', 'tournees']
   },
 
   nick: {
     name: 'Nick (Gestionnaire)',
-    email: 'nicolas@pianotekinc.com',
+    email: 'nlessard@piano-tek.com',
     permissions: [
       'view_inventory',
       'manage_own_inventory',
@@ -26,7 +26,7 @@ export const ROLES = {
 
   louise: {
     name: 'Louise (Assistante)',
-    email: 'louise@pianotekinc.com',
+    email: 'info@piano-tek.com',
     permissions: [
       'view_inventory',
       'edit_inventory', // Louise peut modifier les quantités
@@ -38,7 +38,7 @@ export const ROLES = {
 
   jeanphilippe: {
     name: 'Jean-Philippe (Technicien)',
-    email: 'jp@pianotekinc.com',
+    email: 'jpreny@gmail.com',
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier toutes les colonnes

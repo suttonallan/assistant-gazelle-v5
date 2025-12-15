@@ -26,9 +26,10 @@ class GazelleQueries:
 
         # Mapping email -> nom technicien dans Gazelle
         self.technicien_mapping = {
-            'nicolas@pianotekinc.com': 'Nick',
-            'jp@pianotekinc.com': 'Jean-Philippe',
-            'allan@pianotekinc.com': None  # Admin voit tous les RV
+            'nlessard@piano-tek.com': 'Nick',
+            'jpreny@gmail.com': 'Jean-Philippe',
+            'asutton@piano-tek.com': None,  # Admin voit tous les RV
+            'info@piano-tek.com': None  # Louise (assistante) voit tous les RV
         }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
