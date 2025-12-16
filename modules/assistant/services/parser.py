@@ -110,6 +110,11 @@ class ConversationalParser:
         # Extraire les paramètres selon le type
         params = self._extract_params(question, query_type)
 
+        # Détecter "tous les rv" ou "les rv de tous" pour bypass filtre technicien
+        if query_type == QueryType.APPOINTMENTS:
+            if re.search(r'\b(tous les rv|les rv de tous|tous les rendez-vous|agenda complet)\b', question, re.IGNORECASE):
+                params['show_all'] = True
+
         return {
             'query_type': query_type,
             'original_query': question,

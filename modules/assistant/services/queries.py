@@ -359,19 +359,25 @@ class GazelleQueries:
             Résultats de la requête
         """
         if query_type == QueryType.APPOINTMENTS:
-            # Mapper email -> nom technicien pour le filtre
-            technicien = self._get_technicien_from_email(user_id) if user_id else None
+            # Vérifier si l'utilisateur demande explicitement TOUS les RV
+            show_all = params.get('show_all', False)
 
-            # Si l'utilisateur n'est pas un technicien (technicien == None après mapping)
-            # et qu'il demande "mes rv", retourner un message d'erreur explicatif
-            if user_id and technicien is None:
-                return {
-                    'type': 'appointments',
-                    'date': datetime.now().strftime('%Y-%m-%d'),
-                    'count': 0,
-                    'data': [],
-                    'message': "Vous n'êtes pas technicien et n'avez donc pas de rendez-vous assignés. Utilisez 'tous les rv' ou 'tous les rv demain' pour voir l'agenda complet."
-                }
+            # Mapper email -> nom technicien pour le filtre (sauf si show_all)
+            if show_all:
+                technicien = None  # Pas de filtre technicien
+            else:
+                technicien = self._get_technicien_from_email(user_id) if user_id else None
+
+                # Si l'utilisateur n'est pas un technicien (technicien == None après mapping)
+                # et qu'il demande "mes rv", retourner un message d'erreur explicatif
+                if user_id and technicien is None:
+                    return {
+                        'type': 'appointments',
+                        'date': datetime.now().strftime('%Y-%m-%d'),
+                        'count': 0,
+                        'data': [],
+                        'message': "Vous n'êtes pas technicien et n'avez donc pas de rendez-vous assignés. Utilisez 'tous les rv' ou 'tous les rv demain' pour voir l'agenda complet."
+                    }
 
             # Vérifier s'il y a une période (ex: "cette semaine")
             period = params.get('period')
