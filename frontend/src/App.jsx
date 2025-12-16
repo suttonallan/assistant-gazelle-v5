@@ -177,6 +177,7 @@ function App() {
       <AssistantWidget
         currentUser={currentUser}
         role={effectiveRole}
+        onBackToDashboard={currentView === 'assistant' ? () => setCurrentView('dashboard') : undefined}
       />
     </div>
   )

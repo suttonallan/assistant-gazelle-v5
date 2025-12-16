@@ -10,8 +10,20 @@ import { useState, useRef, useEffect } from 'react'
  * - currentUser: Objet utilisateur {name, email, role}
  * - role: Rôle de l'utilisateur ('admin', 'nick', 'louise', 'jeanphilippe')
  * - compact: Mode compact (false par défaut)
+ * - onBackToDashboard: Callback pour revenir au dashboard (mobile)
  */
-export default function AssistantWidget({ currentUser, role = 'admin', compact = false }) {
+export default function AssistantWidget({ currentUser, role = 'admin', compact = false, onBackToDashboard }) {
+  // Détection mobile pour affichage plein écran
+  const [isMobile, setIsMobile] = useState(false)
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [inputValue, setInputValue] = useState('')
@@ -140,13 +152,28 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
   }
 
   // Widget ouvert
+  // Sur mobile, prendre toute la largeur et hauteur
   return (
-    <div className={`fixed ${compact ? 'bottom-6 right-6' : 'bottom-6 right-6'} w-96 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 flex flex-col`}
-      style={{ height: compact ? '400px' : '600px' }}>
+    <div 
+      className={`fixed ${isMobile ? 'inset-0 w-full h-full rounded-none' : 'bottom-6 right-6 w-96 rounded-lg'} bg-white shadow-2xl border border-gray-200 z-50 flex flex-col`}
+      style={isMobile ? {} : { height: compact ? '400px' : '600px' }}
+    >
 
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-lg flex justify-between items-center">
         <div className="flex items-center gap-2">
+          {/* Bouton retour dashboard (visible sur mobile) */}
+          {onBackToDashboard && (
+            <button
+              onClick={onBackToDashboard}
+              className="text-white/80 hover:text-white mr-2 md:hidden"
+              title="Retour au dashboard"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+          )}
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>

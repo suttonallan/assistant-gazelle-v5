@@ -5,6 +5,8 @@ venv/
 # Ignorer les fichiers de données locaux
 *.db
 *.sqlite
+*.pkl
+data/gazelle_vectors.pkl
 
 # Ignorer les fichiers temporaires/de cache
 __pycache__/
@@ -45,3 +47,6 @@ data/credentials.json
 frontend/.env.local
 .env.local
 .env.*.local
+
+# Guides de migration avec secrets (webhooks Slack)
+GUIDE_MIGRATION_*.md

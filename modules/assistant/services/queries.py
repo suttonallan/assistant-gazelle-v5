@@ -144,44 +144,69 @@ class GazelleQueries:
         """
         Recherche des clients dans Supabase.
 
+        Note: Cherche dans gazelle_clients ET gazelle_contacts car dans Gazelle:
+        - clients = entités qui paient (compagnies, particuliers)
+        - contacts = personnes associées aux clients
+
         Args:
             search_terms: Termes de recherche
             limit: Nombre maximum de résultats
 
         Returns:
-            Liste de clients correspondants
+            Liste de clients correspondants (clients + contacts combinés)
         """
         if not search_terms:
             return []
 
         try:
-            # Construire la requête de recherche
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.clients)
-            url = f"{self.storage.api_url}/gazelle_clients"
-            url += "?select=*"
-
-            search_query = search_terms[0] if search_terms else ""
-
-            # Si c'est un ID Gazelle (cli_xxx), chercher par external_id exact
-            if search_query.startswith('cli_'):
-                url += f"&external_id=eq.{search_query}"
-            else:
-                # Sinon, recherche textuelle insensible à la casse dans nom, prénom, ville
-                url += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*,company_name.ilike.*{search_query}*)"
-
-            url += f"&limit={limit}"
-
             import requests
-            response = requests.get(url, headers=self.storage._get_headers())
+            search_query = search_terms[0] if search_terms else ""
+            results = []
 
-            if response.status_code == 200:
-                return response.json()
+            # 1. Chercher dans gazelle_clients
+            url_clients = f"{self.storage.api_url}/gazelle_clients?select=*"
+
+            if search_query.startswith('cli_'):
+                url_clients += f"&external_id=eq.{search_query}"
             else:
-                print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
-                return []
+                url_clients += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*,company_name.ilike.*{search_query}*)"
+
+            url_clients += f"&limit={limit}"
+
+            response_clients = requests.get(url_clients, headers=self.storage._get_headers())
+
+            if response_clients.status_code == 200:
+                clients = response_clients.json()
+                for client in clients:
+                    client['_source'] = 'client'  # Marquer la source
+                results.extend(clients)
+            else:
+                print(f"⚠️ Erreur gazelle_clients: {response_clients.status_code}")
+
+            # 2. Chercher dans gazelle_contacts
+            url_contacts = f"{self.storage.api_url}/gazelle_contacts?select=*"
+
+            if search_query.startswith('con_'):
+                url_contacts += f"&external_id=eq.{search_query}"
+            else:
+                url_contacts += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,email.ilike.*{search_query}*)"
+
+            url_contacts += f"&limit={limit}"
+
+            response_contacts = requests.get(url_contacts, headers=self.storage._get_headers())
+
+            if response_contacts.status_code == 200:
+                contacts = response_contacts.json()
+                for contact in contacts:
+                    contact['_source'] = 'contact'  # Marquer la source
+                results.extend(contacts)
+            else:
+                print(f"⚠️ Erreur gazelle_contacts: {response_contacts.status_code}")
+
+            return results[:limit]  # Limiter le nombre total de résultats
 
         except Exception as e:
-            print(f"❌ Erreur lors de la recherche clients: {e}")
+            print(f"❌ Erreur lors de la recherche clients/contacts: {e}")
             return []
 
     def search_pianos(
