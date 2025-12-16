@@ -28,22 +28,14 @@ class GazelleQueries:
         # Note: Les techniciens voient leurs propres RV par défaut avec ".mes rv"
         # Pour voir tous les RV, demander "tous les rv" ou "les rv de tous"
         # Louise (assistante) n'est pas technicienne → doit utiliser "tous les rv"
+        # Source: docs/REFERENCE_COMPLETE.md et frontend/src/config/roles.js
         self.technicien_mapping = {
-            # Emails Supabase (référence officielle)
+            # Emails officiels (référence Supabase et frontend)
             'nlessard@piano-tek.com': 'Nick',
             'jpreny@gmail.com': 'Jean-Philippe',
             'asutton@piano-tek.com': 'Allan',  # Admin est aussi technicien
             'info@piano-tek.com': None  # Louise n'est PAS technicienne
         }
-        
-        # Ajouter les emails du frontend (LoginScreen.jsx) pour compatibilité
-        # Frontend utilise: allan@pianotekinc.com, nicolas@pianotekinc.com, jp@pianotekinc.com, louise@pianotekinc.com
-        self.technicien_mapping.update({
-            'allan@pianotekinc.com': 'Allan',
-            'nicolas@pianotekinc.com': 'Nick',
-            'jp@pianotekinc.com': 'Jean-Philippe',
-            'louise@pianotekinc.com': None  # Louise n'est PAS technicienne
-        })
 
         # Mapping ID utilisateur Supabase -> nom technicien
         # Source: docs/REFERENCE_COMPLETE.md

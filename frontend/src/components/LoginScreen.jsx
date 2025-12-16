@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { ROLES } from '../config/roles'
 
+// Utiliser les vrais emails depuis la configuration des rôles
 const USERS = [
-  { id: 1, name: 'Allan', email: 'allan@pianotekinc.com', role: 'admin', pin: '6342' },
-  { id: 2, name: 'Louise', email: 'louise@pianotekinc.com', role: 'admin', pin: '6343' },
-  { id: 3, name: 'Nick', email: 'nicolas@pianotekinc.com', role: 'technician', pin: '6344' },
-  { id: 4, name: 'JP', email: 'jp@pianotekinc.com', role: 'technician', pin: '6345' },
+  { id: 1, name: 'Allan', email: ROLES.admin.email, role: 'admin', pin: '6342' },
+  { id: 2, name: 'Louise', email: ROLES.louise.email, role: 'admin', pin: '6343' },
+  { id: 3, name: 'Nick', email: ROLES.nick.email, role: 'technician', pin: '6344' },
+  { id: 4, name: 'JP', email: ROLES.jeanphilippe.email, role: 'technician', pin: '6345' },
 ]
 
 export default function LoginScreen({ onLogin }) {

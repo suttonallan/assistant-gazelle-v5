@@ -169,7 +169,7 @@ async def list_alerts(limit: int = 50):
                 "client_email": "jean.dupont@example.com",
                 "appointment_date": (now - timedelta(days=5)).isoformat(),
                 "alert_sent_at": (now - timedelta(hours=2)).isoformat(),
-                "alert_sent_by": "allan@pianotekinc.com",
+                "alert_sent_by": "asutton@piano-tek.com",
                 "status": "sent"
             },
             {
@@ -179,7 +179,7 @@ async def list_alerts(limit: int = 50):
                 "client_email": "marie.martin@example.com",
                 "appointment_date": (now - timedelta(days=4)).isoformat(),
                 "alert_sent_at": (now - timedelta(hours=1)).isoformat(),
-                "alert_sent_by": "louise@pianotekinc.com",
+                "alert_sent_by": "info@piano-tek.com",
                 "status": "sent"
             }
         ]
@@ -211,8 +211,8 @@ async def get_stats():
             "alerts_last_7_days": 5,
             "alerts_last_30_days": 12,
             "by_user": {
-                "allan@pianotekinc.com": 8,
-                "louise@pianotekinc.com": 7
+                "asutton@piano-tek.com": 8,
+                "info@piano-tek.com": 7
             },
             "by_status": {
                 "sent": 10,
