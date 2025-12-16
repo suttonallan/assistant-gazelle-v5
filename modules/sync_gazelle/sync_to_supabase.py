@@ -221,19 +221,16 @@ class GazelleToSupabaseSync:
                     client_company_name = client_data.get('companyName') if client_data else None
 
                     # Construire le payload pour Supabase
+                    # Note: Le schéma de la table gazelle_contacts a seulement:
+                    # external_id, client_external_id, first_name, last_name, email, phone, is_default, created_at, updated_at
                     contact_payload = {
                         'external_id': external_id,
+                        'client_external_id': client_id,
                         'first_name': first_name,
-                        'name': last_name,
-                        'company_name': company_name,
+                        'last_name': last_name,
                         'email': email,
                         'phone': phone,
-                        'city': city,
-                        'province': province,
-                        'postal_code': postal_code,
-                        'street_address': street_address,
-                        'client_external_id': client_id,
-                        'client_company_name': client_company_name,
+                        'is_default': True,  # C'est le defaultContact du client
                         'created_at': contact_data.get('createdAt'),
                         'updated_at': contact_data.get('updatedAt')
                     }

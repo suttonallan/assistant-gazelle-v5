@@ -10,6 +10,8 @@ Endpoints:
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from modules.assistant.services.parser import get_parser, QueryType
 from modules.assistant.services.queries import get_queries
 from modules.assistant.services.vector_search import get_vector_search
@@ -145,7 +147,10 @@ async def chat(request: ChatRequest):
                         'client_external_id': appt.get('client_external_id'),
                         'client_name': _extract_client_name(appt),
                         'appointment_date': appt.get('appointment_date'),
-                        'appointment_time': appt.get('appointment_time'),
+                        'appointment_time': _format_time(
+                            appt.get('appointment_time', 'N/A'),
+                            appt.get('appointment_date', '')
+                        ),
                         'location': appt.get('location', ''),
                         'description': appt.get('description', ''),
                         'technicien': appt.get('technicien', '')
@@ -222,6 +227,111 @@ async def health():
 # Helpers pour formater les réponses
 # ============================================================
 
+def _format_time(time_str: str, date_str: str = '') -> str:
+    """
+    Formate une heure depuis différents formats possibles et convertit en heure de Toronto.
+    
+    Args:
+        time_str: Heure au format string (peut être TIME, TIMESTAMP, ISO, etc.)
+        date_str: Date au format string (optionnel, pour créer un datetime complet)
+        
+    Returns:
+        Heure formatée en HH:MM (24h) en heure de Toronto, ou 'N/A' si invalide
+    """
+    if not time_str or time_str == 'N/A':
+        return 'N/A'
+    
+    # Fuseau horaire de Toronto
+    toronto_tz = ZoneInfo('America/Toronto')
+    utc_tz = timezone.utc
+    
+    # Log pour déboguer (à retirer après vérification)
+    print(f"🔍 Formatage heure: '{time_str}' (type: {type(time_str)})")
+    
+    try:
+        # Si c'est un timestamp ISO avec fuseau horaire (format Supabase)
+        if 'T' in time_str or '+' in time_str or 'Z' in time_str:
+            # Nettoyer le format (remplacer Z par +00:00 pour UTC)
+            clean_str = time_str.replace('Z', '+00:00')
+            
+            # Parser la date/heure ISO
+            try:
+                # Essayer de parser avec fromisoformat (gère les fuseaux horaires)
+                dt = datetime.fromisoformat(clean_str)
+                # Si pas de fuseau horaire, assumer UTC
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=utc_tz)
+                else:
+                    # Convertir d'abord en UTC pour normaliser
+                    dt = dt.astimezone(utc_tz)
+            except ValueError:
+                # Si fromisoformat échoue, essayer sans le fuseau horaire
+                clean_str_no_tz = clean_str.split('+')[0].split('-')[0].split('Z')[0]
+                dt = datetime.fromisoformat(clean_str_no_tz)
+                dt = dt.replace(tzinfo=utc_tz)
+            
+            # Convertir en heure de Toronto
+            dt_toronto = dt.astimezone(toronto_tz)
+            return dt_toronto.strftime('%H:%M')
+        
+        # Si c'est juste une heure au format HH:MM ou HH:MM:SS (sans date)
+        # ASSUMER QUE C'EST EN UTC et créer un datetime complet pour convertir
+        if ':' in time_str and 'T' not in time_str and '+' not in time_str and 'Z' not in time_str:
+            parts = time_str.split(':')
+            if len(parts) >= 2:
+                try:
+                    hour_utc = int(parts[0])
+                    minute_utc = int(parts[1][:2])  # Ignorer les secondes
+                    
+                    # Si on a une date, l'utiliser; sinon utiliser aujourd'hui
+                    if date_str:
+                        try:
+                            # Parser la date (format YYYY-MM-DD)
+                            date_parts = date_str.split('-')
+                            if len(date_parts) == 3:
+                                year = int(date_parts[0])
+                                month = int(date_parts[1])
+                                day = int(date_parts[2])
+                                
+                                # Créer un datetime en UTC avec la date du rendez-vous
+                                dt_utc = datetime(year, month, day, hour_utc, minute_utc, tzinfo=utc_tz)
+                            else:
+                                # Date invalide, utiliser aujourd'hui
+                                today = datetime.now(utc_tz)
+                                dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
+                        except (ValueError, IndexError):
+                            # Date invalide, utiliser aujourd'hui
+                            today = datetime.now(utc_tz)
+                            dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
+                    else:
+                        # Pas de date fournie, utiliser aujourd'hui
+                        today = datetime.now(utc_tz)
+                        dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
+                    
+                    # Convertir en heure de Toronto
+                    dt_toronto = dt_utc.astimezone(toronto_tz)
+                    return dt_toronto.strftime('%H:%M')
+                except ValueError:
+                    # Fallback: retourner tel quel si on ne peut pas parser
+                    return f"{parts[0].zfill(2)}:{parts[1][:2]}"
+        
+        # Si c'est un timestamp numérique
+        if time_str.replace('.', '').replace('-', '').isdigit():
+            dt = datetime.fromtimestamp(float(time_str), tz=utc_tz)
+            dt_toronto = dt.astimezone(toronto_tz)
+            return dt_toronto.strftime('%H:%M')
+            
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"⚠️ Erreur formatage heure '{time_str}': {e}")
+        # Fallback: essayer d'extraire HH:MM manuellement
+        if ':' in time_str:
+            parts = time_str.split(':')
+            if len(parts) >= 2:
+                return f"{parts[0].zfill(2)}:{parts[1][:2]}"
+    
+    return 'N/A'
+
+
 def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
     """
     Formate la réponse selon le type de requête.
@@ -257,7 +367,9 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
         for appt in data[:10]:  # Limiter à 10 pour éviter les réponses trop longues
             # Extraire les données de l'appointment
             appointment_date = appt.get('appointment_date', '')
-            appointment_time = appt.get('appointment_time', 'N/A')
+            appointment_time_raw = appt.get('appointment_time', 'N/A')
+            # Passer aussi la date pour créer un datetime complet si nécessaire
+            appointment_time = _format_time(appointment_time_raw, appointment_date)
             
             # Extraire le nom du client
             client_name = _extract_client_name(appt)

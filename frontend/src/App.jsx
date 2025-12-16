@@ -140,7 +140,7 @@ function App() {
 
           <div className="flex items-center gap-4">
             {/* Sélecteur de rôle pour test (temporaire - seulement pour admin) */}
-            {currentUser?.email === 'allan@pianotekinc.com' && (
+            {currentUser?.email === 'asutton@piano-tek.com' && (
               <select
                 value={simulatedRole || effectiveRole}
                 onChange={(e) => setSimulatedRole(e.target.value)}
