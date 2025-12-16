@@ -422,12 +422,17 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
 
         for item in data[:10]:
             if query_type == QueryType.SEARCH_CLIENT:
-                name = item.get('name', 'N/A')
+                # Support both clients and contacts (contacts use last_name, not name)
+                name = item.get('name') or item.get('last_name', 'N/A')
                 first_name = item.get('first_name', '')
                 city = item.get('city', '')
+                source = item.get('_source', 'client')
+
                 response += f"- **{first_name} {name}**"
                 if city:
                     response += f" ({city})"
+                if source == 'contact':
+                    response += f" [Contact]"
             else:  # Piano
                 brand = item.get('brand', 'N/A')
                 model = item.get('model', '')
