@@ -241,7 +241,44 @@ class GazelleAPIClient:
         
         print(f"✅ {len(all_clients)} clients récupérés depuis l'API")
         return all_clients
-    
+
+    def get_contacts(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Récupère tous les contacts depuis l'API.
+
+        Note: Dans Gazelle GraphQL API, les contacts sont accessibles via
+        les clients (defaultContact). Chaque client a un contact principal.
+
+        Args:
+            limit: Nombre maximum de contacts (défaut: 1000)
+
+        Returns:
+            Liste de dictionnaires contenant les données des contacts
+        """
+        # Récupérer les clients avec leurs contacts par défaut
+        clients = self.get_clients(limit=limit)
+
+        # Extraire les defaultContact de chaque client
+        all_contacts = []
+        for client in clients:
+            default_contact = client.get('defaultContact')
+            if default_contact and default_contact.get('id'):
+                # Ajouter les infos du client parent au contact
+                default_contact['client'] = {
+                    'id': client.get('id'),
+                    'companyName': client.get('companyName')
+                }
+                # Utiliser les dates du client si le contact n'en a pas
+                if not default_contact.get('createdAt'):
+                    default_contact['createdAt'] = client.get('createdAt')
+                if not default_contact.get('updatedAt'):
+                    default_contact['updatedAt'] = client.get('updatedAt')
+
+                all_contacts.append(default_contact)
+
+        print(f"✅ {len(all_contacts)} contacts récupérés depuis l'API (defaultContact des clients)")
+        return all_contacts
+
     def get_maintenance_alerts(self, limit: int = 100, is_resolved: Optional[bool] = None) -> List[Dict[str, Any]]:
         """
         Récupère les alertes de maintenance depuis l'API.

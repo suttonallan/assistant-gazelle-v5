@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import requests
 
 # Ajouter le projet au path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -165,6 +166,104 @@ class GazelleToSupabaseSync:
 
         except Exception as e:
             print(f"❌ Erreur lors de la synchronisation des clients: {e}")
+            raise
+
+    def sync_contacts(self) -> int:
+        """
+        Synchronise les contacts depuis l'API vers Supabase.
+
+        Note: Dans Gazelle, les contacts sont des personnes individuelles
+        associées aux clients (entités qui paient).
+
+        Returns:
+            Nombre de contacts synchronisés
+        """
+        print("\n👥 Synchronisation des contacts...")
+
+        try:
+            # Récupérer contacts depuis API Gazelle
+            api_contacts = self.api_client.get_contacts(limit=2000)
+            print(f"📥 {len(api_contacts)} contacts récupérés depuis l'API")
+
+            # Initialiser stats
+            self.stats['contacts'] = {'total': len(api_contacts), 'synced': 0, 'errors': 0}
+
+            # Synchroniser chaque contact
+            for contact_data in api_contacts:
+                try:
+                    external_id = contact_data.get('id')
+                    if not external_id:
+                        print(f"⚠️  Contact sans ID ignoré")
+                        continue
+
+                    # Extraire les données du contact
+                    first_name = contact_data.get('firstName')
+                    last_name = contact_data.get('lastName')
+                    company_name = contact_data.get('companyName')
+
+                    # Email et téléphone (peuvent être None)
+                    default_email = contact_data.get('defaultEmail', {})
+                    email = default_email.get('email') if default_email else None
+
+                    default_phone = contact_data.get('defaultPhone', {})
+                    phone = default_phone.get('phoneNumber') if default_phone else None
+
+                    # Localisation (peut être None)
+                    default_location = contact_data.get('defaultLocation', {})
+                    city = default_location.get('municipality') if default_location else None
+                    province = default_location.get('province') if default_location else None
+                    postal_code = default_location.get('postalCode') if default_location else None
+                    street_address = default_location.get('streetAddress') if default_location else None
+
+                    # Client associé (peut être None)
+                    client_data = contact_data.get('client', {})
+                    client_id = client_data.get('id') if client_data else None
+                    client_company_name = client_data.get('companyName') if client_data else None
+
+                    # Construire le payload pour Supabase
+                    contact_payload = {
+                        'external_id': external_id,
+                        'first_name': first_name,
+                        'name': last_name,
+                        'company_name': company_name,
+                        'email': email,
+                        'phone': phone,
+                        'city': city,
+                        'province': province,
+                        'postal_code': postal_code,
+                        'street_address': street_address,
+                        'client_external_id': client_id,
+                        'client_company_name': client_company_name,
+                        'created_at': contact_data.get('createdAt'),
+                        'updated_at': contact_data.get('updatedAt')
+                    }
+
+                    # UPSERT dans Supabase via REST API
+                    url = f"{self.storage.api_url}/gazelle_contacts"
+                    headers = self.storage._get_headers()
+                    headers['Prefer'] = 'resolution=merge-duplicates'
+
+                    response = requests.post(url, json=contact_payload, headers=headers)
+
+                    if response.status_code in [200, 201]:
+                        self.stats['contacts']['synced'] += 1
+                    elif response.status_code == 409:
+                        # 409 = Conflict (déjà synchronisé, normal avec UPSERT)
+                        self.stats['contacts']['synced'] += 1
+                    else:
+                        print(f"❌ Erreur UPSERT contact {external_id}: {response.status_code}")
+                        self.stats['contacts']['errors'] += 1
+
+                except Exception as e:
+                    print(f"❌ Erreur contact {contact_data.get('id', 'unknown')}: {e}")
+                    self.stats['contacts']['errors'] += 1
+                    continue
+
+            print(f"✅ {self.stats['contacts']['synced']} contacts synchronisés")
+            return self.stats['contacts']['synced']
+
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation des contacts: {e}")
             raise
 
     def sync_pianos(self) -> int:
@@ -388,15 +487,16 @@ class GazelleToSupabaseSync:
             # 1. Clients (requis pour pianos, contacts, etc.)
             self.sync_clients()
 
-            # 2. Pianos (dépend de clients)
+            # 2. Contacts (personnes associées aux clients)
+            self.sync_contacts()
+
+            # 3. Pianos (dépend de clients)
             self.sync_pianos()
 
-            # 3. Appointments (utilise maintenant allEventsBatched de V4)
+            # 4. Appointments (utilise maintenant allEventsBatched de V4)
             self.sync_appointments()
 
-            # 4. TODO: Ajouter autres tables
-            # - Contacts
-            # - Appointments (nécessite un type CoreDate dans GraphQL)
+            # 5. TODO: Ajouter autres tables
             # - Timeline entries
 
             # Résumé
@@ -408,10 +508,10 @@ class GazelleToSupabaseSync:
             print(f"⏱️  Durée: {duration:.2f}s")
             print("\n📊 Résumé:")
             print(f"   • Clients:      {self.stats['clients']['synced']:4d} synchronisés, {self.stats['clients']['errors']:2d} erreurs")
+            print(f"   • Contacts:     {self.stats['contacts']['synced']:4d} synchronisés, {self.stats['contacts']['errors']:2d} erreurs")
             print(f"   • Pianos:       {self.stats['pianos']['synced']:4d} synchronisés, {self.stats['pianos']['errors']:2d} erreurs")
-            print(f"   • RV:           {self.stats['appointments']['synced']:4d} synchronisés (TODO - API GraphQL complexe)")
-            print(f"   • Contacts:     {self.stats['contacts']['synced']:4d} synchronisés (TODO)")
-            print(f"   • Timeline:     {self.stats['timeline']['synced']:4d} synchronisés (TODO)")
+            print(f"   • RV:           {self.stats['appointments']['synced']:4d} synchronisés, {self.stats['appointments']['errors']:2d} erreurs")
+            print(f"   • Timeline:     TODO (pas encore implémenté)")
             print("=" * 70)
 
             return {

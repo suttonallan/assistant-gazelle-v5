@@ -29,11 +29,21 @@ class GazelleQueries:
         # Pour voir tous les RV, demander "tous les rv" ou "les rv de tous"
         # Louise (assistante) n'est pas technicienne → doit utiliser "tous les rv"
         self.technicien_mapping = {
+            # Emails Supabase (référence officielle)
             'nlessard@piano-tek.com': 'Nick',
             'jpreny@gmail.com': 'Jean-Philippe',
             'asutton@piano-tek.com': 'Allan',  # Admin est aussi technicien
             'info@piano-tek.com': None  # Louise n'est PAS technicienne
         }
+        
+        # Ajouter les emails du frontend (LoginScreen.jsx) pour compatibilité
+        # Frontend utilise: allan@pianotekinc.com, nicolas@pianotekinc.com, jp@pianotekinc.com, louise@pianotekinc.com
+        self.technicien_mapping.update({
+            'allan@pianotekinc.com': 'Allan',
+            'nicolas@pianotekinc.com': 'Nick',
+            'jp@pianotekinc.com': 'Jean-Philippe',
+            'louise@pianotekinc.com': None  # Louise n'est PAS technicienne
+        })
 
         # Mapping ID utilisateur Supabase -> nom technicien
         # Source: docs/REFERENCE_COMPLETE.md
@@ -63,7 +73,14 @@ class GazelleQueries:
         Returns:
             Nom du technicien ou None (pour admin)
         """
-        return self.technicien_mapping.get(email.lower())
+        if not email:
+            return None
+        email_lower = email.lower()
+        technicien = self.technicien_mapping.get(email_lower)
+        # Log de débogage pour diagnostiquer les problèmes de mapping
+        if technicien is None and email_lower != 'anonymous':
+            print(f"⚠️ Email non mappé: '{email_lower}' (emails disponibles: {list(self.technicien_mapping.keys())})")
+        return technicien
 
     def get_appointments(
         self,
@@ -395,7 +412,8 @@ class GazelleQueries:
 
                 # Si l'utilisateur n'est pas un technicien (technicien == None après mapping)
                 # et qu'il demande "mes rv", retourner un message d'erreur explicatif
-                if user_id and technicien is None:
+                # Note: Ne pas afficher l'erreur si user_id est 'anonymous' (utilisateur non connecté)
+                if user_id and user_id.lower() != 'anonymous' and technicien is None:
                     return {
                         'type': 'appointments',
                         'date': datetime.now().strftime('%Y-%m-%d'),
