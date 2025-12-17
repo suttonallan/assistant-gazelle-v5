@@ -31,8 +31,11 @@ fi
 echo "🔨 Build du projet..."
 npm run build
 
-# Sauvegarder le répertoire de build
-BUILD_DIR=$(pwd)/dist
+# Copier le build dans un répertoire temporaire
+echo "💾 Sauvegarde du build dans un répertoire temporaire..."
+TEMP_DIR=$(mktemp -d)
+cp -r dist/* "$TEMP_DIR/"
+echo "Build sauvegardé dans: $TEMP_DIR"
 
 # Retourner à la racine
 cd ..
@@ -45,9 +48,12 @@ git checkout gh-pages
 # Nettoyer tout sauf .git
 find . -maxdepth 1 ! -name '.' ! -name '..' ! -name '.git' -exec rm -rf {} +
 
-# Copier le build
+# Copier le build depuis le répertoire temporaire
 echo "📦 Copie des fichiers du build..."
-cp -r "$BUILD_DIR"/* .
+cp -r "$TEMP_DIR"/* .
+
+# Nettoyer le répertoire temporaire
+rm -rf "$TEMP_DIR"
 
 # Ajouter un fichier .nojekyll pour éviter le traitement Jekyll
 touch .nojekyll
