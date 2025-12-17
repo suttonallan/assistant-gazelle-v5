@@ -14,7 +14,13 @@ from datetime import datetime, timedelta
 
 
 # Charger clé Google Maps depuis .env
-GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY')
+# Note: Chargé au runtime dans les fonctions pour éviter erreurs d'import
+def get_google_maps_api_key() -> str:
+    """Récupère la clé Google Maps API depuis les variables d'environnement."""
+    key = os.getenv('GOOGLE_MAPS_API_KEY')
+    if not key:
+        raise ValueError("GOOGLE_MAPS_API_KEY non configurée dans les variables d'environnement")
+    return key
 
 # Adresses maison techniciens (IDs Supabase → adresses)
 HOME_ADDRESSES = {
@@ -49,8 +55,7 @@ def google_distance_with_duration(
     Raises:
         ValueError: Si calcul échoue
     """
-    if not GOOGLE_MAPS_API_KEY:
-        raise ValueError("GOOGLE_MAPS_API_KEY non configurée")
+    api_key = get_google_maps_api_key()
 
     url = "https://maps.googleapis.com/maps/api/distancematrix/json"
     params = {
@@ -59,7 +64,7 @@ def google_distance_with_duration(
         "mode": "driving",
         "units": "metric",
         "language": "fr",
-        "key": GOOGLE_MAPS_API_KEY
+        "key": api_key
     }
 
     # Ajouter heure départ si fournie (pour trafic temps réel)
