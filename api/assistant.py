@@ -137,8 +137,10 @@ async def chat(request: ChatRequest):
         # 6. Préparer les données structurées pour l'interactivité frontend
         structured_data = None
         if query_type == QueryType.APPOINTMENTS:
-            # Enrichir les appointments avec les IDs clients pour permettre les clics
+            # Enrichir les appointments avec TOUS les détails (comme dans train_summaries.py)
             appointments_data = results.get('data', [])
+            enriched_appointments = _enrich_appointments(appointments_data, queries)
+            
             structured_data = {
                 'appointments': [
                     {
@@ -153,9 +155,17 @@ async def chat(request: ChatRequest):
                         ),
                         'location': appt.get('location', ''),
                         'description': appt.get('description', ''),
-                        'technicien': appt.get('technicien', '')
+                        'technicien': appt.get('technicien', ''),
+                        # Détails enrichis
+                        'client_address': appt.get('client_address', ''),
+                        'client_city': appt.get('client_city', ''),
+                        'client_phone': appt.get('client_phone', ''),
+                        'client_notes': appt.get('client_notes', ''),
+                        'associated_contacts': appt.get('associated_contacts', []),
+                        'service_history_notes': appt.get('service_history_notes', []),
+                        'pianos': appt.get('pianos', [])
                     }
-                    for appt in appointments_data
+                    for appt in enriched_appointments
                 ]
             }
 
@@ -275,42 +285,16 @@ def _format_time(time_str: str, date_str: str = '') -> str:
             return dt_toronto.strftime('%H:%M')
         
         # Si c'est juste une heure au format HH:MM ou HH:MM:SS (sans date)
-        # ASSUMER QUE C'EST EN UTC et créer un datetime complet pour convertir
+        # Les heures sont DÉJÀ converties en heure de Toronto dans queries.py
+        # Ne PAS reconvertir - juste formater
         if ':' in time_str and 'T' not in time_str and '+' not in time_str and 'Z' not in time_str:
             parts = time_str.split(':')
             if len(parts) >= 2:
                 try:
-                    hour_utc = int(parts[0])
-                    minute_utc = int(parts[1][:2])  # Ignorer les secondes
-                    
-                    # Si on a une date, l'utiliser; sinon utiliser aujourd'hui
-                    if date_str:
-                        try:
-                            # Parser la date (format YYYY-MM-DD)
-                            date_parts = date_str.split('-')
-                            if len(date_parts) == 3:
-                                year = int(date_parts[0])
-                                month = int(date_parts[1])
-                                day = int(date_parts[2])
-                                
-                                # Créer un datetime en UTC avec la date du rendez-vous
-                                dt_utc = datetime(year, month, day, hour_utc, minute_utc, tzinfo=utc_tz)
-                            else:
-                                # Date invalide, utiliser aujourd'hui
-                                today = datetime.now(utc_tz)
-                                dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
-                        except (ValueError, IndexError):
-                            # Date invalide, utiliser aujourd'hui
-                            today = datetime.now(utc_tz)
-                            dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
-                    else:
-                        # Pas de date fournie, utiliser aujourd'hui
-                        today = datetime.now(utc_tz)
-                        dt_utc = datetime(today.year, today.month, today.day, hour_utc, minute_utc, tzinfo=utc_tz)
-                    
-                    # Convertir en heure de Toronto
-                    dt_toronto = dt_utc.astimezone(toronto_tz)
-                    return dt_toronto.strftime('%H:%M')
+                    hour = int(parts[0])
+                    minute = int(parts[1][:2])  # Ignorer les secondes
+                    # Les heures sont déjà en heure locale, juste formater
+                    return f"{hour:02d}:{minute:02d}"
                 except ValueError:
                     # Fallback: retourner tel quel si on ne peut pas parser
                     return f"{parts[0].zfill(2)}:{parts[1][:2]}"
@@ -422,13 +406,22 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
 
         for item in data[:10]:
             if query_type == QueryType.SEARCH_CLIENT:
-                # Support both clients and contacts (contacts use last_name, not name)
-                name = item.get('name') or item.get('last_name', 'N/A')
-                first_name = item.get('first_name', '')
-                city = item.get('city', '')
+                # Support both clients and contacts
+                # Clients have: company_name
+                # Contacts have: first_name + last_name
                 source = item.get('_source', 'client')
+                city = item.get('city', '')
 
-                response += f"- **{first_name} {name}**"
+                if source == 'contact':
+                    # Contact: first_name + last_name
+                    first_name = item.get('first_name', '')
+                    last_name = item.get('last_name', '')
+                    display_name = f"{first_name} {last_name}".strip()
+                else:
+                    # Client: company_name
+                    display_name = item.get('company_name', 'N/A')
+
+                response += f"- **{display_name}**"
                 if city:
                     response += f" ({city})"
                 if source == 'contact':
@@ -488,6 +481,113 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
 
     else:
         return "Type de requête non supporté."
+
+
+def _enrich_appointments(appointments: list, queries) -> list:
+    """
+    Enrichit les rendez-vous avec les détails complets des clients.
+    Même logique que dans train_summaries.py.
+    """
+    import requests
+    
+    for appt in appointments:
+        entity_id = appt.get('client_external_id')
+        if not entity_id:
+            continue
+        
+        is_client = entity_id.startswith('cli_')
+        is_contact = entity_id.startswith('con_')
+        
+        # Chercher l'entité (client ou contact)
+        results = queries.search_clients([entity_id])
+        if not results:
+            continue
+        
+        entity = results[0]
+        
+        if is_contact:
+            # Pour les contacts, juste les infos de base
+            appt['client_name'] = f"{entity.get('first_name', '')} {entity.get('last_name', '')}".strip() or entity.get('name', 'N/A')
+            appt['client_address'] = entity.get('address', '')
+            appt['client_city'] = entity.get('city', '')
+            appt['client_phone'] = entity.get('phone', '')
+            continue
+        
+        if is_client:
+            # Pour les clients, enrichissement complet
+            appt['client_name'] = entity.get('company_name', 'N/A')
+            appt['client_address'] = entity.get('address', '')
+            appt['client_city'] = entity.get('city', '')
+            appt['client_phone'] = entity.get('phone', '')
+            appt['client_notes'] = entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            
+            # Récupérer les pianos avec leurs notes
+            try:
+                pianos_url = f"{queries.storage.api_url}/gazelle_pianos?client_external_id=eq.{entity_id}&select=external_id,notes,make,model,serial_number,type,year,location&limit=10"
+                pianos_response = requests.get(pianos_url, headers=queries.storage._get_headers())
+                if pianos_response.status_code == 200:
+                    pianos = pianos_response.json()
+                    appt['pianos'] = []
+                    for piano in pianos:
+                        piano_info = {
+                            'external_id': piano.get('external_id', ''),
+                            'make': piano.get('make', ''),
+                            'model': piano.get('model', ''),
+                            'serial_number': piano.get('serial_number', ''),
+                            'type': piano.get('type', ''),
+                            'year': piano.get('year', ''),
+                            'location': piano.get('location', ''),
+                            'notes': piano.get('notes', '')
+                        }
+                        if piano_info['make'] or piano_info['model'] or piano_info['notes']:
+                            appt['pianos'].append(piano_info)
+            except Exception as e:
+                print(f"⚠️ Erreur récupération pianos: {e}")
+            
+            # Récupérer l'historique de service (timeline)
+            try:
+                service_notes = []
+                timeline_entries_client = queries.get_timeline_entries(entity_id, entity_type='client', limit=20)
+                
+                # Chercher aussi les timeline des pianos
+                if appt.get('pianos'):
+                    for piano in appt['pianos']:
+                        piano_id = piano.get('external_id')
+                        if piano_id:
+                            piano_timeline = queries.get_timeline_entries(piano_id, entity_type='piano', limit=10)
+                            timeline_entries_client.extend(piano_timeline)
+                
+                # Extraire les notes
+                for e in timeline_entries_client:
+                    note = e.get('notes') or e.get('description') or e.get('content') or e.get('note') or e.get('text') or e.get('summary')
+                    if note:
+                        service_notes.append(str(note))
+                
+                if service_notes:
+                    appt['service_history_notes'] = service_notes[:10]
+            except Exception as e:
+                print(f"⚠️ Erreur timeline {entity_id}: {e}")
+            
+            # Récupérer les contacts associés
+            try:
+                contacts_url = f"{queries.storage.api_url}/gazelle_contacts?client_external_id=eq.{entity_id}&limit=10"
+                contacts_response = requests.get(contacts_url, headers=queries.storage._get_headers())
+                if contacts_response.status_code == 200:
+                    contacts = contacts_response.json()
+                    if contacts:
+                        appt['associated_contacts'] = [
+                            {
+                                'name': f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or c.get('name', 'N/A'),
+                                'role': c.get('role') or c.get('title') or '',
+                                'phone': c.get('phone') or c.get('telephone') or '',
+                                'email': c.get('email', '')
+                            }
+                            for c in contacts[:5]
+                        ]
+            except Exception as e:
+                print(f"⚠️ Erreur contacts associés {entity_id}: {e}")
+    
+    return appointments
 
 
 def _extract_client_name(appt: Dict[str, Any]) -> str:

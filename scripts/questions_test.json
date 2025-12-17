@@ -1,0 +1,374 @@
+{
+  "questions": [
+    {
+      "id": 1,
+      "category": "Rendez-vous - Quotidien",
+      "question": ".mes rv",
+      "user": "nlessard@piano-tek.com",
+      "description": "RV du jour pour Nick",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "category": "Rendez-vous - Quotidien",
+      "question": "mes rendez-vous",
+      "user": "jpreny@gmail.com",
+      "description": "RV du jour pour Jean-Philippe",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 3,
+      "category": "Rendez-vous - Futur",
+      "question": "mes rv demain",
+      "user": "nlessard@piano-tek.com",
+      "description": "RV de demain",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "category": "Rendez-vous - Futur",
+      "question": "qu'est-ce que j'ai mardi prochain",
+      "user": "nlessard@piano-tek.com",
+      "description": "RV date spécifique",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 5,
+      "category": "Rendez-vous - Vue globale",
+      "question": "tous les rv",
+      "user": "info@piano-tek.com",
+      "description": "Tous les RV (Louise)",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 6,
+      "category": "Rendez-vous - Vue globale",
+      "question": "tous les rv demain",
+      "user": "info@piano-tek.com",
+      "description": "Agenda complet demain",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 7,
+      "category": "Rendez-vous - Vue globale",
+      "question": "agenda complet de la semaine",
+      "user": "info@piano-tek.com",
+      "description": "Vue hebdomadaire",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 8,
+      "category": "Recherche - Client VIP",
+      "question": "client Yannick",
+      "user": "anonymous",
+      "description": "Chercher Yannick Nézet-Séguin",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 9,
+      "category": "Recherche - Contact",
+      "question": "client anne-marie",
+      "user": "anonymous",
+      "description": "Chercher contact (pas client)",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 10,
+      "category": "Recherche - Organisation",
+      "question": "client université",
+      "user": "anonymous",
+      "description": "Chercher institution",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 11,
+      "category": "Recherche - Par ID",
+      "question": "client cli_0FdGn1t6PxynaUNb",
+      "user": "anonymous",
+      "description": "Recherche par ID Gazelle",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 12,
+      "category": "Recherche - Ville",
+      "question": "clients à Montréal",
+      "user": "anonymous",
+      "description": "Filtrer par localisation",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 13,
+      "category": "Piano - Marque",
+      "question": "piano Steinway",
+      "user": "anonymous",
+      "description": "Chercher pianos de prestige",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 14,
+      "category": "Piano - Marque",
+      "question": "pianos Yamaha",
+      "user": "anonymous",
+      "description": "Pianos populaires",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 15,
+      "category": "Piano - Modèle",
+      "question": "piano Kawai RX3",
+      "user": "anonymous",
+      "description": "Modèle spécifique",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 16,
+      "category": "Piano - Numéro de série",
+      "question": "piano série 123456",
+      "user": "anonymous",
+      "description": "Recherche par S/N",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 17,
+      "category": "Résumé - Journée",
+      "question": "résume ma journée",
+      "user": "nlessard@piano-tek.com",
+      "description": "Résumé intelligent du jour",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 18,
+      "category": "Résumé - Semaine",
+      "question": "résume ma semaine",
+      "user": "nlessard@piano-tek.com",
+      "description": "Vue hebdomadaire synthétique",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 19,
+      "category": "Aide",
+      "question": ".aide",
+      "user": "anonymous",
+      "description": "Commandes disponibles",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 20,
+      "category": "Aide",
+      "question": "qu'est-ce que tu peux faire",
+      "user": "anonymous",
+      "description": "Capacités de l'assistant",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 21,
+      "category": "Edge Case - Pas technicien",
+      "question": "mes rv",
+      "user": "info@piano-tek.com",
+      "description": "Louise demande ses RV (erreur attendue)",
+      "priority": "high",
+      "enabled": true
+    },
+    {
+      "id": 22,
+      "category": "Edge Case - Aucun résultat",
+      "question": "client INEXISTANT",
+      "user": "anonymous",
+      "description": "Recherche sans résultat",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 23,
+      "category": "Edge Case - Question vague",
+      "question": "piano",
+      "user": "anonymous",
+      "description": "Trop vague",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 24,
+      "category": "Conversationnel - Bonjour",
+      "question": "bonjour",
+      "user": "anonymous",
+      "description": "Salutation",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 25,
+      "category": "Conversationnel - Merci",
+      "question": "merci",
+      "user": "anonymous",
+      "description": "Remerciement",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 26,
+      "category": "Rendez-vous - Période",
+      "question": "mes rv cette semaine",
+      "user": "nlessard@piano-tek.com",
+      "description": "Vue hebdomadaire",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 27,
+      "category": "Rendez-vous - Période",
+      "question": "rendez-vous du mois",
+      "user": "nlessard@piano-tek.com",
+      "description": "Vue mensuelle",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 28,
+      "category": "Recherche - Prénom seulement",
+      "question": "client Marie",
+      "user": "anonymous",
+      "description": "Prénom commun (plusieurs résultats)",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 29,
+      "category": "Recherche - Nom seulement",
+      "question": "client Tremblay",
+      "user": "anonymous",
+      "description": "Nom commun (plusieurs résultats)",
+      "priority": "medium",
+      "enabled": true
+    },
+    {
+      "id": 30,
+      "category": "Recherche - Nom complet",
+      "question": "client Jean-Philippe Reny",
+      "user": "anonymous",
+      "description": "Nom complet exact",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 31,
+      "category": "Piano - Type",
+      "question": "pianos à queue",
+      "user": "anonymous",
+      "description": "Recherche par type",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 32,
+      "category": "Piano - État",
+      "question": "pianos nécessitant réparation",
+      "user": "anonymous",
+      "description": "Filtrer par condition",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 33,
+      "category": "Rendez-vous - Urgence",
+      "question": "rv non confirmés",
+      "user": "nlessard@piano-tek.com",
+      "description": "RV à confirmer",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 34,
+      "category": "Rendez-vous - Urgence",
+      "question": "rv urgents",
+      "user": "info@piano-tek.com",
+      "description": "RV prioritaires",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 35,
+      "category": "Statistiques",
+      "question": "combien de rv aujourd'hui",
+      "user": "nlessard@piano-tek.com",
+      "description": "Comptage simple",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 36,
+      "category": "Statistiques",
+      "question": "stats du mois",
+      "user": "info@piano-tek.com",
+      "description": "Vue analytique",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 37,
+      "category": "Recherche - Email",
+      "question": "client email@example.com",
+      "user": "anonymous",
+      "description": "Recherche par email",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 38,
+      "category": "Recherche - Téléphone",
+      "question": "client 514-555-1234",
+      "user": "anonymous",
+      "description": "Recherche par téléphone",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 39,
+      "category": "Historique - Client",
+      "question": "historique Yannick",
+      "user": "anonymous",
+      "description": "Timeline client",
+      "priority": "low",
+      "enabled": true
+    },
+    {
+      "id": 40,
+      "category": "Historique - Piano",
+      "question": "historique piano série 123456",
+      "user": "anonymous",
+      "description": "Timeline piano",
+      "priority": "low",
+      "enabled": true
+    }
+  ],
+  "metadata": {
+    "created": "2025-12-15",
+    "version": "1.0",
+    "description": "Questions de test pour raffinement de l'assistant",
+    "total_questions": 40,
+    "high_priority": 11,
+    "medium_priority": 12,
+    "low_priority": 17,
+    "enabled_by_default": 16
+  }
+}

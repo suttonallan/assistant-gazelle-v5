@@ -234,11 +234,6 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                 Produit
               </th>
               {TECHNICIENS.map(tech => {
-                // Filtre mobile: affiche uniquement colonne utilisateur si pas admin
-                if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
-                  return null
-                }
-
                 // Abréviations mobiles personnalisées
                 const mobileNames = {
                   'Allan': 'Alla',
@@ -246,10 +241,14 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                   'Nick': 'Nick'
                 }
 
+                const isMyColumn = tech.username === currentUsername
+
                 return (
                   <th
                     key={tech.username}
-                    className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center text-xs font-medium text-gray-500 uppercase border-b`}
+                    className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center text-xs font-medium uppercase border-b ${
+                      isMyColumn ? 'bg-green-100 text-green-800 font-bold' : 'text-gray-500'
+                    }`}
                   >
                     {isMobile ? (mobileNames[tech.name] || tech.name.substring(0, 4)) : tech.name}
                   </th>
@@ -263,7 +262,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                 {/* Ligne catégorie */}
                 <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
                   <td
-                    colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
+                    colSpan={TECHNICIENS.length + 1}
                     className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
                     onClick={() => toggleCategory(category)}
                   >
@@ -289,11 +288,6 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                     </td>
 
                     {TECHNICIENS.map(tech => {
-                      // Filtre mobile
-                      if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
-                        return null
-                      }
-
                       const qty = product.quantities?.[tech.username] || 0
                       const isMyColumn = tech.username === currentUsername
                       const feedbackKey = product.code_produit + tech.username
@@ -302,7 +296,9 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                       return (
                         <td
                           key={tech.username}
-                          className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-center`}
+                          className={`${isMobile ? 'px-1 py-2' : 'px-4 py-3'} text-center ${
+                            isMyColumn ? 'bg-green-50' : ''
+                          }`}
                         >
                           <input
                             type="number"
@@ -311,9 +307,9 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                             onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
                             onFocus={(e) => e.target.select()}
                             onClick={(e) => e.target.select()}
-                            className={`${isMobile ? 'w-16 text-base' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
-                              isMyColumn ? 'bg-green-50 border-green-300 font-bold' : 'border-gray-300'
-                            } ${hasFeedback ? 'bg-green-200' : ''}`}
+                            className={`${isMobile ? 'w-14 text-sm' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
+                              isMyColumn ? 'bg-green-100 border-green-400 font-bold text-green-900' : 'border-gray-300'
+                            } ${hasFeedback ? 'bg-green-300' : ''}`}
                             style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
                           />
                         </td>

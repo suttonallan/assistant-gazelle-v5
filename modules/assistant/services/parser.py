@@ -142,6 +142,28 @@ class ConversationalParser:
                 scores[query_type] = score
 
         if not scores:
+            # Si aucun keyword trouvé, vérifier si c'est un nom propre
+
+            # Pattern 1: Nom complet (2+ mots avec ou sans majuscules)
+            # Ex: "olivier asselin", "Jean-Philippe Dumoulin"
+            name_pattern = r'^[A-ZÀÂÄÇÉÈÊËÏÎÔÙÛÜ][a-zàâäçéèêëïîôùûüœ\-]+(?:\s+[A-ZÀÂÄÇÉÈÊËÏÎÔÙÛÜ][a-zàâäçéèêëïîôùûüœ\-]+)+$'
+            simple_name_pattern = r'^[a-zàâäçéèêëïîôùûüœ\-]+(?:\s+[a-zàâäçéèêëïîôùûüœ\-]+)+$'
+
+            # Pattern 2: Un seul mot avec majuscule (probablement un prénom ou nom)
+            # Ex: "Olivier", "Lucie", "Jean-Philippe"
+            single_word_capitalized = r'^[A-ZÀÂÄÇÉÈÊËÏÎÔÙÛÜ][a-zàâäçéèêëïîôùûüœ\-]{2,}$'
+
+            # Pattern 3: Un seul mot minuscule mais assez long (probablement un nom)
+            # Ex: "olivier", "lucie" (3+ lettres pour éviter "ok", "le", etc.)
+            single_word_lowercase = r'^[a-zàâäçéèêëïîôùûüœ\-]{3,}$'
+
+            if (re.match(name_pattern, question.strip()) or
+                re.match(simple_name_pattern, question_lower) or
+                re.match(single_word_capitalized, question.strip()) or
+                re.match(single_word_lowercase, question_lower)):
+                # C'est probablement un nom → recherche client
+                return QueryType.SEARCH_CLIENT, 0.5
+
             return QueryType.UNKNOWN, 0.0
 
         # Retourner le type avec le plus de matches
@@ -238,7 +260,8 @@ class ConversationalParser:
         stop_words = [
             'cherche', 'trouve', 'client', 'recherche',
             'où', 'est', 'trouver', 'localiser', 'le', 'la', 'les',
-            'un', 'une', 'des', 'piano', 'pianos'
+            'un', 'une', 'des', 'piano', 'pianos',
+            'frais', 'déplacement', 'deplacement', 'pour'
         ]
 
         # Préserver la casse pour les IDs Gazelle (cli_xxx, pia_xxx, etc.)

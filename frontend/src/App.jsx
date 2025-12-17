@@ -8,6 +8,8 @@ import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
 import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard'
 import AssistantWidget from './components/AssistantWidget'
+import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
+import KilometersCalculator from './components/admin/KilometersCalculator'
 import { getUserRole, ROLES } from './config/roles'
 
 function App() {
@@ -64,6 +66,15 @@ function App() {
           return <InventaireDashboard currentUser={currentUser} />
         } else if (currentView === 'tournees') {
           return <NickDashboard currentUser={currentUser} />
+        } else if (currentView === 'calculateur-frais') {
+          return (
+            <div className="space-y-8">
+              <TravelFeeCalculator />
+              <div className="border-t border-gray-200 pt-8">
+                <KilometersCalculator />
+              </div>
+            </div>
+          )
         } else {
           return <VincentDIndyDashboard currentUser={currentUser} />
         }
@@ -81,8 +92,8 @@ function App() {
               <h1 className="text-xl font-semibold text-gray-800">Assistant Gazelle V5</h1>
             </div>
 
-            {/* Navigation (seulement pour les admins) */}
-            {effectiveRole === 'admin' && (
+            {/* Navigation (accessible à tous) */}
+            {(
               <nav className="flex gap-2">
                 <button
                   onClick={() => setCurrentView('dashboard')}
@@ -133,6 +144,16 @@ function App() {
                   }`}
                 >
                   🎼 Tournées
+                </button>
+                <button
+                  onClick={() => setCurrentView('calculateur-frais')}
+                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                    currentView === 'calculateur-frais'
+                      ? 'bg-blue-100 text-blue-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  💰 Calculateur
                 </button>
               </nav>
             )}

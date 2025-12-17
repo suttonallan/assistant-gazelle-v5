@@ -24,6 +24,7 @@ from api.inventaire import router as inventaire_router
 from api.catalogue_routes import router as catalogue_router
 from api.tournees import router as tournees_router
 from api.assistant import router as assistant_router
+from api.admin import router as admin_router
 
 app = FastAPI(
     title="Assistant Gazelle V5 API",
@@ -47,6 +48,7 @@ app.include_router(inventaire_router)
 app.include_router(catalogue_router)
 app.include_router(tournees_router)
 app.include_router(assistant_router)
+app.include_router(admin_router)
 
 
 @app.get("/")

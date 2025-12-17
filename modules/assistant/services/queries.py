@@ -8,6 +8,7 @@ Utilise SupabaseStorage (REST API) au lieu de connexion PostgreSQL directe.
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
+from urllib.parse import quote
 from core.supabase_storage import SupabaseStorage
 from modules.assistant.services.parser import QueryType
 
@@ -130,6 +131,60 @@ class GazelleQueries:
 
             if response.status_code == 200:
                 appointments = response.json()
+                # SIMPLE: Toutes les heures viennent de l'API Gazelle en UTC
+                # Convertir UTC → heure de Toronto (America/Toronto)
+                from zoneinfo import ZoneInfo
+                from datetime import datetime as dt, timezone as tz
+                
+                toronto_tz = ZoneInfo('America/Toronto')
+                utc_tz = tz.utc
+                
+                for appt in appointments:
+                    # Convertir appointment_time si présent
+                    if 'appointment_time' in appt and appt['appointment_time']:
+                        time_str = str(appt['appointment_time'])
+                        
+                        # Si c'est un TIMESTAMPTZ (format ISO avec fuseau horaire), c'est en UTC
+                        if 'T' in time_str or '+' in time_str or 'Z' in time_str:
+                            try:
+                                # Parser le timestamp UTC
+                                if time_str.endswith('Z'):
+                                    time_str = time_str.replace('Z', '+00:00')
+                                dt_obj = dt.fromisoformat(time_str)
+                                if dt_obj.tzinfo is None:
+                                    dt_obj = dt_obj.replace(tzinfo=utc_tz)
+                                else:
+                                    dt_obj = dt_obj.astimezone(utc_tz)
+                                
+                                # Convertir en heure de Toronto
+                                dt_toronto = dt_obj.astimezone(toronto_tz)
+                                # Extraire seulement l'heure (HH:MM)
+                                appt['appointment_time'] = dt_toronto.strftime('%H:%M')
+                            except (ValueError, AttributeError) as e:
+                                print(f"⚠️ Erreur conversion heure '{time_str}': {e}")
+                        # Si c'est juste une heure (HH:MM:SS), créer un datetime UTC avec la date et convertir
+                        elif ':' in time_str:
+                            try:
+                                parts = time_str.split(':')
+                                if len(parts) >= 2:
+                                    hour_utc = int(parts[0])
+                                    minute_utc = int(parts[1][:2])
+                                    
+                                    # Utiliser la date du rendez-vous pour créer un datetime complet
+                                    if 'appointment_date' in appt and appt['appointment_date']:
+                                        date_parts = appt['appointment_date'].split('-')
+                                        if len(date_parts) == 3:
+                                            year, month, day = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
+                                            
+                                            # Créer datetime en UTC (les heures viennent de l'API Gazelle en UTC)
+                                            dt_utc = dt(year, month, day, hour_utc, minute_utc, tzinfo=utc_tz)
+                                            
+                                            # Convertir en heure de Toronto
+                                            dt_toronto = dt_utc.astimezone(toronto_tz)
+                                            appt['appointment_time'] = dt_toronto.strftime('%H:%M')
+                            except (ValueError, IndexError) as e:
+                                print(f"⚠️ Erreur conversion heure '{time_str}': {e}")
+                
                 # Enrichir avec les noms de clients si client_external_id est présent
                 # Note: Pour l'instant, on utilise title comme nom de client
                 return appointments
@@ -169,20 +224,52 @@ class GazelleQueries:
 
         try:
             import requests
-            search_query = search_terms[0] if search_terms else ""
+            # Joindre tous les termes pour chercher le nom complet
+            search_query = " ".join(search_terms) if search_terms else ""
             results = []
 
             # 1. Chercher dans gazelle_clients
-            url_clients = f"{self.storage.api_url}/gazelle_clients?select=*"
+            base_url = f"{self.storage.api_url}/gazelle_clients"
 
             if search_query.startswith('cli_'):
-                url_clients += f"&external_id=eq.{search_query}"
+                url_clients = f"{base_url}?select=*&external_id=eq.{search_query}&limit={limit}"
+                response_clients = requests.get(url_clients, headers=self.storage._get_headers())
             else:
-                url_clients += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*,company_name.ilike.*{search_query}*)"
+                # Syntaxe PostgREST: faire plusieurs requêtes séparées et combiner
+                # Plus fiable que or=(...) qui peut causer des erreurs 400
+                encoded_query = quote(search_query, safe='')
 
-            url_clients += f"&limit={limit}"
-
-            response_clients = requests.get(url_clients, headers=self.storage._get_headers())
+                # Faire plusieurs requêtes séparées et combiner les résultats
+                # Colonnes réelles: company_name, city (pas name, first_name)
+                all_clients = []
+                seen_ids = set()
+                for field in ['company_name', 'city']:
+                    try:
+                        # Syntaxe PostgREST: ilike.*pattern* (comme dans search_pianos)
+                        field_url = f"{base_url}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
+                        field_response = requests.get(field_url, headers=self.storage._get_headers())
+                        if field_response.status_code == 200:
+                            field_clients = field_response.json()
+                            # Éviter les doublons par external_id
+                            for client in field_clients:
+                                client_id = client.get('external_id')
+                                if client_id and client_id not in seen_ids:
+                                    seen_ids.add(client_id)
+                                    all_clients.append(client)
+                        elif field_response.status_code != 404:
+                            print(f"⚠️ Erreur recherche {field} ({field_response.status_code}): {field_response.text[:200]}")
+                    except Exception as e:
+                        print(f"⚠️ Erreur recherche {field}: {e}")
+                
+                # Créer un objet Response mock
+                class MockResponse:
+                    def __init__(self, status_code, data):
+                        self.status_code = status_code
+                        self._data = data
+                    def json(self):
+                        return self._data
+                
+                response_clients = MockResponse(200 if all_clients else 404, all_clients)
 
             if response_clients.status_code == 200:
                 clients = response_clients.json()
@@ -193,16 +280,46 @@ class GazelleQueries:
                 print(f"⚠️ Erreur gazelle_clients: {response_clients.status_code}")
 
             # 2. Chercher dans gazelle_contacts
-            url_contacts = f"{self.storage.api_url}/gazelle_contacts?select=*"
+            base_url_contacts = f"{self.storage.api_url}/gazelle_contacts"
 
             if search_query.startswith('con_'):
-                url_contacts += f"&external_id=eq.{search_query}"
+                url_contacts = f"{base_url_contacts}?select=*&external_id=eq.{search_query}&limit={limit}"
+                response_contacts = requests.get(url_contacts, headers=self.storage._get_headers())
             else:
-                url_contacts += f"&or=(last_name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,email.ilike.*{search_query}*)"
-
-            url_contacts += f"&limit={limit}"
-
-            response_contacts = requests.get(url_contacts, headers=self.storage._get_headers())
+                # Syntaxe PostgREST: faire plusieurs requêtes séparées et combiner
+                encoded_query = quote(search_query, safe='')
+                
+                # Faire plusieurs requêtes séparées et combiner les résultats
+                # Colonnes réelles dans gazelle_contacts: first_name, last_name, email (pas name)
+                all_contacts = []
+                seen_ids = set()
+                for field in ['first_name', 'last_name', 'email']:
+                    try:
+                        # Syntaxe PostgREST: ilike.*pattern* (comme dans search_pianos)
+                        field_url = f"{base_url_contacts}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
+                        field_response = requests.get(field_url, headers=self.storage._get_headers())
+                        if field_response.status_code == 200:
+                            field_contacts = field_response.json()
+                            # Éviter les doublons par external_id
+                            for contact in field_contacts:
+                                contact_id = contact.get('external_id')
+                                if contact_id and contact_id not in seen_ids:
+                                    seen_ids.add(contact_id)
+                                    all_contacts.append(contact)
+                        elif field_response.status_code != 404:
+                            print(f"⚠️ Erreur recherche {field} ({field_response.status_code}): {field_response.text[:200]}")
+                    except Exception as e:
+                        print(f"⚠️ Erreur recherche {field}: {e}")
+                
+                # Créer un objet Response mock
+                class MockResponse:
+                    def __init__(self, status_code, data):
+                        self.status_code = status_code
+                        self._data = data
+                    def json(self):
+                        return self._data
+                
+                response_contacts = MockResponse(200 if all_contacts else 404, all_contacts)
 
             if response_contacts.status_code == 200:
                 contacts = response_contacts.json()
@@ -292,12 +409,18 @@ class GazelleQueries:
             url += "&order=created_at.desc"
 
             import requests
+            print(f"🔍 DEBUG get_timeline_entries: URL = {url}")
             response = requests.get(url, headers=self.storage._get_headers())
+            print(f"🔍 DEBUG get_timeline_entries: Status = {response.status_code}")
 
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                print(f"🔍 DEBUG get_timeline_entries: {len(data)} entrées retournées")
+                if data:
+                    print(f"🔍 DEBUG get_timeline_entries: Première entrée clés = {list(data[0].keys()) if data else 'vide'}")
+                return data
             else:
-                print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
+                print(f"❌ Erreur Supabase timeline: {response.status_code} - {response.text[:500]}")
                 return []
 
         except Exception as e:

@@ -1,0 +1,72 @@
+[
+  {
+    "timestamp": "2025-12-16T14:30:00",
+    "type": "day_summary",
+    "date": "2025-12-16",
+    "technicien": "Nick",
+    "format_style": "detailed",
+    "appointments_count": 3,
+    "summary": "📅 2025-12-16 - Nick\n==================================================\n\n3 rendez-vous:\n\n1. 🕐 09:00 - Accordage\n   👤 Yannick Nézet-Séguin\n   📍 123 Rue Example, Montréal\n   📞 514-555-1234\n\n2. 🕐 14:30 - Réparation\n   👤 Conservatoire de Montréal\n   📍 4750 Avenue Henri-Julien, Montréal\n   📞 514-555-5678\n\n3. 🕐 16:00 - Inspection\n   👤 Studio Piano Plus\n   📍 5678 Boulevard Saint-Laurent, Montréal\n   📞 514-555-9012",
+    "feedback": {
+      "mode": "natural",
+      "feedback": "Tu aurais dû inclure le temps de déplacement entre chaque RV\nLa réponse devrait mentionner le type de piano pour chaque visite\nManque les reminders importants extraits des notes",
+      "implicit_rating": 3
+    }
+  },
+  {
+    "timestamp": "2025-12-16T14:25:00",
+    "type": "client_summary",
+    "client_id": "123456",
+    "client_name": "Yannick Nézet-Séguin",
+    "format_style": "compact",
+    "pianos_count": 2,
+    "summary": "👤 Yannick Nézet-Séguin\n📍 Montréal\n🎹 2 piano(s)\n📅 Dernier RV: 2025-12-10",
+    "feedback": {
+      "mode": "structured",
+      "rating": 3,
+      "comment": "Manque les détails des pianos (marque, modèle)"
+    }
+  },
+  {
+    "timestamp": "2025-12-16T14:20:00",
+    "type": "day_summary",
+    "date": "2025-12-16",
+    "technicien": null,
+    "format_style": "compact",
+    "appointments_count": 5,
+    "summary": "📅 2025-12-16\n==================================================\n\n5 rendez-vous:\n\n1. 09:00 - Accordage - Yannick Nézet-Séguin\n2. 11:30 - Réparation - Conservatoire de Montréal\n3. 14:00 - Inspection - Studio Piano Plus\n4. 16:00 - Accordage - Marie-Anne Rozankovic\n5. 18:00 - Consultation - Université Laval",
+    "feedback": {
+      "mode": "natural",
+      "feedback": "Excellente présentation, très concise et claire\nParfait pour un aperçu rapide de la journée\nTu pourrais ajouter la ville à côté du nom du client mais c'est déjà très bon",
+      "implicit_rating": 5
+    }
+  },
+  {
+    "timestamp": "2025-12-16T14:15:00",
+    "type": "client_summary",
+    "client_id": "789012",
+    "client_name": "Conservatoire de Montréal",
+    "format_style": "detailed",
+    "pianos_count": 12,
+    "summary": "👤 **Conservatoire de Montréal**\n==================================================\n\n📍 4750 Avenue Henri-Julien, Montréal H2T 2C8\n📞 514-555-5678\n📧 info@conservatoire.qc.ca\n\n🎹 **Pianos (12):**\n  - Steinway Model D (S/N: 123456)\n  - Steinway Model D (S/N: 234567)\n  - Yamaha C7 (S/N: 345678)\n  - Yamaha C7 (S/N: 456789)\n  - Kawai Grand (S/N: 567890)\n  ...\n\n📅 **Derniers RV:**\n  - 2025-12-10: Accordage multiple\n  - 2025-11-20: Réparation Steinway\n  - 2025-10-15: Inspection annuelle",
+    "feedback": {
+      "mode": "natural",
+      "feedback": "Très bon format détaillé\nTu devrais indiquer combien de pianos sont montrés vs total (\"... (7 autres)\")\nAussi mentionner le technicien assigné pour chaque dernier RV",
+      "implicit_rating": 4
+    }
+  },
+  {
+    "timestamp": "2025-12-16T14:10:00",
+    "type": "day_summary",
+    "date": "2025-12-16",
+    "technicien": "Jean-Philippe",
+    "format_style": "v4",
+    "appointments_count": 2,
+    "summary": "📅 2025-12-16\n==================================================\n\n2 rendez-vous:\n\n1. 10:00 - Marie-Anne Rozankovic\n  Adresse: 789 Rue de la Musique, Québec\n  Service: Accordage\n  ⚠️ RAPPEL: !! Client préfère les matins, !! Apporter feutres de remplacement\n\n2. 15:00 - Université Laval\n  Adresse: 2325 Rue de l'Université, Québec\n  Service: Inspection annuelle",
+    "feedback": {
+      "mode": "natural",
+      "feedback": "Format V4 fonctionne bien pour la transition\nJ'aime l'extraction des reminders avec !!\nTu pourrais ajouter le téléphone et le temps de déplacement",
+      "implicit_rating": 4
+    }
+  }
+]

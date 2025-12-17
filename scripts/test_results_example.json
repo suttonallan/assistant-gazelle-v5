@@ -1,0 +1,112 @@
+[
+  {
+    "timestamp": "2025-12-15T20:30:00",
+    "scenario": {
+      "name": "Recherche - Client VIP - 8",
+      "question": "client Yannick",
+      "user_id": "anonymous",
+      "description": "Chercher Yannick Nézet-Séguin",
+      "priority": "high",
+      "category": "Recherche - Client VIP"
+    },
+    "template_version": "current",
+    "parsed": {
+      "query_type": "SEARCH_CLIENT",
+      "confidence": 0.95,
+      "params": {
+        "search_terms": ["Yannick"]
+      }
+    },
+    "results": {
+      "type": "search_results",
+      "count": 1,
+      "data": []
+    },
+    "response": "🔍 **1 clients trouvés:**\n\n- **Yannick Nézet-Séguin** [Contact]",
+    "user_rating": 4,
+    "user_comment": "Bon mais manque ville et téléphone"
+  },
+  {
+    "timestamp": "2025-12-15T20:35:00",
+    "scenario": {
+      "name": "Rendez-vous - Quotidien - 1",
+      "question": ".mes rv",
+      "user_id": "nlessard@piano-tek.com",
+      "description": "RV du jour pour Nick",
+      "priority": "high",
+      "category": "Rendez-vous - Quotidien"
+    },
+    "template_version": "current",
+    "parsed": {
+      "query_type": "APPOINTMENTS",
+      "confidence": 0.98,
+      "params": {
+        "time_range": "today"
+      }
+    },
+    "results": {
+      "type": "appointments",
+      "count": 3,
+      "data": []
+    },
+    "response": "📅 Aujourd'hui: 3 rendez-vous\n\n1. 09:00 - Accordage - Yannick Nézet-Séguin\n2. 14:30 - Réparation - Conservatoire de Montréal\n3. 16:00 - Inspection - Studio Piano Plus",
+    "feedback_mode": "natural",
+    "natural_feedback": "Tu aurais dû inclure l'adresse complète pour chaque RV\nLa réponse devrait mentionner le temps de déplacement estimé\nManque le numéro de téléphone du client pour le premier rendez-vous",
+    "implicit_rating": 3
+  },
+  {
+    "timestamp": "2025-12-15T20:40:00",
+    "scenario": {
+      "name": "Piano - Marque - 13",
+      "question": "piano Steinway",
+      "user_id": "anonymous",
+      "description": "Chercher pianos de prestige",
+      "priority": "high",
+      "category": "Piano - Marque"
+    },
+    "template_version": "current",
+    "parsed": {
+      "query_type": "SEARCH_PIANO",
+      "confidence": 0.92,
+      "params": {
+        "brand": "Steinway"
+      }
+    },
+    "results": {
+      "type": "search_results",
+      "count": 5,
+      "data": []
+    },
+    "response": "🎹 **5 pianos Steinway trouvés:**\n\n1. Steinway Grand Piano - Yannick Nézet-Séguin\n2. Steinway Model D - Conservatoire de Montréal\n3. Steinway Model B - Studio Piano Plus\n4. Steinway Upright - Marie-Anne Rozankovic\n5. Steinway Grand - Université Laval",
+    "feedback_mode": "natural",
+    "natural_feedback": "Excellente réponse, très claire\nTu aurais pu ajouter le numéro de série de chaque piano\nMais dans l'ensemble c'est très bien présenté",
+    "implicit_rating": 4
+  },
+  {
+    "timestamp": "2025-12-15T20:45:00",
+    "scenario": {
+      "name": "Edge Case - Aucun résultat - 22",
+      "question": "client INEXISTANT",
+      "user_id": "anonymous",
+      "description": "Recherche sans résultat",
+      "priority": "medium",
+      "category": "Edge Case - Aucun résultat"
+    },
+    "template_version": "current",
+    "parsed": {
+      "query_type": "SEARCH_CLIENT",
+      "confidence": 0.85,
+      "params": {
+        "search_terms": ["INEXISTANT"]
+      }
+    },
+    "results": {
+      "type": "search_results",
+      "count": 0,
+      "data": []
+    },
+    "response": "🔍 Aucun client trouvé pour: INEXISTANT",
+    "user_rating": 5,
+    "user_comment": "Parfait, message clair et concis"
+  }
+]

@@ -379,10 +379,23 @@ class GazelleToSupabaseSync:
                     if start_time:
                         try:
                             from datetime import datetime as dt
-                            dt_obj = dt.fromisoformat(start_time.replace('Z', '+00:00'))
-                            appointment_date = dt_obj.date().isoformat()
-                            appointment_time = dt_obj.time().isoformat()
-                        except:
+                            from zoneinfo import ZoneInfo
+
+                            # IMPORTANT: Gazelle stocke les heures en Eastern Time (America/Toronto)
+                            # mais ajoute un 'Z' trompeur. On doit interpréter comme Eastern, pas UTC.
+                            dt_obj = dt.fromisoformat(start_time.replace('Z', ''))
+
+                            # Marquer comme étant en Eastern Time (c'est ce que Gazelle utilise)
+                            eastern_tz = ZoneInfo('America/Toronto')
+                            dt_eastern = dt_obj.replace(tzinfo=eastern_tz)
+
+                            # Stocker en UTC dans Supabase (TIMESTAMPTZ)
+                            dt_utc = dt_eastern.astimezone(ZoneInfo('UTC'))
+
+                            appointment_date = dt_utc.date().isoformat()
+                            appointment_time = dt_utc.time().isoformat()
+                        except Exception as e:
+                            print(f"⚠️ Erreur conversion heure '{start_time}': {e}")
                             pass
 
                     # Durée en minutes
