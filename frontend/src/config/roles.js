@@ -8,7 +8,8 @@ export const ROLES = {
     name: 'Administrateur',
     email: 'asutton@piano-tek.com',
     permissions: ['*'], // Tout
-    dashboards: ['inventaire', 'commissions', 'stats', 'admin', 'sync_gazelle', 'tournees']
+    dashboards: ['inventaire', 'commissions', 'stats', 'admin', 'sync_gazelle', 'tournees'],
+    technicianName: 'allan' // Allan est aussi technicien
   },
 
   nick: {

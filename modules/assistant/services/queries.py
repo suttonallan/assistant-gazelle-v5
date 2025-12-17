@@ -8,7 +8,6 @@ Utilise SupabaseStorage (REST API) au lieu de connexion PostgreSQL directe.
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-from urllib.parse import quote
 from core.supabase_storage import SupabaseStorage
 from modules.assistant.services.parser import QueryType
 
@@ -26,34 +25,11 @@ class GazelleQueries:
         self.storage = storage or SupabaseStorage()
 
         # Mapping email -> nom technicien dans Gazelle
-        # Note: Les techniciens voient leurs propres RV par défaut avec ".mes rv"
-        # Pour voir tous les RV, demander "tous les rv" ou "les rv de tous"
-        # Louise (assistante) n'est pas technicienne → doit utiliser "tous les rv"
-        # Source: docs/REFERENCE_COMPLETE.md et frontend/src/config/roles.js
         self.technicien_mapping = {
-            # Emails officiels (référence Supabase et frontend)
-            'nlessard@piano-tek.com': 'Nick',
-            'jpreny@gmail.com': 'Jean-Philippe',
-            'asutton@piano-tek.com': 'Allan',  # Admin est aussi technicien
-            'info@piano-tek.com': None  # Louise n'est PAS technicienne
-        }
-
-        # Mapping ID utilisateur Supabase -> nom technicien
-        # Source: docs/REFERENCE_COMPLETE.md
-        self.technicien_id_mapping = {
-            'usr_ofYggsCDt2JAVeNP': 'Allan',
-            'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',  # Nick
-            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe',
-            # Louise n'a pas encore d'ID Supabase assigné
-        }
-
-        # Mapping inverse: nom -> ID (pour les requêtes)
-        self.technicien_name_to_id = {
-            'Nick': 'usr_HcCiFk7o0vZ9xAI0',
-            'Nicolas': 'usr_HcCiFk7o0vZ9xAI0',
-            'Jean-Philippe': 'usr_ReUSmIJmBF86ilY1',
-            'Allan': 'usr_ofYggsCDt2JAVeNP'
-            # Louise n'est pas technicienne, pas dans ce mapping
+            'nicolas@pianotekinc.com': 'Nick',
+            'jp@pianotekinc.com': 'Jean-Philippe',
+            'asutton@piano-tek.com': 'Allan',  # Allan est admin ET technicien
+            'allan@pianotekinc.com': 'Allan'
         }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
@@ -66,14 +42,7 @@ class GazelleQueries:
         Returns:
             Nom du technicien ou None (pour admin)
         """
-        if not email:
-            return None
-        email_lower = email.lower()
-        technicien = self.technicien_mapping.get(email_lower)
-        # Log de débogage pour diagnostiquer les problèmes de mapping
-        if technicien is None and email_lower != 'anonymous':
-            print(f"⚠️ Email non mappé: '{email_lower}' (emails disponibles: {list(self.technicien_mapping.keys())})")
-        return technicien
+        return self.technicien_mapping.get(email.lower())
 
     def get_appointments(
         self,
@@ -98,100 +67,32 @@ class GazelleQueries:
         """
         try:
             # Requête via REST API Supabase
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
-            # Pour les clients, on utilisera title si client_external_id est None
-            url = f"{self.storage.api_url}/gazelle_appointments"
+            url = f"{self.storage.api_url}/gazelle.appointments"
             url += f"?select=*"
 
             # Plage de dates ou date exacte
-            # Note: La colonne s'appelle appointment_date (pas date)
             if start_date and end_date:
                 start_str = start_date.strftime('%Y-%m-%d')
                 end_str = end_date.strftime('%Y-%m-%d')
-                url += f"&appointment_date=gte.{start_str}"
-                url += f"&appointment_date=lte.{end_str}"
+                url += f"&date=gte.{start_str}"
+                url += f"&date=lte.{end_str}"
             else:
                 if date is None:
                     date = datetime.now()
                 date_str = date.strftime('%Y-%m-%d')
-                url += f"&appointment_date=eq.{date_str}"
+                url += f"&date=eq.{date_str}"
 
-            # Filtrer par technicien si spécifié
-            # Note: technicien peut être un nom (Nick) ou un ID (usr_xxx)
             if technicien:
-                # Mapper le nom vers l'ID si nécessaire
-                technicien_filter = self.technicien_name_to_id.get(technicien, technicien)
-                url += f"&technicien=eq.{technicien_filter}"
+                url += f"&technicien=eq.{technicien}"
 
             url += f"&limit={limit}"
-            url += "&order=appointment_date.asc,appointment_time.asc"
+            url += "&order=date.asc,time.asc"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
 
             if response.status_code == 200:
-                appointments = response.json()
-                # SIMPLE: Toutes les heures viennent de l'API Gazelle en UTC
-                # Convertir UTC → heure de Toronto (America/Toronto)
-                from zoneinfo import ZoneInfo
-                from datetime import datetime as dt, timezone as tz
-                
-                toronto_tz = ZoneInfo('America/Toronto')
-                utc_tz = tz.utc
-                
-                for appt in appointments:
-                    # Convertir appointment_time si présent
-                    if 'appointment_time' in appt and appt['appointment_time']:
-                        time_str = str(appt['appointment_time'])
-                        
-                        # Si c'est un TIMESTAMPTZ (format ISO avec fuseau horaire), c'est en UTC
-                        if 'T' in time_str or '+' in time_str or 'Z' in time_str:
-                            try:
-                                # Parser le timestamp UTC
-                                if time_str.endswith('Z'):
-                                    time_str = time_str.replace('Z', '+00:00')
-                                dt_obj = dt.fromisoformat(time_str)
-                                if dt_obj.tzinfo is None:
-                                    dt_obj = dt_obj.replace(tzinfo=utc_tz)
-                                else:
-                                    dt_obj = dt_obj.astimezone(utc_tz)
-                                
-                                # Convertir en heure de Toronto
-                                dt_toronto = dt_obj.astimezone(toronto_tz)
-                                # Extraire seulement l'heure (HH:MM)
-                                appt['appointment_time'] = dt_toronto.strftime('%H:%M')
-                            except (ValueError, AttributeError) as e:
-                                print(f"⚠️ Erreur conversion heure '{time_str}': {e}")
-                        # Si c'est juste une heure (HH:MM:SS), créer un datetime UTC avec la date et convertir
-                        elif ':' in time_str:
-                            try:
-                                parts = time_str.split(':')
-                                if len(parts) >= 2:
-                                    hour_utc = int(parts[0])
-                                    minute_utc = int(parts[1][:2])
-                                    
-                                    # Utiliser la date du rendez-vous pour créer un datetime complet
-                                    if 'appointment_date' in appt and appt['appointment_date']:
-                                        date_parts = appt['appointment_date'].split('-')
-                                        if len(date_parts) == 3:
-                                            year, month, day = int(date_parts[0]), int(date_parts[1]), int(date_parts[2])
-                                            
-                                            # Créer datetime en UTC (les heures viennent de l'API Gazelle en UTC)
-                                            dt_utc = dt(year, month, day, hour_utc, minute_utc, tzinfo=utc_tz)
-                                            
-                                            # Convertir en heure de Toronto
-                                            dt_toronto = dt_utc.astimezone(toronto_tz)
-                                            appt['appointment_time'] = dt_toronto.strftime('%H:%M')
-                            except (ValueError, IndexError) as e:
-                                print(f"⚠️ Erreur conversion heure '{time_str}': {e}")
-                
-                # Enrichir avec les noms de clients si client_external_id est présent
-                # Note: Pour l'instant, on utilise title comme nom de client
-                return appointments
-            elif response.status_code == 404:
-                # Table n'existe pas encore - c'est normal, les RV ne sont pas encore synchronisés
-                print(f"⚠️ Table gazelle_appointments n'existe pas encore (404). Les rendez-vous ne sont pas encore synchronisés.")
-                return []
+                return response.json()
             else:
                 print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
                 return []
@@ -208,131 +109,39 @@ class GazelleQueries:
         """
         Recherche des clients dans Supabase.
 
-        Note: Cherche dans gazelle_clients ET gazelle_contacts car dans Gazelle:
-        - clients = entités qui paient (compagnies, particuliers)
-        - contacts = personnes associées aux clients
-
         Args:
             search_terms: Termes de recherche
             limit: Nombre maximum de résultats
 
         Returns:
-            Liste de clients correspondants (clients + contacts combinés)
+            Liste de clients correspondants
         """
         if not search_terms:
             return []
 
         try:
+            # Construire la requête de recherche
+            # Supabase REST API supporte ilike pour recherche insensible à la casse
+            url = f"{self.storage.api_url}/gazelle.clients"
+            url += "?select=*"
+
+            # Rechercher dans nom, prénom, ville
+            search_query = search_terms[0] if search_terms else ""
+            url += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*)"
+
+            url += f"&limit={limit}"
+
             import requests
-            # Joindre tous les termes pour chercher le nom complet
-            search_query = " ".join(search_terms) if search_terms else ""
-            results = []
+            response = requests.get(url, headers=self.storage._get_headers())
 
-            # 1. Chercher dans gazelle_clients
-            base_url = f"{self.storage.api_url}/gazelle_clients"
-
-            if search_query.startswith('cli_'):
-                url_clients = f"{base_url}?select=*&external_id=eq.{search_query}&limit={limit}"
-                response_clients = requests.get(url_clients, headers=self.storage._get_headers())
+            if response.status_code == 200:
+                return response.json()
             else:
-                # Syntaxe PostgREST: faire plusieurs requêtes séparées et combiner
-                # Plus fiable que or=(...) qui peut causer des erreurs 400
-                encoded_query = quote(search_query, safe='')
-
-                # Faire plusieurs requêtes séparées et combiner les résultats
-                # Colonnes réelles: company_name, city (pas name, first_name)
-                all_clients = []
-                seen_ids = set()
-                for field in ['company_name', 'city']:
-                    try:
-                        # Syntaxe PostgREST: ilike.*pattern* (comme dans search_pianos)
-                        field_url = f"{base_url}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
-                        field_response = requests.get(field_url, headers=self.storage._get_headers())
-                        if field_response.status_code == 200:
-                            field_clients = field_response.json()
-                            # Éviter les doublons par external_id
-                            for client in field_clients:
-                                client_id = client.get('external_id')
-                                if client_id and client_id not in seen_ids:
-                                    seen_ids.add(client_id)
-                                    all_clients.append(client)
-                        elif field_response.status_code != 404:
-                            print(f"⚠️ Erreur recherche {field} ({field_response.status_code}): {field_response.text[:200]}")
-                    except Exception as e:
-                        print(f"⚠️ Erreur recherche {field}: {e}")
-                
-                # Créer un objet Response mock
-                class MockResponse:
-                    def __init__(self, status_code, data):
-                        self.status_code = status_code
-                        self._data = data
-                    def json(self):
-                        return self._data
-                
-                response_clients = MockResponse(200 if all_clients else 404, all_clients)
-
-            if response_clients.status_code == 200:
-                clients = response_clients.json()
-                for client in clients:
-                    client['_source'] = 'client'  # Marquer la source
-                results.extend(clients)
-            else:
-                print(f"⚠️ Erreur gazelle_clients: {response_clients.status_code}")
-
-            # 2. Chercher dans gazelle_contacts
-            base_url_contacts = f"{self.storage.api_url}/gazelle_contacts"
-
-            if search_query.startswith('con_'):
-                url_contacts = f"{base_url_contacts}?select=*&external_id=eq.{search_query}&limit={limit}"
-                response_contacts = requests.get(url_contacts, headers=self.storage._get_headers())
-            else:
-                # Syntaxe PostgREST: faire plusieurs requêtes séparées et combiner
-                encoded_query = quote(search_query, safe='')
-                
-                # Faire plusieurs requêtes séparées et combiner les résultats
-                # Colonnes réelles dans gazelle_contacts: first_name, last_name, email (pas name)
-                all_contacts = []
-                seen_ids = set()
-                for field in ['first_name', 'last_name', 'email']:
-                    try:
-                        # Syntaxe PostgREST: ilike.*pattern* (comme dans search_pianos)
-                        field_url = f"{base_url_contacts}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
-                        field_response = requests.get(field_url, headers=self.storage._get_headers())
-                        if field_response.status_code == 200:
-                            field_contacts = field_response.json()
-                            # Éviter les doublons par external_id
-                            for contact in field_contacts:
-                                contact_id = contact.get('external_id')
-                                if contact_id and contact_id not in seen_ids:
-                                    seen_ids.add(contact_id)
-                                    all_contacts.append(contact)
-                        elif field_response.status_code != 404:
-                            print(f"⚠️ Erreur recherche {field} ({field_response.status_code}): {field_response.text[:200]}")
-                    except Exception as e:
-                        print(f"⚠️ Erreur recherche {field}: {e}")
-                
-                # Créer un objet Response mock
-                class MockResponse:
-                    def __init__(self, status_code, data):
-                        self.status_code = status_code
-                        self._data = data
-                    def json(self):
-                        return self._data
-                
-                response_contacts = MockResponse(200 if all_contacts else 404, all_contacts)
-
-            if response_contacts.status_code == 200:
-                contacts = response_contacts.json()
-                for contact in contacts:
-                    contact['_source'] = 'contact'  # Marquer la source
-                results.extend(contacts)
-            else:
-                print(f"⚠️ Erreur gazelle_contacts: {response_contacts.status_code}")
-
-            return results[:limit]  # Limiter le nombre total de résultats
+                print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
+                return []
 
         except Exception as e:
-            print(f"❌ Erreur lors de la recherche clients/contacts: {e}")
+            print(f"❌ Erreur lors de la recherche clients: {e}")
             return []
 
     def search_pianos(
@@ -354,18 +163,12 @@ class GazelleQueries:
             return []
 
         try:
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.pianos)
-            url = f"{self.storage.api_url}/gazelle_pianos"
+            url = f"{self.storage.api_url}/gazelle.pianos"
             url += "?select=*"
 
+            # Rechercher dans marque, modèle, numéro de série, ville
             search_query = search_terms[0] if search_terms else ""
-
-            # Si c'est un ID Gazelle (pia_xxx), chercher par external_id exact
-            if search_query.startswith('pia_'):
-                url += f"&external_id=eq.{search_query}"
-            else:
-                # Sinon, recherche textuelle dans marque, modèle, numéro de série, ville
-                url += f"&or=(brand.ilike.*{search_query}*,model.ilike.*{search_query}*,serial_number.ilike.*{search_query}*,city.ilike.*{search_query}*)"
+            url += f"&or=(brand.ilike.*{search_query}*,model.ilike.*{search_query}*,serial_number.ilike.*{search_query}*,city.ilike.*{search_query}*)"
 
             url += f"&limit={limit}"
 
@@ -400,8 +203,7 @@ class GazelleQueries:
             Liste d'événements timeline
         """
         try:
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.timeline_entries)
-            url = f"{self.storage.api_url}/gazelle_timeline_entries"
+            url = f"{self.storage.api_url}/gazelle.timeline_entries"
             url += "?select=*"
             url += f"&entity_id=eq.{entity_id}"
             url += f"&entity_type=eq.{entity_type}"
@@ -409,18 +211,12 @@ class GazelleQueries:
             url += "&order=created_at.desc"
 
             import requests
-            print(f"🔍 DEBUG get_timeline_entries: URL = {url}")
             response = requests.get(url, headers=self.storage._get_headers())
-            print(f"🔍 DEBUG get_timeline_entries: Status = {response.status_code}")
 
             if response.status_code == 200:
-                data = response.json()
-                print(f"🔍 DEBUG get_timeline_entries: {len(data)} entrées retournées")
-                if data:
-                    print(f"🔍 DEBUG get_timeline_entries: Première entrée clés = {list(data[0].keys()) if data else 'vide'}")
-                return data
+                return response.json()
             else:
-                print(f"❌ Erreur Supabase timeline: {response.status_code} - {response.text[:500]}")
+                print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
                 return []
 
         except Exception as e:
@@ -458,32 +254,22 @@ class GazelleQueries:
 
         try:
             # Compter les RV dans la période
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.appointments)
-            # Note: La colonne s'appelle appointment_date (pas date)
-            url = f"{self.storage.api_url}/gazelle_appointments"
+            url = f"{self.storage.api_url}/gazelle.appointments"
             url += "?select=id"
-            url += f"&appointment_date=gte.{start_str}"
-            url += f"&appointment_date=lte.{end_str}"
+            url += f"&date=gte.{start_str}"
+            url += f"&date=lte.{end_str}"
 
-            # Filtrer par technicien si spécifié
-            # Note: technicien peut être un nom (Nick) ou un ID (usr_xxx)
             if technicien:
-                # Mapper le nom vers l'ID si nécessaire
-                technicien_filter = self.technicien_name_to_id.get(technicien, technicien)
-                url += f"&technicien=eq.{technicien_filter}"
+                url += f"&technicien=eq.{technicien}"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
 
             if response.status_code == 200:
                 summary['appointments_count'] = len(response.json())
-            elif response.status_code == 404:
-                # Table n'existe pas encore - c'est normal
-                summary['appointments_count'] = 0
 
             # Compter les entrées timeline
-            # Note: Table dans schéma public avec préfixe gazelle_ (pas gazelle.timeline_entries)
-            url = f"{self.storage.api_url}/gazelle_timeline_entries"
+            url = f"{self.storage.api_url}/gazelle.timeline_entries"
             url += "?select=id"
             url += f"&created_at=gte.{start_date.isoformat()}"
             url += f"&created_at=lte.{end_date.isoformat()}"
@@ -516,26 +302,8 @@ class GazelleQueries:
             Résultats de la requête
         """
         if query_type == QueryType.APPOINTMENTS:
-            # Vérifier si l'utilisateur demande explicitement TOUS les RV
-            show_all = params.get('show_all', False)
-
-            # Mapper email -> nom technicien pour le filtre (sauf si show_all)
-            if show_all:
-                technicien = None  # Pas de filtre technicien
-            else:
-                technicien = self._get_technicien_from_email(user_id) if user_id else None
-
-                # Si l'utilisateur n'est pas un technicien (technicien == None après mapping)
-                # et qu'il demande "mes rv", retourner un message d'erreur explicatif
-                # Note: Ne pas afficher l'erreur si user_id est 'anonymous' (utilisateur non connecté)
-                if user_id and user_id.lower() != 'anonymous' and technicien is None:
-                    return {
-                        'type': 'appointments',
-                        'date': datetime.now().strftime('%Y-%m-%d'),
-                        'count': 0,
-                        'data': [],
-                        'message': "Vous n'êtes pas technicien et n'avez donc pas de rendez-vous assignés. Utilisez 'tous les rv' ou 'tous les rv demain' pour voir l'agenda complet."
-                    }
+            # Mapper email -> nom technicien pour le filtre
+            technicien = self._get_technicien_from_email(user_id) if user_id else None
 
             # Vérifier s'il y a une période (ex: "cette semaine")
             period = params.get('period')
