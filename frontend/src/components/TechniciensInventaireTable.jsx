@@ -21,8 +21,18 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
   const [updateFeedback, setUpdateFeedback] = useState({})
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
 
-  const currentUsername = currentUser?.email?.split('@')[0] || 'test'
-  const currentUserIsAdmin = currentUser?.email === 'allan@example.com'
+  // Map email addresses to TECHNICIENS usernames
+  const getUsernameFromEmail = (email) => {
+    const emailToUsername = {
+      'asutton@piano-tek.com': 'allan',
+      'nlessard@piano-tek.com': 'nicolas',
+      'jpreny@gmail.com': 'jeanphilippe'
+    }
+    return emailToUsername[email?.toLowerCase()] || email?.split('@')[0] || 'test'
+  }
+
+  const currentUsername = getUsernameFromEmail(currentUser?.email)
+  const currentUserIsAdmin = currentUser?.email === 'asutton@piano-tek.com'
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768)
