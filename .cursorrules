@@ -1,39 +1,53 @@
 # Règles Cursor pour Assistant Gazelle V5
 
-## 📚 Consultation Obligatoire de la Référence
+## 📖 Documentation à Lire au Démarrage
 
-**AVANT TOUTE MODIFICATION OU ACTION, TOUJOURS:**
+Quand tu démarres une nouvelle conversation dans ce projet, commence TOUJOURS par lire ces fichiers dans cet ordre:
 
-1. **Consulter `docs/REFERENCE_COMPLETE.md`** pour:
-   - Mapping des techniciens (NE JAMAIS DEVINER)
-   - Noms de colonnes valides (NE JAMAIS INVENTER)
-   - Schéma des tables Supabase
-   - Schéma SQL Server Gazelle (V4)
-   - Mapping V4 → V5
+1. **`docs/ETAT_SESSION_ACTUELLE.md`** - État du projet, travaux en cours, fonctionnalités complétées
+2. **`INSTRUCTIONS_CURSOR_FINALISER_CLIENTS_CLIQUABLES.md`** - Tâche prioritaire en cours
 
-2. **Utiliser `core/reference_manager.py`** dans les scripts:
-   ```python
-   from core.reference_manager import get_reference_manager
-   ref = get_reference_manager()
-   ref.ensure_reference_consulted("action_name")
-   ```
+## 🎯 Tâche Actuelle Prioritaire
 
-3. **Mettre à jour la référence après chaque succès:**
-   ```python
-   ref.update_after_success("update_type", data)
-   ```
+Finaliser les clients cliquables dans le chat assistant. Tous les détails sont dans `INSTRUCTIONS_CURSOR_FINALISER_CLIENTS_CLIQUABLES.md`.
 
-## ⚠️ Règles Strictes
+## 🚫 Règles Importantes
 
-- **NE JAMAIS** deviner le mapping des techniciens
-- **NE JAMAIS** inventer de noms de colonnes
-- **TOUJOURS** vérifier dans la référence avant d'utiliser
-- **TOUJOURS** mettre à jour la référence après un succès
+1. **Ne PAS over-engineer** - Solutions simples et directes uniquement
+2. **Ne PAS créer de documentation** non demandée
+3. **Ne PAS utiliser d'emojis** sauf si explicitement demandé
+4. **Ne PAS modifier** les fichiers sans raison claire
+5. **Toujours vérifier** `docs/ETAT_SESSION_ACTUELLE.md` avant de commencer
 
-## 📝 Workflow
+## 🏗️ Stack Technique
 
-1. Lire `docs/REFERENCE_COMPLETE.md`
-2. Utiliser `ReferenceManager` pour valider
-3. Effectuer l'action
-4. Mettre à jour la référence si succès
+- **Backend:** FastAPI (Python) sur port 8000
+- **Frontend:** React + Vite + Tailwind CSS
+- **Base de données:** Supabase (PostgreSQL)
+- **Auth:** PIN à 4 chiffres (simple)
 
+## 📝 Conventions de Code
+
+- **Python:** PEP 8, type hints optionnels
+- **React:** Functional components, hooks
+- **CSS:** Tailwind classes uniquement
+- **Commits:** Messages en français, descriptifs
+
+## ⚡ Commandes Rapides
+
+```bash
+# Backend
+python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend
+cd frontend && npm run dev
+
+# Déploiement
+cd frontend && bash deploy-gh-pages.sh
+```
+
+## 💡 Rappels
+
+- L'utilisateur travaille avec **GitHub Desktop** pour pousser (pas CLI)
+- L'utilisateur préfère des **explications concises**
+- Toujours **tester localement** avant de pousser
