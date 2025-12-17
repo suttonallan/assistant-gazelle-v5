@@ -203,6 +203,167 @@ async def chat(request: ChatRequest):
         )
 
 
+@router.get("/client/{client_id}")
+async def get_client_details(client_id: str):
+    """
+    Récupère les détails complets d'un client/contact pour affichage dans le modal.
+    
+    Utilise le même format que train_summaries.py (le plus fourni).
+    Inclut: contacts associés, pianos avec notes, service history, prochains RV.
+    """
+    try:
+        import requests
+        queries = get_queries()
+        
+        # Rechercher le client/contact
+        results = queries.search_clients([client_id])
+        
+        if not results or len(results) == 0:
+            raise HTTPException(status_code=404, detail="Client non trouvé")
+        
+        entity = results[0]
+        entity_id = entity.get('external_id') or entity.get('id') or client_id
+        
+        # Détecter par préfixe
+        is_client = entity_id.startswith('cli_')
+        is_contact = entity_id.startswith('con_')
+        
+        # Informations de base
+        if is_contact:
+            first = entity.get('first_name', '')
+            last = entity.get('last_name', '')
+            name = f"{first} {last}".strip() or entity.get('name', 'N/A')
+        else:
+            name = entity.get('company_name', 'N/A')
+        
+        details = {
+            'id': entity_id,
+            'type': 'client' if is_client else 'contact',
+            'name': name,
+            'address': entity.get('address', ''),
+            'city': entity.get('city', ''),
+            'postal_code': entity.get('postal_code', ''),
+            'phone': entity.get('phone', '') or entity.get('telephone', ''),
+            'email': entity.get('email', '')
+        }
+        
+        # Pour les clients uniquement: enrichissement complet
+        if is_client:
+            # Notes client
+            details['client_notes'] = entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            
+            # Pianos avec leurs notes
+            try:
+                pianos_url = f"{queries.storage.api_url}/gazelle_pianos?client_external_id=eq.{entity_id}&select=external_id,notes,make,model,serial_number,type,year,location&limit=10"
+                pianos_response = requests.get(pianos_url, headers=queries.storage._get_headers())
+                if pianos_response.status_code == 200:
+                    pianos = pianos_response.json()
+                    details['pianos'] = []
+                    for piano in pianos:
+                        piano_info = {
+                            'external_id': piano.get('external_id', ''),
+                            'make': piano.get('make', ''),
+                            'model': piano.get('model', ''),
+                            'serial_number': piano.get('serial_number', ''),
+                            'type': piano.get('type', ''),
+                            'year': piano.get('year', ''),
+                            'location': piano.get('location', ''),
+                            'notes': piano.get('notes', '')
+                        }
+                        if piano_info['make'] or piano_info['model'] or piano_info['notes']:
+                            details['pianos'].append(piano_info)
+            except Exception as e:
+                print(f"⚠️ Erreur récupération pianos pour {entity_id}: {e}")
+                details['pianos'] = []
+            
+            # Service history (timeline entries pour client + pianos)
+            try:
+                service_notes = []
+                # Timeline pour le client
+                timeline_entries_client = queries.get_timeline_entries(entity_id, entity_type='client', limit=20)
+                
+                # Timeline pour chaque piano
+                timeline_entries_pianos = []
+                for piano in details.get('pianos', []):
+                    piano_id = piano.get('external_id')
+                    if piano_id:
+                        piano_timeline = queries.get_timeline_entries(piano_id, entity_type='piano', limit=10)
+                        timeline_entries_pianos.extend(piano_timeline)
+                
+                # Combiner et extraire les notes
+                all_timeline_entries = timeline_entries_client + timeline_entries_pianos
+                for e in all_timeline_entries:
+                    note = e.get('notes') or e.get('description') or e.get('content') or e.get('note') or e.get('text') or e.get('summary')
+                    if note:
+                        service_notes.append(str(note))
+                
+                details['service_history'] = service_notes[:20]  # Limiter à 20 pour éviter surcharge
+            except Exception as e:
+                print(f"⚠️ Erreur timeline pour {entity_id}: {e}")
+                details['service_history'] = []
+            
+            # Contacts associés
+            try:
+                contacts_url = f"{queries.storage.api_url}/gazelle_contacts?client_external_id=eq.{entity_id}&limit=10"
+                contacts_response = requests.get(contacts_url, headers=queries.storage._get_headers())
+                if contacts_response.status_code == 200:
+                    contacts = contacts_response.json()
+                    if contacts:
+                        details['associated_contacts'] = [
+                            {
+                                'name': f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or c.get('name', 'N/A'),
+                                'role': c.get('role') or c.get('title') or '',
+                                'phone': c.get('phone') or c.get('telephone') or '',
+                                'email': c.get('email', '')
+                            }
+                            for c in contacts[:10]
+                        ]
+                    else:
+                        details['associated_contacts'] = []
+                else:
+                    details['associated_contacts'] = []
+            except Exception as e:
+                print(f"⚠️ Erreur contacts associés pour {entity_id}: {e}")
+                details['associated_contacts'] = []
+            
+            # Prochains rendez-vous
+            try:
+                from datetime import date
+                today = date.today()
+                appointments = queries.get_appointments(date=today, technicien=None)
+                upcoming = []
+                for appt in appointments:
+                    if appt.get('client_external_id') == entity_id:
+                        upcoming.append({
+                            'date': appt.get('appointment_date', ''),
+                            'time': appt.get('appointment_time', 'N/A'),
+                            'title': appt.get('title', ''),
+                            'description': appt.get('description', ''),
+                            'assigned_to': appt.get('technicien', '')
+                        })
+                details['upcoming_appointments'] = upcoming[:10]  # Limiter à 10
+            except Exception as e:
+                print(f"⚠️ Erreur prochains RV pour {entity_id}: {e}")
+                details['upcoming_appointments'] = []
+        else:
+            # Pour les contacts: pas d'enrichissement
+            details['client_notes'] = ''
+            details['pianos'] = []
+            details['service_history'] = []
+            details['associated_contacts'] = []
+            details['upcoming_appointments'] = []
+        
+        return details
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erreur dans /assistant/client/{client_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health():
     """

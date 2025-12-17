@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import ClickableMessage from './ClickableMessage'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
@@ -109,7 +110,8 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
         content: data.answer || "Désolé, je n'ai pas pu traiter votre demande.",
         metadata: {
           query_type: data.query_type,
-          confidence: data.confidence
+          confidence: data.confidence,
+          clickable_entities: data.structured_data?.clickable_entities || []
         },
         structured_data: data.structured_data || null
       }
@@ -215,7 +217,14 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
                   : 'bg-white border border-gray-200 text-gray-800'
               }`}
             >
-              <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+              {msg.role === 'assistant' && msg.metadata?.clickable_entities && msg.metadata.clickable_entities.length > 0 ? (
+                <ClickableMessage
+                  content={msg.content}
+                  entities={msg.metadata.clickable_entities}
+                />
+              ) : (
+                <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+              )}
 
               {/* Données structurées pour appointments (clients cliquables) */}
               {msg.structured_data?.appointments && (
