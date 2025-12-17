@@ -32,6 +32,14 @@ function App() {
   // Déterminer le rôle effectif (simulé ou réel)
   const effectiveRole = simulatedRole || getUserRole(currentUser?.email)
 
+  // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
+  const effectiveUser = simulatedRole ? {
+    ...currentUser,
+    email: ROLES[simulatedRole]?.email || currentUser?.email,
+    name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
+    role: simulatedRole
+  } : currentUser
+
   const handleLogin = (user) => {
     setCurrentUser(user)
   }
@@ -50,22 +58,22 @@ function App() {
   const renderDashboard = () => {
     switch (effectiveRole) {
       case 'nick':
-        return <NickDashboard currentUser={currentUser} />
+        return <NickDashboard currentUser={effectiveUser} />
       case 'louise':
-        return <LouiseDashboard currentUser={currentUser} />
+        return <LouiseDashboard currentUser={effectiveUser} />
       case 'jeanphilippe':
-        return <JeanPhilippeDashboard currentUser={currentUser} />
+        return <JeanPhilippeDashboard currentUser={effectiveUser} />
       case 'admin':
       default:
         // Dashboard admin (actuel)
         if (currentView === 'dashboard') {
-          return <DashboardHome currentUser={currentUser} />
+          return <DashboardHome currentUser={effectiveUser} />
         } else if (currentView === 'alertes-rv') {
-          return <AlertesRV currentUser={currentUser} />
+          return <AlertesRV currentUser={effectiveUser} />
         } else if (currentView === 'inventaire') {
-          return <InventaireDashboard currentUser={currentUser} />
+          return <InventaireDashboard currentUser={effectiveUser} />
         } else if (currentView === 'tournees') {
-          return <NickDashboard currentUser={currentUser} />
+          return <NickDashboard currentUser={effectiveUser} />
         } else if (currentView === 'calculateur-frais') {
           return (
             <div className="space-y-8">
@@ -76,7 +84,7 @@ function App() {
             </div>
           )
         } else {
-          return <VincentDIndyDashboard currentUser={currentUser} />
+          return <VincentDIndyDashboard currentUser={effectiveUser} />
         }
     }
   }
@@ -196,7 +204,7 @@ function App() {
 
       {/* Assistant Widget (disponible pour tous les profils) */}
       <AssistantWidget
-        currentUser={currentUser}
+        currentUser={effectiveUser}
         role={effectiveRole}
         onBackToDashboard={currentView === 'assistant' ? () => setCurrentView('dashboard') : undefined}
       />
