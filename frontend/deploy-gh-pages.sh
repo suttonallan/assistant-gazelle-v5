@@ -42,7 +42,11 @@ cd ..
 
 # Créer ou nettoyer la branche gh-pages
 echo "📋 Préparation de la branche gh-pages..."
-git fetch origin gh-pages:gh-pages 2>/dev/null || git branch gh-pages
+# Fetch gh-pages si elle existe sur origin
+git fetch origin gh-pages 2>/dev/null || true
+# Créer la branche localement si elle n'existe pas
+git show-ref --verify --quiet refs/heads/gh-pages || git branch gh-pages
+# Checkout gh-pages
 git checkout gh-pages
 
 # Nettoyer tout sauf .git
