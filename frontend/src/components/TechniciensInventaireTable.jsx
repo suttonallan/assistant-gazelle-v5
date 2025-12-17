@@ -34,6 +34,13 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
   const currentUsername = getUsernameFromEmail(currentUser?.email)
   const currentUserIsAdmin = currentUser?.email === 'asutton@piano-tek.com'
 
+  // Debug: afficher le mapping
+  console.log('🔍 DEBUG Colonne Verte:', {
+    userEmail: currentUser?.email,
+    mappedUsername: currentUsername,
+    availableUsernames: TECHNICIENS.map(t => t.username)
+  })
+
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768)
     window.addEventListener('resize', handleResize)

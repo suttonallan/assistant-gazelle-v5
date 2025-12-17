@@ -394,7 +394,27 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const categoryGroups = groupByCategory()
   const currentUserIsAdmin = currentUser?.role === 'admin'
-  const currentUsername = currentUser?.username || 'allan'
+
+  // Map email addresses to TECHNICIENS usernames
+  const getUsernameFromEmail = (email) => {
+    const emailToUsername = {
+      'asutton@piano-tek.com': 'allan',
+      'nlessard@piano-tek.com': 'nicolas',
+      'jpreny@gmail.com': 'jeanphilippe'
+    }
+    return emailToUsername[email?.toLowerCase()] || email?.split('@')[0] || 'allan'
+  }
+
+  const currentUsername = getUsernameFromEmail(currentUser?.email)
+
+  // Debug: afficher le mapping
+  console.log('🟢 DEBUG InventaireDashboard - Colonne Verte:', {
+    userEmail: currentUser?.email,
+    userName: currentUser?.name,
+    mappedUsername: currentUsername,
+    isAdmin: currentUserIsAdmin,
+    availableUsernames: TECHNICIENS.map(t => t.username)
+  })
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
