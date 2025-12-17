@@ -4,52 +4,39 @@
 
 ## 🎯 Travaux en Cours
 
-### 1. Clients Cliquables dans le Chat (EN COURS)
-
-**Objectif:** Permettre de cliquer sur les noms de clients dans les résultats de recherche pour voir leurs détails complets.
-
-**État:**
-- ✅ Backend implémenté (retourne `structured_data.clickable_entities`)
-- ⚠️ Frontend partiellement implémenté par Cursor (composants créés mais pas intégrés)
-- ❌ Endpoint `/assistant/client/{id}` manquant dans `api/assistant.py`
-
-**Prochaines étapes:**
-1. Cursor doit suivre `INSTRUCTIONS_CURSOR_FINALISER_CLIENTS_CLIQUABLES.md`
-2. Intégrer `ClickableMessage` dans `AssistantWidget.jsx`
-3. Ajouter l'endpoint backend `/assistant/client/{id}`
-4. Tester: `client michelle` → noms cliquables → modal avec détails
-
-**Fichiers impliqués:**
-- `api/assistant.py` (backend)
-- `frontend/src/components/AssistantWidget.jsx`
-- `frontend/src/components/ClickableMessage.jsx` (créé par Cursor)
-- `frontend/src/components/ClientDetailsModal.jsx` (créé par Cursor)
-- `INSTRUCTIONS_CURSOR_FINALISER_CLIENTS_CLIQUABLES.md` (instructions complètes)
+Aucun travail en cours. Tous les travaux précédents sont complétés.
 
 ---
 
 ## ✅ Fonctionnalités Récemment Complétées
 
-### 1. Colonne Verte pour Tous les Techniciens
+### 1. Clients Cliquables dans le Chat (COMPLÉTÉ - 2025-12-17)
+- Backend: Endpoint `/assistant/client/{id}` avec détails complets (infos, pianos, contacts, historique, RV)
+- Frontend: Composant `ClickableMessage` pour rendre les noms cliquables
+- Frontend: Modal `ClientDetailsModal` pour afficher tous les détails
+- Intégration complète dans `AssistantWidget.jsx`
+- Test: `client michelle` → noms cliquables → modal avec détails complets
+
+### 2. Colonne Verte pour Tous les Techniciens
 - Mapping email → username dans `InventaireDashboard.jsx`
 - Fonctionne maintenant pour Allan, Nick, Jean-Philippe
 
-### 2. Simulation de Profil (Menu Jaune)
+### 3. Simulation de Profil (Menu Jaune)
 - Admin peut tester les vues des autres utilisateurs sans se déconnecter
 - `effectiveUser` dans `App.jsx` change email, nom, rôle
 - Toutes les dashboards reçoivent `effectiveUser`
 
-### 3. Allan a Deux Rôles (Admin + Technicien)
+### 4. Allan a Deux Rôles (Admin + Technicien)
 - `frontend/src/config/roles.js`: ajout `technicianName: 'allan'`
 - `modules/assistant/services/queries.py`: mapping `asutton@piano-tek.com → 'Allan'`
 - "mes rv" fonctionne maintenant pour Allan
 
-### 4. Déploiement GitHub Pages
+### 5. Déploiement GitHub Pages
 - Script `frontend/deploy-gh-pages.sh` utilise branche `gh-pages`
 - Workflow GitHub Actions configuré
 - Site en ligne: https://suttonallan.github.io/assistant-gazelle-v5/
 
-### 5. Configuration Environnement
+### 6. Configuration Environnement
 - Fichier `.env` créé avec credentials Supabase
 - `.env.local` (dev) → localhost:8000
 - `.env.production` (prod) → Render API
