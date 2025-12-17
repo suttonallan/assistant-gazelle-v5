@@ -132,8 +132,16 @@ async def chat(request: ChatRequest):
         results = queries.execute_query(query_type, params, user_id=request.user_id)
 
         # 5. Formater la réponse
-        answer = _format_response(query_type, results)
-        
+        formatted_response = _format_response(query_type, results)
+
+        # Gérer le cas où _format_response retourne un dict (avec entities cliquables)
+        if isinstance(formatted_response, dict):
+            answer = formatted_response.get('text', '')
+            entities = formatted_response.get('entities', [])
+        else:
+            answer = formatted_response
+            entities = []
+
         # 6. Préparer les données structurées pour l'interactivité frontend
         structured_data = None
         if query_type == QueryType.APPOINTMENTS:
@@ -167,6 +175,11 @@ async def chat(request: ChatRequest):
                     }
                     for appt in enriched_appointments
                 ]
+            }
+        elif query_type == QueryType.SEARCH_CLIENT and entities:
+            # Ajouter les entités cliquables dans structured_data
+            structured_data = {
+                'clickable_entities': entities
             }
 
         return ChatResponse(
@@ -316,7 +329,7 @@ def _format_time(time_str: str, date_str: str = '') -> str:
     return 'N/A'
 
 
-def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
+def _format_response(query_type: QueryType, results: Dict[str, Any]):
     """
     Formate la réponse selon le type de requête.
 
@@ -325,7 +338,7 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
         results: Résultats de la requête
 
     Returns:
-        Réponse formatée en texte
+        Réponse formatée en texte, ou dict avec 'text' et données structurées
     """
     if query_type == QueryType.APPOINTMENTS:
         # Vérifier s'il y a un message d'erreur (ex: non-technicien demandant "mes rv")
@@ -404,6 +417,9 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
 
         response = f"🔍 **{count} {entity_type} trouvés:**\n\n"
 
+        # Collecter les IDs pour rendre les clients cliquables
+        clickable_entities = []
+
         for item in data[:10]:
             if query_type == QueryType.SEARCH_CLIENT:
                 # Support both clients and contacts
@@ -411,6 +427,7 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
                 # Contacts have: first_name + last_name
                 source = item.get('_source', 'client')
                 city = item.get('city', '')
+                entity_id = item.get('id')
 
                 if source == 'contact':
                     # Contact: first_name + last_name
@@ -426,6 +443,15 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
                     response += f" ({city})"
                 if source == 'contact':
                     response += f" [Contact]"
+
+                # Ajouter à la liste des entités cliquables
+                if entity_id:
+                    clickable_entities.append({
+                        'id': entity_id,
+                        'name': display_name,
+                        'type': source,
+                        'city': city
+                    })
             else:  # Piano
                 brand = item.get('brand', 'N/A')
                 model = item.get('model', '')
@@ -439,7 +465,11 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]) -> str:
         if count > 10:
             response += f"\n... et {count - 10} autres résultats."
 
-        return response
+        # Ajouter les données structurées pour les clients cliquables
+        return {
+            'text': response,
+            'entities': clickable_entities
+        }
 
     elif query_type == QueryType.SUMMARY:
         summary_data = results.get('data', {})
