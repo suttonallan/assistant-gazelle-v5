@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import ExportButton from './ExportButton'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
 // Configuration des techniciens (mappés depuis le guide V4)
 // IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets

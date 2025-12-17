@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+
 /**
  * Widget Assistant Conversationnel
  *
@@ -87,7 +89,7 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     setIsLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/assistant/chat', {
+      const response = await fetch(`${API_URL}/assistant/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
