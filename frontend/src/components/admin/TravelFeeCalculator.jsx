@@ -62,12 +62,15 @@ export default function TravelFeeCalculator() {
     setClientName(client.client_name)
     if (client.address) {
       setDestination(client.address)
+      // Auto-calcul dès qu'un client avec adresse est sélectionné
+      setTimeout(() => handleCalculate(client.address, client.client_name), 0)
     }
     setSearchResults([])
   }
 
-  const handleCalculate = async () => {
-    if (!destination.trim()) {
+  const handleCalculate = async (destinationOverride = null, clientNameOverride = null) => {
+    const dest = (destinationOverride ?? destination).trim()
+    if (!dest) {
       alert('Veuillez entrer une adresse ou code postal')
       return
     }
@@ -81,14 +84,20 @@ export default function TravelFeeCalculator() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          destination: destination.trim(),
-          client_name: selectedClient ? selectedClient.client_name : (clientName.trim() || null)
+          destination: dest,
+          client_name: selectedClient ? selectedClient.client_name : (clientNameOverride || clientName.trim() || null)
         })
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Erreur de calcul')
+        let msg = 'Erreur de calcul'
+        try {
+          const errorData = await response.json()
+          msg = errorData.detail || msg
+        } catch (_) {
+          msg = await response.text()
+        }
+        throw new Error(msg)
       }
 
       const data = await response.json()
@@ -102,8 +111,8 @@ export default function TravelFeeCalculator() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h2 className="text-3xl font-bold mb-6 text-gray-800">
-        💰 Calculateur de Frais de Déplacement
+      <h2 className="text-2xl font-bold mb-6 text-gray-800">
+        💰 Calculateur de frais de déplacement
       </h2>
 
       {/* Formulaire */}
@@ -112,7 +121,7 @@ export default function TravelFeeCalculator() {
           {/* Recherche par nom de client */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              🔍 Rechercher par nom de client (optionnel)
+              🔍 Rechercher un client
             </label>
             <div className="flex gap-2 relative">
               <input
@@ -123,7 +132,7 @@ export default function TravelFeeCalculator() {
                   setSelectedClient(null)
                   setSearchResults([])
                 }}
-                placeholder="Ex: Christine Carretta ou Michelle"
+                placeholder="Ex: Carretta ou Michelle"
                 className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 onKeyPress={(e) => e.key === 'Enter' && handleSearchClient()}
               />
@@ -177,24 +186,11 @@ export default function TravelFeeCalculator() {
               )}
             </div>
             {selectedClient && (
-              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm font-semibold text-green-800 mb-2">
-                  ✅ Client sélectionné: {selectedClient.client_name}
-                </p>
-                <div className="text-xs text-green-700 space-y-1">
-                  {selectedClient.address_full && (
-                    <p>📍 {selectedClient.address_full}</p>
-                  )}
-                  {selectedClient.phone && (
-                    <p>📞 {selectedClient.phone}</p>
-                  )}
-                  {selectedClient.email && (
-                    <p>✉️ {selectedClient.email}</p>
-                  )}
-                  {selectedClient.notes && (
-                    <p className="italic mt-2">📝 {selectedClient.notes}</p>
-                  )}
-                </div>
+              <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 space-y-1">
+                <p className="font-semibold">Client : {selectedClient.client_name}</p>
+                {selectedClient.address_full && <p>📍 {selectedClient.address_full}</p>}
+                {selectedClient.phone && <p>📞 {selectedClient.phone}</p>}
+                {selectedClient.email && <p>✉️ {selectedClient.email}</p>}
               </div>
             )}
           </div>
@@ -202,18 +198,18 @@ export default function TravelFeeCalculator() {
           {/* Adresse ou code postal */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              📍 Adresse ou Code Postal
+              📍 Adresse ou code postal
             </label>
             <input
               type="text"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
-              placeholder="Ex: H3B 4W8 ou 123 Rue Example, Montréal"
+              placeholder="Ex: H3B 4W8 ou 123 rue Example, Montréal"
               className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               onKeyPress={(e) => e.key === 'Enter' && handleCalculate()}
             />
             <p className="text-xs text-gray-500 mt-1">
-              Accepte: code postal (H3B 4W8), adresse partielle ou complète
+              Accepte : code postal, adresse partielle ou complète
             </p>
           </div>
         </div>

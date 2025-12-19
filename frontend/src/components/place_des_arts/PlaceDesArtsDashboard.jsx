@@ -409,6 +409,18 @@ export default function PlaceDesArtsDashboard() {
       {selectedIds.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-wrap gap-2 items-center">
           <span className="text-sm text-blue-800 font-medium">{selectedIds.length} sélectionné(s)</span>
+          <select
+            onChange={(e) => handleStatusChange(e.target.value)}
+            defaultValue=""
+            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+          >
+            <option value="">Changer statut...</option>
+            <option value="PENDING">Nouveau</option>
+            <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
+            <option value="ASSIGN_OK">Assigné</option>
+            <option value="COMPLETED">Complété</option>
+            <option value="BILLED">Facturé</option>
+          </select>
           <button onClick={() => handleStatusChange('PENDING')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Nouveau</button>
           <button onClick={() => handleStatusChange('CREATED_IN_GAZELLE')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Créé Gazelle</button>
           <button onClick={() => handleStatusChange('ASSIGN_OK')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Assigné</button>

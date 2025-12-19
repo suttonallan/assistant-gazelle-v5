@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import TechniciensInventaireTable from '../TechniciensInventaireTable'
 import VincentDIndyDashboard from '../VincentDIndyDashboard'
+import TravelFeeCalculator from '../admin/TravelFeeCalculator'
+import KilometersCalculator from '../admin/KilometersCalculator'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
@@ -185,6 +187,16 @@ const NickDashboard = ({ currentUser }) => {
           >
             🎹 Tournées d'accords
           </button>
+          <button
+            onClick={() => setActiveTab('calculateur')}
+            className={`px-4 py-2 border-b-2 font-medium ${
+              activeTab === 'calculateur'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            💰 Calculateur
+          </button>
         </nav>
       </div>
 
@@ -332,6 +344,15 @@ const NickDashboard = ({ currentUser }) => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'calculateur' && (
+        <div className="space-y-8">
+          <TravelFeeCalculator />
+          <div className="border-t border-gray-200 pt-8">
+            <KilometersCalculator />
           </div>
         </div>
       )}

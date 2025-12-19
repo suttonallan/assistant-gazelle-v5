@@ -3,7 +3,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/assistant-gazelle-v5/',
+  // base: '/assistant-gazelle-v5/', // Désactivé pour développement local
+  base: process.env.NODE_ENV === 'production' ? '/assistant-gazelle-v5/' : '/',
   build: {
     outDir: 'dist'
   }

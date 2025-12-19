@@ -103,8 +103,8 @@ function App() {
               <h1 className="text-xl font-semibold text-gray-800">Assistant Gazelle V5</h1>
             </div>
 
-            {/* Navigation (accessible à tous) */}
-            {(
+            {/* Navigation (admin + nick + louise) */}
+            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise') && (
               <nav className="flex gap-2">
                 <button
                   onClick={() => setCurrentView('dashboard')}
