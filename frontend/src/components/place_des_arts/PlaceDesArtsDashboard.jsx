@@ -106,10 +106,11 @@ export default function PlaceDesArtsDashboard() {
     }
   }
 
-  const handleStatusChange = async (newStatus) => {
-    if (!newStatus || selectedIds.length === 0) return
+  const handleStatusChange = async (newStatus, idsOverride = null) => {
+    const ids = idsOverride || selectedIds
+    if (!newStatus || ids.length === 0) return
     await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
-      request_ids: selectedIds,
+      request_ids: ids,
       status: newStatus
     })
   }
@@ -489,7 +490,19 @@ export default function PlaceDesArtsDashboard() {
                   <td className="px-3 py-2 text-gray-800">{it.notes || '—'}</td>
                   <td className="px-3 py-2 text-gray-800">{it.billing_amount ?? '—'}</td>
                   <td className="px-3 py-2 text-gray-800">{it.parking || '—'}</td>
-                  <td className="px-3 py-2">{statusBadge(it.status)}</td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={it.status || ''}
+                      onChange={(e) => handleStatusChange(e.target.value, [it.id])}
+                      className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                    >
+                      <option value="PENDING">Nouveau</option>
+                      <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
+                      <option value="ASSIGN_OK">Assigné</option>
+                      <option value="COMPLETED">Complété</option>
+                      <option value="BILLED">Facturé</option>
+                    </select>
+                  </td>
                 </tr>
               ))}
               {filteredItems.length === 0 && (
