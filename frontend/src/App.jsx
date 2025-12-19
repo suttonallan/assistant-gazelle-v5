@@ -7,6 +7,7 @@ import InventaireDashboard from './components/InventaireDashboard'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
 import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard'
+import PlaceDesArtsDashboard from './components/place_des_arts/PlaceDesArtsDashboard'
 import AssistantWidget from './components/AssistantWidget'
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
@@ -74,6 +75,8 @@ function App() {
           return <InventaireDashboard currentUser={effectiveUser} />
         } else if (currentView === 'tournees') {
           return <NickDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'place-des-arts') {
+          return <PlaceDesArtsDashboard />
         } else if (currentView === 'calculateur-frais') {
           return (
             <div className="space-y-8">
@@ -142,6 +145,16 @@ function App() {
                   }`}
                 >
                   📦 Inventaire
+                </button>
+                <button
+                  onClick={() => setCurrentView('place-des-arts')}
+                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                    currentView === 'place-des-arts'
+                      ? 'bg-blue-100 text-blue-700 font-medium'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  🎭 Place des Arts
                 </button>
                 <button
                   onClick={() => setCurrentView('tournees')}
