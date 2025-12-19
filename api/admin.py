@@ -39,7 +39,9 @@ class TravelFeeResponse(BaseModel):
 class KilometersRequest(BaseModel):
     """Requête pour calculer les kilomètres parcourus."""
     technician_id: str
-    date: str  # Format: YYYY-MM-DD
+    date: Optional[str] = None  # Format: YYYY-MM-DD (date de début si plage)
+    date_end: Optional[str] = None  # Format: YYYY-MM-DD (date de fin si plage)
+    quarter: Optional[str] = None  # Q1, Q2, Q3 ou Q4
     appointments: Optional[List[Dict[str, Any]]] = None  # Optionnel: si fourni, utilise ces RV
 
 
@@ -148,31 +150,65 @@ async def calculate_travel_fees(request: TravelFeeRequest) -> TravelFeeResponse:
 @router.post("/kilometers/calculate", response_model=KilometersResponse)
 async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse:
     """
-    Calcule les kilomètres parcourus par un technicien pour une journée.
-    
-    Calcule le trajet complet: Maison → RV1 → RV2 → ... → Maison
+    Calcule les kilomètres parcourus par un technicien pour une période.
+
+    Supporte:
+    - Journée unique (date)
+    - Plage de dates (date + date_end)
+    - Trimestre (quarter: Q1, Q2, Q3, Q4)
+
+    Calcule le trajet complet pour chaque journée: Maison → RV1 → RV2 → ... → Maison
     """
     try:
         from modules.assistant.services.distance_calculator import calculate_day_route
         from modules.assistant.services.queries import GazelleQueries
         from core.supabase_storage import SupabaseStorage
         from zoneinfo import ZoneInfo
-        
+        from datetime import timedelta
+
+        # Déterminer la plage de dates
+        if request.quarter:
+            # Trimestre: déterminer start et end automatiquement
+            year = datetime.now().year
+            quarters = {
+                'Q1': (f"{year}-01-01", f"{year}-03-31"),
+                'Q2': (f"{year}-04-01", f"{year}-06-30"),
+                'Q3': (f"{year}-07-01", f"{year}-09-30"),
+                'Q4': (f"{year}-10-01", f"{year}-12-31"),
+            }
+            if request.quarter not in quarters:
+                raise HTTPException(status_code=400, detail=f"Trimestre invalide: {request.quarter}. Utilisez Q1, Q2, Q3 ou Q4.")
+
+            date_start_str, date_end_str = quarters[request.quarter]
+        elif request.date:
+            date_start_str = request.date
+            date_end_str = request.date_end or request.date
+        else:
+            raise HTTPException(status_code=400, detail="Vous devez fournir soit 'date', soit 'quarter'")
+
+        # Convertir en dates
+        date_start = datetime.fromisoformat(date_start_str).date()
+        date_end = datetime.fromisoformat(date_end_str).date()
+
         # Si les rendez-vous ne sont pas fournis, les récupérer depuis Supabase
         if not request.appointments:
             storage = SupabaseStorage()
             queries = GazelleQueries(storage)
-            
-            # Convertir la date string en datetime
-            appointment_date = datetime.fromisoformat(request.date).date()
-            appointment_datetime = datetime.combine(appointment_date, datetime.min.time())
-            appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Toronto'))
-            
-            # Récupérer les rendez-vous du technicien pour cette date
-            all_appointments = queries.get_appointments(
-                date=appointment_datetime,
-                technicien=request.technician_id
-            )
+
+            # Récupérer les rendez-vous pour toute la plage
+            # On va boucler jour par jour (car get_appointments() prend une date unique)
+            all_appointments = []
+            current_date = date_start
+            while current_date <= date_end:
+                appointment_datetime = datetime.combine(current_date, datetime.min.time())
+                appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Toronto'))
+
+                day_appointments = queries.get_appointments(
+                    date=appointment_datetime,
+                    technicien=request.technician_id
+                )
+                all_appointments.extend(day_appointments)
+                current_date += timedelta(days=1)
             
             # Enrichir les rendez-vous avec les adresses client (comme dans train_summaries.py)
             # Pour chaque rendez-vous, enrichir avec l'adresse du client
