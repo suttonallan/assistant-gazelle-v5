@@ -91,10 +91,13 @@ class TravelFeeCalculator:
             api_key: Clé API Google Maps. Si None, utilise GOOGLE_MAPS_API_KEY de l'environnement.
         """
         self.api_key = api_key or os.getenv('GOOGLE_MAPS_API_KEY')
-        if not self.api_key:
-            raise ValueError(
-                "Google Maps API key required. "
-                "Set GOOGLE_MAPS_API_KEY environment variable or pass api_key parameter."
+        # Mode dégradé: si pas de clé, on utilisera des distances estimées
+        self.degraded_mode = not self.api_key
+        if self.degraded_mode:
+            import warnings
+            warnings.warn(
+                "Google Maps API key not found. Using degraded mode with estimated distances.",
+                UserWarning
             )
 
     def _call_distance_matrix_api(
@@ -157,11 +160,16 @@ class TravelFeeCalculator:
         Returns:
             TravelFeeResult avec tous les détails du calcul
         """
-        # Obtenir distance et temps ONE-WAY depuis Google Maps
-        distance_meters, duration_seconds = self._call_distance_matrix_api(
-            technician.full_address,
-            destination_address
-        )
+        # Obtenir distance et temps ONE-WAY
+        if self.degraded_mode:
+            # Mode dégradé: estimation basique (40km, 30min par défaut)
+            distance_meters = 40000  # 40km
+            duration_seconds = 1800  # 30 minutes
+        else:
+            distance_meters, duration_seconds = self._call_distance_matrix_api(
+                technician.full_address,
+                destination_address
+            )
 
         # Convertir en aller-retour (round trip)
         round_trip_distance_km = (distance_meters * 2) / 1000.0

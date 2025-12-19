@@ -50,3 +50,6 @@ frontend/.env.local
 
 # Guides de migration avec secrets (webhooks Slack)
 GUIDE_MIGRATION_*.md
+
+# Fichier de backup des secrets - NE JAMAIS pousser sur GitHub
+SECRETS_PERMANENTS.md
