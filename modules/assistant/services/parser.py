@@ -73,6 +73,28 @@ class ConversationalParser:
         r'\bce\s+mois\b': lambda: datetime.now(),
         r'\ble\s+mois\s+prochain\b': lambda: datetime.now() + timedelta(days=30),
     }
+    
+    # Mapping des jours de la semaine (français et anglais)
+    WEEKDAY_NAMES = {
+        'lundi': 0, 'monday': 0,
+        'mardi': 1, 'tuesday': 1,
+        'mercredi': 2, 'wednesday': 2,
+        'jeudi': 3, 'thursday': 3,
+        'vendredi': 4, 'friday': 4,
+        'samedi': 5, 'saturday': 5,
+        'dimanche': 6, 'sunday': 6,
+    }
+    
+    # Mapping des jours de la semaine (français et anglais)
+    WEEKDAY_NAMES = {
+        'lundi': 0, 'monday': 0,
+        'mardi': 1, 'tuesday': 1,
+        'mercredi': 2, 'wednesday': 2,
+        'jeudi': 3, 'thursday': 3,
+        'vendredi': 4, 'friday': 4,
+        'samedi': 5, 'saturday': 5,
+        'dimanche': 6, 'sunday': 6,
+    }
 
     def __init__(self):
         """Initialise le parser conversationnel."""
@@ -224,6 +246,26 @@ class ConversationalParser:
         for pattern, date_func in self.DATE_PATTERNS.items():
             if re.search(pattern, question, re.IGNORECASE):
                 dates.append(date_func())
+
+        # Chercher les jours de la semaine (lundi, mardi, vendredi, etc.)
+        question_lower = question.lower()
+        for day_name, target_weekday in self.WEEKDAY_NAMES.items():
+            if re.search(r'\b' + day_name + r'\b', question_lower):
+                now = datetime.now()
+                current_weekday = now.weekday()
+                # Calculer le nombre de jours jusqu'au jour cible
+                days_ahead = target_weekday - current_weekday
+                # Si le jour est déjà passé cette semaine, prendre celui de la semaine prochaine
+                if days_ahead < 0:
+                    days_ahead += 7
+                # Si c'est aujourd'hui et qu'on demande explicitement le jour, prendre celui de la semaine prochaine
+                elif days_ahead == 0:
+                    # Vérifier si c'est une demande explicite (pas juste "aujourd'hui")
+                    if day_name in question_lower and not re.search(r'\baujourd\'?hui\b', question_lower):
+                        days_ahead = 7
+                target_date = now + timedelta(days=days_ahead)
+                dates.append(target_date)
+                break  # Un seul jour de la semaine par requête
 
         # Chercher les dates absolues (JJ/MM/AAAA, AAAA-MM-JJ, etc.)
         date_formats = [

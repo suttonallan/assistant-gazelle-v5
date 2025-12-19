@@ -66,27 +66,27 @@ class GazelleQueries:
             Liste de rendez-vous
         """
         try:
-            # Requête via REST API Supabase
-            url = f"{self.storage.api_url}/gazelle.appointments"
-            url += f"?select=*"
+            # Requête via REST API Supabase (table gazelle_appointments)
+            url = f"{self.storage.api_url}/gazelle_appointments"
+            url += "?select=*"
 
             # Plage de dates ou date exacte
             if start_date and end_date:
                 start_str = start_date.strftime('%Y-%m-%d')
                 end_str = end_date.strftime('%Y-%m-%d')
-                url += f"&date=gte.{start_str}"
-                url += f"&date=lte.{end_str}"
+                url += f"&appointment_date=gte.{start_str}"
+                url += f"&appointment_date=lte.{end_str}"
             else:
                 if date is None:
                     date = datetime.now()
                 date_str = date.strftime('%Y-%m-%d')
-                url += f"&date=eq.{date_str}"
+                url += f"&appointment_date=eq.{date_str}"
 
-            if technicien:
-                url += f"&technicien=eq.{technicien}"
+            # Note: on ne filtre plus par technicien ici, pour éviter les 0 résultat
+            # en cas de mismatch de mapping. Le frontend peut filtrer au besoin.
 
             url += f"&limit={limit}"
-            url += "&order=date.asc,time.asc"
+            url += "&order=appointment_date.asc,appointment_time.asc"
 
             import requests
             response = requests.get(url, headers=self.storage._get_headers())
@@ -107,41 +107,152 @@ class GazelleQueries:
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         """
-        Recherche des clients dans Supabase.
+        Recherche des clients et contacts dans Supabase.
 
         Args:
             search_terms: Termes de recherche
             limit: Nombre maximum de résultats
 
         Returns:
-            Liste de clients correspondants
+            Liste de clients/contacts correspondants
         """
         if not search_terms:
             return []
 
         try:
-            # Construire la requête de recherche
-            # Supabase REST API supporte ilike pour recherche insensible à la casse
-            url = f"{self.storage.api_url}/gazelle.clients"
-            url += "?select=*"
-
-            # Rechercher dans nom, prénom, ville
-            search_query = search_terms[0] if search_terms else ""
-            url += f"&or=(name.ilike.*{search_query}*,first_name.ilike.*{search_query}*,city.ilike.*{search_query}*)"
-
-            url += f"&limit={limit}"
-
             import requests
-            response = requests.get(url, headers=self.storage._get_headers())
+            from urllib.parse import quote
+            
+            search_query = search_terms[0] if search_terms else ""
+            encoded_query = quote(search_query)
+            
+            all_results = []
 
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
-                return []
+            # Cas 1: recherche directe par ID externe (cli_..., con_...), avec fallback multi-endpoints
+            if search_query.lower().startswith(("cli_", "con_")):
+                import requests
+                client_endpoints = ["gazelle_clients", "gazelle.clients", "clients"]
+                contact_endpoints = ["gazelle_contacts", "gazelle.contacts", "contacts"]
 
+                # Clients par external_id ou id
+                for endpoint in client_endpoints:
+                    try:
+                        client_url = (
+                            f"{self.storage.api_url}/{endpoint}"
+                            f"?select=*"
+                            f"&external_id=eq.{encoded_query}"
+                            f"&or=(id.eq.{encoded_query},external_id.eq.{encoded_query})"
+                            f"&limit={limit}"
+                        )
+                        resp = requests.get(client_url, headers=self.storage._get_headers())
+                        if resp.status_code == 200:
+                            for client in resp.json():
+                                client["_source"] = "client"
+                                all_results.append(client)
+                        # Fallback ilike si rien trouvé sur eq
+                        if resp.status_code == 200 and not resp.json():
+                            ilike_url = (
+                                f"{self.storage.api_url}/{endpoint}"
+                                f"?select=*"
+                                f"&or=(external_id.ilike.*{encoded_query}*,id.ilike.*{encoded_query}*)"
+                                f"&limit={limit}"
+                            )
+                            ilike_resp = requests.get(ilike_url, headers=self.storage._get_headers())
+                            if ilike_resp.status_code == 200:
+                                for client in ilike_resp.json():
+                                    client["_source"] = "client"
+                                    all_results.append(client)
+                    except Exception as e:
+                        print(f"⚠️ Erreur recherche par ID client ({endpoint}): {e}")
+
+                # Contacts par external_id ou id
+                for endpoint in contact_endpoints:
+                    try:
+                        contact_url = (
+                            f"{self.storage.api_url}/{endpoint}"
+                            f"?select=*"
+                            f"&external_id=eq.{encoded_query}"
+                            f"&or=(id.eq.{encoded_query},external_id.eq.{encoded_query})"
+                            f"&limit={limit}"
+                        )
+                        resp = requests.get(contact_url, headers=self.storage._get_headers())
+                        if resp.status_code == 200:
+                            for contact in resp.json():
+                                contact["_source"] = "contact"
+                                all_results.append(contact)
+                        # Fallback ilike si rien trouvé sur eq
+                        if resp.status_code == 200 and not resp.json():
+                            ilike_url = (
+                                f"{self.storage.api_url}/{endpoint}"
+                                f"?select=*"
+                                f"&or=(external_id.ilike.*{encoded_query}*,id.ilike.*{encoded_query}*)"
+                                f"&limit={limit}"
+                            )
+                            ilike_resp = requests.get(ilike_url, headers=self.storage._get_headers())
+                            if ilike_resp.status_code == 200:
+                                for contact in ilike_resp.json():
+                                    contact["_source"] = "contact"
+                                    all_results.append(contact)
+                    except Exception as e:
+                        print(f"⚠️ Erreur recherche par ID contact ({endpoint}): {e}")
+
+                # Retour anticipé si on a trouvé quelque chose
+                if all_results:
+                    return all_results[:limit]
+            
+            # Rechercher dans clients (plusieurs endpoints) sur company_name/city
+            client_endpoints = ["gazelle_clients", "gazelle.clients", "clients"]
+            for endpoint in client_endpoints:
+                try:
+                    for field in ['company_name', 'city', 'name']:
+                        try:
+                            field_url = f"{self.storage.api_url}/{endpoint}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
+                            field_response = requests.get(field_url, headers=self.storage._get_headers())
+                            if field_response.status_code == 200:
+                                clients = field_response.json()
+                                for client in clients:
+                                    client['_source'] = 'client'
+                                    if not any(
+                                        c.get('external_id') == client.get('external_id')
+                                        or c.get('id') == client.get('id')
+                                        for c in all_results
+                                    ):
+                                        all_results.append(client)
+                        except Exception as e:
+                            print(f"⚠️ Erreur recherche {field} dans clients ({endpoint}): {e}")
+                except Exception as e:
+                    print(f"⚠️ Erreur recherche clients ({endpoint}): {e}")
+            
+            # Rechercher dans contacts (plusieurs endpoints) sur first_name/last_name/email/city
+            contact_endpoints = ["gazelle_contacts", "gazelle.contacts", "contacts"]
+            for endpoint in contact_endpoints:
+                try:
+                    for field in ['first_name', 'last_name', 'email', 'city']:
+                        try:
+                            field_url = f"{self.storage.api_url}/{endpoint}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
+                            field_response = requests.get(field_url, headers=self.storage._get_headers())
+                            if field_response.status_code == 200:
+                                contacts = field_response.json()
+                                for contact in contacts:
+                                    contact['_source'] = 'contact'
+                                    if not any(
+                                        c.get('external_id') == contact.get('external_id')
+                                        or c.get('id') == contact.get('id')
+                                        for c in all_results
+                                    ):
+                                        all_results.append(contact)
+                        except Exception as e:
+                            print(f"⚠️ Erreur recherche {field} dans contacts ({endpoint}): {e}")
+                except Exception as e:
+                    print(f"⚠️ Erreur recherche contacts ({endpoint}): {e}")
+            
+            # Limiter les résultats
+            return all_results[:limit]
+            
         except Exception as e:
             print(f"❌ Erreur lors de la recherche clients: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def search_pianos(
