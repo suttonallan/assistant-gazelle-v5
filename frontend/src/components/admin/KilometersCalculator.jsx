@@ -11,6 +11,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-ap
 export default function KilometersCalculator() {
   const [technicianId, setTechnicianId] = useState('usr_HcCiFk7o0vZ9xAI0') // Nicolas par défaut
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [dateEnd, setDateEnd] = useState('')
+  const [quarter, setQuarter] = useState('')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
@@ -22,8 +24,12 @@ export default function KilometersCalculator() {
   ]
 
   const handleCalculate = async () => {
-    if (!date || !technicianId) {
-      alert('Veuillez sélectionner un technicien et une date')
+    if (!technicianId) {
+      alert('Veuillez sélectionner un technicien')
+      return
+    }
+    if (!date && !quarter) {
+      alert('Choisissez soit une date, soit une plage (date de fin), soit un trimestre')
       return
     }
 
@@ -37,7 +43,9 @@ export default function KilometersCalculator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           technician_id: technicianId,
-          date: date
+          date: date,
+          date_end: dateEnd || null,
+          quarter: quarter || null,
         })
       })
 
@@ -79,16 +87,50 @@ export default function KilometersCalculator() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              📅 Date
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              📅 Dates (jour ou plage) / Trimestre
             </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <input
+                type="date"
+                value={dateEnd}
+                onChange={(e) => setDateEnd(e.target.value)}
+                placeholder="Date de fin (optionnel)"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {['Q1','Q2','Q3','Q4'].map(q => (
+                <button
+                  key={q}
+                  onClick={() => setQuarter(q)}
+                  className={`px-3 py-1 text-sm rounded border ${
+                    quarter === q ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                >
+                  {q}
+                </button>
+              ))}
+              {quarter && (
+                <button
+                  onClick={() => setQuarter('')}
+                  className="px-3 py-1 text-sm rounded border bg-gray-100 text-gray-700 border-gray-300"
+                >
+                  Effacer trimestre
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              - Renseignez une date unique OU une plage (date début + fin) OU un trimestre (Q1=jan-mars, Q2=avr-juin, Q3=jul-sep, Q4=oct-déc).<br/>
+              - Le trimestre écrase la plage de dates si sélectionné.
+            </p>
           </div>
         </div>
 

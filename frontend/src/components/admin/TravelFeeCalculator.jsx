@@ -60,11 +60,8 @@ export default function TravelFeeCalculator() {
   const handleSelectClient = (client) => {
     setSelectedClient(client)
     setClientName(client.client_name)
-    if (client.address) {
-      setDestination(client.address)
-      // Auto-calcul dès qu'un client avec adresse est sélectionné
-      setTimeout(() => handleCalculate(client.address, client.client_name), 0)
-    }
+    const addr = client.address_full || client.address || client.postal_code || ''
+    setDestination(addr)
     setSearchResults([])
   }
 
