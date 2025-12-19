@@ -12,7 +12,9 @@ export default function ClientDetailsModal({ clientId, onClose }) {
       try {
         setLoading(true)
         setError(null)
-        const response = await fetch(`${API_URL}/assistant/client/${clientId}`)
+        // Encoder l'ID pour éviter les 404 si l'ID contient des caractères spéciaux
+        const safeId = encodeURIComponent(clientId)
+        const response = await fetch(`${API_URL}/assistant/client/${safeId}`)
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)

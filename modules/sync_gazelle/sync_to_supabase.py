@@ -477,6 +477,93 @@ class GazelleToSupabaseSync:
             print(f"❌ Erreur lors de la synchronisation des rendez-vous: {e}")
             raise
 
+    def sync_timeline_entries(self) -> int:
+        """
+        Synchronise les timeline entries depuis Gazelle vers Supabase.
+
+        Returns:
+            Nombre d'entrées synchronisées
+        """
+        print("\n📖 Synchronisation des timeline entries...")
+
+        try:
+            api_entries = self.api_client.get_timeline_entries(limit=None)
+
+            if not api_entries:
+                print("⚠️  Aucune timeline entry récupérée depuis l'API")
+                return 0
+
+            print(f"📥 {len(api_entries)} timeline entries récupérées depuis l'API")
+
+            for entry_data in api_entries:
+                try:
+                    external_id = entry_data.get('id')
+
+                    # Client
+                    client_obj = entry_data.get('client', {})
+                    client_id = client_obj.get('id') if client_obj else None
+
+                    # Piano
+                    piano_obj = entry_data.get('piano', {})
+                    piano_id = piano_obj.get('id') if piano_obj else None
+
+                    # Invoice et Estimate
+                    invoice_obj = entry_data.get('invoice', {})
+                    invoice_id = invoice_obj.get('id') if invoice_obj else None
+
+                    estimate_obj = entry_data.get('estimate', {})
+                    estimate_id = estimate_obj.get('id') if estimate_obj else None
+
+                    # User (technicien)
+                    user_obj = entry_data.get('user', {})
+                    user_id = user_obj.get('id') if user_obj else None
+
+                    # Données de l'entrée
+                    occurred_at = entry_data.get('occurredAt')
+                    entry_type = entry_data.get('type', 'UNKNOWN')
+                    title = entry_data.get('title', '')
+                    details = entry_data.get('details', '')
+
+                    timeline_record = {
+                        'id': external_id,
+                        'client_id': client_id,
+                        'piano_id': piano_id,
+                        'invoice_id': invoice_id,
+                        'estimate_id': estimate_id,
+                        'user_id': user_id,
+                        'occurred_at': occurred_at,
+                        'entry_type': entry_type,
+                        'title': title,
+                        'details': details,
+                        'created_at': entry_data.get('createdAt'),
+                        'updated_at': entry_data.get('updatedAt')
+                    }
+
+                    # UPSERT
+                    url = f"{self.storage.api_url}/timeline_entries"
+                    headers = self.storage._get_headers()
+                    headers["Prefer"] = "resolution=merge-duplicates"
+
+                    response = requests.post(url, headers=headers, json=timeline_record)
+
+                    if response.status_code in [200, 201, 409]:
+                        self.stats['timeline']['synced'] += 1
+                    else:
+                        print(f"❌ Erreur UPSERT timeline {external_id}: {response.status_code}")
+                        self.stats['timeline']['errors'] += 1
+
+                except Exception as e:
+                    print(f"❌ Erreur timeline entry {entry_data.get('id', 'unknown')}: {e}")
+                    self.stats['timeline']['errors'] += 1
+                    continue
+
+            print(f"✅ {self.stats['timeline']['synced']} timeline entries synchronisées")
+            return self.stats['timeline']['synced']
+
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation des timeline entries: {e}")
+            raise
+
     def sync_all(self) -> Dict[str, Any]:
         """
         Synchronise toutes les tables Gazelle vers Supabase.
@@ -506,8 +593,8 @@ class GazelleToSupabaseSync:
             # 4. Appointments (utilise maintenant allEventsBatched de V4)
             self.sync_appointments()
 
-            # 5. TODO: Ajouter autres tables
-            # - Timeline entries
+            # 5. Timeline entries (notes techniques)
+            self.sync_timeline_entries()
 
             # Résumé
             duration = (datetime.now() - start_time).total_seconds()
@@ -521,7 +608,7 @@ class GazelleToSupabaseSync:
             print(f"   • Contacts:     {self.stats['contacts']['synced']:4d} synchronisés, {self.stats['contacts']['errors']:2d} erreurs")
             print(f"   • Pianos:       {self.stats['pianos']['synced']:4d} synchronisés, {self.stats['pianos']['errors']:2d} erreurs")
             print(f"   • RV:           {self.stats['appointments']['synced']:4d} synchronisés, {self.stats['appointments']['errors']:2d} erreurs")
-            print(f"   • Timeline:     TODO (pas encore implémenté)")
+            print(f"   • Timeline:     {self.stats['timeline']['synced']:4d} synchronisés, {self.stats['timeline']['errors']:2d} erreurs")
             print("=" * 70)
 
             return {

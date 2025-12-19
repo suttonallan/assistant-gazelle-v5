@@ -214,11 +214,60 @@ async def get_client_details(client_id: str):
     try:
         import requests
         queries = get_queries()
+        print(f"🔍 /assistant/client -> lookup id: {client_id}")
         
-        # Rechercher le client/contact
+        # Rechercher le client/contact (voie principale)
         results = queries.search_clients([client_id])
         
+        # Fallback: requêtes directes sur plusieurs endpoints + ilike
+        if not results:
+            endpoints_clients = ["gazelle_clients", "gazelle.clients", "clients"]
+            endpoints_contacts = ["gazelle_contacts", "gazelle.contacts", "contacts"]
+            found = []
+
+            def fetch_endpoint(endpoint_list, entity_type):
+                for ep in endpoint_list:
+                    try:
+                        # eq sur external_id ou id
+                        url_eq = (
+                            f"{queries.storage.api_url}/{ep}"
+                            f"?select=*"
+                            f"&or=(external_id.eq.{client_id},id.eq.{client_id})"
+                            f"&limit=5"
+                        )
+                        resp_eq = requests.get(url_eq, headers=queries.storage._get_headers())
+                        print(f"   ↳ {ep} eq status {resp_eq.status_code}")
+                        if resp_eq.status_code == 200 and resp_eq.json():
+                            for item in resp_eq.json():
+                                item["_source"] = entity_type
+                                found.append(item)
+                            return
+
+                        # ilike si eq vide
+                        url_ilike = (
+                            f"{queries.storage.api_url}/{ep}"
+                            f"?select=*"
+                            f"&or=(external_id.ilike.*{client_id}*,id.ilike.*{client_id}*)"
+                            f"&limit=5"
+                        )
+                        resp_ilike = requests.get(url_ilike, headers=queries.storage._get_headers())
+                        print(f"   ↳ {ep} ilike status {resp_ilike.status_code}")
+                        if resp_ilike.status_code == 200 and resp_ilike.json():
+                            for item in resp_ilike.json():
+                                item["_source"] = entity_type
+                                found.append(item)
+                            return
+                    except Exception as e:
+                        print(f"⚠️ Fallback fetch error {ep}: {e}")
+
+            fetch_endpoint(endpoints_clients, "client")
+            fetch_endpoint(endpoints_contacts, "contact")
+
+            if found:
+                results = found
+        
         if not results or len(results) == 0:
+            print(f"❌ Aucun résultat pour {client_id}")
             raise HTTPException(status_code=404, detail="Client non trouvé")
         
         entity = results[0]
@@ -588,7 +637,8 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]):
                 # Contacts have: first_name + last_name
                 source = item.get('_source', 'client')
                 city = item.get('city', '')
-                entity_id = item.get('id')
+                # Préférer l'ID externe (cli_/con_) si présent, sinon fallback sur id interne
+                entity_id = item.get('external_id') or item.get('id')
 
                 if source == 'contact':
                     # Contact: first_name + last_name
