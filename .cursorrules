@@ -19,6 +19,27 @@ Finaliser les clients cliquables dans le chat assistant. Tous les détails sont 
 4. **Ne PAS modifier** les fichiers sans raison claire
 5. **Toujours vérifier** `docs/ETAT_SESSION_ACTUELLE.md` avant de commencer
 
+## 🔐 SÉCURITÉ - SECRETS (CRITIQUE)
+
+**AVANT CHAQUE COMMIT - SCANNER AUTOMATIQUEMENT:**
+
+Patterns de secrets à détecter:
+- `AIza[A-Za-z0-9_-]{35,}` → Google API keys
+- `SG\.[A-Za-z0-9_-]{20,}` → SendGrid keys
+- `eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+` → JWT tokens (Supabase)
+- Fichiers: `*SECRETS*.md`, `*credentials*.json`, `.env`
+
+**Si secret détecté:**
+1. ❌ STOP - Ne pas commiter
+2. ⚠️ Alerter l'utilisateur immédiatement
+3. ✅ Proposer d'ajouter à `.gitignore`
+
+**Fichiers JAMAIS à commiter:**
+- `.env`, `.env.local`, `.env.*.local`
+- `docs/SECRETS_REFERENCE.md`
+- `SECRETS_PERMANENTS.md`
+- `config/token.json`, `*credentials*.json`
+
 ## 🏗️ Stack Technique
 
 - **Backend:** FastAPI (Python) sur port 8000
@@ -51,3 +72,18 @@ cd frontend && bash deploy-gh-pages.sh
 - L'utilisateur travaille avec **GitHub Desktop** pour pousser (pas CLI)
 - L'utilisateur préfère des **explications concises**
 - Toujours **tester localement** avant de pousser
+
+## 🎯 OAuth Gazelle - Leçons Apprises
+
+**Redirect URI:**
+- ❌ JAMAIS `urn:ietf:wg:oauth:2.0:oob` (Gazelle refuse)
+- ✅ TOUJOURS HTTPS: `https://assistant-gazelle-v5-api.onrender.com/gazelle_oauth_callback`
+
+**Nouvelles applications:**
+- ⏳ Attendre 24-48h après création pour activation
+- ✅ Vérifier dans dashboard Gazelle avant d'utiliser
+
+**Dépannage:**
+- Lire la DOCUMENTATION disponible avant d'essayer
+- Ne JAMAIS deviner des valeurs (redirect_uri, etc.)
+- Consulter les erreurs API pour comprendre le problème
