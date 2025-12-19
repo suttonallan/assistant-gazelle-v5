@@ -69,7 +69,8 @@ export default function TravelFeeCalculator() {
   }
 
   const handleCalculate = async (destinationOverride = null, clientNameOverride = null) => {
-    const dest = (destinationOverride ?? destination).trim()
+    const destRaw = destinationOverride ?? destination
+    const dest = typeof destRaw === 'string' ? destRaw.trim() : (destRaw ? String(destRaw).trim() : '')
     if (!dest) {
       alert('Veuillez entrer une adresse ou code postal')
       return
