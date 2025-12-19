@@ -519,3 +519,103 @@ class SupabaseStorage:
             print(f"⚠️ Erreur lors de la récupération des transactions: {e}")
             return []
 
+    # ============================================================
+    # Méthodes pour system_settings (OAuth tokens, config, etc.)
+    # ============================================================
+
+    def save_system_setting(self, key: str, value: Any) -> bool:
+        """
+        Sauvegarde un paramètre système dans Supabase (UPSERT).
+
+        Utilisé pour stocker les tokens OAuth, configurations, etc.
+
+        Args:
+            key: Identifiant du paramètre (ex: "gazelle_oauth_token")
+            value: Valeur (dict, str, int, etc.) - sera stockée en JSONB
+
+        Returns:
+            True si sauvegardé avec succès
+
+        Exemple:
+            storage.save_system_setting("gazelle_oauth_token", {
+                "access_token": "xxx",
+                "refresh_token": "yyy",
+                "expires_in": 3600
+            })
+        """
+        try:
+            data = {
+                "key": key,
+                "value": value
+            }
+
+            headers = self._get_headers()
+            headers["Prefer"] = "resolution=merge-duplicates"
+
+            url = f"{self.api_url}/system_settings"
+            response = requests.post(url, headers=headers, json=data)
+
+            if response.status_code in [200, 201]:
+                print(f"✅ Paramètre système '{key}' sauvegardé dans Supabase")
+                return True
+            else:
+                print(f"❌ Erreur sauvegarde system_setting '{key}': {response.status_code}")
+                print(f"   Response: {response.text}")
+                return False
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la sauvegarde de '{key}': {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def get_system_setting(self, key: str) -> Optional[Any]:
+        """
+        Récupère un paramètre système depuis Supabase.
+
+        Args:
+            key: Identifiant du paramètre (ex: "gazelle_oauth_token")
+
+        Returns:
+            Valeur du paramètre (dict, str, etc.) ou None si non trouvé
+
+        Exemple:
+            token = storage.get_system_setting("gazelle_oauth_token")
+            if token:
+                access_token = token.get("access_token")
+        """
+        try:
+            url = f"{self.api_url}/system_settings?key=eq.{key}&select=value"
+            response = requests.get(url, headers=self._get_headers())
+
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    return data[0].get("value")
+
+            return None
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération de '{key}': {e}")
+            return None
+
+    def delete_system_setting(self, key: str) -> bool:
+        """
+        Supprime un paramètre système.
+
+        Args:
+            key: Identifiant du paramètre
+
+        Returns:
+            True si supprimé avec succès
+        """
+        try:
+            url = f"{self.api_url}/system_settings?key=eq.{key}"
+            response = requests.delete(url, headers=self._get_headers())
+
+            return response.status_code in [200, 204]
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la suppression de '{key}': {e}")
+            return False
+

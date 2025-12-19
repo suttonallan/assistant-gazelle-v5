@@ -117,6 +117,12 @@ REDIRECT_URI_DEFAULT = os.getenv(
 
 
 def _exchange_code_for_token(code: str, redirect_uri: str) -> Dict[str, Any]:
+    """
+    Échange le code OAuth contre des tokens (access + refresh).
+    Sauvegarde les tokens dans Supabase system_settings pour persistance cloud.
+    """
+    from core.supabase_storage import SupabaseStorage
+
     client_id = os.getenv("GAZELLE_CLIENT_ID")
     client_secret = os.getenv("GAZELLE_CLIENT_SECRET")
     if not client_id or not client_secret:
@@ -129,21 +135,41 @@ def _exchange_code_for_token(code: str, redirect_uri: str) -> Dict[str, Any]:
         "grant_type": "authorization_code",
         "redirect_uri": redirect_uri,
     }
+
+    print(f"🔄 Échange du code OAuth avec Gazelle...")
     resp = requests.post(OAUTH_TOKEN_URL, data=payload, timeout=15)
+
     if resp.status_code != 200:
         try:
             err = resp.json()
         except Exception:
             err = {"error": resp.text}
+        print(f"❌ Erreur échange token: {resp.status_code} - {err}")
         raise HTTPException(status_code=resp.status_code, detail=err)
+
     data = resp.json()
     data.setdefault("created_at", int(time.time()))
 
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    token_path = Path(CONFIG_DIR) / "token.json"
-    with open(token_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    return {"token_path": str(token_path), "token": data}
+    # Sauvegarder dans Supabase system_settings (persistant sur cloud)
+    storage = SupabaseStorage()
+    try:
+        storage.save_system_setting("gazelle_oauth_token", data)
+        print(f"✅ Token sauvegardé dans Supabase system_settings")
+    except Exception as e:
+        print(f"⚠️ Erreur sauvegarde Supabase: {e}")
+        # Fallback: sauvegarder localement aussi
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        token_path = Path(CONFIG_DIR) / "token.json"
+        with open(token_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        print(f"   → Token sauvegardé localement: {token_path}")
+
+    return {
+        "success": True,
+        "token": data,
+        "storage": "supabase",
+        "expires_in_seconds": data.get("expires_in")
+    }
 
 
 @app.get("/gazelle_oauth_callback")
