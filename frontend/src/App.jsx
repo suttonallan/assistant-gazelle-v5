@@ -103,39 +103,52 @@ function App() {
               <h1 className="text-xl font-semibold text-gray-800">Assistant Gazelle V5</h1>
             </div>
 
-            {/* Navigation (admin + nick + louise) */}
+            {/* Navigation conditionnelle par rôle */}
             {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise') && (
               <nav className="flex gap-2">
-                <button
-                  onClick={() => setCurrentView('dashboard')}
-                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                    currentView === 'dashboard'
-                      ? 'bg-blue-100 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  📊 Dashboard
-                </button>
-                <button
-                  onClick={() => setCurrentView('pianos')}
-                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                    currentView === 'pianos'
-                      ? 'bg-blue-100 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  🎹 Pianos
-                </button>
-                <button
-                  onClick={() => setCurrentView('alertes-rv')}
-                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                    currentView === 'alertes-rv'
-                      ? 'bg-blue-100 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  🔔 Alertes RV
-                </button>
+                {/* Dashboard - admin seulement */}
+                {effectiveRole === 'admin' && (
+                  <button
+                    onClick={() => setCurrentView('dashboard')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'dashboard'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    📊 Dashboard
+                  </button>
+                )}
+
+                {/* Pianos - admin seulement */}
+                {effectiveRole === 'admin' && (
+                  <button
+                    onClick={() => setCurrentView('pianos')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'pianos'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🎹 Pianos
+                  </button>
+                )}
+
+                {/* Alertes RV - admin seulement */}
+                {effectiveRole === 'admin' && (
+                  <button
+                    onClick={() => setCurrentView('alertes-rv')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'alertes-rv'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🔔 Alertes RV
+                  </button>
+                )}
+
+                {/* Inventaire - accessible à tous */}
                 <button
                   onClick={() => setCurrentView('inventaire')}
                   className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -146,16 +159,22 @@ function App() {
                 >
                   📦 Inventaire
                 </button>
-                <button
-                  onClick={() => setCurrentView('place-des-arts')}
-                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                    currentView === 'place-des-arts'
-                      ? 'bg-blue-100 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  🎭 Place des Arts
-                </button>
+
+                {/* Place des Arts - admin, nick et louise */}
+                {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise') && (
+                  <button
+                    onClick={() => setCurrentView('place-des-arts')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'place-des-arts'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🎭 Place des Arts
+                  </button>
+                )}
+
+                {/* Tournées - accessible à tous */}
                 <button
                   onClick={() => setCurrentView('tournees')}
                   className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -166,16 +185,20 @@ function App() {
                 >
                   🎼 Tournées
                 </button>
-                <button
-                  onClick={() => setCurrentView('calculateur-frais')}
-                  className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                    currentView === 'calculateur-frais'
-                      ? 'bg-blue-100 text-blue-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  💰 Calculateur
-                </button>
+
+                {/* Calculateur - admin, nick et louise */}
+                {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise') && (
+                  <button
+                    onClick={() => setCurrentView('calculateur-frais')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'calculateur-frais'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    💰 Calculateur
+                  </button>
+                )}
               </nav>
             )}
           </div>

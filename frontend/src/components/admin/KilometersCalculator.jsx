@@ -173,17 +173,14 @@ export default function KilometersCalculator() {
                 <p className="text-xs opacity-75">(0.72$/km)</p>
               </div>
               <div>
-                <p className="text-sm opacity-90">Date</p>
-                <p className="text-lg font-semibold">{new Date(results.date).toLocaleDateString('fr-FR')}</p>
+                <p className="text-sm opacity-90">Période</p>
+                <p className="text-lg font-semibold">
+                  {results.date_start === results.date_end
+                    ? new Date(results.date_start).toLocaleDateString('fr-FR')
+                    : `${new Date(results.date_start).toLocaleDateString('fr-FR')} - ${new Date(results.date_end).toLocaleDateString('fr-FR')}`
+                  }
+                </p>
               </div>
-            </div>
-          </div>
-
-          {/* Trajet */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h4 className="text-xl font-bold mb-4 text-gray-800">🗺️ Trajet Complet</h4>
-            <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm">
-              {results.route_text}
             </div>
           </div>
 
@@ -207,27 +204,6 @@ export default function KilometersCalculator() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {/* Heures départ/retour */}
-          {results.departure_from_home && results.return_to_home && (
-            <div className="bg-white rounded-lg shadow-lg p-6">
-              <h4 className="text-xl font-bold mb-4 text-gray-800">⏰ Horaires</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Départ de la maison</p>
-                  <p className="text-2xl font-bold text-blue-700">
-                    {new Date(results.departure_from_home).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Retour à la maison</p>
-                  <p className="text-2xl font-bold text-purple-700">
-                    {new Date(results.return_to_home).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
               </div>
             </div>
           )}
