@@ -49,10 +49,11 @@ class KilometersResponse(BaseModel):
     """Réponse avec les kilomètres calculés."""
     technician_id: str
     technician_name: str
-    date: str
+    date_start: str
+    date_end: str
+    quarter: Optional[str] = None
     total_km: float
     total_duration_minutes: float
-    route_text: str
     segments: List[Dict[str, Any]]
     reimbursement: float  # Remboursement à 0.72$/km
 
@@ -274,10 +275,11 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         return KilometersResponse(
             technician_id=request.technician_id,
             technician_name=technician_name,
-            date=request.date,
+            date_start=date_start_str,
+            date_end=date_end_str,
+            quarter=request.quarter,
             total_km=route['total_km'],
             total_duration_minutes=round(route['total_duration_seconds'] / 60, 1),
-            route_text=route['route_text'],
             segments=route['segments'],
             reimbursement=round(route['total_km'] * 0.72, 2)
         )
