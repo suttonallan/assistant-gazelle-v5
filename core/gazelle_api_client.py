@@ -54,21 +54,36 @@ class GazelleAPIClient:
     
     def _load_token(self) -> Dict[str, Any]:
         """
-        Charge le token depuis token.json.
-        
+        Charge le token depuis Supabase system_settings (prioritaire) ou token.json (fallback).
+
         Returns:
             Dict contenant access_token, refresh_token, expires_in, created_at
         """
+        # Priorité 1: Charger depuis Supabase system_settings
+        try:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage()
+            token_data = storage.get_system_setting("gazelle_oauth_token")
+            if token_data:
+                print("✅ Token chargé depuis Supabase system_settings")
+                return token_data
+        except Exception as e:
+            print(f"⚠️ Impossible de charger token depuis Supabase: {e}")
+
+        # Priorité 2: Fallback sur fichier local token.json
         if not os.path.exists(self.token_path):
             raise FileNotFoundError(
-                f"Fichier token.json non trouvé: {self.token_path}\n"
-                "Vous devez créer ce fichier avec vos tokens OAuth2."
+                f"Token OAuth non trouvé.\n"
+                f"Fichier local: {self.token_path}\n"
+                f"Supabase: gazelle_oauth_token non trouvé\n"
+                f"Veuillez suivre le guide: docs/OAUTH_SETUP_GUIDE.md"
             )
-        
+
         try:
             with open(self.token_path, 'r', encoding='utf-8') as f:
                 token_data = json.load(f)
-            
+
+            print(f"✅ Token chargé depuis fichier local: {self.token_path}")
             # Skip expiration check - use token as-is
             return token_data
         except json.JSONDecodeError as e:
