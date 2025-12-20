@@ -183,9 +183,10 @@ async def gazelle_oauth_callback(code: Optional[str] = None, state: Optional[str
     result = _exchange_code_for_token(code, REDIRECT_URI_DEFAULT)
     return {
         "success": True,
-        "message": "Token Gazelle sauvegardé",
+        "message": "Token Gazelle sauvegardé dans Supabase",
         "redirect_uri": REDIRECT_URI_DEFAULT,
-        "token_path": result["token_path"]
+        "storage": result["storage"],
+        "expires_in_seconds": result["expires_in_seconds"]
     }
 
 

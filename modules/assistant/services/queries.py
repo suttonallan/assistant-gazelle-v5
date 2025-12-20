@@ -200,11 +200,11 @@ class GazelleQueries:
                 if all_results:
                     return all_results[:limit]
             
-            # Rechercher dans clients (plusieurs endpoints) sur company_name/city
+            # Rechercher dans clients (plusieurs endpoints) sur company_name/city/address/postal_code/phone/email
             client_endpoints = ["gazelle_clients", "gazelle.clients", "clients"]
             for endpoint in client_endpoints:
                 try:
-                    for field in ['company_name', 'city', 'name']:
+                    for field in ['company_name', 'city', 'name', 'address', 'postal_code', 'email', 'phone', 'telephone', 'phone_number']:
                         try:
                             field_url = f"{self.storage.api_url}/{endpoint}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
                             field_response = requests.get(field_url, headers=self.storage._get_headers())
@@ -223,11 +223,11 @@ class GazelleQueries:
                 except Exception as e:
                     print(f"⚠️ Erreur recherche clients ({endpoint}): {e}")
             
-            # Rechercher dans contacts (plusieurs endpoints) sur first_name/last_name/email/city
+            # Rechercher dans contacts (plusieurs endpoints) sur first_name/last_name/email/city/address/postal_code/phone
             contact_endpoints = ["gazelle_contacts", "gazelle.contacts", "contacts"]
             for endpoint in contact_endpoints:
                 try:
-                    for field in ['first_name', 'last_name', 'email', 'city']:
+                    for field in ['first_name', 'last_name', 'email', 'city', 'address', 'postal_code', 'phone', 'telephone', 'phone_number']:
                         try:
                             field_url = f"{self.storage.api_url}/{endpoint}?select=*&{field}=ilike.*{encoded_query}*&limit={limit}"
                             field_response = requests.get(field_url, headers=self.storage._get_headers())
