@@ -30,8 +30,8 @@ token.json
 *.sql
 
 # Ignorer les rapports des techniciens (données sensibles)
-reports/
-backups/
+/reports/
+/backups/
 
 # Fichiers système macOS
 .DS_Store
