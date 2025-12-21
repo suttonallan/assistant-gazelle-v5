@@ -38,6 +38,44 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Validation des variables d'environnement critiques au démarrage."""
+    print("\n" + "="*60)
+    print("🚀 DÉMARRAGE API ASSISTANT GAZELLE V5")
+    print("="*60)
+
+    # Vérification des variables d'environnement critiques
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', os.getenv('SUPABASE_KEY'))
+    gazelle_client_id = os.getenv('GAZELLE_CLIENT_ID')
+    gazelle_client_secret = os.getenv('GAZELLE_CLIENT_SECRET')
+
+    print("\n📋 Variables d'environnement:")
+    print(f"   SUPABASE_URL: {'✅ Défini' if supabase_url else '❌ MANQUANT'}")
+    if supabase_url:
+        print(f"      → {supabase_url}")
+
+    print(f"   SUPABASE_KEY: {'✅ Défini' if os.getenv('SUPABASE_KEY') else '⚠️  Non défini'}")
+    print(f"   SUPABASE_SERVICE_ROLE_KEY: {'✅ Défini' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '⚠️  Non défini'}")
+    print(f"   → Clé utilisée: {'✅ Défini' if supabase_key else '❌ MANQUANT'}")
+
+    print(f"   GAZELLE_CLIENT_ID: {'✅ Défini' if gazelle_client_id else '⚠️  Non défini'}")
+    print(f"   GAZELLE_CLIENT_SECRET: {'✅ Défini' if gazelle_client_secret else '⚠️  Non défini'}")
+
+    # Variables critiques obligatoires
+    if not supabase_url or not supabase_key:
+        print("\n❌ ERREUR: Variables Supabase manquantes!")
+        print("   L'API ne pourra pas se connecter à Supabase.")
+        print("   Vérifiez SUPABASE_URL et SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY")
+    else:
+        print("\n✅ Variables Supabase OK")
+
+    print("\n" + "="*60)
+    print("✅ API PRÊTE")
+    print("="*60 + "\n")
+
 # CORS - Permet au frontend d'appeler l'API
 app.add_middleware(
     CORSMiddleware,
@@ -252,5 +290,8 @@ async def gazelle_check_appointments():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Utilise PORT de l'environnement (Render) ou 8000 par défaut
+    port = int(os.getenv('PORT', 8000))
+    print(f"🚀 Démarrage Uvicorn sur port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
