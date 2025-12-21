@@ -25,3 +25,10 @@ pytest>=7.4.0
 # Interface Web pour entraînement
 flask>=3.0.0
 
+# Rapports Google Sheets
+gspread>=6.0.0
+google-auth>=2.29.0
+apscheduler>=3.10.4
+sendgrid>=6.11.0
+pytz>=2024.1
+
