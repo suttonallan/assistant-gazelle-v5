@@ -8,9 +8,10 @@ Version cloud-native avec Supabase + SendGrid.
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta, date
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.supabase_storage import SupabaseStorage
 from modules.alertes_rv.checker import AppointmentChecker
 from modules.alertes_rv.email_sender import EmailSender
+from modules.alertes_rv.service import UnconfirmedAlertsService
 
 router = APIRouter(prefix="/alertes-rv", tags=["alertes-rv"])
 
@@ -25,6 +27,10 @@ router = APIRouter(prefix="/alertes-rv", tags=["alertes-rv"])
 _storage = None
 _checker = None
 _email_sender = None
+_service = None
+_scheduler = BackgroundScheduler(timezone="America/Toronto")
+JOB_ID = "rv_unconfirmed_16h"
+JOB_LONG_TERM_ID = "rv_long_term_09h"
 
 
 def get_storage() -> SupabaseStorage:
@@ -51,6 +57,18 @@ def get_email_sender() -> EmailSender:
     return _email_sender
 
 
+def get_service() -> UnconfirmedAlertsService:
+    """Retourne le service d'alertes (singleton)."""
+    global _service
+    if _service is None:
+        _service = UnconfirmedAlertsService(
+            storage=get_storage(),
+            checker=get_checker(),
+            sender=get_email_sender()
+        )
+    return _service
+
+
 # ============================================================
 # MODÈLES PYDANTIC
 # ============================================================
@@ -66,6 +84,11 @@ class SendAlertsRequest(BaseModel):
     target_date: Optional[str] = None
     technician_ids: Optional[List[str]] = None  # Si None, envoie à tous
     triggered_by: str  # Email de l'utilisateur qui déclenche
+
+
+class ResolveAlertRequest(BaseModel):
+    """Marquer une alerte comme résolue."""
+    resolved_by: str
 
 
 class AlertHistoryEntry(BaseModel):
@@ -142,15 +165,10 @@ async def check_unconfirmed_appointments(request: CheckRequest):
 
 
 @router.post("/send", response_model=Dict[str, Any])
-async def send_alerts(request: SendAlertsRequest, background_tasks: BackgroundTasks):
-    """
-    Envoie les alertes par email aux techniciens.
-
-    Les emails sont envoyés en arrière-plan pour ne pas bloquer la requête.
-    """
+async def send_alerts(request: SendAlertsRequest):
+    """Envoie les alertes par email aux techniciens."""
     try:
-        checker = get_checker()
-        sender = get_email_sender()
+        service = get_service()
 
         # Parse target_date
         if request.target_date:
@@ -158,102 +176,37 @@ async def send_alerts(request: SendAlertsRequest, background_tasks: BackgroundTa
         else:
             target_date = (datetime.now() + timedelta(days=1)).date()
 
-        # Get unconfirmed appointments
-        by_technician = checker.get_unconfirmed_appointments(target_date=target_date)
-
-        # Filtrer par technician_ids si fourni
-        if request.technician_ids:
-            by_technician = {k: v for k, v in by_technician.items() if k in request.technician_ids}
-
-        if not by_technician:
-            return {
-                'success': True,
-                'message': 'Aucun RV non confirmé trouvé',
-                'sent_count': 0,
-                'details': []
-            }
-
-        # Préparer les emails
-        alerts_to_send = []
-        for tech_id, appointments in by_technician.items():
-            tech_info = checker.get_technician_info(tech_id)
-            if not tech_info:
-                continue
-
-            # Formater le message HTML
-            html_content = checker.format_alert_message(
-                technician_name=tech_info['name'],
-                appointments=appointments,
-                target_date=target_date
-            )
-
-            date_str = target_date.strftime("%d/%m/%Y")
-            subject = f"⚠️ {len(appointments)} RV non confirmé(s) pour le {date_str}"
-
-            alerts_to_send.append({
-                'to_email': tech_info['email'],
-                'to_name': tech_info['name'],
-                'subject': subject,
-                'html_content': html_content,
-                'technician_id': tech_id,
-                'appointment_count': len(appointments)
-            })
-
-        # Envoyer en arrière-plan
-        def send_and_log():
-            """Envoie les emails et log dans Supabase."""
-            send_results = sender.send_batch_alerts(alerts_to_send)
-
-            # Log dans Supabase (table alerts_history)
-            storage = get_storage()
-            for i, alert in enumerate(alerts_to_send):
-                success = send_results['details'][i]['success']
-
-                history_entry = {
-                    'technician_external_id': alert['technician_id'],
-                    'technician_name': alert['to_name'],
-                    'technician_email': alert['to_email'],
-                    'target_date': target_date.isoformat(),
-                    'appointment_count': alert['appointment_count'],
-                    'sent_at': datetime.now().isoformat(),
-                    'triggered_by': request.triggered_by,
-                    'status': 'sent' if success else 'failed',
-                    'subject': alert['subject']
-                }
-
-                try:
-                    # Insert dans Supabase
-                    import requests
-                    url = f"{storage.api_url}/alerts_history"
-                    response = requests.post(url, headers=storage._get_headers(), json=history_entry)
-                    if response.status_code not in [200, 201]:
-                        print(f"⚠️ Erreur log Supabase: {response.status_code}")
-                except Exception as e:
-                    print(f"⚠️ Erreur lors du log: {e}")
-
-            return send_results
-
-        background_tasks.add_task(send_and_log)
-
-        return {
-            'success': True,
-            'message': f"{len(alerts_to_send)} alerte(s) en cours d'envoi",
-            'sent_count': len(alerts_to_send),
-            'target_date': target_date.isoformat(),
-            'technicians': [
-                {
-                    'name': alert['to_name'],
-                    'email': alert['to_email'],
-                    'appointment_count': alert['appointment_count']
-                }
-                for alert in alerts_to_send
-            ]
-        }
+        result = service.send_alerts(
+            target_date=target_date,
+            technician_ids=request.technician_ids,
+            triggered_by=request.triggered_by
+        )
+        return result
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erreur lors de l'envoi: {str(e)}")
+
+
+@router.post("/check-long-term", response_model=Dict[str, Any])
+async def check_long_term():
+    """
+    Vérifie les RV dans 14 jours créés il y a >= 4 mois,
+    et envoie un email à l'assistante (lookup via users).
+    """
+    try:
+        service = get_service()
+        result = service.check_long_term_appointments()
+        if not result.get("success", False):
+            raise HTTPException(status_code=500, detail=result.get("message", "Échec envoi long-term"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur long-term: {str(e)}")
 
 
 @router.get("/history", response_model=Dict[str, Any])
@@ -271,9 +224,9 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
     try:
         storage = get_storage()
 
-        # Query Supabase
+        # Query Supabase (alert_logs)
         import requests
-        url = f"{storage.api_url}/alerts_history?order=sent_at.desc&limit={limit}&offset={offset}"
+        url = f"{storage.api_url}/alert_logs?order=sent_at.desc&limit={limit}&offset={offset}"
         response = requests.get(url, headers=storage._get_headers())
 
         if response.status_code != 200:
@@ -317,9 +270,9 @@ async def get_stats():
     try:
         storage = get_storage()
 
-        # Query Supabase pour stats
+        # Query Supabase pour stats (alert_logs)
         import requests
-        url = f"{storage.api_url}/alerts_history?select=*"
+        url = f"{storage.api_url}/alert_logs?select=*"
         response = requests.get(url, headers=storage._get_headers())
 
         if response.status_code != 200:
@@ -371,3 +324,92 @@ async def get_stats():
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erreur lors du calcul des stats: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Alertes non résolues (UI)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pending", response_model=Dict[str, Any])
+async def list_pending_alerts(technician_id: Optional[str] = None):
+    """Retourne les alertes non résolues (pour affichage UI)."""
+    try:
+        service = get_service()
+        alerts = service.list_pending(technician_id=technician_id)
+        return {"alerts": alerts, "count": len(alerts)}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération des alertes: {str(e)}")
+
+
+@router.post("/resolve/{alert_id}")
+async def resolve_alert(alert_id: str, request: ResolveAlertRequest):
+    """Marque une alerte comme résolue (acknowledged)."""
+    try:
+        service = get_service()
+        ok = service.resolve_alert(alert_id, resolved_by=request.resolved_by)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Impossible de marquer comme résolue")
+        return {"success": True, "id": alert_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la résolution: {str(e)}")
+
+
+# ---------------------------------------------------------------------------
+# Scheduler 16h00
+# ---------------------------------------------------------------------------
+
+
+def _run_daily_job():
+    """Job exécuté à 16h Montréal pour envoyer les alertes."""
+    service = get_service()
+    service.send_alerts(triggered_by="system@piano-tek.com")
+
+def _run_long_term_job():
+    """Job exécuté à 09h Montréal pour les RV longue durée."""
+    service = get_service()
+    service.check_long_term_appointments()
+
+
+@router.on_event("startup")
+def start_scheduler():
+    try:
+        if not _scheduler.running:
+            _scheduler.start(paused=True)
+        if not _scheduler.get_job(JOB_ID):
+            _scheduler.add_job(
+                _run_daily_job,
+                trigger="cron",
+                hour=16,
+                minute=0,
+                id=JOB_ID,
+                replace_existing=True,
+            )
+        if not _scheduler.get_job(JOB_LONG_TERM_ID):
+            _scheduler.add_job(
+                _run_long_term_job,
+                trigger="cron",
+                hour=9,
+                minute=0,
+                id=JOB_LONG_TERM_ID,
+                replace_existing=True,
+            )
+        if _scheduler.state == 2:  # paused
+            _scheduler.resume()
+    except Exception as e:
+        print(f"⚠️ Scheduler alertes-rv non démarré: {e}")
+
+
+@router.on_event("shutdown")
+def shutdown_scheduler():
+    try:
+        if _scheduler.running:
+            _scheduler.shutdown(wait=False)
+    except Exception:
+        pass

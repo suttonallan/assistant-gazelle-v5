@@ -20,22 +20,6 @@ from core.supabase_storage import SupabaseStorage
 class AppointmentChecker:
     """Vérificateur de rendez-vous non confirmés."""
 
-    # Mapping des techniciens (IDs Gazelle → emails)
-    TECHNICIANS = {
-        'usr_ofYggsCDt2JAVeNP': {
-            'name': 'Allan',
-            'email': 'asutton@piano-tek.com'
-        },
-        'usr_HcCiFk7o0vZ9xAI0': {
-            'name': 'Nicolas',
-            'email': 'nlessard@piano-tek.com'
-        },
-        'usr_ReUSmIJmBF86ilY1': {
-            'name': 'Jean-Philippe',
-            'email': 'jpreny@gmail.com'
-        }
-    }
-
     def __init__(self, storage: Optional[SupabaseStorage] = None):
         """
         Initialise le vérificateur.
@@ -44,6 +28,8 @@ class AppointmentChecker:
             storage: Instance SupabaseStorage (créée si None)
         """
         self.storage = storage or SupabaseStorage()
+        # Cache simple en mémoire pour éviter de recharger les mêmes utilisateurs
+        self._user_cache: Dict[str, Dict[str, str]] = {}
 
     def get_unconfirmed_appointments(
         self,
@@ -125,11 +111,13 @@ class AppointmentChecker:
                                 client_phone = clients[0].get('phone')
 
                     by_technician[tech_id].append({
-                        'id': apt.get('external_id'),
+                        'appointment_id': apt.get('id'),
+                        'external_id': apt.get('external_id'),
                         'appointment_date': apt.get('appointment_date'),
                         'appointment_time': apt.get('appointment_time'),
                         'title': apt.get('title', ''),
                         'description': apt.get('description', ''),
+                        'service_type': apt.get('type', 'APPOINTMENT'),
                         'client_id': client_id,
                         'client_name': client_name,
                         'client_email': client_email,
@@ -148,15 +136,35 @@ class AppointmentChecker:
 
     def get_technician_info(self, tech_id: str) -> Optional[Dict[str, str]]:
         """
-        Retourne les infos d'un technicien par son ID Gazelle.
-
-        Args:
-            tech_id: ID externe du technicien dans Gazelle
-
-        Returns:
-            dict avec 'name' et 'email', ou None si non trouvé
+        Retourne les infos d'un technicien via la table users (gazelle_user_id).
+        Fallback: cache / None si introuvable.
         """
-        return self.TECHNICIANS.get(tech_id)
+        if not tech_id:
+            return None
+
+        if tech_id in self._user_cache:
+            return self._user_cache[tech_id]
+
+        try:
+            url = f"{self.storage.api_url}/users?gazelle_user_id=eq.{tech_id}&select=gazelle_user_id,full_name,email,username&limit=1"
+            import requests
+            resp = requests.get(url, headers=self.storage._get_headers())
+            if resp.status_code == 200:
+                data = resp.json() or []
+                if data:
+                    item = data[0]
+                    info = {
+                        "id": tech_id,
+                        "name": item.get("full_name") or item.get("username") or "Inconnu",
+                        "email": item.get("email"),
+                        "username": item.get("username"),
+                    }
+                    self._user_cache[tech_id] = info
+                    return info
+        except Exception:
+            pass
+
+        return None
 
     def format_alert_message(
         self,
@@ -188,6 +196,7 @@ class AppointmentChecker:
                     <tr style="background-color: #f2f2f2;">
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Heure</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Client</th>
+                        <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Type</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Description</th>
                         <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Contact</th>
                     </tr>
@@ -198,6 +207,7 @@ class AppointmentChecker:
         for apt in appointments:
             time = apt.get('appointment_time', 'N/A')
             client = apt.get('client_name', 'N/A')
+            service_type = apt.get('service_type') or apt.get('title', '') or ''
             description = apt.get('title') or apt.get('description', '')
             phone = apt.get('client_phone', '')
             email = apt.get('client_email', '')
@@ -213,6 +223,7 @@ class AppointmentChecker:
                     <tr>
                         <td style="border: 1px solid #ddd; padding: 8px;">{time}</td>
                         <td style="border: 1px solid #ddd; padding: 8px;"><strong>{client}</strong></td>
+                        <td style="border: 1px solid #ddd; padding: 8px;">{service_type}</td>
                         <td style="border: 1px solid #ddd; padding: 8px;">{description}</td>
                         <td style="border: 1px solid #ddd; padding: 8px;">{contact_str}</td>
                     </tr>
