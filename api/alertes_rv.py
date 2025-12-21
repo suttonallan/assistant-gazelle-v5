@@ -28,7 +28,7 @@ _storage = None
 _checker = None
 _email_sender = None
 _service = None
-_scheduler = BackgroundScheduler(timezone="America/Toronto")
+_scheduler = None  # Lazy init dans startup
 JOB_ID = "rv_unconfirmed_16h"
 JOB_LONG_TERM_ID = "rv_long_term_09h"
 
@@ -379,10 +379,21 @@ def _run_long_term_job():
 
 @router.on_event("startup")
 def start_scheduler():
+    global _scheduler
     try:
+        print("📅 Démarrage du Scheduler alertes-rv...")
+
+        # Initialisation lazy du scheduler
+        if _scheduler is None:
+            print("   → Création du BackgroundScheduler (timezone=America/Toronto)")
+            _scheduler = BackgroundScheduler(timezone="America/Toronto")
+
         if not _scheduler.running:
+            print("   → Démarrage du scheduler en mode pausé")
             _scheduler.start(paused=True)
+
         if not _scheduler.get_job(JOB_ID):
+            print(f"   → Ajout job quotidien {JOB_ID} (16h)")
             _scheduler.add_job(
                 _run_daily_job,
                 trigger="cron",
@@ -391,7 +402,9 @@ def start_scheduler():
                 id=JOB_ID,
                 replace_existing=True,
             )
+
         if not _scheduler.get_job(JOB_LONG_TERM_ID):
+            print(f"   → Ajout job longue durée {JOB_LONG_TERM_ID} (9h)")
             _scheduler.add_job(
                 _run_long_term_job,
                 trigger="cron",
@@ -400,16 +413,24 @@ def start_scheduler():
                 id=JOB_LONG_TERM_ID,
                 replace_existing=True,
             )
+
         if _scheduler.state == 2:  # paused
+            print("   → Reprise du scheduler")
             _scheduler.resume()
+
+        print("✅ Scheduler alertes-rv démarré avec succès")
     except Exception as e:
         print(f"⚠️ Scheduler alertes-rv non démarré: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @router.on_event("shutdown")
 def shutdown_scheduler():
     try:
-        if _scheduler.running:
+        print("🛑 Arrêt du Scheduler alertes-rv...")
+        if _scheduler and _scheduler.running:
             _scheduler.shutdown(wait=False)
-    except Exception:
-        pass
+            print("✅ Scheduler alertes-rv arrêté")
+    except Exception as e:
+        print(f"⚠️ Erreur arrêt scheduler: {e}")

@@ -17,22 +17,25 @@ class SupabaseStorage:
     def __init__(self, supabase_url: Optional[str] = None, supabase_key: Optional[str] = None):
         """
         Initialise le stockage Supabase.
-        
+
         Args:
             supabase_url: URL du projet Supabase (si None, utilise SUPABASE_URL de l'environnement)
             supabase_key: Clé API Supabase (si None, utilise SUPABASE_KEY de l'environnement)
         """
+        print("🔧 Initialisation SupabaseStorage...")
         self.supabase_url = supabase_url or os.environ.get('SUPABASE_URL')
-        self.supabase_key = supabase_key or os.environ.get('SUPABASE_KEY')
+        # Fallback: essaye SUPABASE_SERVICE_ROLE_KEY puis SUPABASE_KEY
+        self.supabase_key = supabase_key or os.getenv('SUPABASE_SERVICE_ROLE_KEY', os.getenv('SUPABASE_KEY'))
         
         if not self.supabase_url or not self.supabase_key:
             raise ValueError(
-                "SUPABASE_URL et SUPABASE_KEY requis. "
+                "SUPABASE_URL et SUPABASE_KEY (ou SUPABASE_SERVICE_ROLE_KEY) requis. "
                 "Ajoutez-les dans les variables d'environnement."
             )
-        
+
         self.api_url = f"{self.supabase_url}/rest/v1"
         self.table = "vincent_dindy_piano_updates"
+        print(f"✅ SupabaseStorage initialisé: {self.supabase_url}")
     
     def _get_headers(self) -> Dict[str, str]:
         """Retourne les headers pour les requêtes Supabase API."""

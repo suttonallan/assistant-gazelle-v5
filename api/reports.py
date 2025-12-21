@@ -16,7 +16,7 @@ from modules.reports.service_reports import ServiceReports
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 # Scheduler unique pour éviter les doublons au redémarrage
-scheduler = BackgroundScheduler(timezone="America/Toronto")
+scheduler = None  # Lazy init dans startup
 JOB_ID = "reports_timeline_generate"
 
 
@@ -50,10 +50,21 @@ async def generate_reports(full_refresh: bool = False) -> dict:
 @router.on_event("startup")
 def start_scheduler():
     """Démarre la tâche planifiée 02:00 Montréal."""
+    global scheduler
     try:
+        print("📊 Démarrage du Scheduler reports...")
+
+        # Initialisation lazy du scheduler
+        if scheduler is None:
+            print("   → Création du BackgroundScheduler (timezone=America/Toronto)")
+            scheduler = BackgroundScheduler(timezone="America/Toronto")
+
         if not scheduler.running:
+            print("   → Démarrage du scheduler en mode pausé")
             scheduler.start(paused=True)
+
         if not scheduler.get_job(JOB_ID):
+            print(f"   → Ajout job timeline {JOB_ID} (2h)")
             scheduler.add_job(
                 _run_job,
                 trigger="cron",
@@ -63,17 +74,25 @@ def start_scheduler():
                 kwargs={"full_refresh": False},
                 replace_existing=True,
             )
+
         if scheduler.state == 2:  # 2 = STATE_PAUSED
+            print("   → Reprise du scheduler")
             scheduler.resume()
+
+        print("✅ Scheduler reports démarré avec succès")
     except Exception as e:
-        print(f"⚠️ Scheduler non démarré: {e}")
+        print(f"⚠️ Scheduler reports non démarré: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @router.on_event("shutdown")
 def shutdown_scheduler():
     """Arrête proprement le scheduler."""
     try:
-        if scheduler.running:
+        print("🛑 Arrêt du Scheduler reports...")
+        if scheduler and scheduler.running:
             scheduler.shutdown(wait=False)
-    except Exception:
-        pass
+            print("✅ Scheduler reports arrêté")
+    except Exception as e:
+        print(f"⚠️ Erreur arrêt scheduler: {e}")
