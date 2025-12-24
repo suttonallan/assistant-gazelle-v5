@@ -358,6 +358,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_allan': 'Allan',
     'usr_jp': 'JP'
   }
+  const techMapShort = {
+    'usr_U9E5bLxrFiXqTbE8': 'N',
+    'usr_allan': 'A',
+    'usr_jp': 'JP'
+  }
   const techLabelToId = {
     'nick': 'usr_U9E5bLxrFiXqTbE8',
     'allan': 'usr_allan',
@@ -778,7 +783,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         placeholder="Technicien"
                         title="Saisir ou choisir le technicien"
                       />
-                    ) : (techMap[it.technician_id] || it.technician || '—')}
+                    ) : (
+                      <span title={techMap[it.technician_id] || it.technician || '—'}>
+                        {techMapShort[it.technician_id] || (it.technician ? it.technician.charAt(0).toUpperCase() : '—')}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
