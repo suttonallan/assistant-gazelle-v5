@@ -17,7 +17,7 @@ Migrer/intégrer le système de gestion Place des Arts dans l'infrastructure v5 
 
 ### Connexions Supabase
 - **URL**: `https://beblgzvmjqkcillmcavk.supabase.co`
-- **Anon Key**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmxnenZtanFrY2lsbG1jYXZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDA2OTMsImV4cCI6MjA3NTQ3NjY5M30.h8DPImDps9pfRLcyYlXRRbYIYAT7cm_3ej4WDGhJVDc`
+- **Anon Key**: `YOUR_SUPABASE_ANON_KEY`
 - **Service Role Key**: À obtenir pour écriture sans RLS
 
 ## 🔍 Questions à clarifier dans le prochain chat

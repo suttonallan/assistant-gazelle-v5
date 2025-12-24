@@ -11,6 +11,54 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.festive,
+body.festive {
+  background: linear-gradient(180deg, #f7faf5 0%, #ffffff 35%, #fff8f8 100%);
+}
+
+body.festive header {
+  border-bottom-color: #d1e7dd;
+  box-shadow: 0 2px 12px rgba(16, 94, 62, 0.08);
+}
+
+.festive .festive-tree,
+body.festive .festive-tree {
+  position: fixed;
+  top: 10px;
+  left: 12px;
+  width: 140px;
+  height: 200px;
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 20;
+  filter: drop-shadow(0 8px 12px rgba(15, 90, 61, 0.2));
+}
+
+.festive .festive-tree svg {
+  width: 100%;
+  height: 100%;
+}
+
+.festive .festive-sleigh,
+body.festive .festive-sleigh {
+  position: fixed;
+  right: 12px;
+  top: 80px;
+  width: 220px;
+  height: 140px;
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 20;
+  filter: drop-shadow(0 8px 12px rgba(184, 32, 48, 0.25));
+}
+
+.festive .festive-sleigh svg {
+  width: 100%;
+  height: 100%;
+}
+
+
+
 
 
 

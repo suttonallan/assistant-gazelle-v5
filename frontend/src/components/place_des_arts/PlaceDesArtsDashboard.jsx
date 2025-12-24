@@ -1,17 +1,31 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
 export default function PlaceDesArtsDashboard({ currentUser }) {
+  const isRestrictedUser = currentUser?.role === 'nick' || currentUser?.role === 'louise'
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [stats, setStats] = useState({ imported: 0, to_bill: 0, this_month: 0 })
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [editMode, setEditMode] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    appointment_date: '',
+    room: '',
+    for_who: '',
+    piano: '',
+    time: '',
+    diapason: '',
+    requester: '',
+    technician_id: '',
+    notes: '',
+    billing_amount: '',
+    parking: ''
+  })
   const [batchYear, setBatchYear] = useState(new Date().getFullYear())
-  const [batchTechnician, setBatchTechnician] = useState('')
 
   // Filtres
   const [statusFilter, setStatusFilter] = useState('')
@@ -31,8 +45,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
   const [infoMessage, setInfoMessage] = useState(null)
-  const [csvLoading, setCsvLoading] = useState(false)
-  const fileInputRef = useRef(null)
+  // plus de CSV direct ici
 
   const fetchData = useCallback(async () => {
     try {
@@ -207,35 +220,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }
 
-  const handleImportCsv = async (file) => {
-    if (!file) return
-    try {
-      setCsvLoading(true)
-      setError(null)
-      setInfoMessage(null)
-      const form = new FormData()
-      form.append('file', file)
-      form.append('dry_run', 'false')
-      form.append('on_conflict', 'update')
-      const resp = await fetch(`${API_URL}/place-des-arts/requests/import-csv`, {
-        method: 'POST',
-        body: form
-      })
-      if (!resp.ok) {
-        const msg = await resp.text()
-        throw new Error(msg || `HTTP ${resp.status}`)
-      }
-      const data = await resp.json()
-      setInfoMessage(data.message || `Import CSV: ${data.inserted || 0}`)
-      await fetchData()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setCsvLoading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
   const handleExport = () => {
     window.open(`${API_URL}/place-des-arts/export`, '_blank')
   }
@@ -255,9 +239,17 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const handleCellUpdate = async (id, field, value) => {
     try {
       setError(null)
-      await updateCellRaw(id, field, value)
+      // Si plusieurs lignes sont cochées et incluent cette ligne, propager la même valeur
+      const targetIds = selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id]
+      for (const targetId of targetIds) {
+        await updateCellRaw(targetId, field, value)
+        if (field === 'technician_id' && value) {
+          // Auto: passer en "Assigné" dès qu'un technicien est défini
+          await updateCellRaw(targetId, 'status', 'ASSIGN_OK')
+        }
+      }
       await fetchData()
-      setInfoMessage('Champ mis à jour')
+      setInfoMessage(`Champ mis à jour pour ${targetIds.length} élément(s)`)
     } catch (err) {
       setError(err.message)
     }
@@ -292,26 +284,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       await fetchData()
       setInfoMessage(`Année mise à ${batchYear} pour ${selectedIds.length} élément(s)`)
       setSelectedIds([])
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  const handleBatchTechnician = async () => {
-    if (!selectedIds.length) return
-    if (!batchTechnician) {
-      setError('Veuillez sélectionner un technicien')
-      return
-    }
-    try {
-      setError(null)
-      for (const id of selectedIds) {
-        await updateCellRaw(id, 'technician_id', batchTechnician)
-      }
-      await fetchData()
-      setInfoMessage(`Technicien assigné à ${selectedIds.length} élément(s)`)
-      setSelectedIds([])
-      setBatchTechnician('')
     } catch (err) {
       setError(err.message)
     }
@@ -443,6 +415,106 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         </div>
       </div>
 
+      {creating && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-700">Ajouter une demande</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+            <div>
+              <label className="text-xs text-gray-600">Date RDV</label>
+              <input type="date" value={createForm.appointment_date} onChange={(e) => setCreateForm({ ...createForm, appointment_date: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Salle</label>
+              <input type="text" value={createForm.room} onChange={(e) => setCreateForm({ ...createForm, room: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Pour qui</label>
+              <input type="text" value={createForm.for_who} onChange={(e) => setCreateForm({ ...createForm, for_who: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-600">Piano</label>
+              <input type="text" value={createForm.piano} onChange={(e) => setCreateForm({ ...createForm, piano: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Heure</label>
+              <input type="text" value={createForm.time} onChange={(e) => setCreateForm({ ...createForm, time: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Diapason</label>
+              <input type="text" value={createForm.diapason} onChange={(e) => setCreateForm({ ...createForm, diapason: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Demandeur</label>
+              <input type="text" value={createForm.requester} onChange={(e) => setCreateForm({ ...createForm, requester: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Technicien</label>
+              <select value={createForm.technician_id} onChange={(e) => setCreateForm({ ...createForm, technician_id: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1">
+                <option value="">—</option>
+                <option value="usr_U9E5bLxrFiXqTbE8">Nick</option>
+                <option value="usr_allan">Allan</option>
+                <option value="usr_jp">JP</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Facturation</label>
+              <input type="number" step="0.01" value={createForm.billing_amount} onChange={(e) => setCreateForm({ ...createForm, billing_amount: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Stationnement</label>
+              <input type="text" value={createForm.parking} onChange={(e) => setCreateForm({ ...createForm, parking: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-xs text-gray-600">Notes</label>
+              <input type="text" value={createForm.notes} onChange={(e) => setCreateForm({ ...createForm, notes: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  setError(null)
+                  setInfoMessage(null)
+                  const resp = await fetch(`${API_URL}/place-des-arts/requests/create`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(createForm)
+                  })
+                  if (!resp.ok) {
+                    const msg = await resp.text()
+                    throw new Error(msg || `HTTP ${resp.status}`)
+                  }
+                  setInfoMessage('Demande ajoutée')
+                  setCreating(false)
+                  setCreateForm({
+                    appointment_date: '',
+                    room: '',
+                    for_who: '',
+                    piano: '',
+                    time: '',
+                    diapason: '',
+                    requester: '',
+                    technician_id: '',
+                    notes: '',
+                    billing_amount: '',
+                    parking: ''
+                  })
+                  await fetchData()
+                } catch (err) {
+                  setError(err.message)
+                }
+              }}
+              className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Enregistrer
+            </button>
+            <button onClick={() => setCreating(false)} className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-semibold text-gray-700">Import depuis email (copier-coller)</h3>
         <textarea
@@ -513,99 +585,93 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
       {/* Toolbar actions */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
-          disabled={csvLoading}
-        >
-          📄 Importer CSV
-        </button>
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          className="hidden"
-          ref={fileInputRef}
-          onChange={(e) => handleImportCsv(e.target.files?.[0])}
-        />
-        <button
-          onClick={handleDeleteDuplicates}
-          className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          🗑️ Nettoyer doublons
-        </button>
-        <button
-          onClick={handleExport}
-          className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          📊 Export CSV
-        </button>
+        {!isRestrictedUser && (
+          <>
+            <button
+              onClick={handleDeleteDuplicates}
+              className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              🗑️ Nettoyer doublons
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              📊 Export CSV
+            </button>
+          </>
+        )}
         <button
           onClick={() => setEditMode((v) => !v)}
           className={`px-3 py-2 text-sm border rounded-md ${editMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-300 hover:bg-gray-50'}`}
         >
-          {editMode ? 'Mode édition activé' : 'Mode édition (toutes colonnes)'}
+          {editMode ? 'Mode édition activé' : 'Mode édition'}
         </button>
         <button
-          onClick={() => setInfoMessage("Ajout manuel: à implémenter")}
+          onClick={() => setCreating((v) => !v)}
           className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
         >
-          ➕ Ajouter
+          {creating ? 'Fermer ajout' : '➕ Ajouter'}
         </button>
-        <button
-          disabled
-          title="Sync Gazelle (à venir)"
-          className="px-3 py-2 text-sm bg-gray-100 border border-gray-300 rounded-md text-gray-400 cursor-not-allowed"
-        >
-          🔄 Sync Gazelle
-        </button>
-
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
-          <input
-            type="month"
-            value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          >
-            <option value="">Tous statuts</option>
-            <option value="PENDING">Nouveau</option>
-            <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
-            <option value="ASSIGN_OK">Assigné</option>
-            <option value="COMPLETED">Complété</option>
-            <option value="BILLED">Facturé</option>
-          </select>
-          <input
-            type="text"
-            value={roomFilter}
-            onChange={(e) => setRoomFilter(e.target.value)}
-            placeholder="Salle"
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          />
-          <input
-            type="text"
-            value={technicianFilter}
-            onChange={(e) => setTechnicianFilter(e.target.value)}
-            placeholder="Technicien id"
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Recherche (client/piano)"
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          />
+        {!isRestrictedUser && (
           <button
-            onClick={() => { setStatusFilter(''); setMonthFilter(''); setRoomFilter(''); setTechnicianFilter(''); setSearch(''); }}
-            className="px-3 py-1 text-sm bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200"
+            disabled
+            title="Sync Gazelle (à venir)"
+            className="px-3 py-2 text-sm bg-gray-100 border border-gray-300 rounded-md text-gray-400 cursor-not-allowed"
           >
-            Réinitialiser
+            🔄 Sync Gazelle
           </button>
-        </div>
+        )}
+
+        {!isRestrictedUser && (
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(e) => setMonthFilter(e.target.value)}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            >
+              <option value="">Tous statuts</option>
+              <option value="PENDING">Nouveau</option>
+              <option value="ASSIGN_OK">Assigné</option>
+              <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
+              <option value="COMPLETED">Complété</option>
+              <option value="BILLED">Facturé</option>
+            </select>
+            <input
+              type="text"
+              value={roomFilter}
+              onChange={(e) => setRoomFilter(e.target.value)}
+              placeholder="Salle"
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            />
+            <input
+              type="text"
+              value={technicianFilter}
+              onChange={(e) => setTechnicianFilter(e.target.value)}
+              placeholder="Technicien id"
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Recherche (client/piano)"
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            />
+            <button
+              onClick={() => { setStatusFilter(''); setMonthFilter(''); setRoomFilter(''); setTechnicianFilter(''); setSearch(''); }}
+              className="px-3 py-1 text-sm bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200"
+            >
+              Réinitialiser
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Actions batch */}
@@ -628,25 +694,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               Changer l'année
             </button>
           </div>
-          <div className="flex items-center gap-1 text-xs">
-            <select
-              value={batchTechnician}
-              onChange={(e) => setBatchTechnician(e.target.value)}
-              className="border border-gray-300 rounded px-2 py-1 bg-white"
-            >
-              <option value="">Choisir technicien...</option>
-              <option value="usr_U9E5bLxrFiXqTbE8">Nick (N)</option>
-              <option value="usr_allan">Allan (A)</option>
-              <option value="usr_jp">Jean-Philippe (JP)</option>
-            </select>
-            <button
-              onClick={handleBatchTechnician}
-              className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
-              disabled={!batchTechnician}
-            >
-              Assigner
-            </button>
-          </div>
           <select
             onChange={(e) => handleStatusChange(e.target.value)}
             defaultValue=""
@@ -654,14 +701,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           >
             <option value="">Changer statut...</option>
             <option value="PENDING">Nouveau</option>
-            <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
             <option value="ASSIGN_OK">Assigné</option>
+            <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
             <option value="COMPLETED">Complété</option>
             <option value="BILLED">Facturé</option>
           </select>
           <button onClick={() => handleStatusChange('PENDING')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Nouveau</button>
-          <button onClick={() => handleStatusChange('CREATED_IN_GAZELLE')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Créé Gazelle</button>
           <button onClick={() => handleStatusChange('ASSIGN_OK')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Assigné</button>
+          <button onClick={() => handleStatusChange('CREATED_IN_GAZELLE')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Créé Gazelle</button>
           <button onClick={() => handleStatusChange('COMPLETED')} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Statut: Complété</button>
           <button onClick={handleBill} className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50">Facturer</button>
           <button onClick={handleDelete} className="px-2 py-1 text-xs bg-red-50 border border-red-200 text-red-700 rounded hover:bg-red-100">Supprimer</button>
@@ -755,7 +802,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         onBlur={(e) => handleCellUpdate(it.id, 'room', e.target.value)}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                       />
-                    ) : it.room}
+                    ) : (it.room || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
@@ -765,7 +812,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         onBlur={(e) => handleCellUpdate(it.id, 'for_who', e.target.value)}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                       />
-                    ) : it.for_who}
+                    ) : (it.for_who || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
@@ -795,7 +842,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         onBlur={(e) => handleCellUpdate(it.id, 'piano', e.target.value)}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                       />
-                    ) : it.piano}
+                    ) : (it.piano || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
@@ -808,18 +855,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     ) : (it.time || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    <select
-                      value={it.technician_id || ''}
-                      onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                      className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium"
-                      title={techMap[it.technician_id] || it.technician || 'Choisir technicien'}
-                      style={{ width: '50px' }}
-                    >
-                      <option value="">—</option>
-                      <option value="usr_U9E5bLxrFiXqTbE8">N</option>
-                      <option value="usr_allan">A</option>
-                      <option value="usr_jp">JP</option>
-                    </select>
+                    {editMode ? (
+                      <select
+                        value={it.technician_id || ''}
+                        onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
+                        className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium"
+                        title={techMap[it.technician_id] || it.technician || 'Choisir technicien'}
+                        style={{ width: '70px' }}
+                      >
+                        <option value="">—</option>
+                        <option value="usr_U9E5bLxrFiXqTbE8">Nick</option>
+                        <option value="usr_allan">Allan</option>
+                        <option value="usr_jp">JP</option>
+                      </select>
+                    ) : (techMap[it.technician_id] || it.technician_id || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
@@ -855,12 +904,15 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                   <td className="px-3 py-2">
                     <select
                       value={it.status || ''}
-                      onChange={(e) => handleStatusChange(e.target.value, [it.id])}
+                      onChange={(e) => {
+                        const targetIds = selectedIds.includes(it.id) && selectedIds.length > 1 ? selectedIds : [it.id]
+                        handleStatusChange(e.target.value, targetIds)
+                      }}
                       className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
                     >
                       <option value="PENDING">Nouveau</option>
-                      <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
                       <option value="ASSIGN_OK">Assigné</option>
+                      <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
                       <option value="COMPLETED">Complété</option>
                       <option value="BILLED">Facturé</option>
                     </select>

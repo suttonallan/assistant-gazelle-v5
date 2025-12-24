@@ -17,14 +17,20 @@ import json
 import requests
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-# Supabase credentials (à configurer sur le PC)
-SUPABASE_URL = "https://beblgzvmjqkcillmcavk.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmxnenZtanFrY2lsbG1jYXZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDA2OTMsImV4cCI6MjA3NTQ3NjY5M30.h8DPImDps9pfRLcyYlXRRbYIYAT7cm_3ej4WDGhJVDc"
+# Supabase credentials (à configurer dans le .env du PC)
+load_dotenv()
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://beblgzvmjqkcillmcavk.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_KEY:
+    print("❌ SUPABASE_KEY manquante. Ajoutez-la dans le fichier .env (SUPABASE_KEY=YOUR_SUPABASE_KEY).")
+    sys.exit(1)
 
 # Gazelle API (utilise les tokens du PC)
 GAZELLE_API_URL = "https://gazelleapp.io/graphql/private/"
@@ -351,7 +357,8 @@ def main():
         timeline_entries = gazelle.get_all_timeline_entries()
         print(f"  📥 {len(timeline_entries)} timeline entries récupérées depuis Gazelle")
         supabase_timeline = [transform_timeline_for_supabase(t) for t in timeline_entries]
-        supabase.upsert('timeline_entries', supabase_timeline)
+        # Aligner avec l'app Mac : table cible = gazelle.timeline_entries
+        supabase.upsert('gazelle.timeline_entries', supabase_timeline)
         print()
 
         print("=" * 70)

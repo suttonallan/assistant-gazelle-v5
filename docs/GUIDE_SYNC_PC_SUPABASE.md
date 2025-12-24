@@ -21,7 +21,7 @@ Ajoutez ces lignes dans le fichier `.env` à la racine du projet sur le PC:
 ```env
 # Supabase (pour synchro cloud)
 SUPABASE_URL=https://beblgzvmjqkcillmcavk.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJlYmxnenZtanFrY2lsbG1jYXZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk5MDA2OTMsImV4cCI6MjA3NTQ3NjY5M30.h8DPImDps9pfRLcyYlXRRbYIYAT7cm_3ej4WDGhJVDc
+SUPABASE_KEY=YOUR_SUPABASE_KEY
 ```
 
 ### Étape 3: Test manuel (RECOMMANDÉ)
