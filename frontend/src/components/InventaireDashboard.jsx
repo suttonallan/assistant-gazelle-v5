@@ -167,7 +167,7 @@ const InventaireDashboard = ({ currentUser }) => {
     }
   }
 
-  // Charger les transactions (réservé aux rôles autorisés)
+  // Charger les transactions
   const loadTransactions = async () => {
     try {
       const response = await fetch(`${API_URL}/inventaire/transactions?limit=50`)
@@ -181,18 +181,8 @@ const InventaireDashboard = ({ currentUser }) => {
 
   useEffect(() => {
     loadInventory()
-    // Nick ne voit pas l'onglet transactions
-    if (currentUser?.role !== 'nick') {
-      loadTransactions()
-    }
+    loadTransactions()
   }, [])
-
-  // Forcer retour onglet inventaire si transactions non autorisé
-  useEffect(() => {
-    if (currentUser?.role === 'nick' && activeTab === 'transactions') {
-      setActiveTab('inventaire')
-    }
-  }, [currentUser?.role, activeTab])
 
   // Mise à jour de quantité (édition inline)
   const updateQuantity = async (productId, techUsername, newQuantity) => {
@@ -404,7 +394,6 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const categoryGroups = groupByCategory()
   const currentUserIsAdmin = currentUser?.role === 'admin'
-  const canViewTransactions = currentUser?.role !== 'nick'
 
   // Map email addresses to TECHNICIENS usernames
   const getUsernameFromEmail = (email) => {
@@ -448,18 +437,16 @@ const InventaireDashboard = ({ currentUser }) => {
         >
           Inventaire
         </button>
-        {canViewTransactions && (
-          <button
-            onClick={() => setActiveTab('transactions')}
-            className={`px-4 py-2 font-medium ${
-              activeTab === 'transactions'
-                ? 'border-b-2 border-blue-500 text-blue-600'
-                : 'text-gray-600 hover:text-gray-800'
-            }`}
-          >
-            Transactions
-          </button>
-        )}
+        <button
+          onClick={() => setActiveTab('transactions')}
+          className={`px-4 py-2 font-medium ${
+            activeTab === 'transactions'
+              ? 'border-b-2 border-blue-500 text-blue-600'
+              : 'text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          Transactions
+        </button>
         {currentUserIsAdmin && (
           <>
             <button
@@ -546,21 +533,19 @@ const InventaireDashboard = ({ currentUser }) => {
               <tbody>
                 {Object.entries(categoryGroups).map(([category, categoryProducts]) => (
                   <React.Fragment key={category}>
-                    {/* Ligne catégorie - Visible uniquement pour admin */}
-                    {currentUserIsAdmin && (
-                      <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
-                        <td
-                          colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
-                          className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
-                          onClick={() => toggleCategory(category)}
-                        >
-                          {collapsedCategories.has(category) ? '▶' : '▼'} {category}
-                        </td>
-                      </tr>
-                    )}
+                    {/* Ligne catégorie */}
+                    <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
+                      <td
+                        colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
+                        className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
+                        onClick={() => toggleCategory(category)}
+                      >
+                        {collapsedCategories.has(category) ? '▶' : '▼'} {category}
+                      </td>
+                    </tr>
 
                     {/* Lignes produits */}
-                    {(!currentUserIsAdmin || !collapsedCategories.has(category)) && categoryProducts.map(product => (
+                    {!collapsedCategories.has(category) && categoryProducts.map(product => (
                       <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
                         <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
                           <div className={isMobile ? 'text-xs' : 'text-sm'}>
@@ -618,7 +603,7 @@ const InventaireDashboard = ({ currentUser }) => {
       )}
 
       {/* ONGLET TRANSACTIONS */}
-      {canViewTransactions && activeTab === 'transactions' && (
+      {activeTab === 'transactions' && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
