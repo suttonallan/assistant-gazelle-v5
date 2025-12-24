@@ -768,20 +768,17 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     ) : (it.time || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    <input
-                      type="text"
-                      defaultValue={techMap[it.technician_id] || it.technician || ''}
-                      list="tech-options"
-                      onBlur={(e) => {
-                        const val = e.target.value.trim()
-                        if (val === '') return handleCellUpdate(it.id, 'technician_id', '')
-                        const mapped = techLabelToId[val.toLowerCase()] || (val.toLowerCase().startsWith('usr_') ? val : val)
-                        handleCellUpdate(it.id, 'technician_id', mapped)
-                      }}
-                      className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      placeholder="Technicien"
-                      title="Saisir ou choisir le technicien"
-                    />
+                    <select
+                      value={it.technician_id || ''}
+                      onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
+                      className="w-full border border-gray-200 rounded px-2 py-1 text-xs bg-white"
+                      title={techMap[it.technician_id] || it.technician || 'Aucun technicien'}
+                    >
+                      <option value="">—</option>
+                      <option value="usr_U9E5bLxrFiXqTbE8">N</option>
+                      <option value="usr_allan">A</option>
+                      <option value="usr_jp">JP</option>
+                    </select>
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
