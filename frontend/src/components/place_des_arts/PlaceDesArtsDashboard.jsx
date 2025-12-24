@@ -663,8 +663,17 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
-              {sortedItems.map((it) => (
-                <tr key={it.id} className={selectedIds.includes(it.id) ? 'bg-blue-50' : ''}>
+              {sortedItems.map((it) => {
+                // Déterminer si l'événement est terminé (statut COMPLETED)
+                const isCompleted = it.status === 'COMPLETED'
+                const rowClass = selectedIds.includes(it.id)
+                  ? 'bg-blue-50'
+                  : isCompleted
+                    ? 'bg-green-50'
+                    : ''
+
+                return (
+                <tr key={it.id} className={rowClass}>
                   <td className="px-2 py-2">
                     <input
                       type="checkbox"
@@ -814,7 +823,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     </select>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {filteredItems.length === 0 && (
                 <tr>
                   <td colSpan={14} className="px-3 py-4 text-center text-gray-500">Aucune donnée</td>

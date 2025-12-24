@@ -40,18 +40,22 @@ def parse_date_flexible(date_str: str, current_date: datetime) -> datetime:
 
     date_str_clean = date_str.strip()
 
-    # Anglais complet "27 November 2025" ou "27 November"
+    # Format général "27 November 2025" ou "27 November" ou "5 décembre"
     match_en_full = re.match(r'(\d{1,2})\s+(\w+)(?:\s+(\d{4}))?', date_str_clean, re.IGNORECASE)
     if match_en_full:
         day = int(match_en_full.group(1))
         month_name = match_en_full.group(2).lower()
         year_str = match_en_full.group(3)
+        # Check both English and French months
         if month_name in mois_en:
             month = mois_en[month_name]
-            if year_str:
-                return datetime(int(year_str), month, day)
+        elif month_name in mois_fr:
+            month = mois_fr[month_name]
         else:
             raise ValueError(f"Mois invalide: {month_name}")
+
+        if year_str:
+            return datetime(int(year_str), month, day)
     elif re.match(r'(\d{1,2})[-/](\w{3})', date_str_clean, re.IGNORECASE):
         match_en = re.match(r'(\d{1,2})[-/](\w{3})', date_str_clean, re.IGNORECASE)
         day = int(match_en.group(1))
@@ -63,14 +67,14 @@ def parse_date_flexible(date_str: str, current_date: datetime) -> datetime:
         else:
             raise ValueError(f"Mois invalide: {month_name}")
     else:
-        match_fr = re.match(r'(\d{1,2})[-/\s]+([a-zéû]+)', date_str_clean.lower())
+        match_fr = re.match(r'(\d{1,2})[-/\s]+([a-zàâäéèêëïîôùûü]+)', date_str_clean.lower())
         if not match_fr:
-            match_fr = re.match(r'(\d{1,2})([a-zéû]{3,})', date_str_clean.lower())
+            match_fr = re.match(r'(\d{1,2})([a-zàâäéèêëïîôùûü]{3,})', date_str_clean.lower())
         if not match_fr:
             raise ValueError(f"Format de date invalide: {date_str}")
         day = int(match_fr.group(1))
         month_name = match_fr.group(2).strip()
-        month_name_normalized = month_name.replace('é', 'e').replace('û', 'u').replace('ô', 'o')
+        month_name_normalized = month_name.replace('é', 'e').replace('û', 'u').replace('ô', 'o').replace('è', 'e')
         if month_name in mois_fr:
             month = mois_fr[month_name]
         elif month_name_normalized in mois_fr:
