@@ -206,21 +206,27 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
         tech = parts[8] if len(parts) >= 9 else ''
         tech_id = tech_map.get(tech.lower())
 
-        # Calculer le jour de la semaine en français
+        # Calculer le jour de la semaine en français (seulement samedi/dimanche)
         jours_semaine = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
         jour_semaine = jours_semaine[appt_date.weekday()]
+        is_weekend = appt_date.weekday() >= 5  # 5=samedi, 6=dimanche
 
-        # Ajouter le jour de la semaine aux notes existantes (éviter duplication)
+        # Ajouter le jour aux notes seulement si c'est samedi ou dimanche
         notes_raw = parts[9] if len(parts) >= 10 else ''
-        if notes_raw and jour_semaine.lower() in notes_raw.lower():
-            # Le jour est déjà mentionné, ne pas dupliquer
-            notes = notes_raw
-        elif notes_raw:
-            # Ajouter le jour avant les notes existantes
-            notes = f"{jour_semaine} - {notes_raw}"
+        if is_weekend:
+            # C'est un weekend, ajouter le jour
+            if notes_raw and jour_semaine.lower() in notes_raw.lower():
+                # Le jour est déjà mentionné, ne pas dupliquer
+                notes = notes_raw
+            elif notes_raw:
+                # Ajouter le jour avant les notes existantes
+                notes = f"{jour_semaine} - {notes_raw}"
+            else:
+                # Pas de notes, juste le jour
+                notes = jour_semaine
         else:
-            # Pas de notes, juste le jour
-            notes = jour_semaine
+            # Jour de semaine, garder les notes telles quelles
+            notes = notes_raw
 
         rows.append({
             'date': appt_date,
