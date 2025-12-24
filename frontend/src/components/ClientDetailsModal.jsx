@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
-export default function ClientDetailsModal({ clientId, onClose }) {
+export default function ClientDetailsModal({ clientId, onClose, onAskQuestion }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [details, setDetails] = useState(null)
@@ -179,6 +179,42 @@ export default function ClientDetailsModal({ clientId, onClose }) {
                         {appt.assigned_to && <p className="text-sm">Technicien: {appt.assigned_to}</p>}
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Questions rapides */}
+              {onAskQuestion && (
+                <div className="mt-6 pt-4 border-t border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">💬 Questions rapides</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => {
+                        onAskQuestion(`frais de déplacement pour ${details.name}`)
+                        onClose()
+                      }}
+                      className="px-3 py-1.5 text-sm bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
+                    >
+                      💰 Frais de déplacement
+                    </button>
+                    <button
+                      onClick={() => {
+                        onAskQuestion(`prochains rendez-vous pour ${details.name}`)
+                        onClose()
+                      }}
+                      className="px-3 py-1.5 text-sm bg-green-50 text-green-700 border border-green-200 rounded hover:bg-green-100 transition-colors"
+                    >
+                      📅 Prochains RV
+                    </button>
+                    <button
+                      onClick={() => {
+                        onAskQuestion(`résumé historique service pour ${details.name}`)
+                        onClose()
+                      }}
+                      className="px-3 py-1.5 text-sm bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100 transition-colors"
+                    >
+                      📝 Résumé historique
+                    </button>
                   </div>
                 </div>
               )}

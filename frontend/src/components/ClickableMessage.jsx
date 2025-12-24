@@ -1,7 +1,13 @@
 import { useState } from 'react'
 import ClientDetailsModal from './ClientDetailsModal'
 
-export default function ClickableMessage({ content, entities = [] }) {
+export default function ClickableMessage({
+  content,
+  entities = [],
+  currentUser,
+  onAskQuestion,
+  onSelectClient
+}) {
   const [selectedClientId, setSelectedClientId] = useState(null)
 
   // Si pas d'entités, afficher le contenu normalement
@@ -26,6 +32,13 @@ export default function ClickableMessage({ content, entities = [] }) {
     e.preventDefault()
     const clientId = e.target.getAttribute('data-client-id')
     if (clientId) {
+      // Définir le contexte client pour les questions de suivi
+      if (onSelectClient) {
+        const entity = entities.find(e => e.id === clientId)
+        if (entity) {
+          onSelectClient(entity)
+        }
+      }
       setSelectedClientId(clientId)
     }
   }
@@ -41,6 +54,7 @@ export default function ClickableMessage({ content, entities = [] }) {
         <ClientDetailsModal
           clientId={selectedClientId}
           onClose={() => setSelectedClientId(null)}
+          onAskQuestion={onAskQuestion}
         />
       )}
     </>
