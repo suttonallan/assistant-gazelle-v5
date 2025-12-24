@@ -17,7 +17,6 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [comment, setComment] = useState('')
-  const [collapsedCategories, setCollapsedCategories] = useState(new Set())
   const [updateFeedback, setUpdateFeedback] = useState({})
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
 
@@ -186,29 +185,11 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     }
   }
 
-  const toggleCategory = (category) => {
-    setCollapsedCategories(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(category)) {
-        newSet.delete(category)
-      } else {
-        newSet.add(category)
-      }
-      return newSet
-    })
-  }
-
-  // Grouper par catégorie
-  const categoryGroups = products.reduce((acc, product) => {
-    const cat = product.category || 'Sans catégorie'
-    if (!acc[cat]) acc[cat] = []
-    acc[cat].push(product)
-    return acc
-  }, {})
-
-  // Trier les produits par display_order dans chaque catégorie
-  Object.keys(categoryGroups).forEach(cat => {
-    categoryGroups[cat].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+  // Liste triée sans regroupement par catégorie
+  const sortedProducts = [...products].sort((a, b) => {
+    const orderDiff = (a.display_order || 0) - (b.display_order || 0)
+    if (orderDiff !== 0) return orderDiff
+    return (a.name || '').localeCompare(b.name || '')
   })
 
   if (loading) {
@@ -274,67 +255,51 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
             </tr>
           </thead>
           <tbody>
-            {Object.entries(categoryGroups).map(([category, categoryProducts]) => (
-              <React.Fragment key={category}>
-                {/* Ligne catégorie */}
-                <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
-                  <td
-                    colSpan={TECHNICIENS.length + 1}
-                    className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
-                    onClick={() => toggleCategory(category)}
-                  >
-                    {collapsedCategories.has(category) ? '▶' : '▼'} {category}
-                  </td>
-                </tr>
+            {sortedProducts.map(product => (
+              <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
+                <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
+                  <div className={isMobile ? 'text-xs' : 'text-sm'}>
+                    {product.name}
+                    {product.variant_label && (
+                      <span className="text-xs text-gray-500 ml-1">
+                        ({product.variant_label})
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {product.code_produit}
+                  </div>
+                </td>
 
-                {/* Lignes produits */}
-                {!collapsedCategories.has(category) && categoryProducts.map(product => (
-                  <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
-                    <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
-                      <div className={isMobile ? 'text-xs' : 'text-sm'}>
-                        {product.name}
-                        {product.variant_label && (
-                          <span className="text-xs text-gray-500 ml-1">
-                            ({product.variant_label})
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {product.code_produit}
-                      </div>
+                {TECHNICIENS.map(tech => {
+                  const qty = product.quantities?.[tech.username] || 0
+                  const isMyColumn = tech.username === currentUsername
+                  const feedbackKey = product.code_produit + tech.username
+                  const hasFeedback = updateFeedback[feedbackKey]
+
+                  return (
+                    <td
+                      key={tech.username}
+                      className={`${isMobile ? 'px-1 py-2' : 'px-4 py-3'} text-center ${
+                        isMyColumn ? 'bg-green-50' : ''
+                      }`}
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        value={qty}
+                        onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        onClick={(e) => e.target.select()}
+                        className={`${isMobile ? 'w-14 text-sm' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
+                          isMyColumn ? 'bg-green-100 border-green-400 font-bold text-green-900' : 'border-gray-300'
+                        } ${hasFeedback ? 'bg-green-300' : ''}`}
+                        style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
+                      />
                     </td>
-
-                    {TECHNICIENS.map(tech => {
-                      const qty = product.quantities?.[tech.username] || 0
-                      const isMyColumn = tech.username === currentUsername
-                      const feedbackKey = product.code_produit + tech.username
-                      const hasFeedback = updateFeedback[feedbackKey]
-
-                      return (
-                        <td
-                          key={tech.username}
-                          className={`${isMobile ? 'px-1 py-2' : 'px-4 py-3'} text-center ${
-                            isMyColumn ? 'bg-green-50' : ''
-                          }`}
-                        >
-                          <input
-                            type="number"
-                            min="0"
-                            value={qty}
-                            onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
-                            onFocus={(e) => e.target.select()}
-                            onClick={(e) => e.target.select()}
-                            className={`${isMobile ? 'w-14 text-sm' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
-                              isMyColumn ? 'bg-green-100 border-green-400 font-bold text-green-900' : 'border-gray-300'
-                            } ${hasFeedback ? 'bg-green-300' : ''}`}
-                            style={hasFeedback ? { transition: 'background-color 0.3s' } : {}}
-                          />
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </React.Fragment>
+                  )
+                })}
+              </tr>
             ))}
           </tbody>
         </table>

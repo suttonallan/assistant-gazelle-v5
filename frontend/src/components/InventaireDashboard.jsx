@@ -266,27 +266,16 @@ const InventaireDashboard = ({ currentUser }) => {
   }
 
   // Grouper produits par catégorie (exclut les services de l'inventaire technicien)
-  const groupByCategory = () => {
-    const groups = {}
-    products
+  // Liste plate triée par display_order uniquement (pas de groupement par catégorie)
+  const getSortedProducts = () => {
+    return products
       .filter(p => p.is_active !== false)
       .filter(p => p.type_produit !== 'service') // Exclure les services
-      .forEach(product => {
-        const cat = product.categorie || 'Sans catégorie'
-        if (!groups[cat]) groups[cat] = []
-        groups[cat].push(product)
-      })
-
-    // Trier chaque groupe UNIQUEMENT par display_order (pas de tri alphabétique)
-    Object.keys(groups).forEach(cat => {
-      groups[cat].sort((a, b) => {
+      .sort((a, b) => {
         const orderA = Number(a.display_order) || 999999
         const orderB = Number(b.display_order) || 999999
         return orderA - orderB
       })
-    })
-
-    return groups
   }
 
   // Toggle catégorie collapsed
@@ -392,7 +381,7 @@ const InventaireDashboard = ({ currentUser }) => {
     )
   }
 
-  const categoryGroups = groupByCategory()
+  const sortedProducts = getSortedProducts()
   const currentUserIsAdmin = currentUser?.role === 'admin'
 
   // Map email addresses to TECHNICIENS usernames
@@ -531,21 +520,8 @@ const InventaireDashboard = ({ currentUser }) => {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(categoryGroups).map(([category, categoryProducts]) => (
-                  <React.Fragment key={category}>
-                    {/* Ligne catégorie */}
-                    <tr className="bg-gray-100 hover:bg-gray-200 cursor-pointer sticky" style={{ top: isMobile ? '40px' : '48px', zIndex: 9 }}>
-                      <td
-                        colSpan={isMobile && !currentUserIsAdmin ? 2 : TECHNICIENS.length + 1}
-                        className={`${isMobile ? 'px-2 py-1.5' : 'px-4 py-2'} font-bold text-gray-800 border-b ${isMobile ? 'text-sm' : ''}`}
-                        onClick={() => toggleCategory(category)}
-                      >
-                        {collapsedCategories.has(category) ? '▶' : '▼'} {category}
-                      </td>
-                    </tr>
-
-                    {/* Lignes produits */}
-                    {!collapsedCategories.has(category) && categoryProducts.map(product => (
+                {/* Liste plate sans catégories, triée par display_order */}
+                {sortedProducts.map(product => (
                       <tr key={product.code_produit} className="hover:bg-gray-50 border-b">
                         <td className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-sm text-gray-900 sticky left-0 bg-white border-r font-medium`} style={{ minWidth: isMobile ? '150px' : '200px' }}>
                           <div className={isMobile ? 'text-xs' : 'text-sm'}>
@@ -593,8 +569,6 @@ const InventaireDashboard = ({ currentUser }) => {
                           )
                         })}
                       </tr>
-                    ))}
-                  </React.Fragment>
                 ))}
               </tbody>
             </table>
