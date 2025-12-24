@@ -4,6 +4,7 @@ import LoginScreen from './components/LoginScreen'
 import DashboardHome from './components/DashboardHome'
 import AlertesRV from './components/AlertesRV'
 import InventaireDashboard from './components/InventaireDashboard'
+import NotificationsPanel from './components/NotificationsPanel'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
 import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard'
@@ -69,6 +70,8 @@ function App() {
         // Dashboard admin (actuel)
         if (currentView === 'dashboard') {
           return <DashboardHome currentUser={effectiveUser} />
+        } else if (currentView === 'notifications') {
+          return <NotificationsPanel currentUser={effectiveUser} />
         } else if (currentView === 'alertes-rv') {
           return <AlertesRV currentUser={effectiveUser} />
         } else if (currentView === 'inventaire') {
@@ -76,7 +79,7 @@ function App() {
         } else if (currentView === 'tournees') {
           return <NickDashboard currentUser={effectiveUser} />
         } else if (currentView === 'place-des-arts') {
-          return <PlaceDesArtsDashboard />
+          return <PlaceDesArtsDashboard currentUser={effectiveUser} />
         } else if (currentView === 'calculateur-frais') {
           return (
             <div className="space-y-8">
@@ -117,6 +120,20 @@ function App() {
                     }`}
                   >
                     📊 Dashboard
+                  </button>
+                )}
+
+                {/* Notifications - admin seulement */}
+                {effectiveRole === 'admin' && (
+                  <button
+                    onClick={() => setCurrentView('notifications')}
+                    className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                      currentView === 'notifications'
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🔔 Notifications
                   </button>
                 )}
 
