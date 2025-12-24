@@ -771,8 +771,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     <select
                       value={it.technician_id || ''}
                       onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                      className="w-full border border-gray-200 rounded px-2 py-1 text-xs bg-white"
-                      title={techMap[it.technician_id] || it.technician || 'Aucun technicien'}
+                      className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium"
+                      title={techMap[it.technician_id] || it.technician || 'Choisir technicien'}
+                      style={{ width: '50px' }}
                     >
                       <option value="">—</option>
                       <option value="usr_U9E5bLxrFiXqTbE8">N</option>
