@@ -11,6 +11,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [batchYear, setBatchYear] = useState(new Date().getFullYear())
+  const [batchTechnician, setBatchTechnician] = useState('')
 
   // Filtres
   const [statusFilter, setStatusFilter] = useState('')
@@ -291,6 +292,26 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       await fetchData()
       setInfoMessage(`Année mise à ${batchYear} pour ${selectedIds.length} élément(s)`)
       setSelectedIds([])
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleBatchTechnician = async () => {
+    if (!selectedIds.length) return
+    if (!batchTechnician) {
+      setError('Veuillez sélectionner un technicien')
+      return
+    }
+    try {
+      setError(null)
+      for (const id of selectedIds) {
+        await updateCellRaw(id, 'technician_id', batchTechnician)
+      }
+      await fetchData()
+      setInfoMessage(`Technicien assigné à ${selectedIds.length} élément(s)`)
+      setSelectedIds([])
+      setBatchTechnician('')
     } catch (err) {
       setError(err.message)
     }
@@ -605,6 +626,25 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
             >
               Changer l'année
+            </button>
+          </div>
+          <div className="flex items-center gap-1 text-xs">
+            <select
+              value={batchTechnician}
+              onChange={(e) => setBatchTechnician(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              <option value="">Choisir technicien...</option>
+              <option value="usr_U9E5bLxrFiXqTbE8">Nick (N)</option>
+              <option value="usr_allan">Allan (A)</option>
+              <option value="usr_jp">Jean-Philippe (JP)</option>
+            </select>
+            <button
+              onClick={handleBatchTechnician}
+              className="px-2 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50"
+              disabled={!batchTechnician}
+            >
+              Assigner
             </button>
           </div>
           <select
