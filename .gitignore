@@ -44,6 +44,7 @@ token.json
 
 # Fichiers de credentials et variables d'environnement
 data/credentials.json
+data/credentials_ptm.json
 frontend/.env.local
 .env.local
 .env.*.local
@@ -54,3 +55,6 @@ GUIDE_MIGRATION_*.md
 # Fichiers de backup des secrets - NE JAMAIS pousser sur GitHub
 SECRETS_PERMANENTS.md
 docs/SECRETS_REFERENCE.md
+
+# Archives de scripts de test et debug (V4/V5)
+scripts/archives_v4_v5/

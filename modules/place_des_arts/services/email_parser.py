@@ -79,14 +79,34 @@ def parse_date_flexible(date_str: str, current_date: datetime) -> datetime:
             raise ValueError(f"Mois invalide: {month_name} (format: {date_str})")
 
     current_year = current_date.year
-    current_month = current_date.month
-    current_day = current_date.day
-    if month < current_month:
-        year = current_year + 1
-    elif month > current_month:
+
+    # Essayer avec l'année actuelle ET l'année prochaine
+    try:
+        candidate_current = datetime(current_year, month, day)
+    except ValueError:
+        # Date invalide (ex: 29 février année non bissextile)
+        raise ValueError(f"Date invalide: jour={day}, mois={month}")
+
+    try:
+        candidate_next = datetime(current_year + 1, month, day)
+    except ValueError:
+        candidate_next = None
+
+    # Calculer la différence en jours pour les deux options
+    days_diff_current = (candidate_current - current_date).days
+    days_diff_next = (candidate_next - current_date).days if candidate_next else 999
+
+    # Logique de décision avec fenêtre de 30 jours passé et 6 mois futur:
+    # - Si date année actuelle est dans [-30 jours, +180 jours] → année actuelle
+    # - Sinon → année prochaine
+    if -30 <= days_diff_current <= 180:
         year = current_year
+    elif candidate_next and 0 <= days_diff_next <= 180:
+        year = current_year + 1
     else:
-        year = current_year + 1 if day < current_day else current_year
+        # Par défaut, prendre l'option la plus proche
+        year = current_year if abs(days_diff_current) < abs(days_diff_next) else current_year + 1
+
     return datetime(year, month, day)
 
 
@@ -108,17 +128,23 @@ def normalize_room(room_text: str) -> str:
     if not room_text:
         return ''
     room_text = room_text.strip()
-    known_codes = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM']
+    known_codes = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
     if room_text.upper() in known_codes:
+        # Normaliser 5E -> C5, CL -> SCL
+        if room_text.upper() == '5E':
+            return 'C5'
+        if room_text.upper() == 'CL':
+            return 'SCL'
         return room_text.upper()
     room_mapping = {
         'wilfrid-pelletier': 'WP', 'wilfrid pelletier': 'WP', 'wilfrid': 'WP', 'pelletier': 'WP',
         'théâtre maisonneuve': 'TM', 'theatre maisonneuve': 'TM', 'maisonneuve': 'TM',
         'salle d': 'SD',
-        'cinquième salle': 'C5', '5e salle': 'C5', 'cinquieme salle': 'C5',
+        'cinquième salle': 'C5', '5e salle': 'C5', 'cinquieme salle': 'C5', '5e': 'C5',
         'studio claude-léveillée': 'SCL', 'studio claude léveillée': 'SCL',
         'salle claude léveillée': 'SCL', 'salle claude-léveillée': 'SCL',
         'claude léveillée': 'SCL', 'claude-léveillée': 'SCL', 'claude leveillee': 'SCL', 'claude-leveillee': 'SCL',
+        'cl': 'SCL',
     }
     room_lower = room_text.lower()
     for key, code in room_mapping.items():
@@ -194,16 +220,76 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
 
 
 def parse_single_line_format(line: str, result: Dict, current_date: datetime) -> bool:
-    """Parse format compact type '6-Dec MS Concert 2 pianos 442 Piano ... avant 13h'."""
+    """
+    Parse format compact type:
+    - '6-Dec MS Concert 2 pianos 442 Piano ... avant 13h'
+    - '21-Dec 5E Charlie Brown 440 IC Piano Baldwin (9') avant 8h'
+
+    Format attendu (avec espaces multiples):
+    Date Salle PourQui Diapason Demandeur Piano Heure
+    """
     words = line.split()
     if len(words) < 4:
         return False
     try:
         # Date
         result['date'] = parse_date_with_year(words[0], current_date)
-        # Salle
-        if words[1] in ['MS', 'WP', 'TM', 'SD', 'C5', 'SCL', 'ODM']:
-            result['room'] = words[1]
+
+        # Salle (doit être en position 1 et être un code de salle)
+        if words[1] in ['MS', 'WP', 'TM', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']:
+            result['room'] = normalize_room(words[1])
+
+            # Format compact détecté avec salle en position 1
+            # Ordre: Date Salle PourQui Diapason Demandeur Piano Heure
+
+            # Trouver le diapason (3 chiffres)
+            diapason_idx = None
+            for i, w in enumerate(words):
+                if re.match(r'^\d{3}$', w):
+                    result['diapason'] = w
+                    diapason_idx = i
+                    break
+
+            # Trouver l'heure (mot avec 'Xh' ou 'avant')
+            time_idx = None
+            for i, w in enumerate(words):
+                # Rechercher pattern d'heure: \d+h ou "avant"
+                if re.search(r'\d+h', w, re.IGNORECASE) or w.lower() == 'avant':
+                    if w.lower() == 'avant' and i+1 < len(words):
+                        result['time'] = f"{w} {words[i+1]}"
+                        time_idx = i
+                    else:
+                        result['time'] = w
+                        time_idx = i
+                    break
+
+            # Trouver "Piano" keyword
+            piano_idx = None
+            for i, w in enumerate(words):
+                if w.lower() == 'piano':
+                    piano_idx = i
+                    break
+
+            # Pour qui: entre salle (idx 1) et diapason
+            if diapason_idx and diapason_idx > 2:
+                for_who_parts = words[2:diapason_idx]
+                result['for_who'] = ' '.join(for_who_parts)
+
+            # Demandeur: entre diapason et "Piano" keyword
+            if diapason_idx and piano_idx and piano_idx > diapason_idx + 1:
+                requester_parts = words[diapason_idx + 1:piano_idx]
+                result['requester'] = ' '.join(requester_parts)
+
+            # Piano: après "Piano" keyword jusqu'à l'heure
+            if piano_idx:
+                end_idx = time_idx if time_idx else len(words)
+                piano_parts = words[piano_idx:end_idx]
+                result['piano'] = ' '.join(piano_parts)
+
+            result['confidence'] = 0.85
+            return True
+
+        # Format ancien (sans salle en position 1)
         # Diapason
         for w in words:
             if re.match(r'^\d{3}$', w):
@@ -214,7 +300,7 @@ def parse_single_line_format(line: str, result: Dict, current_date: datetime) ->
             if 'h' in w or w.lower() == 'avant':
                 result['time'] = f"{w} {words[i+1]}" if w.lower() == 'avant' and i+1 < len(words) else w
                 break
-        # Pour qui (entre salle et diapason)
+        # Pour qui (entre début et diapason)
         for_who_parts = []
         start_idx = 2 if result.get('room') else 1
         for i in range(start_idx, len(words)):
@@ -250,9 +336,13 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
         'piano': None, 'service': None, 'for_who': None, 'diapason': None,
         'requester': None, 'notes': None, 'confidence': 0.0, 'warnings': []
     }
-    if len(lines) == 1:
-        if parse_single_line_format(lines[0], result, current_date):
-            return result
+
+    # Try single-line format on each line in the block
+    for line in lines:
+        temp_result = result.copy()
+        if parse_single_line_format(line, temp_result, current_date):
+            # If we successfully parsed as single-line, return immediately
+            return temp_result
 
     parts_by_dash = [p.strip() for p in block_text.split(' - ')]
     has_enough_parts = len(parts_by_dash) >= 4 and all(len(p) > 0 for p in parts_by_dash[:4])
@@ -280,7 +370,7 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 result['notes'] = ' - '.join(parts[4:])
     else:
         date_pattern = re.compile(r'^(\d{1,2})[-/\s]*(\w{3,})', re.IGNORECASE)
-        room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM']
+        room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
         piano_keywords = ['Steinway', 'Yamaha', 'Kawai', 'Bösendorfer', 'Fazioli', 'Baldwin', 'Mason']
 
         # Heuristiques spécifiques au format 6 lignes (date, room, for_who, diapason, piano, time)
@@ -337,13 +427,16 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 continue
             if result.get('date') and date_pattern.search(ls):
                 continue
-            if result.get('room') and any(kw.upper() in ls.upper() for kw in room_keywords):
-                continue
 
             lower = ls.lower()
             has_brand = any(kw.lower() in lower for kw in [k.lower() for k in piano_keywords])
             has_piano_word = ('piano de' in lower) or (lower.startswith('piano ')) or (' piano ' in lower)
             is_concert_label = 'concert' in lower and 'piano' in lower and not has_brand
+
+            # Skip room lines ONLY if they don't contain piano brand/keyword
+            if result.get('room') and any(kw.upper() in ls.upper() for kw in room_keywords):
+                if not has_brand and not has_piano_word:
+                    continue
 
             if candidate_for_who is None and not is_diapason_line(ls) and not is_requester_line(ls) and not is_time_line(ls) and not has_brand and not has_piano_word:
                 candidate_for_who = ls
@@ -396,6 +489,26 @@ def parse_email_text(email_text: str) -> List[Dict]:
     Retourne une liste de dicts structurés (date, room, piano, etc.).
     """
     current_date = datetime.now()
+    # Heuristique de signature (demandeur global)
+    def extract_signature_requester(all_lines: List[str]) -> Optional[str]:
+        polite_words = ['merci', 'bientot', 'bientôt', 'possible', 'confirm', 'cordialement', 'bien à vous', 'bien a vous']
+        for raw in reversed(all_lines):
+            ls = raw.strip()
+            if not ls:
+                continue
+            if any(ch.isdigit() for ch in ls):
+                continue
+            if '@' in ls:
+                continue
+            if len(ls.split()) > 3 or len(ls) > 40:
+                continue
+            lower = ls.lower()
+            if any(w in lower for w in polite_words):
+                continue
+            # Nom court capitalisé → signature candidate
+            if ls[0].isupper():
+                return ls
+        return None
     # 1) Si tabulaire (tableur collé avec tabs), traiter en priorité
     tabular = parse_tabular_rows(email_text, current_date)
     if tabular:
@@ -412,11 +525,12 @@ def parse_email_text(email_text: str) -> List[Dict]:
         r'.*merci\s+de\s+confirmer.*', r'pour\s+accord\s+piano', r'à\s+la\s+salle',
     ]
     data_patterns = [
-        r'^(\d{1,2})[-/\s]*(\w{3,})$', r'(WP|TM|MS|SD|C5|SCL|ODM)', r'^\d{3}$',
+        r'^(\d{1,2})[-/\s]*(\w{3,})$', r'(WP|TM|MS|SD|C5|SCL|ODM|5E|CL)', r'^\d{3}$',
         r'^(IC|AJ|Piano\s+Tech)$', r'(Steinway|Yamaha|Kawai|Bösendorfer|Fazioli|Baldwin|Mason)', r'\d{1,2}h',
     ]
     all_lines = email_text.split('\n')
     cleaned_lines = []
+    signature_requester = extract_signature_requester(all_lines)
     for line in all_lines:
         line_stripped = line.strip()
         if not line_stripped:
@@ -425,7 +539,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
             continue
         is_data_line = any(re.search(p, line_stripped, re.IGNORECASE) for p in data_patterns)
         has_piano_brand = bool(re.search(r'(Steinway|Yamaha|Kawai|Bösendorfer|Fazioli|Baldwin|Mason)', line_stripped, re.IGNORECASE))
-        has_room_code = bool(re.search(r'(WP|TM|MS|SD|C5|SCL|ODM)', line_stripped, re.IGNORECASE))
+        has_room_code = bool(re.search(r'(WP|TM|MS|SD|C5|SCL|ODM|5E|CL)', line_stripped, re.IGNORECASE))
         has_time_indicator = 'avant' in line_stripped.lower() or re.search(r'\d{1,2}h', line_stripped, re.IGNORECASE)
         if is_data_line or has_piano_brand or has_room_code or len(line_stripped) <= 100 or has_time_indicator:
             cleaned_lines.append(line_stripped)
@@ -448,5 +562,12 @@ def parse_email_text(email_text: str) -> List[Dict]:
         parsed = parse_email_block(block_text, current_date)
         if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
             requests.append(parsed)
+
+    # Appliquer le demandeur global (signature) aux demandes sans demandeur
+    if signature_requester:
+        for req in requests:
+            if not req.get('requester'):
+                req['requester'] = signature_requester
+                req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
 
     return requests

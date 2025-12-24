@@ -52,6 +52,54 @@ def get_manager() -> EventManager:
     return _manager
 
 
+def find_duplicate_candidates(row: Dict[str, Any]) -> List[str]:
+    """
+    Cherche des doublons potentiels dans place_des_arts_requests pour une ligne donnée.
+    Critères : même date (jour), même salle, et rapprochement sur piano OU for_who.
+    """
+    storage = get_storage()
+    appt = row.get("appointment_date")
+    room = (row.get("room") or "").strip()
+    if not appt or not room:
+        return []
+    try:
+        appt_date = appt[:10]
+        gte = f"{appt_date}T00:00:00"
+        lt = f"{appt_date}T23:59:59.999999"
+    except Exception:
+        return []
+
+    params = [
+        "select=id,appointment_date,room,piano,for_who",
+        f"appointment_date=gte.{gte}",
+        f"appointment_date=lt.{lt}",
+        f"room=eq.{room}",
+        "limit=50"
+    ]
+    url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
+    resp = requests.get(url, headers=storage._get_headers())
+    if resp.status_code != 200:
+        return []
+    candidates = resp.json() or []
+
+    def normalize(val: Optional[str]) -> str:
+        return (val or "").strip().lower()
+
+    piano_in = normalize(row.get("piano"))
+    forwho_in = normalize(row.get("for_who"))
+
+    dup_ids: List[str] = []
+    for c in candidates:
+        cp = normalize(c.get("piano"))
+        cf = normalize(c.get("for_who"))
+        if piano_in and piano_in and piano_in in cp or cp in piano_in:
+            dup_ids.append(c.get("id"))
+            continue
+        if forwho_in and (forwho_in in cf or cf in forwho_in):
+            dup_ids.append(c.get("id"))
+    return dup_ids
+
+
 class ImportCSVResponse(BaseModel):
     dry_run: bool
     received: int
@@ -196,6 +244,17 @@ async def delete_requests(payload: DeleteRequest):
     return result
 
 
+@router.get("/requests/find-duplicates")
+async def find_duplicates():
+    """
+    Trouve les doublons sans les supprimer.
+    Retourne la liste des enregistrements qui seraient supprimés.
+    """
+    manager = get_manager()
+    duplicates = manager.find_duplicates()
+    return {"duplicates": duplicates, "count": len(duplicates)}
+
+
 @router.post("/requests/delete-duplicates")
 async def delete_duplicates():
     manager = get_manager()
@@ -220,8 +279,11 @@ async def preview_email(payload: PreviewRequest):
     # Map vers format normalisé (mais sans id)
     preview = []
     for idx, item in enumerate(parsed, start=1):
+        appt_val = item.get("date")
+        if isinstance(appt_val, datetime):
+            appt_val = appt_val.date().isoformat()
         row = {
-            "appointment_date": item.get("date").isoformat() if isinstance(item.get("date"), (str, type(None))) is False else item.get("date"),
+            "appointment_date": appt_val if isinstance(appt_val, str) else item.get("date"),
             "room": item.get("room"),
             "for_who": item.get("for_who"),
             "diapason": item.get("diapason"),
@@ -233,6 +295,14 @@ async def preview_email(payload: PreviewRequest):
             "confidence": item.get("confidence"),
             "warnings": item.get("warnings"),
         }
+        row["duplicate_of"] = find_duplicate_candidates(
+            {
+                "appointment_date": row.get("appointment_date"),
+                "room": row.get("room"),
+                "piano": row.get("piano"),
+                "for_who": row.get("for_who"),
+            }
+        )
         preview.append(row)
     return {"success": True, "preview": preview, "count": len(preview)}
 
@@ -372,3 +442,138 @@ async def import_requests_csv(
         errors=result.get("errors", []),
         message=result.get("message", "Stub: aucune écriture tant que la migration n'est pas finalisée.")
     )
+
+
+# ============================================================
+# APPRENTISSAGE INTELLIGENT (Learning)
+# ============================================================
+
+class LearningCorrectionRequest(BaseModel):
+    """Correction manuelle d'un parsing pour apprentissage."""
+    original_text: str
+
+    # Champs parsés automatiquement
+    parsed_date: Optional[str] = None
+    parsed_room: Optional[str] = None
+    parsed_for_who: Optional[str] = None
+    parsed_diapason: Optional[str] = None
+    parsed_piano: Optional[str] = None
+    parsed_time: Optional[str] = None
+    parsed_requester: Optional[str] = None
+    parsed_confidence: Optional[float] = None
+
+    # Champs corrigés manuellement
+    corrected_date: Optional[str] = None
+    corrected_room: Optional[str] = None
+    corrected_for_who: Optional[str] = None
+    corrected_diapason: Optional[str] = None
+    corrected_piano: Optional[str] = None
+    corrected_time: Optional[str] = None
+    corrected_requester: Optional[str] = None
+
+    corrected_by: str  # Email de l'utilisateur
+
+
+@router.post("/learn")
+async def save_correction(payload: LearningCorrectionRequest):
+    """
+    Enregistre une correction manuelle pour améliorer le parser.
+    Utilisé quand l'utilisateur corrige des champs après parsing.
+    """
+    storage = get_storage()
+
+    correction_data = {
+        "original_text": payload.original_text,
+        "parsed_date": payload.parsed_date,
+        "parsed_room": payload.parsed_room,
+        "parsed_for_who": payload.parsed_for_who,
+        "parsed_diapason": payload.parsed_diapason,
+        "parsed_piano": payload.parsed_piano,
+        "parsed_time": payload.parsed_time,
+        "parsed_requester": payload.parsed_requester,
+        "parsed_confidence": payload.parsed_confidence,
+        "corrected_date": payload.corrected_date,
+        "corrected_room": payload.corrected_room,
+        "corrected_for_who": payload.corrected_for_who,
+        "corrected_diapason": payload.corrected_diapason,
+        "corrected_piano": payload.corrected_piano,
+        "corrected_time": payload.corrected_time,
+        "corrected_requester": payload.corrected_requester,
+        "corrected_by": payload.corrected_by,
+    }
+
+    try:
+        # Upsert dans parsing_corrections
+        url = f"{storage.api_url}/parsing_corrections"
+        headers = {
+            **storage._get_headers(),
+            "Prefer": "resolution=merge-duplicates"
+        }
+
+        resp = requests.post(url, headers=headers, json=correction_data)
+
+        if resp.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Erreur Supabase: {resp.text}"
+            )
+
+        return {
+            "success": True,
+            "message": "Correction enregistrée pour apprentissage futur"
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur enregistrement correction: {str(e)}"
+        ) from e
+
+
+@router.get("/learning-stats")
+async def get_learning_stats():
+    """
+    Retourne des statistiques sur les corrections d'apprentissage.
+    """
+    storage = get_storage()
+
+    try:
+        # Compter les corrections par champ
+        url = f"{storage.api_url}/parsing_corrections?select=*"
+        resp = requests.get(url, headers=storage._get_headers())
+
+        if resp.status_code != 200:
+            return {"success": False, "corrections": []}
+
+        corrections = resp.json()
+
+        # Analyser les corrections
+        stats = {
+            "total_corrections": len(corrections),
+            "fields_corrected": {
+                "date": 0,
+                "room": 0,
+                "for_who": 0,
+                "diapason": 0,
+                "piano": 0,
+                "time": 0,
+                "requester": 0
+            },
+            "recent_corrections": corrections[-10:] if len(corrections) > 10 else corrections
+        }
+
+        for c in corrections:
+            for field in ["date", "room", "for_who", "diapason", "piano", "time", "requester"]:
+                if c.get(f"corrected_{field}") != c.get(f"parsed_{field}"):
+                    stats["fields_corrected"][field] += 1
+
+        return {
+            "success": True,
+            "stats": stats
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }

@@ -382,6 +382,37 @@ class EventManager:
         data = resp.json() if resp.content else []
         return {"ok": True, "count": len(data) if isinstance(data, list) else 0}
 
+    def find_duplicates(self) -> List[Dict[str, Any]]:
+        """
+        Trouve les doublons (critères V4) : même appointment_date, room, for_who, time.
+        Retourne la liste des enregistrements qui seraient supprimés (les IDs les plus grands).
+        """
+        all_rows = self.get_requests(limit=5000)
+        to_delete_ids: List[str] = []
+        seen = {}
+        row_map = {row["id"]: row for row in all_rows}
+
+        for row in all_rows:
+            key = (
+                (row.get("appointment_date") or "")[:10],
+                row.get("room") or "",
+                row.get("for_who") or "",
+                row.get("time") or "",
+            )
+            existing = seen.get(key)
+            if existing:
+                # garder le plus petit id
+                keep = min(existing, row["id"])
+                drop = row["id"] if keep == existing else existing
+                seen[key] = keep
+                to_delete_ids.append(drop)
+            else:
+                seen[key] = row["id"]
+
+        # Retourner les détails complets des doublons
+        duplicates = [row_map[id] for id in to_delete_ids if id in row_map]
+        return duplicates
+
     def delete_duplicates(self) -> Dict[str, Any]:
         """
         Supprime doublons (critères V4) : même appointment_date, room, for_who, time.
