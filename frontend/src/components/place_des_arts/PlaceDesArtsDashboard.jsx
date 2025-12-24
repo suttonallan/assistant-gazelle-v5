@@ -768,26 +768,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     ) : (it.time || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={techMap[it.technician_id] || it.technician || ''}
-                        list="tech-options"
-                        onBlur={(e) => {
-                          const val = e.target.value.trim()
-                          if (val === '') return handleCellUpdate(it.id, 'technician_id', '')
-                          const mapped = techLabelToId[val.toLowerCase()] || (val.toLowerCase().startsWith('usr_') ? val : val)
-                          handleCellUpdate(it.id, 'technician_id', mapped)
-                        }}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                        placeholder="Technicien"
-                        title="Saisir ou choisir le technicien"
-                      />
-                    ) : (
-                      <span title={techMap[it.technician_id] || it.technician || '—'}>
-                        {techMapShort[it.technician_id] || (it.technician ? it.technician.charAt(0).toUpperCase() : '—')}
-                      </span>
-                    )}
+                    <input
+                      type="text"
+                      defaultValue={techMap[it.technician_id] || it.technician || ''}
+                      list="tech-options"
+                      onBlur={(e) => {
+                        const val = e.target.value.trim()
+                        if (val === '') return handleCellUpdate(it.id, 'technician_id', '')
+                        const mapped = techLabelToId[val.toLowerCase()] || (val.toLowerCase().startsWith('usr_') ? val : val)
+                        handleCellUpdate(it.id, 'technician_id', mapped)
+                      }}
+                      className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
+                      placeholder="Technicien"
+                      title="Saisir ou choisir le technicien"
+                    />
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
