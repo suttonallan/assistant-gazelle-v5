@@ -44,6 +44,12 @@ class ChatResponse(BaseModel):
     structured_data: Optional[Dict[str, Any]] = None
 
 
+class AdminFeedbackPayload(BaseModel):
+    """Payload pour ajouter une note interne admin."""
+    note: str
+    user_email: str
+
+
 class HealthResponse(BaseModel):
     """État de santé de l'assistant."""
     status: str
@@ -216,6 +222,94 @@ async def get_client_details(client_id: str):
         queries = get_queries()
         print(f"🔍 /assistant/client -> lookup id: {client_id}")
         
+        def build_timeline_summary(entity_id: str) -> dict:
+            """
+            Récupère et résume les entrées timeline depuis Supabase.
+            Retourne un dict avec compte total, bornes de dates et extraits récents.
+            """
+            entries, total = queries.get_timeline_entries(
+                entity_id,
+                entity_type="CLIENT",
+                limit=200,
+                include_count=True
+            )
+
+            # Séparer les entrées potentiellement non pertinentes (pianos déplacés/inactifs)
+            flagged_entries_raw = []
+            kept_entries = []
+            for e in entries or []:
+                desc = (e.get("description") or "").lower()
+                if "inactivating this piano record" in desc or "moved piano to" in desc:
+                    flagged_entries_raw.append(e)
+                else:
+                    kept_entries.append(e)
+
+            entries = kept_entries
+
+            if not entries:
+                return {
+                    "total_entries": total or 0,
+                    "recent_entries": [],
+                    "top_messages": [],
+                    "by_year": {},
+                    "null_descriptions": 0,
+                    "first_entry_date": None,
+                    "last_entry_date": None,
+                    "flagged_entries": [],
+                    "flagged_count": len(flagged_entries_raw),
+                }
+
+            from collections import Counter
+            from datetime import datetime
+
+            def safe_date(d):
+                try:
+                    return datetime.fromisoformat(d.replace("Z", "+00:00"))
+                except Exception:
+                    return None
+
+            dates = [safe_date(e.get("entry_date", "")) for e in entries if e.get("entry_date")]
+            dates_clean = [d for d in dates if d]
+            first_entry = min(dates_clean).date().isoformat() if dates_clean else None
+            last_entry = max(dates_clean).date().isoformat() if dates_clean else None
+
+            # Comptes par année
+            by_year = Counter()
+            for d in dates_clean:
+                by_year[str(d.year)] += 1
+
+            # Messages (description ou titre)
+            descriptions = []
+            null_descriptions = 0
+            for e in entries:
+                desc = e.get("description")
+                if desc is None:
+                    null_descriptions += 1
+                else:
+                    descriptions.append(desc)
+
+            top_messages = Counter(descriptions).most_common(5)
+
+            def render_entry(e):
+                text = e.get("description") or e.get("title") or e.get("event_type") or "Note"
+                date_str = (e.get("entry_date") or "")[:10]
+                return {"date": date_str, "text": text}
+
+            recent_entries = [render_entry(e) for e in entries[:20]]
+            flagged_entries = [render_entry(e) for e in flagged_entries_raw[:20]]
+
+            return {
+                "total_entries": total or len(entries),
+                "recent_entries": recent_entries,
+                "top_messages": [{"text": msg, "count": cnt} for msg, cnt in top_messages],
+                "by_year": dict(by_year),
+                "null_descriptions": null_descriptions,
+                "first_entry_date": first_entry,
+                "last_entry_date": last_entry,
+                "flagged_entries": flagged_entries,
+                "flagged_count": len(flagged_entries_raw),
+            }
+
         # Rechercher le client/contact (voie principale)
         results = queries.search_clients([client_id])
         
@@ -224,15 +318,21 @@ async def get_client_details(client_id: str):
             endpoints_clients = ["gazelle_clients", "gazelle.clients", "clients"]
             endpoints_contacts = ["gazelle_contacts", "gazelle.contacts", "contacts"]
             found = []
+            is_numeric_id = client_id.isdigit()
 
             def fetch_endpoint(endpoint_list, entity_type):
                 for ep in endpoint_list:
                     try:
-                        # eq sur external_id ou id
+                        # eq sur external_id (et id si numérique uniquement)
+                        eq_filters = [f"external_id=eq.{client_id}"]
+                        if is_numeric_id:
+                            eq_filters.append(f"id=eq.{client_id}")
+                        eq_filters_str = "&".join(eq_filters)
+
                         url_eq = (
                             f"{queries.storage.api_url}/{ep}"
                             f"?select=*"
-                            f"&or=(external_id.eq.{client_id},id.eq.{client_id})"
+                            f"&{eq_filters_str}"
                             f"&limit=5"
                         )
                         resp_eq = requests.get(url_eq, headers=queries.storage._get_headers())
@@ -244,10 +344,12 @@ async def get_client_details(client_id: str):
                             return
 
                         # ilike si eq vide
+                        ilike_filters = [f"external_id.ilike.*{client_id}*"]
+                        ilike_filters_str = "&".join(ilike_filters)
                         url_ilike = (
                             f"{queries.storage.api_url}/{ep}"
                             f"?select=*"
-                            f"&or=(external_id.ilike.*{client_id}*,id.ilike.*{client_id}*)"
+                            f"&{ilike_filters_str}"
                             f"&limit=5"
                         )
                         resp_ilike = requests.get(url_ilike, headers=queries.storage._get_headers())
@@ -327,29 +429,33 @@ async def get_client_details(client_id: str):
             
             # Service history (timeline entries pour client + pianos)
             try:
-                service_notes = []
-                # Timeline pour le client
-                timeline_entries_client = queries.get_timeline_entries(entity_id, entity_type='client', limit=20)
-                
-                # Timeline pour chaque piano
-                timeline_entries_pianos = []
-                for piano in details.get('pianos', []):
-                    piano_id = piano.get('external_id')
-                    if piano_id:
-                        piano_timeline = queries.get_timeline_entries(piano_id, entity_type='piano', limit=10)
-                        timeline_entries_pianos.extend(piano_timeline)
-                
-                # Combiner et extraire les notes
-                all_timeline_entries = timeline_entries_client + timeline_entries_pianos
-                for e in all_timeline_entries:
-                    note = e.get('notes') or e.get('description') or e.get('content') or e.get('note') or e.get('text') or e.get('summary')
-                    if note:
-                        service_notes.append(str(note))
-                
-                details['service_history'] = service_notes[:20]  # Limiter à 20 pour éviter surcharge
+                timeline_summary = build_timeline_summary(entity_id)
+                details['timeline_summary'] = timeline_summary
+
+                # Garder compatibilité avec l'affichage existant (liste simple)
+                details['service_history'] = [
+                    f"{entry.get('date', '')}: {entry.get('text', '')}"
+                    for entry in timeline_summary.get('recent_entries', [])
+                ]
             except Exception as e:
                 print(f"⚠️ Erreur timeline pour {entity_id}: {e}")
+                details['timeline_summary'] = {
+                    "total_entries": 0,
+                    "recent_entries": [],
+                    "top_messages": [],
+                    "by_year": {},
+                    "null_descriptions": 0,
+                    "first_entry_date": None,
+                    "last_entry_date": None,
+                }
                 details['service_history'] = []
+
+            # Feedback admin (notes internes utilisées pour améliorer les résumés)
+            try:
+                details['admin_feedback'] = queries.get_admin_feedback(entity_id, limit=50)
+            except Exception as e:
+                print(f"⚠️ Erreur admin_feedback pour {entity_id}: {e}")
+                details['admin_feedback'] = []
             
             # Contacts associés
             try:
@@ -410,6 +516,34 @@ async def get_client_details(client_id: str):
         print(f"❌ Erreur dans /assistant/client/{client_id}: {e}")
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/client/{client_id}/feedback")
+async def add_client_feedback(client_id: str, payload: AdminFeedbackPayload):
+    """
+    Ajoute une note interne (admin) pour un client.
+    Ces notes peuvent être utilisées pour affiner les résumés.
+    """
+    try:
+        if not payload.note or not payload.note.strip():
+            raise HTTPException(status_code=400, detail="Note vide")
+
+        queries = get_queries()
+        ok = queries.add_admin_feedback(
+            client_id=client_id,
+            user_email=payload.user_email or "unknown",
+            note=payload.note.strip()
+        )
+        if not ok:
+            raise HTTPException(status_code=500, detail="Impossible d'enregistrer la note")
+
+        return {"status": "ok"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erreur add_client_feedback {client_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
