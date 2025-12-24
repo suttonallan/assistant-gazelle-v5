@@ -345,12 +345,24 @@ class EventManager:
 
         hdrs = self.storage._get_headers().copy()
         hdrs["Prefer"] = "return=representation"
-        url = f"{self.storage.api_url}/place_des_arts_requests?id=in.({','.join(request_ids)})"
+        # Pour PostgREST/Supabase, les IDs bigint doivent être sans guillemets dans le filtre in
+        ids_str = ','.join(str(id) for id in request_ids)
+        url = f"{self.storage.api_url}/place_des_arts_requests?id=in.({ids_str})"
+
+        print(f"🔧 update_status_batch: {len(request_ids)} IDs → status={status}")
+        print(f"   URL: {url}")
+        print(f"   Payload: {payload}")
+
         resp = requests.patch(url, headers=hdrs, json=payload)
         if resp.status_code not in (200, 204):
+            print(f"   ❌ Erreur: {resp.status_code} - {resp.text}")
             return {"ok": False, "error": resp.text}
+
         data = resp.json() if resp.content else []
-        return {"ok": True, "count": len(data) if isinstance(data, list) else 0}
+        updated_count = len(data) if isinstance(data, list) else 0
+        print(f"   ✓ Mis à jour: {updated_count} enregistrement(s)")
+
+        return {"ok": True, "count": updated_count}
 
     def delete_requests(self, request_ids: List[str]) -> Dict[str, Any]:
         """
