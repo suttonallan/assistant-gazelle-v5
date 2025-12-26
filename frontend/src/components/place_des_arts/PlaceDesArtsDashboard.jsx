@@ -93,6 +93,43 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     })
   }, [items, statusFilter, monthFilter, technicianFilter, roomFilter, search])
 
+  // Générer la liste des mois disponibles dans les données
+  const availableMonths = useMemo(() => {
+    const months = new Set()
+    items.forEach(item => {
+      if (item.appointment_date) {
+        const month = item.appointment_date.substring(0, 7) // YYYY-MM
+        months.add(month)
+      }
+    })
+    return Array.from(months).sort().reverse() // Plus récent en premier
+  }, [items])
+
+  // Calculer le total mensuel (facturation + stationnement)
+  const monthlyTotal = useMemo(() => {
+    if (!monthFilter) return null
+
+    let totalBilling = 0
+    let totalParking = 0
+
+    filteredItems.forEach(item => {
+      // Additionner la facturation
+      const billing = parseFloat(item.billing_amount) || 0
+      totalBilling += billing
+
+      // Additionner le stationnement (peut être texte ou nombre)
+      const parking = parseFloat(item.parking) || 0
+      totalParking += parking
+    })
+
+    return {
+      billing: totalBilling,
+      parking: totalParking,
+      total: totalBilling + totalParking,
+      count: filteredItems.length
+    }
+  }, [filteredItems, monthFilter])
+
   const sortedItems = useMemo(() => {
     if (!sortField) return filteredItems
     const dir = sortDir === 'desc' ? -1 : 1
@@ -160,6 +197,128 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const handleStatusChange = async (newStatus, idsOverride = null) => {
     const ids = idsOverride || selectedIds
     if (!newStatus || ids.length === 0) return
+
+    // Si on passe à "Assigné", demander d'abord de choisir un technicien
+    if (newStatus === 'ASSIGN_OK') {
+      const techChoice = prompt(
+        `Assigné à quel technicien?\n\n` +
+        `1 - Nick\n` +
+        `2 - Allan\n` +
+        `3 - JP\n` +
+        `\nEntrez le numéro (1, 2 ou 3):`
+      )
+
+      if (!techChoice) return // Annulé
+
+      const techMap = {
+        '1': 'usr_HcCiFk7o0vZ9xAI0', // Nick (ID Gazelle)
+        '2': 'usr_ofYggsCDt2JAVeNP', // Allan (ID Gazelle)
+        '3': 'usr_ReUSmIJmBF86ilY1', // JP (ID Gazelle)
+      }
+
+      const techId = techMap[techChoice.trim()]
+      if (!techId) {
+        alert('Choix invalide. Veuillez entrer 1, 2 ou 3.')
+        return
+      }
+
+      // Assigner le technicien (le statut ASSIGN_OK sera automatique via handleCellUpdate)
+      try {
+        console.log(`🚀 Assignation de ${ids.length} demande(s) au technicien ${techId}`)
+        setError(null)
+        setInfoMessage(null)
+
+        for (const id of ids) {
+          console.log(`  ⏳ Mise à jour demande ${id}...`)
+          await updateCellRaw(id, 'technician_id', techId)
+          await updateCellRaw(id, 'status', 'ASSIGN_OK')
+          console.log(`  ✅ Demande ${id} mise à jour`)
+        }
+
+        console.log(`🔄 Rechargement des données...`)
+        await fetchData()
+
+        const message = `Technicien assigné pour ${ids.length} élément(s)`
+        console.log(`✅ ${message}`)
+        setInfoMessage(message)
+        setSelectedIds([])
+      } catch (err) {
+        console.error(`❌ Erreur lors de l'assignation:`, err)
+        setError(`Erreur: ${err.message}`)
+      }
+      return
+    }
+
+    // Si on passe à "Créé Gazelle", valider que le RV existe dans Gazelle
+    if (newStatus === 'CREATED_IN_GAZELLE') {
+      try {
+        setError(null)
+        setInfoMessage('🔍 Validation en cours...')
+
+        // Vérifier chaque demande sélectionnée
+        const warnings = []
+        for (const id of ids) {
+          const item = items.find(it => it.id === id)
+          if (!item) continue
+
+          // Appeler l'API de validation
+          const resp = await fetch(`${API_URL}/place-des-arts/validate-gazelle-rv`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              request_id: id,
+              appointment_date: item.appointment_date,
+              room: item.room
+            })
+          })
+
+          if (!resp.ok) {
+            throw new Error(`Erreur validation: ${resp.status}`)
+          }
+
+          const data = await resp.json()
+          if (!data.found) {
+            warnings.push({
+              date: item.appointment_date,
+              room: item.room,
+              for_who: item.for_who || '(sans nom)'
+            })
+          }
+        }
+
+        // Si des RV ne sont pas trouvés, afficher l'alerte en rouge
+        if (warnings.length > 0) {
+          const warningList = warnings.map(w =>
+            `${w.date} - ${w.room} - ${w.for_who}`
+          ).join('\n')
+
+          setError(`❌ ALERTE: ${warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nVoulez-vous quand même marquer comme "Créé Gazelle"?`)
+
+          // Demander confirmation
+          if (!window.confirm(`❌ ALERTE: ${warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nVoulez-vous quand même marquer comme "Créé Gazelle"?`)) {
+            setError(null)
+            setInfoMessage(null)
+            return // Annulé
+          }
+        }
+
+        // Procéder avec le changement de statut
+        await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
+          request_ids: ids,
+          status: newStatus
+        })
+
+        if (warnings.length === 0) {
+          setInfoMessage(`✅ ${ids.length} demande(s) marquée(s) "Créé Gazelle" (RV validés)`)
+        }
+
+      } catch (err) {
+        setError(err.message || 'Erreur lors de la validation')
+      }
+      return
+    }
+
+    // Pour les autres statuts, changement direct
     await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
       request_ids: ids,
       status: newStatus
@@ -220,19 +379,101 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }
 
+  const handleSyncGazelle = async () => {
+    // Vérifier qu'au moins une ligne est cochée
+    if (selectedIds.length === 0) {
+      setError('⚠️ Veuillez cocher au moins une demande à synchroniser')
+      return
+    }
+
+    try {
+      setError(null)
+      setInfoMessage('🔄 Synchronisation en cours...')
+
+      // Envoyer seulement les IDs sélectionnés
+      const resp = await fetch(`${API_URL}/place-des-arts/sync-manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_ids: selectedIds })
+      })
+
+      if (!resp.ok) {
+        throw new Error(`Erreur sync: ${resp.status}`)
+      }
+
+      const data = await resp.json()
+
+      // Recharger les données
+      await fetchData()
+
+      // Afficher le résultat
+      if (data.has_warnings && data.warnings && data.warnings.length > 0) {
+        // Construire le message d'alerte pour les RV non trouvés
+        const warningList = data.warnings.map(w =>
+          `${w.date} - ${w.room} - ${w.for_who || '(sans nom)'}`
+        ).join('\n')
+
+        const errorMsg = `⚠️ ${data.updated} demande(s) mise(s) à jour.\n\n❌ ALERTE: ${data.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}`
+        setError(errorMsg)
+      } else {
+        setInfoMessage(`✅ ${data.message}`)
+      }
+
+      // Désélectionner après sync
+      setSelectedIds([])
+
+    } catch (err) {
+      setError(err.message || 'Erreur lors de la synchronisation')
+    }
+  }
+
   const handleExport = () => {
     window.open(`${API_URL}/place-des-arts/export`, '_blank')
   }
 
-  const updateCellRaw = async (id, field, value) => {
-    const resp = await fetch(`${API_URL}/place-des-arts/requests/update-cell`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ request_id: id, field, value })
-    })
-    if (!resp.ok) {
-      const msg = await resp.text()
-      throw new Error(msg || `HTTP ${resp.status}`)
+  const updateCellRaw = async (id, field, value, retries = 2) => {
+    try {
+      console.log(`🔧 updateCellRaw: id=${id}, field=${field}, value=${value}`)
+
+      // Timeout de 30 secondes pour le cold start de Render
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+      try {
+        const resp = await fetch(`${API_URL}/place-des-arts/requests/update-cell`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ request_id: id, field, value }),
+          signal: controller.signal
+        })
+        clearTimeout(timeoutId)
+
+        console.log(`✅ Response status: ${resp.status}`)
+        if (!resp.ok) {
+          const msg = await resp.text()
+          console.error(`❌ Error response: ${msg}`)
+          throw new Error(msg || `HTTP ${resp.status}`)
+        }
+        const data = await resp.json()
+        console.log(`✅ Update successful:`, data)
+        return data
+      } catch (fetchErr) {
+        clearTimeout(timeoutId)
+
+        // Retry si c'est une erreur réseau et qu'il reste des tentatives
+        if (retries > 0 && (fetchErr.name === 'AbortError' || fetchErr.message === 'Failed to fetch')) {
+          console.log(`⏳ Retry ${3 - retries}/2 après erreur réseau...`)
+          await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2s before retry
+          return await updateCellRaw(id, field, value, retries - 1)
+        }
+        throw fetchErr
+      }
+    } catch (err) {
+      console.error(`❌ updateCellRaw failed:`, err)
+      if (err.name === 'AbortError') {
+        throw new Error('Timeout: L\'API met trop de temps à répondre (peut-être en train de se réveiller)')
+      }
+      throw err
     }
   }
 
@@ -347,25 +588,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const techMap = {
-    'usr_U9E5bLxrFiXqTbE8': 'Nick',
-    'usr_allan': 'Allan',
-    'usr_jp': 'JP'
+    'usr_HcCiFk7o0vZ9xAI0': 'Nick',     // ID Gazelle pour Nicolas
+    'usr_ofYggsCDt2JAVeNP': 'Allan',    // ID Gazelle pour Allan
+    'usr_ReUSmIJmBF86ilY1': 'JP',       // ID Gazelle pour Jean-Philippe
+    // Anciens IDs pour compatibilité (ne devraient plus être utilisés)
+    'usr_U9E5bLxrFiXqTbE8': 'Nick (ancien ID)',
+    'usr_allan': 'Allan (ancien ID)',
+    'usr_jp': 'JP (ancien ID)'
   }
-  const techMapShort = {
-    'usr_U9E5bLxrFiXqTbE8': 'N',
-    'usr_allan': 'A',
-    'usr_jp': 'JP'
-  }
-  const techLabelToId = {
-    'nick': 'usr_U9E5bLxrFiXqTbE8',
-    'allan': 'usr_allan',
-    'jp': 'usr_jp'
-  }
+
   const technicianOptions = useMemo(() => {
     return [
-      { id: 'usr_U9E5bLxrFiXqTbE8', label: 'Nick' },
-      { id: 'usr_allan', label: 'Allan' },
-      { id: 'usr_jp', label: 'JP' }
+      { id: 'usr_HcCiFk7o0vZ9xAI0', label: 'Nick' },
+      { id: 'usr_ofYggsCDt2JAVeNP', label: 'Allan' },
+      { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' }
     ]
   }, [])
 
@@ -615,9 +851,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         </button>
         {!isRestrictedUser && (
           <button
-            disabled
-            title="Sync Gazelle (à venir)"
-            className="px-3 py-2 text-sm bg-gray-100 border border-gray-300 rounded-md text-gray-400 cursor-not-allowed"
+            onClick={handleSyncGazelle}
+            className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
           >
             🔄 Sync Gazelle
           </button>
@@ -625,12 +860,41 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
         {!isRestrictedUser && (
           <div className="flex items-center gap-2 ml-auto flex-wrap">
-            <input
-              type="month"
+            <select
               value={monthFilter}
               onChange={(e) => setMonthFilter(e.target.value)}
               className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            />
+            >
+              <option value="">Toutes les dates</option>
+              {availableMonths.map(month => {
+                const date = new Date(month + '-01')
+                const monthName = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+                return (
+                  <option key={month} value={month}>
+                    {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
+                  </option>
+                )
+              })}
+            </select>
+
+            {monthlyTotal && (
+              <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-md px-3 py-1 text-sm">
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500">Facturation</span>
+                  <span className="font-semibold text-blue-700">{monthlyTotal.billing.toFixed(2)} $</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-gray-500">Stationnement</span>
+                  <span className="font-semibold text-blue-700">{monthlyTotal.parking.toFixed(2)} $</span>
+                </div>
+                <div className="flex flex-col border-l border-blue-300 pl-4">
+                  <span className="text-xs text-gray-500">Total</span>
+                  <span className="font-bold text-blue-900">{monthlyTotal.total.toFixed(2)} $</span>
+                </div>
+                <span className="text-xs text-gray-500">({monthlyTotal.count} élément{monthlyTotal.count > 1 ? 's' : ''})</span>
+              </div>
+            )}
+
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -855,20 +1119,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     ) : (it.time || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <select
-                        value={it.technician_id || ''}
-                        onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium"
-                        title={techMap[it.technician_id] || it.technician || 'Choisir technicien'}
-                        style={{ width: '70px' }}
-                      >
-                        <option value="">—</option>
-                        <option value="usr_U9E5bLxrFiXqTbE8">Nick</option>
-                        <option value="usr_allan">Allan</option>
-                        <option value="usr_jp">JP</option>
-                      </select>
-                    ) : (techMap[it.technician_id] || it.technician_id || '—')}
+                    <select
+                      value={it.technician_id || ''}
+                      onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
+                      className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium hover:bg-gray-50 cursor-pointer"
+                      title={techMap[it.technician_id] || 'Choisir technicien'}
+                      style={{ width: '90px' }}
+                    >
+                      <option value="">—</option>
+                      {technicianOptions.map(tech => (
+                        <option key={tech.id} value={tech.id}>{tech.label}</option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (

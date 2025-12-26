@@ -134,9 +134,8 @@ def normalize_room(room_text: str) -> str:
     room_text = room_text.strip()
     known_codes = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
     if room_text.upper() in known_codes:
-        # Normaliser 5E -> C5, CL -> SCL
-        if room_text.upper() == '5E':
-            return 'C5'
+        # Normaliser CL -> SCL (Studio Claude-Léveillée)
+        # Garder 5E tel quel (ne pas convertir en C5)
         if room_text.upper() == 'CL':
             return 'SCL'
         return room_text.upper()
@@ -144,7 +143,7 @@ def normalize_room(room_text: str) -> str:
         'wilfrid-pelletier': 'WP', 'wilfrid pelletier': 'WP', 'wilfrid': 'WP', 'pelletier': 'WP',
         'théâtre maisonneuve': 'TM', 'theatre maisonneuve': 'TM', 'maisonneuve': 'TM',
         'salle d': 'SD',
-        'cinquième salle': 'C5', '5e salle': 'C5', 'cinquieme salle': 'C5', '5e': 'C5',
+        'cinquième salle': '5E', '5e salle': '5E', 'cinquieme salle': '5E',
         'studio claude-léveillée': 'SCL', 'studio claude léveillée': 'SCL',
         'salle claude léveillée': 'SCL', 'salle claude-léveillée': 'SCL',
         'claude léveillée': 'SCL', 'claude-léveillée': 'SCL', 'claude leveillee': 'SCL', 'claude-leveillee': 'SCL',
@@ -298,9 +297,18 @@ def parse_single_line_format(line: str, result: Dict, current_date: datetime) ->
                     piano_idx = i
                     break
 
-            # Pour qui: entre salle (idx 1) et diapason
+            # Pour qui: entre salle (idx 1) et diapason (ou Piano si pas de diapason)
             if diapason_idx and diapason_idx > 2:
                 for_who_parts = words[2:diapason_idx]
+                result['for_who'] = ' '.join(for_who_parts)
+            elif piano_idx and piano_idx > 2:
+                # Pas de diapason, extraire entre salle et "Piano"
+                for_who_parts = words[2:piano_idx]
+                result['for_who'] = ' '.join(for_who_parts)
+            elif len(words) > 2:
+                # Ni diapason ni Piano, prendre tout après la salle jusqu'à l'heure
+                end_idx = time_idx if time_idx else len(words)
+                for_who_parts = words[2:end_idx]
                 result['for_who'] = ' '.join(for_who_parts)
 
             # Demandeur: entre diapason et "Piano" keyword
@@ -421,16 +429,23 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 except Exception as e:
                     result['warnings'].append(f"Erreur parsing date '{line}': {e}")
         # Salle
-        for line in lines:
+        room_found_at_idx = None
+        for line_idx, line in enumerate(lines):
             if any(kw.upper() in line.upper() for kw in room_keywords):
                 result['room'] = normalize_room(line)
                 result['confidence'] += 0.2
+                room_found_at_idx = line_idx
                 break
 
         # Détection structurée par rôle (ordre : for_who -> diapason -> requester -> piano -> time)
         candidate_for_who = None
         candidate_piano = None
         candidate_requester = None
+        found_data_block = False  # Track if we're in the structured data section
+
+        # Detect if this is a line-by-line format (each field on its own line)
+        # Pattern: Date -> Room -> Name (for_who) -> Diapason -> Piano -> Time -> Requester
+        is_multiline_format = len(lines) >= 5  # At least date, room, for_who, diapason/piano, time
 
         def is_candidate_name(line: str) -> bool:
             if not line:
@@ -449,7 +464,7 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 return False
             return line[0].isupper()
 
-        for line in lines:
+        for idx, line in enumerate(lines):
             ls = line.strip()
             if not ls:
                 continue
@@ -466,7 +481,15 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 if not has_brand and not has_piano_word:
                     continue
 
-            if candidate_for_who is None and not is_diapason_line(ls) and not is_requester_line(ls) and not is_time_line(ls) and not has_brand and not has_piano_word:
+            # Mark when we enter the structured data block (after date/room)
+            if result.get('date') or result.get('room'):
+                found_data_block = True
+
+            # In structured data block: names are "for_who"
+            # After structured data block (diapason/piano/time found): names are "requester"
+            has_structured_data = result.get('diapason') or result.get('piano') or result.get('time')
+
+            if candidate_for_who is None and found_data_block and not has_structured_data and not is_diapason_line(ls) and not is_requester_line(ls) and not is_time_line(ls) and not has_brand and not has_piano_word:
                 candidate_for_who = ls
                 continue
 
@@ -479,7 +502,9 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 result['requester'] = ls
                 result['confidence'] += 0.1
                 continue
-            if candidate_requester is None and is_candidate_name(ls):
+
+            # After structured data, names are requester (signature)
+            if candidate_requester is None and has_structured_data and is_candidate_name(ls):
                 candidate_requester = ls
 
             if not result.get('piano') and (has_brand or has_piano_word or is_concert_label):
@@ -491,6 +516,21 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 result['time'] = parse_time(ls)
                 result['confidence'] += 0.1
                 continue
+
+        # Multi-line format: use simple positional logic
+        # The line immediately after room is "pour qui"
+        if is_multiline_format and room_found_at_idx is not None and not result.get('for_who'):
+            next_idx = room_found_at_idx + 1
+            if next_idx < len(lines):
+                next_line = lines[next_idx].strip()
+                # Check if this line is likely a name (not diapason, not piano, not time)
+                if (next_line and
+                    not is_diapason_line(next_line) and
+                    not is_time_line(next_line) and
+                    not any(kw.lower() in next_line.lower() for kw in piano_keywords) and
+                    'piano' not in next_line.lower()):
+                    result['for_who'] = next_line
+                    result['confidence'] += 0.2
 
         if not result.get('piano') and candidate_piano:
             result['piano'] = candidate_piano
