@@ -861,86 +861,90 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           </button>
         )}
 
-        {!isRestrictedUser && (
-          <div className="flex items-center gap-2 ml-auto flex-wrap">
-            <select
-              value={monthFilter}
-              onChange={(e) => setMonthFilter(e.target.value)}
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            >
-              <option value="">Toutes les dates</option>
-              {availableMonths.map(month => {
-                // Parser YYYY-MM pour éviter les problèmes de timezone
-                const [year, monthNum] = month.split('-')
-                const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1)
-                const monthName = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
-                return (
-                  <option key={month} value={month}>
-                    {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
-                  </option>
-                )
-              })}
-            </select>
+        {/* Filtres - Sélecteur de mois accessible à tous */}
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <select
+            value={monthFilter}
+            onChange={(e) => setMonthFilter(e.target.value)}
+            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+          >
+            <option value="">Toutes les dates</option>
+            {availableMonths.map(month => {
+              // Parser YYYY-MM pour éviter les problèmes de timezone
+              const [year, monthNum] = month.split('-')
+              const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1)
+              const monthName = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
+              return (
+                <option key={month} value={month}>
+                  {monthName.charAt(0).toUpperCase() + monthName.slice(1)}
+                </option>
+              )
+            })}
+          </select>
 
-            {monthlyTotal && (
-              <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-md px-3 py-1 text-sm">
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500">Facturation</span>
-                  <span className="font-semibold text-blue-700">{monthlyTotal.billing.toFixed(2)} $</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-500">Stationnement</span>
-                  <span className="font-semibold text-blue-700">{monthlyTotal.parking.toFixed(2)} $</span>
-                </div>
-                <div className="flex flex-col border-l border-blue-300 pl-4">
-                  <span className="text-xs text-gray-500">Total</span>
-                  <span className="font-bold text-blue-900">{monthlyTotal.total.toFixed(2)} $</span>
-                </div>
-                <span className="text-xs text-gray-500">({monthlyTotal.count} élément{monthlyTotal.count > 1 ? 's' : ''})</span>
+          {monthlyTotal && (
+            <div className="flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-md px-3 py-1 text-sm">
+              <div className="flex flex-col">
+                <span className="text-xs text-gray-500">Facturation</span>
+                <span className="font-semibold text-blue-700">{monthlyTotal.billing.toFixed(2)} $</span>
               </div>
-            )}
+              <div className="flex flex-col">
+                <span className="text-xs text-gray-500">Stationnement</span>
+                <span className="font-semibold text-blue-700">{monthlyTotal.parking.toFixed(2)} $</span>
+              </div>
+              <div className="flex flex-col border-l border-blue-300 pl-4">
+                <span className="text-xs text-gray-500">Total</span>
+                <span className="font-bold text-blue-900">{monthlyTotal.total.toFixed(2)} $</span>
+              </div>
+              <span className="text-xs text-gray-500">({monthlyTotal.count} élément{monthlyTotal.count > 1 ? 's' : ''})</span>
+            </div>
+          )}
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            >
-              <option value="">Tous statuts</option>
-              <option value="PENDING">Nouveau</option>
-              <option value="ASSIGN_OK">Assigné</option>
-              <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
-              <option value="COMPLETED">Complété</option>
-              <option value="BILLED">Facturé</option>
-            </select>
-            <input
-              type="text"
-              value={roomFilter}
-              onChange={(e) => setRoomFilter(e.target.value)}
-              placeholder="Salle"
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            />
-            <input
-              type="text"
-              value={technicianFilter}
-              onChange={(e) => setTechnicianFilter(e.target.value)}
-              placeholder="Technicien id"
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Recherche (client/piano)"
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-            />
-            <button
-              onClick={() => { setStatusFilter(''); setMonthFilter(''); setRoomFilter(''); setTechnicianFilter(''); setSearch(''); }}
-              className="px-3 py-1 text-sm bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200"
-            >
-              Réinitialiser
-            </button>
-          </div>
-        )}
+          {/* Filtres avancés - Admin uniquement */}
+          {!isRestrictedUser && (
+            <>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+              >
+                <option value="">Tous statuts</option>
+                <option value="PENDING">Nouveau</option>
+                <option value="ASSIGN_OK">Assigné</option>
+                <option value="CREATED_IN_GAZELLE">Créé Gazelle</option>
+                <option value="COMPLETED">Complété</option>
+                <option value="BILLED">Facturé</option>
+              </select>
+              <input
+                type="text"
+                value={roomFilter}
+                onChange={(e) => setRoomFilter(e.target.value)}
+                placeholder="Salle"
+                className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+              />
+              <input
+                type="text"
+                value={technicianFilter}
+                onChange={(e) => setTechnicianFilter(e.target.value)}
+                placeholder="Technicien id"
+                className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Recherche (client/piano)"
+                className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+              />
+              <button
+                onClick={() => { setStatusFilter(''); setMonthFilter(''); setRoomFilter(''); setTechnicianFilter(''); setSearch(''); }}
+                className="px-3 py-1 text-sm bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200"
+              >
+                Réinitialiser
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Actions batch */}
