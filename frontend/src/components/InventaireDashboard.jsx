@@ -9,7 +9,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-ap
 const TECHNICIENS = [
   { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
   { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' }
+  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nicolas', username: 'nicolas' }  // name doit correspondre au nom dans la DB
 ]
 
 const InventaireDashboard = ({ currentUser }) => {
@@ -426,18 +426,18 @@ const InventaireDashboard = ({ currentUser }) => {
         >
           Inventaire
         </button>
-        <button
-          onClick={() => setActiveTab('transactions')}
-          className={`px-4 py-2 font-medium ${
-            activeTab === 'transactions'
-              ? 'border-b-2 border-blue-500 text-blue-600'
-              : 'text-gray-600 hover:text-gray-800'
-          }`}
-        >
-          Transactions
-        </button>
         {currentUserIsAdmin && (
           <>
+            <button
+              onClick={() => setActiveTab('transactions')}
+              className={`px-4 py-2 font-medium ${
+                activeTab === 'transactions'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Transactions
+            </button>
             <button
               onClick={() => {
                 setActiveTab('sync')

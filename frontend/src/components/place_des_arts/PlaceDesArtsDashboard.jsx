@@ -93,17 +93,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     })
   }, [items, statusFilter, monthFilter, technicianFilter, roomFilter, search])
 
-  // Générer la liste des mois disponibles dans les données
+  // Générer une liste complète de mois (2 mois passés → 12 mois futurs)
   const availableMonths = useMemo(() => {
-    const months = new Set()
-    items.forEach(item => {
-      if (item.appointment_date) {
-        const month = item.appointment_date.substring(0, 7) // YYYY-MM
-        months.add(month)
-      }
-    })
-    return Array.from(months).sort().reverse() // Plus récent en premier
-  }, [items])
+    const months = []
+    const today = new Date()
+
+    // Générer de -2 mois à +12 mois (ordre chronologique)
+    for (let i = -2; i <= 12; i++) {
+      const date = new Date(today.getFullYear(), today.getMonth() + i, 1)
+      const monthStr = date.toISOString().substring(0, 7) // YYYY-MM
+      months.push(monthStr)
+    }
+
+    return months // Ordre chronologique (octobre 2025 → décembre 2026)
+  }, [])
 
   // Calculer le total mensuel (facturation + stationnement)
   const monthlyTotal = useMemo(() => {
@@ -867,7 +870,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
             >
               <option value="">Toutes les dates</option>
               {availableMonths.map(month => {
-                const date = new Date(month + '-01')
+                // Parser YYYY-MM pour éviter les problèmes de timezone
+                const [year, monthNum] = month.split('-')
+                const date = new Date(parseInt(year), parseInt(monthNum) - 1, 1)
                 const monthName = date.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long' })
                 return (
                   <option key={month} value={month}>
