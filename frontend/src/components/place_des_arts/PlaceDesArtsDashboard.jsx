@@ -1071,8 +1071,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     {editMode ? (
                       <input
                         type="text"
-                        defaultValue={it.room || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'room', e.target.value)}
+                        value={it.room || ''}
+                        onChange={(e) => handleCellUpdate(it.id, 'room', e.target.value)}
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                       />
                     ) : (it.room || '—')}
