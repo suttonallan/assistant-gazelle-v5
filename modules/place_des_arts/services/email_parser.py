@@ -542,6 +542,20 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             result['requester'] = candidate_requester
             result['confidence'] += 0.05
 
+        # Mapper les noms de demandeurs connus vers leurs codes
+        if result.get('requester'):
+            requester_lower = result['requester'].lower().strip()
+            requester_mapping = {
+                'isabelle': 'IC',
+                'isabelle constantineau': 'IC',
+                # Ajouter d'autres mappings ici au besoin
+                # 'nom': 'CODE',
+            }
+            for name, code in requester_mapping.items():
+                if name in requester_lower:
+                    result['requester'] = code
+                    break
+
         if not result.get('service'):
             result['service'] = 'Accord standard'
         result['request_date'] = None
