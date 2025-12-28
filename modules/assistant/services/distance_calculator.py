@@ -13,14 +13,33 @@ from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 
 
-# Charger clé Google Maps depuis .env
+# Charger clé Google Maps depuis Supabase
 # Note: Chargé au runtime dans les fonctions pour éviter erreurs d'import
 def get_google_maps_api_key() -> str:
-    """Récupère la clé Google Maps API depuis les variables d'environnement."""
-    key = os.getenv('GOOGLE_MAPS_API_KEY')
-    if not key:
-        raise ValueError("GOOGLE_MAPS_API_KEY non configurée dans les variables d'environnement")
-    return key
+    """Récupère la clé Google Maps API depuis Supabase system_settings."""
+    try:
+        from core.supabase_storage import SupabaseStorage
+        from supabase import create_client
+
+        storage = SupabaseStorage()
+        supabase = create_client(storage.supabase_url, storage.supabase_key)
+
+        result = supabase.table('system_settings').select('value').eq('key', 'google_maps_api_key').execute()
+
+        if result.data and len(result.data) > 0:
+            return result.data[0]['value']
+        else:
+            # Fallback: essayer .env
+            key = os.getenv('GOOGLE_MAPS_API_KEY')
+            if key:
+                return key
+            raise ValueError("GOOGLE_MAPS_API_KEY non configurée dans Supabase system_settings ni dans .env")
+    except Exception as e:
+        # En cas d'erreur Supabase, essayer .env
+        key = os.getenv('GOOGLE_MAPS_API_KEY')
+        if key:
+            return key
+        raise ValueError(f"Impossible de récupérer GOOGLE_MAPS_API_KEY: {e}")
 
 # Adresses maison techniciens (IDs Supabase → adresses)
 HOME_ADDRESSES = {
@@ -67,9 +86,11 @@ def google_distance_with_duration(
         "key": api_key
     }
 
-    # Ajouter heure départ si fournie (pour trafic temps réel)
+    # Ajouter heure départ SEULEMENT si dans le futur (Google Maps n'accepte que futur proche)
     if departure_time:
-        params["departure_time"] = int(departure_time.timestamp())
+        now = datetime.now(departure_time.tzinfo) if departure_time.tzinfo else datetime.now()
+        if departure_time > now:
+            params["departure_time"] = int(departure_time.timestamp())
 
     try:
         r = requests.get(url, params=params, timeout=10)

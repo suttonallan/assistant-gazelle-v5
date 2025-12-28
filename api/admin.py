@@ -194,52 +194,76 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         # Si les rendez-vous ne sont pas fournis, les récupérer depuis Supabase
         if not request.appointments:
             storage = SupabaseStorage()
-            queries = GazelleQueries(storage)
+            from supabase import create_client
 
-            # Récupérer les rendez-vous pour toute la plage
-            # On va boucler jour par jour (car get_appointments() prend une date unique)
-            all_appointments = []
-            current_date = date_start
-            while current_date <= date_end:
-                appointment_datetime = datetime.combine(current_date, datetime.min.time())
-                appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Toronto'))
+            supabase = create_client(storage.supabase_url, storage.supabase_key)
 
-                day_appointments = queries.get_appointments(
-                    date=appointment_datetime,
-                    technicien=request.technician_id
-                )
-                all_appointments.extend(day_appointments)
-                current_date += timedelta(days=1)
-            
-            # Enrichir les rendez-vous avec les adresses client (comme dans train_summaries.py)
-            # Pour chaque rendez-vous, enrichir avec l'adresse du client
-            for apt in all_appointments:
-                entity_id = apt.get('client_external_id')
-                if entity_id:
-                    # Chercher le client pour obtenir son adresse
-                    client_results = queries.search_clients([entity_id])
-                    if client_results:
-                        client = client_results[0]
-                        apt['client_address'] = client.get('address', '')
-                        apt['client_city'] = client.get('city', '')
-                        apt['client_postal_code'] = client.get('postal_code', '')
-                        apt['client_name'] = client.get('company_name') or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
-            
+            # Récupérer TOUS les RV de la plage en UNE SEULE requête
+            result = supabase.table('gazelle_appointments') \
+                .select('*') \
+                .gte('appointment_date', date_start_str) \
+                .lte('appointment_date', date_end_str) \
+                .eq('technicien', request.technician_id) \
+                .order('appointment_date', desc=False) \
+                .order('appointment_time', desc=False) \
+                .execute()
+
+            all_appointments = result.data
+
+            # Récupérer les adresses (city + postal_code) depuis gazelle_clients
+            client_ids = list(set([apt.get('client_external_id') for apt in all_appointments if apt.get('client_external_id')]))
+
+            # Fetch clients en une seule requête
+            clients_map = {}
+            if client_ids:
+                clients_result = supabase.table('gazelle_clients') \
+                    .select('external_id, company_name, city, postal_code') \
+                    .in_('external_id', client_ids) \
+                    .execute()
+
+                for client in clients_result.data:
+                    clients_map[client['external_id']] = {
+                        'name': client.get('company_name', ''),
+                        'city': client.get('city', ''),
+                        'postal_code': client.get('postal_code', '')
+                    }
+
             # Convertir en format attendu par calculate_day_route
             appointments = []
             for apt in all_appointments:
-                # Construire l'adresse complète
-                address_parts = []
-                if apt.get('client_address'):
-                    address_parts.append(apt['client_address'])
-                if apt.get('client_city'):
-                    address_parts.append(apt['client_city'])
-                if apt.get('client_postal_code'):
-                    address_parts.append(apt['client_postal_code'])
-                
-                full_address = ', '.join(address_parts) if address_parts else ''
-                
+                # Récupérer city/postal_code du client
+                client_id = apt.get('client_external_id')
+                if client_id and client_id in clients_map:
+                    client_info = clients_map[client_id]
+                    city = client_info.get('city', '')
+                    postal_code = client_info.get('postal_code', '')
+
+                    # Construire adresse: "Ville, QC Code postal, Canada"
+                    address_parts = []
+                    if city:
+                        address_parts.append(city)
+                    if postal_code:
+                        address_parts.append(f"QC {postal_code}")
+
+                    # Ajouter Canada pour que Google Maps accepte
+                    if address_parts:
+                        address_parts.append("Canada")
+
+                    full_address = ', '.join(address_parts) if address_parts else ''
+                else:
+                    full_address = ''
+
                 if full_address:
+                    # FIXED: Créer appointment_datetime depuis appointment_date du RV
+                    apt_date = apt.get('appointment_date')
+                    if isinstance(apt_date, str):
+                        apt_date_obj = datetime.fromisoformat(apt_date).date()
+                    else:
+                        apt_date_obj = apt_date
+
+                    appointment_datetime = datetime.combine(apt_date_obj, datetime.min.time())
+                    appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Toronto'))
+
                     # Parser l'heure du rendez-vous
                     appointment_time = apt.get('appointment_time', '09:00')
                     if isinstance(appointment_time, str):
@@ -248,14 +272,14 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                         minute = int(time_parts[1]) if len(time_parts) > 1 else 0
                     else:
                         hour, minute = 9, 0
-                    
+
                     start_time = appointment_datetime.replace(hour=hour, minute=minute)
-                    
+
                     appointments.append({
                         'start_time': start_time,
                         'duration': apt.get('duration_minutes', 60),
                         'client_address': full_address,
-                        'client_name': apt.get('client_name', 'N/A')
+                        'client_name': client_info.get('name', apt.get('title', 'N/A'))
                     })
         else:
             # Utiliser les rendez-vous fournis
