@@ -2,19 +2,47 @@ import { useState } from 'react'
 import { ROLES } from '../config/roles'
 
 // Utiliser les vrais emails depuis la configuration des rôles
+// IMPORTANT: gazelleId est l'ID Gazelle du technicien (source de vérité)
+// Voir docs/REGLE_IDS_GAZELLE.md
 const USERS = [
-  { id: 1, name: 'Allan', email: ROLES.admin.email, role: 'admin', pin: '6342' },
-  { id: 2, name: 'Louise', email: ROLES.louise.email, role: 'admin', pin: '6343' },
-  { id: 3, name: 'Nick', email: ROLES.nick.email, role: 'technician', pin: '6344' },
-  { id: 4, name: 'JP', email: ROLES.jeanphilippe.email, role: 'technician', pin: '6345' },
+  {
+    id: 1,
+    name: 'Allan',
+    email: ROLES.admin.email,
+    role: 'admin',
+    pin: '6342',
+    gazelleId: 'usr_ReUSmIJmBF86ilY1'  // ID Gazelle technicien
+  },
+  {
+    id: 2,
+    name: 'Louise',
+    email: ROLES.louise.email,
+    role: 'admin',
+    pin: '6343',
+    gazelleId: null  // Louise n'est pas technicien
+  },
+  {
+    id: 3,
+    name: 'Nick',
+    email: ROLES.nick.email,
+    role: 'technician',
+    pin: '6344',
+    gazelleId: 'usr_HcCiFk7o0vZ9xAI0'  // ID Gazelle technicien Nicolas
+  },
+  {
+    id: 4,
+    name: 'JP',
+    email: ROLES.jeanphilippe.email,
+    role: 'technician',
+    pin: '6345',
+    gazelleId: 'usr_ofYggsCDt2JAVeNP'  // ID Gazelle technicien JP
+  },
 ]
 
 export default function LoginScreen({ onLogin }) {
   const [selectedUser, setSelectedUser] = useState(null)
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
-  const [treeSrc, setTreeSrc] = useState('/festive-tree.png')
-  const [showTree, setShowTree] = useState(true)
 
   const handleLogin = (e) => {
     e.preventDefault()
@@ -36,33 +64,8 @@ export default function LoginScreen({ onLogin }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-5xl w-full overflow-hidden">
-        <div className="grid md:grid-cols-2">
-          {/* Colonne visuelle sapin */}
-          {showTree && (
-            <div className="relative bg-gradient-to-br from-green-50 via-white to-red-50 hidden md:block">
-              <img
-                src={treeSrc}
-                alt="Sapin de Noël décoré"
-                className="h-full w-full object-cover"
-                onError={() => {
-                  if (treeSrc === '/festive-tree.png') {
-                    // Fallback si le fichier est nommé estive-tree.png
-                    setTreeSrc('/estive-tree.png')
-                  } else {
-                    setShowTree(false)
-                  }
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-white/65 via-white/40 to-white/20" />
-              <div className="absolute top-4 left-4 bg-white/80 backdrop-blur-sm px-3 py-2 rounded-lg text-sm font-semibold text-green-800 shadow">
-                Joyeuses fêtes !
-              </div>
-            </div>
-          )}
-
-          {/* Colonne formulaire */}
-          <div className="p-8 md:p-10">
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+        <div className="p-8 md:p-10">
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold text-gray-800 mb-2">
                 Vincent-d'Indy
@@ -139,7 +142,6 @@ export default function LoginScreen({ onLogin }) {
               <p>Sélectionnez votre nom et entrez votre PIN à 4 chiffres</p>
             </div>
           </div>
-        </div>
       </div>
     </div>
   )

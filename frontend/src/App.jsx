@@ -10,6 +10,7 @@ import LouiseDashboard from './components/dashboards/LouiseDashboard'
 import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard'
 import PlaceDesArtsDashboard from './components/place_des_arts/PlaceDesArtsDashboard'
 import AssistantWidget from './components/AssistantWidget'
+import ChatIntelligent from './components/ChatIntelligent'
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
 import { getUserRole, ROLES } from './config/roles'
@@ -76,7 +77,7 @@ function App() {
   const [isFestiveTheme, setIsFestiveTheme] = useState(() => {
     const saved = localStorage.getItem('festiveTheme')
     if (saved !== null) return saved === 'true'
-    return true // activé par défaut cette semaine
+    return false // désactivé par défaut
   })
 
   // Charger l'utilisateur depuis localStorage au démarrage
@@ -155,6 +156,8 @@ function App() {
           return <NickDashboard currentUser={effectiveUser} />
         } else if (currentView === 'place-des-arts') {
           return <PlaceDesArtsDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'chat') {
+          return <ChatIntelligent currentUser={effectiveUser} />
         } else if (currentView === 'calculateur-frais') {
           return (
             <div className="space-y-8">
@@ -320,6 +323,20 @@ function App() {
                         }`}
                       >
                         🎼 Tournées
+                      </button>
+                    )}
+
+                    {/* Chat Intelligent - admin et louise */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
+                      <button
+                        onClick={() => setCurrentView('chat')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'chat'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        💬 Ma Journée
                       </button>
                     )}
 
