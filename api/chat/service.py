@@ -5,8 +5,9 @@ Architecture modulaire pour faciliter migration V6.
 """
 
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import re
+import pytz
 
 from core.supabase_storage import SupabaseStorage
 from .schemas import (
@@ -235,7 +236,18 @@ class V5DataProvider:
         elif user_role == "admin" or user_role == "assistant":
             # Admin/Louise sans technicien spécifié → voient TOUT
             pass
-        # Sinon (technicien sans filtre) → requête vide, aucun résultat (ne devrait pas arriver)
+        else:
+            # Cas problématique: technicien sans technician_id
+            # Ne devrait jamais arriver, mais retourner vide par sécurité
+            return DayOverview(
+                date=date,
+                technician_name="Inconnu",
+                total_appointments=0,
+                total_pianos=0,
+                estimated_duration_hours=0,
+                neighborhoods=[],
+                appointments=[]
+            )
 
         response = requests.get(url, headers=headers, params=params)
 
@@ -366,6 +378,44 @@ class V5DataProvider:
     # MAPPING FUNCTIONS (V5 → Standard Schema)
     # ============================================================
 
+    def _convert_utc_to_montreal(self, time_utc_str: str) -> str:
+        """
+        Convertit une heure UTC en heure de Montréal (America/Montreal).
+
+        Args:
+            time_utc_str: Heure au format "HH:MM:SS" en UTC
+
+        Returns:
+            Heure au format "HH:MM" en heure de Montréal
+
+        Exemple:
+            "05:00:00" UTC → "00:00" Montréal (UTC-5)
+        """
+        if not time_utc_str:
+            return "Non spécifié"
+
+        try:
+            # Parser l'heure UTC
+            hour, minute = time_utc_str.split(":")[:2]
+            utc_time = time(int(hour), int(minute))
+
+            # Créer un datetime UTC pour aujourd'hui
+            utc_tz = pytz.UTC
+            montreal_tz = pytz.timezone('America/Montreal')
+
+            # Utiliser une date arbitraire (juste pour la conversion)
+            today = datetime.now().date()
+            utc_datetime = datetime.combine(today, utc_time)
+            utc_datetime = utc_tz.localize(utc_datetime)
+
+            # Convertir en heure de Montréal
+            montreal_datetime = utc_datetime.astimezone(montreal_tz)
+
+            return montreal_datetime.strftime("%H:%M")
+        except Exception as e:
+            # Fallback: retourner l'heure brute
+            return time_utc_str[:5]  # "HH:MM"
+
     def _map_to_overview(self, apt_raw: Dict[str, Any], date: str) -> AppointmentOverview:
         """
         Transforme données V5 brutes en AppointmentOverview.
@@ -375,9 +425,9 @@ class V5DataProvider:
         client = apt_raw.get("client") or {}
         piano = apt_raw.get("piano") or {}
 
-        # Time slot
+        # Time slot - IMPORTANT: Convertir UTC → Montréal
         time_raw = apt_raw.get("appointment_time")
-        time_slot = time_raw if time_raw else "Non spécifié"
+        time_slot = self._convert_utc_to_montreal(time_raw)
 
         # Client info (ou titre si événement personnel)
         title = apt_raw.get("title") or ""
