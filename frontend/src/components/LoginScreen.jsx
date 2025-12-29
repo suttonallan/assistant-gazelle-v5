@@ -11,7 +11,7 @@ const USERS = [
     email: ROLES.admin.email,
     role: 'admin',
     pin: '6342',
-    gazelleId: 'usr_ReUSmIJmBF86ilY1'  // ID Gazelle technicien
+    gazelleId: 'usr_ofYggsCDt2JAVeNP'  // ID Gazelle technicien ALLAN
   },
   {
     id: 2,
@@ -35,7 +35,7 @@ const USERS = [
     email: ROLES.jeanphilippe.email,
     role: 'technician',
     pin: '6345',
-    gazelleId: 'usr_ofYggsCDt2JAVeNP'  // ID Gazelle technicien JP
+    gazelleId: 'usr_ReUSmIJmBF86ilY1'  // ID Gazelle technicien JP
   },
 ]
 

@@ -116,15 +116,15 @@ appointments = supabase.table('gazelle_appointments')\
 ### Frontend: LoginScreen.jsx
 
 ```javascript
+// ⚠️ SOURCE DE VÉRITÉ: config/TECHNICIAN_IDS.json
 const USERS = [
   {
     id: 1,
     name: 'Allan',
     email: 'asutton@piano-tek.com',
-    gazelleId: 'usr_xxxxxxxxxxxxx',  // À remplir
+    gazelleId: 'usr_ofYggsCDt2JAVeNP',  // ✅ VÉRIFIÉ 2025-12-29
     role: 'admin',
-    pin: '6342',
-    technicianName: 'Allan'  // DEPRECATED - utiliser gazelleId
+    pin: '6342'
   },
   {
     id: 2,

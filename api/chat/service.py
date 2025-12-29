@@ -148,10 +148,11 @@ class ChatService:
         """
         # Mapping nom/alias → ID Gazelle (source de vérité)
         # Voir docs/REGLE_IDS_GAZELLE.md
+        # CORRIGÉ 2025-12-29: IDs étaient inversés (Allan ↔ JP)
         technician_patterns = {
             "usr_HcCiFk7o0vZ9xAI0": ["nicolas", "nick", "nic"],  # Nicolas
-            "usr_ofYggsCDt2JAVeNP": ["jp", "jean-philippe", "jeanphilippe", "jean philippe"],  # JP
-            "usr_ReUSmIJmBF86ilY1": ["allan", "al"],  # Allan
+            "usr_ReUSmIJmBF86ilY1": ["jp", "jean-philippe", "jeanphilippe", "jean philippe"],  # JP
+            "usr_ofYggsCDt2JAVeNP": ["allan", "al"],  # Allan
         }
 
         for gazelle_id, patterns in technician_patterns.items():
@@ -270,27 +271,41 @@ class V5DataProvider:
         neighborhoods = set()
 
         for apt_raw in appointments_raw:
-            # Filtrer événements personnels selon le rôle
-            # Un événement personnel = pas de client_external_id
+            # Filtrer événements selon type
             client = apt_raw.get("client")
-            is_personal = client is None
-            apt_technician = apt_raw.get("technicien")
+            is_personal_event = client is None  # Pas de client = événement personnel
 
-            # Admin/Assistant: voient TOUT
-            if user_role in ["admin", "assistant"]:
-                pass  # Pas de filtre
-
-            # Technicien: voit ses RV clients + ses événements personnels
-            elif is_personal and apt_technician != technician_id:
-                # Événement personnel d'un AUTRE technicien → skip
-                # Ex: "Vd examens" de Nicolas ne doit PAS être visible pour JP
+            # Si c'est un rendez-vous client → toujours afficher
+            if not is_personal_event:
+                overview = self._map_to_overview(apt_raw, date)
+                appointments.append(overview)
+                if overview.neighborhood:
+                    neighborhoods.add(overview.neighborhood)
                 continue
 
-            overview = self._map_to_overview(apt_raw, date)
-            appointments.append(overview)
+            # C'est un événement personnel → appliquer filtrage
+            title = apt_raw.get("title", "").lower()
+            description = apt_raw.get("description", "").lower()
 
-            if overview.neighborhood:
-                neighborhoods.add(overview.neighborhood)
+            # LISTE BLANCHE: Événements liés au TRAVAIL (à afficher)
+            work_keywords = ["vd", "commande", "bolduc", "westend", "piano"]
+            is_work_event = any(keyword in title or keyword in description for keyword in work_keywords)
+
+            # LISTE NOIRE: Événements PRIVÉS (à filtrer)
+            private_keywords = ["admin", "épicerie", "boaz", "enfants", "médical", "suivi", "personnel"]
+            is_private_event = any(keyword in title or keyword in description for keyword in private_keywords)
+
+            # Logique de décision:
+            # - Si événement de travail détecté → afficher
+            # - Si événement privé détecté → filtrer
+            # - Sinon (ambigu) → filtrer par sécurité
+            if is_work_event and not is_private_event:
+                # Événement de travail → afficher
+                overview = self._map_to_overview(apt_raw, date)
+                appointments.append(overview)
+                if overview.neighborhood:
+                    neighborhoods.add(overview.neighborhood)
+            # Sinon filtrer (privé ou ambigu)
 
         # Calculer stats
         total_appointments = len(appointments)
