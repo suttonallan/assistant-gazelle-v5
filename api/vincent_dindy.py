@@ -133,7 +133,8 @@ async def get_pianos():
                     "aFaire": a_faire_csv,
                     "status": "normal",
                     "travail": "",
-                    "observations": ""
+                    "observations": "",
+                    "gazelleId": None  # ID Gazelle (ins_xxxxx) depuis Supabase
                 }
                 pianos.append(piano)
 
@@ -162,6 +163,8 @@ async def get_pianos():
                     piano["travail"] = updates["travail"]
                 if "observations" in updates:
                     piano["observations"] = updates["observations"]
+                if "gazelle_id" in updates:
+                    piano["gazelleId"] = updates["gazelle_id"]
 
         logging.info(f"✅ Fusion complète: {len(pianos)} pianos retournés")
 
