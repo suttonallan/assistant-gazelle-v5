@@ -18,6 +18,9 @@ from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(prefix="/vincent-dindy", tags=["vincent-dindy"])
 
+# Client ID Vincent d'Indy dans Gazelle
+VINCENT_DINDY_CLIENT_ID = "cli_9UMLkteep8EsISbG"
+
 # Initialiser le stockage Supabase
 _supabase_storage = None
 _api_client = None
@@ -85,94 +88,120 @@ def get_csv_path() -> str:
 
 
 @router.get("/pianos", response_model=Dict[str, Any])
-async def get_pianos():
+async def get_pianos(include_inactive: bool = False):
     """
-    Récupère tous les pianos en fusionnant CSV (données fixes) + Supabase (modifications).
+    Récupère tous les pianos depuis Gazelle API.
 
-    Architecture:
-    - CSV = Liste de référence des 91 pianos (local, piano, type, usage)
-    - Supabase = Modifications dynamiques (status, aFaire, travail, observations)
-    - Retour = Fusion des deux (CSV comme base, Supabase overlay)
+    Args:
+        include_inactive: Si True, inclut les pianos hors CSV (is_in_csv=False)
+
+    Architecture V6:
+    - Gazelle API = Source de vérité (119 pianos total)
+    - Filtre par défaut = is_in_csv=TRUE OU status=ACTIVE (~94 pianos)
+    - Supabase = Modifications dynamiques + flags is_in_csv
     """
     try:
         import logging
-        logging.info(f"🔍 Chargement des pianos (CSV + Supabase)")
+        logging.info(f"🔍 Chargement des pianos depuis Gazelle (client: {VINCENT_DINDY_CLIENT_ID})")
 
-        # 1. Charger la liste complète depuis le CSV (données FIXES)
-        csv_path = get_csv_path()
-        pianos = []
+        # 1. Charger TOUS les pianos depuis Gazelle
+        api_client = get_api_client()
 
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"CSV introuvable: {csv_path}")
+        if not api_client:
+            raise HTTPException(status_code=500, detail="Client API Gazelle non disponible")
 
-        with open(csv_path, 'r', encoding='utf-8-sig') as f:
-            reader = csv.DictReader(f)
-            for idx, row in enumerate(reader, start=1):
-                local = row.get("local", "").strip()
-                piano_name = row.get("Piano", "").strip()
-                serie = row.get("# série", "").strip() or row.get("série", "").strip()
-                type_piano = row.get("Type", "").strip()
-                usage = row.get("Usage", "").strip()
-                a_faire_csv = row.get("À faire", "").strip()
+        query = """
+        query GetVincentDIndyPianos($clientId: String!) {
+          allPianos(first: 200, filters: { clientId: $clientId }) {
+            nodes {
+              id
+              serialNumber
+              make
+              model
+              location
+              type
+              status
+              notes
+              calculatedLastService
+              calculatedNextService
+              serviceIntervalMonths
+            }
+          }
+        }
+        """
 
-                if not piano_name and not serie:
-                    continue
+        variables = {"clientId": VINCENT_DINDY_CLIENT_ID}
+        result = api_client._execute_query(query, variables)
+        gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
 
-                piano_id = serie if serie else f"piano_{idx}"
+        logging.info(f"📋 {len(gazelle_pianos)} pianos chargés depuis Gazelle")
 
-                # Données de BASE depuis CSV (FIXES)
-                piano = {
-                    "id": piano_id,
-                    "local": local if local and local != "?" else "",
-                    "piano": piano_name,
-                    "serie": serie,
-                    "type": type_piano.upper() if type_piano else "D",
-                    "usage": usage,
-                    # Valeurs par défaut pour champs dynamiques
-                    "dernierAccord": "",
-                    "aFaire": a_faire_csv,
-                    "status": "normal",
-                    "travail": "",
-                    "observations": "",
-                    "gazelleId": None  # ID Gazelle (ins_xxxxx) depuis Supabase
-                }
-                pianos.append(piano)
-
-        logging.info(f"📋 {len(pianos)} pianos chargés depuis CSV")
-
-        # 2. Charger les modifications depuis Supabase (DYNAMIQUES)
+        # 2. Charger les modifications depuis Supabase (flags + overlays)
         storage = get_supabase_storage()
         supabase_updates = storage.get_all_piano_updates()
 
         logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées")
 
-        # 3. FUSION: Appliquer les modifications Supabase sur les données CSV
-        for piano in pianos:
-            piano_id = piano["id"]
-            if piano_id in supabase_updates:
-                updates = supabase_updates[piano_id]
+        # 3. FUSION: Transformer pianos Gazelle + appliquer overlays Supabase
+        pianos = []
 
-                # Appliquer UNIQUEMENT les champs DYNAMIQUES depuis Supabase
-                if "dernier_accord" in updates:
-                    piano["dernierAccord"] = updates["dernier_accord"]
-                if "a_faire" in updates:
-                    piano["aFaire"] = updates["a_faire"]
-                if "status" in updates:
-                    piano["status"] = updates["status"]
-                if "travail" in updates:
-                    piano["travail"] = updates["travail"]
-                if "observations" in updates:
-                    piano["observations"] = updates["observations"]
-                if "gazelle_id" in updates:
-                    piano["gazelleId"] = updates["gazelle_id"]
+        for gz_piano in gazelle_pianos:
+            gz_id = gz_piano['id']
+            serial = gz_piano.get('serialNumber', gz_id)  # Fallback au gazelle_id si pas de serial
 
-        logging.info(f"✅ Fusion complète: {len(pianos)} pianos retournés")
+            # Trouver les updates Supabase (matcher par serial OU gazelle_id)
+            updates = {}
+            for piano_id, data in supabase_updates.items():
+                if (piano_id == serial or
+                    data.get('gazelle_id') == gz_id):
+                    updates = data
+                    break
+
+            # Vérifier le flag is_in_csv
+            is_in_csv = updates.get('is_in_csv', False)  # Par défaut False si pas dans Supabase
+
+            # Filtrage: Par défaut, montrer seulement is_in_csv=TRUE OU status=ACTIVE
+            if not include_inactive:
+                if not is_in_csv and gz_piano.get('status') != 'ACTIVE':
+                    continue  # Ignorer les pianos inactifs hors CSV
+
+            # Construire l'objet piano
+            piano_type = gz_piano.get('type', 'UPRIGHT')
+            if piano_type:
+                type_letter = piano_type[0].upper()  # 'GRAND' → 'G', 'UPRIGHT' → 'U'
+            else:
+                type_letter = 'D'
+
+            piano = {
+                "id": serial,  # Garder serial comme ID pour compatibilité frontend
+                "gazelleId": gz_id,
+                "local": gz_piano.get('location', ''),
+                "piano": gz_piano.get('make', ''),
+                "modele": gz_piano.get('model', ''),
+                "serie": serial,
+                "type": type_letter,
+                "usage": "",  # Pas disponible dans Gazelle
+                "dernierAccord": gz_piano.get('calculatedLastService', ''),
+                "prochainAccord": gz_piano.get('calculatedNextService', ''),
+                "status": updates.get('status', 'normal'),
+                "aFaire": updates.get('a_faire', ''),
+                "travail": updates.get('travail', ''),
+                "observations": updates.get('observations', gz_piano.get('notes', '')),
+                "isInCsv": is_in_csv,  # Nouveau flag pour le frontend
+                "gazelleStatus": gz_piano.get('status', 'UNKNOWN')  # Status Gazelle
+            }
+
+            pianos.append(piano)
+
+        logging.info(f"✅ {len(pianos)} pianos retournés (include_inactive={include_inactive})")
 
         return {
             "pianos": pianos,
-            "count": len(pianos)
+            "count": len(pianos),
+            "source": "gazelle",
+            "clientId": VINCENT_DINDY_CLIENT_ID
         }
-        
+
     except Exception as e:
         import traceback
         error_detail = f"Erreur lors de la récupération des pianos: {str(e)}\n{traceback.format_exc()}"
