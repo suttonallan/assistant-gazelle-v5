@@ -21,23 +21,37 @@ const VincentDIndyDashboard = ({ currentUser }) => {
 
   // Ref pour la checkbox "sélectionner tous"
   const selectAllCheckboxRef = useRef(null);
-  
+
   // Pour vue technicien - piano développé
   const [expandedPianoId, setExpandedPianoId] = useState(null);
   const [travailInput, setTravailInput] = useState('');
   const [observationsInput, setObservationsInput] = useState('');
 
-  // Pour vue Nick - édition "à faire", "travail" et "observations"
+  // Pour vue Nick - édition "à faire" et "notes"
   const [editingAFaireId, setEditingAFaireId] = useState(null);
   const [aFaireInput, setAFaireInput] = useState('');
-  const [editingTravailId, setEditingTravailId] = useState(null);
-  const [editingObservationsId, setEditingObservationsId] = useState(null);
+  const [editingNotesId, setEditingNotesId] = useState(null);
+  const [notesInput, setNotesInput] = useState('');
+
+  // Pour sélection de l'établissement
+  const [selectedLocation, setSelectedLocation] = useState('vincent-dindy');
+
+  // Pour gestion des tournées
+  const [tournees, setTournees] = useState([]);
+  const [selectedTourneeId, setSelectedTourneeId] = useState(null); // Tournée actuellement sélectionnée
+  const [newTournee, setNewTournee] = useState({
+    nom: '',
+    date_debut: '',
+    date_fin: '',
+    notes: ''
+  });
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
     loadPianosFromAPI();
+    loadTournees();
   }, []);
 
   const loadPianosFromAPI = async () => {
@@ -89,9 +103,23 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   };
 
   const moisDepuisAccord = (dateStr) => {
+    if (!dateStr || dateStr.trim() === '') return 999; // Valeur très élevée pour trier à la fin
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 999; // Date invalide
     const now = new Date();
     return Math.floor((now - date) / (1000 * 60 * 60 * 24 * 30));
+  };
+
+  // Obtenir les pianos associés à une tournée
+  const getTourneePianos = (tourneeId) => {
+    if (!tourneeId) return [];
+    const tournee = tournees.find(t => t.id === tourneeId);
+    return tournee?.piano_ids || [];
+  };
+
+  // Obtenir l'ID unique d'un piano (priorité: gazelleId > id)
+  const getPianoUniqueId = (piano) => {
+    return piano.gazelleId || piano.id;
   };
 
   const handleSort = (key) => {
@@ -122,9 +150,10 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     let result = [...pianos];
 
     if (currentView === 'nicolas') {
-      // Onglet Nick : par défaut tous les pianos, ou filtrer sur les jaunes/verts si demandé
-      if (showOnlySelected) {
-        result = result.filter(p => p.status === 'proposed' || p.status === 'completed');
+      // Si une tournée est sélectionnée, filtrer sur les pianos de cette tournée
+      if (selectedTourneeId && showOnlySelected) {
+        const tourneePianoIds = getTourneePianos(selectedTourneeId);
+        result = result.filter(p => tourneePianoIds.includes(getPianoUniqueId(p)));
       }
       // Sinon : tous les pianos (pas de filtre)
     } else if (currentView === 'technicien') {
@@ -170,7 +199,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal, selectedTourneeId, tournees]);
 
   // Gérer l'état indeterminate de la checkbox "sélectionner tous"
   useEffect(() => {
@@ -311,11 +340,176 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     }
   };
 
+  // ============ GESTION DES TOURNÉES ============
+  const loadTournees = async () => {
+    try {
+      const saved = localStorage.getItem('tournees_accords')
+      if (saved) {
+        setTournees(JSON.parse(saved))
+      } else {
+        setTournees([])
+      }
+    } catch (err) {
+      console.error('Erreur chargement tournées:', err)
+      setTournees([])
+    }
+  };
+
+  // Ajouter un piano à une tournée (utilise gazelleId si disponible)
+  const addPianoToTournee = async (piano) => {
+    if (!selectedTourneeId) return;
+
+    const pianoUniqueId = getPianoUniqueId(piano);
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+      const updated = existing.map(t => {
+        if (t.id === selectedTourneeId) {
+          const currentPianos = t.piano_ids || [];
+          if (!currentPianos.includes(pianoUniqueId)) {
+            return { ...t, piano_ids: [...currentPianos, pianoUniqueId] };
+          }
+        }
+        return t;
+      });
+      localStorage.setItem('tournees_accords', JSON.stringify(updated));
+      await loadTournees();
+    } catch (err) {
+      console.error('Erreur ajout piano à tournée:', err);
+    }
+  };
+
+  // Retirer un piano d'une tournée (utilise gazelleId si disponible)
+  const removePianoFromTournee = async (piano) => {
+    if (!selectedTourneeId) return;
+
+    const pianoUniqueId = getPianoUniqueId(piano);
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+      const updated = existing.map(t => {
+        if (t.id === selectedTourneeId) {
+          const currentPianos = t.piano_ids || [];
+          return { ...t, piano_ids: currentPianos.filter(id => id !== pianoUniqueId) };
+        }
+        return t;
+      });
+      localStorage.setItem('tournees_accords', JSON.stringify(updated));
+      await loadTournees();
+    } catch (err) {
+      console.error('Erreur retrait piano de tournée:', err);
+    }
+  };
+
+  // Toggle piano dans la tournée
+  const togglePianoInTournee = async (piano) => {
+    if (!selectedTourneeId) return;
+
+    const pianoUniqueId = getPianoUniqueId(piano);
+    const tourneePianos = getTourneePianos(selectedTourneeId);
+
+    if (tourneePianos.includes(pianoUniqueId)) {
+      await removePianoFromTournee(piano);
+    } else {
+      await addPianoToTournee(piano);
+    }
+  };
+
+  const handleCreateTournee = async (e) => {
+    e.preventDefault()
+
+    if (!newTournee.nom || !newTournee.date_debut) {
+      alert('⚠️ Veuillez remplir au minimum le nom et la date de début')
+      return
+    }
+
+    try {
+      const nouvelleTournee = {
+        id: `tournee_${Date.now()}`,
+        ...newTournee,
+        etablissement: selectedLocation, // Ajouter l'établissement sélectionné
+        technicien_responsable: currentUser?.email || 'nicolas@example.com',
+        techniciens_assignes: [],
+        status: 'planifiee',
+        created_at: new Date().toISOString()
+      }
+
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
+      existing.push(nouvelleTournee)
+      localStorage.setItem('tournees_accords', JSON.stringify(existing))
+
+      alert('✅ Tournée créée avec succès!')
+      setNewTournee({ nom: '', date_debut: '', date_fin: '', notes: '' })
+      await loadTournees()
+    } catch (err) {
+      alert('❌ Erreur: ' + err.message)
+    }
+  };
+
+  const handleDeleteTournee = async (tourneeId) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer cette tournée ?')) {
+      return
+    }
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
+      const updated = existing.filter(t => t.id !== tourneeId)
+      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+
+      alert('✅ Tournée supprimée')
+      await loadTournees()
+    } catch (err) {
+      alert('❌ Erreur: ' + err.message)
+    }
+  };
+
+  const handleActiverTournee = async (tourneeId) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
+      const updated = existing.map(t => ({
+        ...t,
+        status: t.id === tourneeId ? 'en_cours' : (t.status === 'en_cours' ? 'planifiee' : t.status)
+      }))
+      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+
+      alert('✅ Tournée activée')
+      await loadTournees()
+    } catch (err) {
+      alert('❌ Erreur: ' + err.message)
+    }
+  };
+
+  const handleConclureTournee = async (tourneeId) => {
+    if (!confirm('Êtes-vous sûr de vouloir conclure cette tournée ?')) {
+      return
+    }
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
+      const updated = existing.map(t => ({
+        ...t,
+        status: t.id === tourneeId ? 'terminee' : t.status
+      }))
+      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+
+      alert('✅ Tournée conclue')
+      await loadTournees()
+    } catch (err) {
+      alert('❌ Erreur: ' + err.message)
+    }
+  };
+
   const stats = {
     total: pianos.length,
     top: pianos.filter(p => p.status === 'top').length,
     proposed: pianos.filter(p => p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== '')).length,
     completed: pianos.filter(p => p.status === 'completed').length,
+  };
+
+  // Statistiques des tournées par établissement
+  const tourneesStats = {
+    'vincent-dindy': tournees.filter(t => t.etablissement === 'vincent-dindy').length,
+    'orford': tournees.filter(t => t.etablissement === 'orford').length,
   };
 
   const getRowClass = (piano) => {
@@ -324,8 +518,12 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     if (piano.status === 'top') return 'bg-amber-200';
     // Si complété → vert
     if (piano.status === 'completed') return 'bg-green-200';
-    // Si proposed OU si "À faire" est rempli → jaune
-    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) return 'bg-yellow-200';
+    // Si dans la tournée sélectionnée OU proposed OU si "À faire" est rempli → jaune
+    if (
+      (selectedTourneeId && getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano))) ||
+      piano.status === 'proposed' ||
+      (piano.aFaire && piano.aFaire.trim() !== '')
+    ) return 'bg-yellow-200';
     // Sinon → normal (blanc)
     return 'bg-white';
   };
@@ -363,13 +561,36 @@ const VincentDIndyDashboard = ({ currentUser }) => {
       <div className="min-h-screen bg-gray-100">
         {/* Header compact */}
         <div className="bg-white shadow p-3 sticky top-0 z-10">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center mb-2">
             <h1 className="text-lg font-bold">🎹 Tournée</h1>
             <div className="flex gap-2 text-xs">
               {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
               <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
               <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
             </div>
+          </div>
+          {/* Sélecteur d'établissement */}
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => setSelectedLocation('vincent-dindy')}
+              className={`flex-1 py-1 px-3 text-sm rounded ${
+                selectedLocation === 'vincent-dindy'
+                  ? 'bg-blue-500 text-white font-medium'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']})</span>
+            </button>
+            <button
+              onClick={() => setSelectedLocation('orford')}
+              className={`flex-1 py-1 px-3 text-sm rounded ${
+                selectedLocation === 'orford'
+                  ? 'bg-blue-500 text-white font-medium'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']})</span>
+            </button>
           </div>
           {/* Onglets */}
           <div className="flex mt-2 text-xs">
@@ -440,7 +661,9 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                     </div>
                     <div className="flex items-center gap-2">
                       {piano.status === 'completed' && <span className="text-green-600">✓</span>}
-                      <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>{mois}m</span>
+                      <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>
+                        {mois === 999 ? '-' : `${mois}m`}
+                      </span>
                       <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
                     </div>
                   </div>
@@ -534,9 +757,9 @@ const VincentDIndyDashboard = ({ currentUser }) => {
       {/* Header */}
       <div className="bg-white rounded-lg shadow mb-4">
         <div className="p-4 border-b">
-          <div className="flex justify-between items-start">
+          <div className="flex justify-between items-start mb-3">
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">🎹 Vincent-d'Indy</h1>
+              <h1 className="text-2xl font-bold text-gray-800">🎹 Tournées</h1>
               <div className="flex gap-4 mt-2 text-sm flex-wrap">
                 <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
                 {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
@@ -552,12 +775,36 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               🔄 Rafraîchir
             </button>
           </div>
+
+          {/* Sélecteur d'établissement */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setSelectedLocation('vincent-dindy')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                selectedLocation === 'vincent-dindy'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']} tournées)</span>
+            </button>
+            <button
+              onClick={() => setSelectedLocation('orford')}
+              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                selectedLocation === 'orford'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']} tournées)</span>
+            </button>
+          </div>
         </div>
         
         {/* Onglets */}
         <div className="flex">
           {[
-            { key: 'nicolas', label: 'Nick' },
+            { key: 'nicolas', label: 'Gestion & Pianos' },
             { key: 'technicien', label: 'Technicien' },
           ].map(tab => (
             <button
@@ -575,9 +822,166 @@ const VincentDIndyDashboard = ({ currentUser }) => {
         </div>
       </div>
 
-      {/* Barre d'outils - Nick */}
+      {/* Vue Gestion & Pianos */}
       {currentView === 'nicolas' && (
+        <div className="flex gap-4">
+          {/* Sidebar Tournées */}
+          <div className="w-80 flex-shrink-0">
+            <div className="bg-white rounded-lg shadow p-4 sticky top-4">
+              <h2 className="text-lg font-bold mb-4">🎹 Tournées</h2>
+
+              {/* Formulaire création tournée compact */}
+              <form onSubmit={handleCreateTournee} className="mb-4 pb-4 border-b">
+                <input
+                  type="text"
+                  value={newTournee.nom}
+                  onChange={(e) => setNewTournee({ ...newTournee, nom: e.target.value })}
+                  placeholder="Nom de la tournée"
+                  className="w-full px-3 py-2 border rounded-md text-sm mb-2"
+                  required
+                />
+                <input
+                  type="date"
+                  value={newTournee.date_debut}
+                  onChange={(e) => setNewTournee({ ...newTournee, date_debut: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md text-sm mb-2"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-semibold"
+                >
+                  ➕ Créer
+                </button>
+              </form>
+
+              {/* Liste des tournées */}
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {tournees.length === 0 ? (
+                  <p className="text-gray-500 text-sm">Aucune tournée</p>
+                ) : (
+                  tournees.map((tournee) => (
+                    <div
+                      key={tournee.id}
+                      onClick={() => {
+                        setSelectedTourneeId(tournee.id);
+                        setShowOnlySelected(false); // Afficher TOUTE la liste par défaut
+                      }}
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                        selectedTourneeId === tournee.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-sm">{tournee.nom}</h4>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {new Date(tournee.date_debut).toLocaleDateString('fr-CA')}
+                          </p>
+                          <p className="text-xs text-blue-600 mt-1">
+                            {getTourneePianos(tournee.id).length} pianos
+                          </p>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          tournee.status === 'terminee' ? 'bg-green-100 text-green-800' :
+                          tournee.status === 'en_cours' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {tournee.status === 'terminee' ? '✓' :
+                           tournee.status === 'en_cours' ? '▶' :
+                           '○'}
+                        </span>
+                      </div>
+
+                      {selectedTourneeId === tournee.id && (
+                        <div className="mt-2 pt-2 border-t space-y-1">
+                          {/* Assignation technicien */}
+                          <div>
+                            <select
+                              value={tournee.technicien_assigne || ''}
+                              onChange={async (e) => {
+                                e.stopPropagation();
+                                const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+                                const updated = existing.map(t =>
+                                  t.id === tournee.id ? { ...t, technicien_assigne: e.target.value } : t
+                                );
+                                localStorage.setItem('tournees_accords', JSON.stringify(updated));
+                                await loadTournees();
+                              }}
+                              className="w-full px-2 py-1 border rounded text-xs"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <option value="">Assigner à...</option>
+                              <option value="Nicolas">Nicolas</option>
+                              <option value="Isabelle">Isabelle</option>
+                              <option value="JP">JP</option>
+                            </select>
+                          </div>
+
+                          {/* Boutons d'action */}
+                          <div className="flex gap-1">
+                            {tournee.status === 'planifiee' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleActiverTournee(tournee.id); }}
+                                className="flex-1 px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-xs"
+                              >
+                                ▶ Activer
+                              </button>
+                            )}
+                            {tournee.status === 'en_cours' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleConclureTournee(tournee.id); }}
+                                className="flex-1 px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs"
+                              >
+                                ✓ Terminer
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteTournee(tournee.id); }}
+                              className="px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-xs"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Zone principale des pianos */}
+          <div className="flex-1">
+            {/* Barre d'outils - Nick */}
         <div className="bg-white rounded-lg shadow p-4 mb-4 space-y-3">
+          {/* Header avec tournée sélectionnée */}
+          {selectedTourneeId && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-sm font-medium text-blue-900">
+                    🎹 Tournée: {tournees.find(t => t.id === selectedTourneeId)?.nom || 'Inconnue'}
+                  </span>
+                  <p className="text-xs text-blue-700 mt-1">
+                    Sélectionnez les pianos à inclure dans cette tournée
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedTourneeId(null);
+                    setShowOnlySelected(false);
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  ✕ Désélectionner
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Boutons de vue */}
           <div className="flex gap-3 items-center">
             <button
@@ -590,7 +994,11 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               onClick={() => setShowOnlySelected(true)}
               className={`px-4 py-2 rounded text-sm font-medium ${showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
             >
-              🎯 Projet de tournée ({stats.proposed + stats.completed})
+              {selectedTourneeId ? (
+                <>🎯 Pianos de cette tournée ({getTourneePianos(selectedTourneeId).length})</>
+              ) : (
+                <>🎯 Projet de tournée ({stats.proposed + stats.completed})</>
+              )}
             </button>
           </div>
 
@@ -629,10 +1037,9 @@ const VincentDIndyDashboard = ({ currentUser }) => {
             )}
           </div>
         </div>
-      )}
 
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+        {/* Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 border-b">
@@ -653,9 +1060,13 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               {currentView === 'nicolas' && (
                 <>
+                  {selectedTourneeId && (
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-green-50">
+                      Dans tournée
+                    </th>
+                  )}
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Travail (Tech)</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-purple-50">Observations (Tech)</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Notes (Tech)</th>
                 </>
               )}
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -689,13 +1100,29 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                   <td className="px-3 py-3 text-sm">{piano.piano}</td>
                   <td className="px-3 py-3 text-sm text-gray-500 font-mono">{piano.serie}</td>
                   <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
-                  <td className={`px-3 py-3 text-sm font-medium ${mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
-                    {mois}
+                  <td className={`px-3 py-3 text-sm font-medium ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
+                    {mois === 999 ? '-' : mois}
                   </td>
 
                   {/* Colonnes pour l'onglet Nick */}
                   {currentView === 'nicolas' && (
                     <>
+                      {/* Colonne "Dans tournée" - bouton pour ajouter/retirer */}
+                      {selectedTourneeId && (
+                        <td className="px-3 py-3 bg-green-50 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => togglePianoInTournee(piano)}
+                            className={`px-3 py-1 rounded text-xs font-medium ${
+                              getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano))
+                                ? 'bg-green-500 text-white hover:bg-green-600'
+                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                            }`}
+                          >
+                            {getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano)) ? '✓ Dans tournée' : '+ Ajouter'}
+                          </button>
+                        </td>
+                      )}
+
                       {/* Colonne "À faire" de Nick */}
                       <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
                         {editingAFaireId === piano.id ? (
@@ -740,62 +1167,32 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                         )}
                       </td>
 
-                      {/* Colonne Travail (éditable) */}
+                      {/* Colonne Notes (combinaison de Travail + Observations) */}
                       <td className="px-3 py-3 bg-blue-50" onClick={(e) => e.stopPropagation()}>
-                        {editingTravailId === piano.id ? (
+                        {editingNotesId === piano.id ? (
                           <textarea
-                            value={travailInput}
-                            onChange={(e) => setTravailInput(e.target.value)}
+                            value={notesInput}
+                            onChange={(e) => setNotesInput(e.target.value)}
                             onBlur={async () => {
                               setPianos(pianos.map(p =>
-                                p.id === piano.id ? { ...p, travail: travailInput } : p
+                                p.id === piano.id ? { ...p, notes: notesInput } : p
                               ));
-                              setEditingTravailId(null);
-                              const valueToSave = travailInput;
-                              setTravailInput('');
-                              await savePianoToAPI(piano.id, { travail: valueToSave });
+                              setEditingNotesId(null);
+                              const valueToSave = notesInput;
+                              setNotesInput('');
+                              await savePianoToAPI(piano.id, { notes: valueToSave });
                             }}
                             className="border rounded px-2 py-1 text-xs w-full"
-                            placeholder="Travail effectué..."
-                            rows="2"
+                            placeholder="Notes du technicien..."
+                            rows="3"
                             autoFocus
                           />
                         ) : (
                           <span
-                            className="text-xs cursor-text block"
-                            onClick={() => { setEditingTravailId(piano.id); setTravailInput(piano.travail || ''); }}
+                            className="text-xs cursor-text block whitespace-pre-wrap"
+                            onClick={() => { setEditingNotesId(piano.id); setNotesInput(piano.notes || ''); }}
                           >
-                            {piano.travail || <span className="text-gray-400">Cliquer...</span>}
-                          </span>
-                        )}
-                      </td>
-                      
-                      {/* Colonne Observations (éditable) */}
-                      <td className="px-3 py-3 bg-purple-50" onClick={(e) => e.stopPropagation()}>
-                        {editingObservationsId === piano.id ? (
-                          <textarea
-                            value={observationsInput}
-                            onChange={(e) => setObservationsInput(e.target.value)}
-                            onBlur={async () => {
-                              setPianos(pianos.map(p =>
-                                p.id === piano.id ? { ...p, observations: observationsInput } : p
-                              ));
-                              setEditingObservationsId(null);
-                              const valueToSave = observationsInput;
-                              setObservationsInput('');
-                              await savePianoToAPI(piano.id, { observations: valueToSave });
-                            }}
-                            className="border rounded px-2 py-1 text-xs w-full"
-                            placeholder="Observations..."
-                            rows="2"
-                            autoFocus
-                          />
-                        ) : (
-                          <span
-                            className="text-xs cursor-text block"
-                            onClick={() => { setEditingObservationsId(piano.id); setObservationsInput(piano.observations || ''); }}
-                          >
-                            {piano.observations || <span className="text-gray-400">Cliquer...</span>}
+                            {piano.notes || <span className="text-gray-400">Cliquer...</span>}
                           </span>
                         )}
                       </td>
@@ -827,6 +1224,9 @@ const VincentDIndyDashboard = ({ currentUser }) => {
         <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
         <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
       </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
