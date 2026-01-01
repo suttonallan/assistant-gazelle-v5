@@ -69,10 +69,7 @@ const JeanPhilippeDashboard = ({ currentUser }) => {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard Jean-Philippe</h1>
-        <p className="text-gray-600">Technicien - Inventaire & tournées</p>
-      </div>
+      {/* PAS de titre - Navigation gérée par bandeau supérieur */}
 
       {/* Onglets */}
       <div className="border-b border-gray-200 mb-6">

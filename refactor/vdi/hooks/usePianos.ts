@@ -46,6 +46,9 @@ interface UsePianosOptions {
 
   /** Enable Realtime subscriptions */
   enableRealtime?: boolean;
+
+  /** Inclure les pianos masqués (isHidden=true) */
+  includeHidden?: boolean;
 }
 
 interface UsePianosReturn {
@@ -119,9 +122,21 @@ export function usePianos(
     setError(null);
 
     try {
+      // Déterminer l'endpoint API selon l'établissement
+      const apiEndpoint = 
+        etablissement === 'place-des-arts' 
+          ? '/api/place-des-arts/pianos'
+          : '/api/vincent-dindy/pianos';
+      
+      // Déterminer la table Supabase selon l'établissement
+      const supabaseTable = 
+        etablissement === 'place-des-arts'
+          ? 'place_des_arts_piano_updates'  // TODO: Créer cette table ou utiliser vincent_dindy_piano_updates avec filtre
+          : 'vincent_dindy_piano_updates';
+
       // ÉTAPE 1: Fetch pianos depuis Gazelle API (données statiques)
       const response = await fetch(
-        `/api/vincent-dindy/pianos?include_inactive=${includeHidden}`
+        `${apiEndpoint}?include_inactive=${includeHidden}`
       );
 
       if (!response.ok) {
@@ -131,8 +146,10 @@ export function usePianos(
       const data = await response.json();
 
       // ÉTAPE 2: Fetch overlays depuis Supabase (données dynamiques)
+      // Note: Pour Place des Arts, on utilise temporairement la même table
+      // mais on pourrait filtrer par client_id si ajouté à la table
       const { data: overlays, error: overlayError } = await supabase
-        .from('vincent_dindy_piano_updates')
+        .from('vincent_dindy_piano_updates')  // TODO: Utiliser supabaseTable quand créée
         .select('*');
 
       if (overlayError) {
@@ -241,8 +258,14 @@ export function usePianos(
         // Convert to snake_case pour API Python
         const snakeCaseUpdates = keysToSnakeCase(updates);
 
+        // Déterminer la table selon l'établissement
+        const supabaseTable = 
+          etablissement === 'place-des-arts'
+            ? 'place_des_arts_piano_updates'  // TODO: Créer cette table
+            : 'vincent_dindy_piano_updates';
+        
         const { error: updateError } = await supabase
-          .from('vincent_dindy_piano_updates')
+          .from('vincent_dindy_piano_updates')  // TODO: Utiliser supabaseTable quand créée
           .upsert(
             {
               gazelle_id: pianoId,

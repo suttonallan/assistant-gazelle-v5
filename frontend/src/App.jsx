@@ -17,6 +17,9 @@ import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
 import { getUserRole, ROLES } from './config/roles'
 
+// V7 Imports - Master Template Vincent d'Indy (527 lignes)
+import VDIInventoryWrapper from './components/VDIInventoryWrapper'
+
 function FestiveDecor({ show }) {
   if (!show) return null
   return (
@@ -77,6 +80,7 @@ function App() {
   const [currentView, setCurrentView] = useState('dashboard') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire', 'tournees'
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
+  const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
   const [isFestiveTheme, setIsFestiveTheme] = useState(() => {
     const saved = localStorage.getItem('festiveTheme')
     if (saved !== null) return saved === 'true'
@@ -106,8 +110,56 @@ function App() {
     }
   }, [isFestiveTheme])
 
+  // Fermer le dropdown Institutions si on clique ailleurs
+  useEffect(() => {
+    if (!institutionsDropdownOpen) return
+    
+    const handleClickOutside = (event) => {
+      // Vérifier si le clic est à l'extérieur du dropdown
+      const dropdownContainer = event.target.closest('[data-dropdown="institutions"]')
+      if (!dropdownContainer) {
+        setInstitutionsDropdownOpen(false)
+      }
+    }
+    
+    // Utiliser setTimeout pour éviter que le clic sur le bouton ferme immédiatement
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside)
+    }, 0)
+    
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [institutionsDropdownOpen])
+
   // Déterminer le rôle effectif (simulé ou réel)
   const effectiveRole = simulatedRole || getUserRole(currentUser?.email)
+
+  // Fermer le dropdown Institutions quand le rôle change
+  useEffect(() => {
+    setInstitutionsDropdownOpen(false)
+  }, [effectiveRole])
+
+  // Initialiser la vue par défaut selon le rôle
+  useEffect(() => {
+    if (effectiveRole === 'nick') {
+      // Nick démarre sur Inventaire (pas Dashboard)
+      if (currentView === 'dashboard') {
+        setCurrentView('inventaire')
+      }
+    } else if (effectiveRole === 'louise') {
+      // Louise démarre sur Inventaire
+      if (currentView === 'dashboard' || !currentView) {
+        setCurrentView('inventaire')
+      }
+    } else if (effectiveRole === 'jeanphilippe') {
+      // Jean-Philippe démarre sur Inventaire
+      if (currentView === 'dashboard' || !currentView) {
+        setCurrentView('inventaire')
+      }
+    }
+  }, [effectiveRole, currentView])
 
   // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
   const effectiveUser = simulatedRole ? {
@@ -135,14 +187,44 @@ function App() {
   const renderDashboard = () => {
     switch (effectiveRole) {
       case 'nick':
-        if (currentView === 'place-des-arts') {
+        // Nick: Navigation par currentView (comme admin)
+        if (currentView === 'inventaire') {
+          return <NickDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'place-des-arts') {
           return <PlaceDesArtsDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'vincent-dindy-v7') {
+          return <VDIInventoryWrapper />
         }
-        // Nick utilise son dashboard avec onglets (Inventaire, Tournées, Vincent d'Indy, Calculateur)
+        // Par défaut: Inventaire
         return <NickDashboard currentUser={effectiveUser} />
       case 'louise':
-        return <LouiseDashboard currentUser={effectiveUser} />
+        // Louise: Navigation par currentView (comme admin)
+        if (currentView === 'inventaire') {
+          return <InventaireDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'calculateur-frais') {
+          return (
+            <div className="space-y-8">
+              <TravelFeeCalculator />
+              <div className="border-t border-gray-200 pt-8">
+                <KilometersCalculator />
+              </div>
+            </div>
+          )
+        } else if (currentView === 'vincent-dindy-v7') {
+          return <VDIInventoryWrapper />
+        } else if (currentView === 'place-des-arts') {
+          return <PlaceDesArtsDashboard currentUser={effectiveUser} />
+        }
+        // Par défaut: Inventaire
+        return <InventaireDashboard currentUser={effectiveUser} />
       case 'jeanphilippe':
+        // Jean-Philippe: Inventaire et Tournées (vue technicien)
+        if (currentView === 'inventaire') {
+          return <InventaireDashboard currentUser={effectiveUser} />
+        } else if (currentView === 'tournees') {
+          return <VincentDIndyDashboard currentUser={effectiveUser} initialView="technicien" />
+        }
+        // Par défaut: Inventaire
         return <InventaireDashboard currentUser={effectiveUser} />
       case 'admin':
       default:
@@ -170,6 +252,9 @@ function App() {
               </div>
             </div>
           )
+        } else if (currentView === 'vincent-dindy-v7') {
+          // V7 Master Template (527 lignes) - Isolation via iframe
+          return <VDIInventoryWrapper />
         } else {
           return <VincentDIndyDashboard currentUser={effectiveUser} />
         }
@@ -205,21 +290,64 @@ function App() {
                       📦 Inventaire
                     </button>
 
-                    {/* Place des Arts - Nick */}
-                    <button
-                      onClick={() => setCurrentView('place-des-arts')}
-                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                        currentView === 'place-des-arts'
-                          ? 'bg-blue-100 text-blue-700 font-medium'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      🎭 Place des Arts
-                    </button>
+                    {/* Institutions - Nick - Dropdown */}
+                    <div className="relative" data-dropdown="institutions">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setInstitutionsDropdownOpen(!institutionsDropdownOpen)
+                        }}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors flex items-center gap-1 ${
+                          currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {currentView === 'vincent-dindy-v7' ? '🎹 Vincent d\'Indy' :
+                         currentView === 'place-des-arts' ? '🎭 Place des Arts' :
+                         '🏛️ Institutions'}
+                        <span className="text-xs">▼</span>
+                      </button>
+                      {institutionsDropdownOpen && (
+                        <div 
+                          className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[200px]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setCurrentView('vincent-dindy-v7')
+                              setInstitutionsDropdownOpen(false)
+                            }}
+                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                              currentView === 'vincent-dindy-v7'
+                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                            }`}
+                          >
+                            🎹 Vincent d'Indy
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setCurrentView('place-des-arts')
+                              setInstitutionsDropdownOpen(false)
+                            }}
+                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                              currentView === 'place-des-arts'
+                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                            }`}
+                          >
+                            🎭 Place des Arts
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </>
                 ) : effectiveRole === 'jeanphilippe' ? (
                   <>
-                    {/* Inventaire - Jean-Philippe uniquement */}
+                    {/* Inventaire - Jean-Philippe */}
                     <button
                       onClick={() => setCurrentView('inventaire')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -229,6 +357,18 @@ function App() {
                       }`}
                     >
                       📦 Inventaire
+                    </button>
+                    
+                    {/* Tournées - Jean-Philippe (vue technicien) */}
+                    <button
+                      onClick={() => setCurrentView('tournees')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'tournees'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🗺️ Tournées
                     </button>
                   </>
                 ) : (
@@ -261,20 +401,6 @@ function App() {
                       </button>
                     )}
 
-                    {/* Pianos - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('pianos')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'pianos'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🎹 Pianos
-                      </button>
-                    )}
-
                     {/* Alertes RV - admin seulement */}
                     {effectiveRole === 'admin' && (
                       <button
@@ -301,50 +427,8 @@ function App() {
                       📦 Inventaire
                     </button>
 
-                    {/* Place des Arts - admin et louise */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
-                      <button
-                        onClick={() => setCurrentView('place-des-arts')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'place-des-arts'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🎭 Place des Arts
-                      </button>
-                    )}
-
-                    {/* Tournées - admin et louise */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
-                      <button
-                        onClick={() => setCurrentView('tournees')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'tournees'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🎼 Tournées
-                      </button>
-                    )}
-
-                    {/* Chat Intelligent - admin et louise */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
-                      <button
-                        onClick={() => setCurrentView('chat')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'chat'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        💬 Ma Journée
-                      </button>
-                    )}
-
-                    {/* Calculateur - admin et louise seulement */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
+                    {/* Calculateur - admin, louise et nick */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'nick') && (
                       <button
                         onClick={() => setCurrentView('calculateur-frais')}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -355,6 +439,63 @@ function App() {
                       >
                         💰 Calculateur
                       </button>
+                    )}
+
+                    {/* Institutions - Admin et Louise - Dropdown */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
+                      <div className="relative" data-dropdown="institutions">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setInstitutionsDropdownOpen(!institutionsDropdownOpen)
+                          }}
+                          className={`px-4 py-2 text-sm rounded-lg transition-colors flex items-center gap-1 ${
+                            currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts'
+                              ? 'bg-blue-100 text-blue-700 font-medium'
+                              : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {currentView === 'vincent-dindy-v7' ? '🎹 Vincent d\'Indy' :
+                           currentView === 'place-des-arts' ? '🎭 Place des Arts' :
+                           '🏛️ Institutions'}
+                          <span className="text-xs">▼</span>
+                        </button>
+                        {institutionsDropdownOpen && (
+                          <div 
+                            className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[200px]"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setCurrentView('vincent-dindy-v7')
+                                setInstitutionsDropdownOpen(false)
+                              }}
+                              className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                currentView === 'vincent-dindy-v7'
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                              }`}
+                            >
+                              🎹 Vincent d'Indy
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setCurrentView('place-des-arts')
+                                setInstitutionsDropdownOpen(false)
+                              }}
+                              className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                currentView === 'place-des-arts'
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                              }`}
+                            >
+                              🎭 Place des Arts
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </>
                 )}

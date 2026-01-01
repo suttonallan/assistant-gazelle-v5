@@ -1,46 +1,43 @@
 /**
- * InventoryTable Component - Gestion Inventaire Pianos
+ * PDAInventoryTable Component - Inventaire Pianos Place des Arts
  *
- * Table ultra-réactive avec:
- * - Shift+Clic range selection
- * - Inline toggle isHidden
- * - Tri + filtres
- * - Batch operations
+ * Basé sur InventoryTable mais avec fonctionnalités spécifiques:
+ * - Mapping abréviations PDA ↔ Pianos Gazelle
+ * - Alertes pour abréviations non mappées
+ * - Confrontation demandes ↔ pianos
+ * - Vue de jumelage avec suggestions
  *
  * @example
  * ```tsx
- * <InventoryTable
- *   pianos={pianos}
- *   onToggleHidden={handleToggle}
- *   onBatchHide={handleBatchHide}
- * />
+ * <PDAInventoryTable />
  * ```
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { usePianos } from '@hooks/usePianos';
-import { usePianoColors } from '@hooks/usePianoColors';
+import { usePDAPianoMappings } from '@hooks/usePDAPianoMappings';
 import { useRangeSelection, getSelectAllState } from '@hooks/useRangeSelection';
 import { useBatchOperations } from '@hooks/useBatchOperations';
 import { LastTunedBadge } from '@components/shared/LastTunedBadge';
 import { PianoStatusPill } from '@components/shared/PianoStatusPill';
+import { PianoMappingModal } from './PianoMappingModal';
 import { formatDateShort } from '@lib/utils';
-import type { Piano, PianoSortConfig, PianoFilters } from '@types/piano.types';
+import type { Piano, PianoSortConfig } from '@types/piano.types';
+import type { PianoMappingStats } from '@types/pda.types';
 
 // ==========================================
 // TYPES
 // ==========================================
 
-interface InventoryTableProps {
-  /** Institution ID */
-  etablissement: 'vincent-dindy' | 'orford' | 'place-des-arts';
+interface PDAInventoryTableProps {
+  // Pas de props pour l'instant, utilise 'place-des-arts' par défaut
 }
 
 // ==========================================
 // COMPONENT
 // ==========================================
 
-export function InventoryTable({ etablissement }: InventoryTableProps) {
+export function PDAInventoryTable({}: PDAInventoryTableProps) {
   // ==========================================
   // HOOKS
   // ==========================================
@@ -50,23 +47,25 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
     loading,
     error,
     filteredPianos,
-    filters,
-    setFilters,
     sortConfig,
     setSortConfig,
     updatePiano,
     refreshPianos
-  } = usePianos(etablissement, {
-    includeHidden: true // Afficher TOUS les pianos dans inventaire
+  } = usePianos('place-des-arts', {
+    includeHidden: true
   });
+
+  const {
+    mappings,
+    loading: mappingsLoading,
+    stats,
+    createMapping,
+    updateMapping,
+    deleteMapping,
+    refresh: refreshMappings
+  } = usePDAPianoMappings();
 
   const { batchSetVisibility, loading: batchLoading } = useBatchOperations();
-
-  // Inventaire: pas de coloration par tournée (toujours blanc)
-  const { getColor } = usePianoColors(etablissement, {
-    activeTourneeId: null,
-    pianosInActiveTournee: new Set()
-  });
 
   const {
     selectedIds,
@@ -83,15 +82,54 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showHiddenOnly, setShowHiddenOnly] = useState(false);
+  const [showUnmappedOnly, setShowUnmappedOnly] = useState(false);
+  const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [selectedPianoForMapping, setSelectedPianoForMapping] = useState<Piano | null>(null);
   const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
   // COMPUTED
   // ==========================================
 
-  // Apply additional filters (search, hidden-only)
+  // Créer un map pour lookup rapide: gazelle_piano_id → abbreviation
+  const pianoToAbbreviationMap = useMemo(() => {
+    const map = new Map<string, string>();
+    mappings.forEach((m) => {
+      map.set(m.gazelle_piano_id, m.piano_abbreviation);
+    });
+    return map;
+  }, [mappings]);
+
+  // Créer un map pour lookup rapide: abbreviation → stats
+  const abbreviationStatsMap = useMemo(() => {
+    const map = new Map<string, PianoMappingStats>();
+    stats.forEach((s) => {
+      map.set(s.abbreviation, s);
+    });
+    return map;
+  }, [stats]);
+
+      // Enrichir les pianos avec les données de mapping
+  const enrichedPianos = useMemo(() => {
+    return filteredPianos.map((piano) => {
+      const abbreviation = pianoToAbbreviationMap.get(piano.gazelleId);
+      const abbreviationStats = abbreviation
+        ? abbreviationStatsMap.get(abbreviation)
+        : undefined;
+      const mapping = mappings.find((m) => m.gazelle_piano_id === piano.gazelleId);
+
+      return {
+        ...piano,
+        pdaAbbreviation: abbreviation,
+        pdaStats: abbreviationStats,
+        pdaMapping: mapping
+      };
+    });
+  }, [filteredPianos, pianoToAbbreviationMap, abbreviationStatsMap, mappings]);
+
+  // Appliquer les filtres additionnels
   const displayedPianos = useMemo(() => {
-    let result = [...filteredPianos];
+    let result = [...enrichedPianos];
 
     // Search filter
     if (searchQuery.trim()) {
@@ -101,7 +139,8 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
           p.make.toLowerCase().includes(query) ||
           p.location.toLowerCase().includes(query) ||
           (p.model && p.model.toLowerCase().includes(query)) ||
-          (p.serialNumber && p.serialNumber.toLowerCase().includes(query))
+          (p.serialNumber && p.serialNumber.toLowerCase().includes(query)) ||
+          (p.pdaAbbreviation && p.pdaAbbreviation.toLowerCase().includes(query))
       );
     }
 
@@ -110,8 +149,23 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
       result = result.filter((p) => p.isHidden);
     }
 
+    // Unmapped-only filter (pianos sans abréviation mappée)
+    if (showUnmappedOnly) {
+      result = result.filter((p) => !p.pdaAbbreviation);
+    }
+
     return result;
-  }, [filteredPianos, searchQuery, showHiddenOnly]);
+  }, [enrichedPianos, searchQuery, showHiddenOnly, showUnmappedOnly]);
+
+  // Compter les abréviations non mappées
+  const unmappedAbbreviations = useMemo(() => {
+    return stats.filter((s) => !s.mapped && s.request_count > 0);
+  }, [stats]);
+
+  // Compter les mappings incertains
+  const uncertainMappings = useMemo(() => {
+    return mappings.filter((m) => m.is_uncertain);
+  }, [mappings]);
 
   // Select All checkbox state
   const { checked: selectAllChecked, indeterminate: selectAllIndeterminate } =
@@ -121,7 +175,6 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
   // EFFECTS
   // ==========================================
 
-  // Update indeterminate state of "Select All" checkbox
   useEffect(() => {
     if (selectAllCheckboxRef.current) {
       selectAllCheckboxRef.current.indeterminate = selectAllIndeterminate;
@@ -137,7 +190,7 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
       await updatePiano(piano.gazelleId, {
         pianoId: piano.gazelleId,
         isHidden: !piano.isHidden,
-        updatedBy: 'current-user@example.com' // TODO: Get from auth
+        updatedBy: 'current-user@example.com'
       });
     } catch (err) {
       console.error('Toggle hidden error:', err);
@@ -181,6 +234,18 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
     } catch (err) {
       console.error('Batch show error:', err);
     }
+  };
+
+  const handleMapPiano = (piano: Piano) => {
+    setSelectedPianoForMapping(piano);
+    setMappingModalOpen(true);
+  };
+
+  const handleMappingComplete = async () => {
+    await refreshMappings();
+    await refreshPianos();
+    setMappingModalOpen(false);
+    setSelectedPianoForMapping(null);
   };
 
   const handleSort = (field: PianoSortConfig['field']) => {
@@ -234,32 +299,100 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
 
   return (
     <div className="space-y-4">
+      {/* ALERTE: Mappings incertains (priorité haute) */}
+      {uncertainMappings.length > 0 && (
+        <div className="bg-orange-50 border-l-4 border-orange-400 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-orange-800 font-semibold mb-1">
+                ⚠️ {uncertainMappings.length} mapping(s) nécessite(nt) vérification
+              </h3>
+              <p className="text-orange-700 text-sm">
+                Certains mappings sont marqués comme incertains et nécessitent une
+                validation par le gestionnaire.
+              </p>
+            </div>
+            <button
+              onClick={() => setMappingModalOpen(true)}
+              className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium"
+            >
+              Vérifier maintenant
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ALERTE: Abréviations non mappées */}
+      {unmappedAbbreviations.length > 0 && (
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-yellow-800 font-semibold mb-1">
+                ⚠️ {unmappedAbbreviations.length} abréviation(s) non mappée(s)
+              </h3>
+              <p className="text-yellow-700 text-sm">
+                {unmappedAbbreviations
+                  .slice(0, 5)
+                  .map((s) => `${s.abbreviation} (${s.request_count} demande(s))`)
+                  .join(', ')}
+                {unmappedAbbreviations.length > 5 &&
+                  ` ... et ${unmappedAbbreviations.length - 5} autre(s)`}
+              </p>
+            </div>
+            <button
+              onClick={() => setMappingModalOpen(true)}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium"
+            >
+              Mapper maintenant
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER & FILTERS */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900">
-              Inventaire Pianos
+              Inventaire Pianos - Place des Arts
             </h2>
             <p className="text-sm text-gray-500 mt-1">
               {displayedPianos.length} piano(s) · {selectedCount} sélectionné(s)
+              {uncertainMappings.length > 0 && (
+                <span className="text-orange-600 ml-2 font-semibold">
+                  · ⚠️ {uncertainMappings.length} mapping(s) incertain(s)
+                </span>
+              )}
+              {unmappedAbbreviations.length > 0 && (
+                <span className="text-yellow-600 ml-2">
+                  · {unmappedAbbreviations.length} abréviation(s) non mappée(s)
+                </span>
+              )}
             </p>
           </div>
 
-          <button
-            onClick={refreshPianos}
-            disabled={loading}
-            className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
-          >
-            🔄 Actualiser
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMappingModalOpen(true)}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              🔗 Gérer les mappings
+            </button>
+            <button
+              onClick={refreshPianos}
+              disabled={loading}
+              className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            >
+              🔄 Actualiser
+            </button>
+          </div>
         </div>
 
         {/* Search & Filters */}
         <div className="flex gap-3">
           <input
             type="text"
-            placeholder="Rechercher piano, local, série..."
+            placeholder="Rechercher piano, local, série, abréviation..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -274,6 +407,18 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
             />
             <span className="text-sm font-medium text-gray-700">
               Masqués uniquement
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100">
+            <input
+              type="checkbox"
+              checked={showUnmappedOnly}
+              onChange={(e) => setShowUnmappedOnly(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Non mappés
             </span>
           </label>
         </div>
@@ -347,7 +492,11 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
                 />
 
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                  Type
+                  Abréviation PDA
+                </th>
+
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Demandes
                 </th>
 
                 <SortableHeader
@@ -364,20 +513,24 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                   Visibilité
                 </th>
+
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-200">
               {displayedPianos.map((piano) => (
-                <PianoRow
+                <PDAPianoRow
                   key={piano.gazelleId}
                   piano={piano}
-                  color={getColor(piano)}
                   isSelected={isSelected(piano.gazelleId)}
                   onClickCheckbox={(shiftKey) =>
                     handleClick(piano.gazelleId, shiftKey)
                   }
                   onToggleHidden={() => handleToggleHidden(piano)}
+                  onMapPiano={() => handleMapPiano(piano)}
                 />
               ))}
             </tbody>
@@ -390,6 +543,19 @@ export function InventoryTable({ etablissement }: InventoryTableProps) {
           )}
         </div>
       </div>
+
+      {/* MAPPING MODAL */}
+      {mappingModalOpen && (
+        <PianoMappingModal
+          isOpen={mappingModalOpen}
+          onClose={() => {
+            setMappingModalOpen(false);
+            setSelectedPianoForMapping(null);
+          }}
+          selectedPiano={selectedPianoForMapping}
+          onMappingComplete={handleMappingComplete}
+        />
+      )}
     </div>
   );
 }
@@ -429,27 +595,35 @@ function SortableHeader({
   );
 }
 
-interface PianoRowProps {
-  piano: Piano;
-  color: string;
+interface PDAPianoRowProps {
+  piano: Piano & {
+    pdaAbbreviation?: string;
+    pdaStats?: PianoMappingStats;
+    pdaMapping?: any;
+  };
   isSelected: boolean;
   onClickCheckbox: (shiftKey: boolean) => void;
   onToggleHidden: () => void;
+  onMapPiano: () => void;
 }
 
-function PianoRow({
+function PDAPianoRow({
   piano,
-  color,
   isSelected,
   onClickCheckbox,
-  onToggleHidden
-}: PianoRowProps) {
+  onToggleHidden,
+  onMapPiano
+}: PDAPianoRowProps) {
+  const hasMapping = !!piano.pdaAbbreviation;
+  const requestCount = piano.pdaStats?.request_count || 0;
+  const isUncertain = piano.pdaMapping?.is_uncertain || false;
+
   return (
     <tr
       className={`
-        ${color}
         ${isSelected ? 'ring-2 ring-blue-500' : ''}
         hover:shadow-sm transition-all duration-100
+        ${isUncertain ? 'bg-orange-50 border-l-4 border-orange-400' : !hasMapping ? 'bg-yellow-50' : 'bg-white'}
       `}
     >
       {/* Checkbox */}
@@ -457,8 +631,12 @@ function PianoRow({
         <input
           type="checkbox"
           checked={isSelected}
-          onChange={(e) => onClickCheckbox(e.shiftKey)}
-          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e: React.MouseEvent<HTMLInputElement>) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClickCheckbox(e.shiftKey);
+          }}
+          onChange={() => {}}
           className="w-4 h-4 rounded cursor-pointer"
         />
       </td>
@@ -475,17 +653,47 @@ function PianoRow({
           {piano.model && (
             <div className="text-gray-500 text-xs">{piano.model}</div>
           )}
-          {piano.serialNumber && (
-            <div className="text-gray-400 text-xs mt-0.5">Série: {piano.serialNumber}</div>
-          )}
         </div>
       </td>
 
-      {/* Type */}
+      {/* Abréviation PDA */}
       <td className="px-4 py-3">
-        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-          {piano.type}
-        </span>
+        {hasMapping ? (
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                isUncertain
+                  ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                  : 'bg-green-100 text-green-700'
+              }`}
+            >
+              {piano.pdaAbbreviation}
+            </span>
+            {isUncertain && (
+              <span
+                className="text-orange-600 text-xs"
+                title={piano.pdaMapping?.uncertainty_note || 'Mapping incertain'}
+              >
+                ⚠️
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+            ⚠️ Non mappé
+          </span>
+        )}
+      </td>
+
+      {/* Demandes */}
+      <td className="px-4 py-3">
+        {hasMapping && requestCount > 0 ? (
+          <span className="text-sm text-gray-700">
+            {requestCount} demande(s)
+          </span>
+        ) : (
+          <span className="text-sm text-gray-400">-</span>
+        )}
       </td>
 
       {/* Dernier Accord */}
@@ -514,8 +722,26 @@ function PianoRow({
           {piano.isHidden ? '🚫 Masqué' : '👁️ Visible'}
         </button>
       </td>
+
+      {/* Actions */}
+      <td className="px-4 py-3">
+        <button
+          onClick={onMapPiano}
+          className={`
+            px-3 py-1 rounded-lg text-sm font-medium transition-colors
+            ${
+              hasMapping
+                ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+            }
+          `}
+        >
+          {hasMapping ? '✏️ Modifier' : '🔗 Mapper'}
+        </button>
+      </td>
     </tr>
   );
 }
 
-export default InventoryTable;
+export default PDAInventoryTable;
+

@@ -31,6 +31,7 @@ from api.admin import router as admin_router
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
 from api.chat_routes import router as chat_router
+from api.scheduler_routes import router as scheduler_router
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
 
 app = FastAPI(
@@ -77,6 +78,24 @@ async def startup_event():
     print("✅ API PRÊTE")
     print("="*60 + "\n")
 
+    # Démarrer le scheduler pour les tâches planifiées
+    try:
+        from core.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        print(f"⚠️  Erreur lors du démarrage du scheduler: {e}")
+        print("   L'API continuera à fonctionner sans tâches planifiées.")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Arrête le scheduler proprement lors de l'arrêt de l'API."""
+    try:
+        from core.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception as e:
+        print(f"⚠️  Erreur lors de l'arrêt du scheduler: {e}")
+
 # CORS - Permet au frontend d'appeler l'API
 app.add_middleware(
     CORSMiddleware,
@@ -97,6 +116,7 @@ app.include_router(admin_router)
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
+app.include_router(scheduler_router)
 
 
 @app.get("/")

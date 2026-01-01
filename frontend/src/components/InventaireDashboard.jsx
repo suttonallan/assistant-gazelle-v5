@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import ExportButton from './ExportButton'
+import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
-// Configuration des techniciens (mappés depuis le guide V4)
+// Configuration des techniciens - SOURCE DE VÉRITÉ CENTRALISÉE
 // IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets
-// Ordre fixe: ne peut pas être modifié dans l'interface (seulement display_order des produits dans Admin)
-const TECHNICIENS = [
-  { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
-  { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' },
-  { id: 'usr_nicolas_tech', name: 'Nicolas', username: 'nicolas_tech' }
-]
+const TECHNICIENS = TECHNICIENS_LISTE.map(t => ({
+  id: t.gazelleId,
+  name: t.abbreviation, // ⭐ Utilise l'abbréviation (Nick, Allan, JP)
+  username: t.username
+}))
 
 const InventaireDashboard = ({ currentUser }) => {
   // États principaux

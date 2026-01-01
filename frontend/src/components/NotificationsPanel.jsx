@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
+import SchedulerJournal from './SchedulerJournal'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
 export default function NotificationsPanel({ currentUser }) {
-  const [activeTab, setActiveTab] = useState('deductions') // deductions, alerts, imports
+  const [activeTab, setActiveTab] = useState('deductions') // deductions, alerts, tasks
 
   // Logs de déduction d'inventaire
   const [deductionLogs, setDeductionLogs] = useState([])
@@ -25,9 +26,8 @@ export default function NotificationsPanel({ currentUser }) {
       loadDeductionLogs()
     } else if (activeTab === 'alerts') {
       loadAlerts()
-    } else if (activeTab === 'imports') {
-      loadImportSummary()
     }
+    // L'onglet 'tasks' n'a pas besoin de charger de données ici (SchedulerJournal le fait)
   }, [activeTab])
 
   const loadDeductionLogs = async () => {
@@ -172,14 +172,14 @@ export default function NotificationsPanel({ currentUser }) {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('imports')}
+            onClick={() => setActiveTab('tasks')}
             className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'imports'
+              activeTab === 'tasks'
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            📥 Résumé d'imports
+            ⏰ Tâches & Imports
           </button>
         </nav>
       </div>
@@ -385,82 +385,9 @@ export default function NotificationsPanel({ currentUser }) {
         </div>
       )}
 
-      {/* Contenu - Résumé d'imports */}
-      {activeTab === 'imports' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-gray-800">
-              Résumé des imports (30 derniers jours)
-            </h3>
-            <button
-              onClick={loadImportSummary}
-              className="px-3 py-1 text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 rounded transition-colors"
-            >
-              🔄 Actualiser
-            </button>
-          </div>
-
-          <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
-            {importsLoading ? (
-              <div className="px-6 py-12 text-center text-gray-500">
-                Chargement...
-              </div>
-            ) : importSummary.length === 0 ? (
-              <div className="px-6 py-12 text-center text-gray-500">
-                Aucun import enregistré pour le moment
-              </div>
-            ) : (
-              importSummary.map((summary, index) => (
-                <div
-                  key={summary.id || index}
-                  className="px-6 py-4 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="font-medium text-gray-900">
-                          📅 {summary.sync_date}
-                        </span>
-                        {summary.errors_count > 0 && (
-                          <span className="bg-red-100 text-red-800 text-xs px-2 py-1 rounded">
-                            {summary.errors_count} erreur(s)
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div className="bg-blue-50 rounded p-3">
-                          <div className="text-xs text-blue-600 mb-1">Factures traitées</div>
-                          <div className="text-2xl font-bold text-blue-900">
-                            {summary.invoices_processed || 0}
-                          </div>
-                        </div>
-                        <div className="bg-green-50 rounded p-3">
-                          <div className="text-xs text-green-600 mb-1">Déductions</div>
-                          <div className="text-2xl font-bold text-green-900">
-                            {summary.total_deductions || 0}
-                          </div>
-                        </div>
-                        <div className="bg-purple-50 rounded p-3">
-                          <div className="text-xs text-purple-600 mb-1">Techniciens</div>
-                          <div className="text-2xl font-bold text-purple-900">
-                            {summary.techniciens_affected?.length || 0}
-                          </div>
-                        </div>
-                      </div>
-
-                      {summary.techniciens_affected && summary.techniciens_affected.length > 0 && (
-                        <div className="mt-3 text-xs text-gray-600">
-                          Techniciens affectés: {summary.techniciens_affected.join(', ')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+      {/* Contenu - Tâches & Imports */}
+      {activeTab === 'tasks' && (
+        <SchedulerJournal currentUser={currentUser} />
       )}
     </div>
   )

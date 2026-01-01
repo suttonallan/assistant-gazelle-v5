@@ -2,7 +2,7 @@
  * VDI App - Application principale
  *
  * Navigation par onglets entre:
- * - Inventaire (InventoryTable)
+ * - Inventaire Pianos (InventoryTable)
  * - Tournées (PianosTable via TourneesView)
  * - Techniciens (TechnicianView)
  */
@@ -36,7 +36,7 @@ export function App() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex space-x-1">
             <TabButton
-              label="📦 Inventaire"
+              label="📦 Inventaire Pianos"
               isActive={activeView === 'inventaire'}
               onClick={() => setActiveView('inventaire')}
             />

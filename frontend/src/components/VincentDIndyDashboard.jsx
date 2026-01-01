@@ -4,12 +4,12 @@ import { submitReport, getReports, getPianos, updatePiano } from '../api/vincent
 // Configuration de l'API - sera remplacée par la variable d'environnement en production
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
 
-const VincentDIndyDashboard = ({ currentUser }) => {
+const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
   const [pianos, setPianos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [currentView, setCurrentView] = useState('nicolas');
+  const [currentView, setCurrentView] = useState(initialView);
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nick : filtrer sur pianos sélectionnés
   const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local

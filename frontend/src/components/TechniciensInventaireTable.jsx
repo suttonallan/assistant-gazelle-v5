@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react'
+import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
-// Configuration des techniciens
-const TECHNICIENS = [
-  { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
-  { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' }
-]
+// Configuration des techniciens - SOURCE DE VÉRITÉ CENTRALISÉE
+const TECHNICIENS = TECHNICIENS_LISTE.map(t => ({
+  id: t.gazelleId,
+  name: t.abbreviation, // ⭐ Utilise l'abbréviation (Nick, Allan, JP)
+  username: t.username
+}))
 
 /**
  * Composant réutilisable pour afficher l'inventaire des techniciens

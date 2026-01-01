@@ -10,6 +10,7 @@
 
 import React, { useState } from 'react';
 import type { Etablissement } from '@types/tournee.types';
+import { TECHNICIENS_LISTE } from '@config/techniciens.config';
 
 interface CreateTourneeModalProps {
   etablissement: Etablissement;
@@ -158,10 +159,12 @@ export function CreateTourneeModal({ etablissement, onClose, onCreate }: CreateT
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">-- Sélectionner --</option>
-              <option value="allan@pianosmtl.com">Allan</option>
-              <option value="nicolas@pianosmtl.com">Nicolas</option>
-              <option value="nick@pianosmtl.com">Nick</option>
-              <option value="michelle@pianosmtl.com">Michelle</option>
+              {/* SOURCE DE VÉRITÉ: config/techniciens.config.ts */}
+              {TECHNICIENS_LISTE.map((tech) => (
+                <option key={tech.gazelleId} value={tech.email}>
+                  {tech.abbreviation}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -171,14 +174,13 @@ export function CreateTourneeModal({ etablissement, onClose, onCreate }: CreateT
               Techniciens assistants (optionnel)
             </label>
             <div className="space-y-2">
-              {['allan@pianosmtl.com', 'nicolas@pianosmtl.com', 'nick@pianosmtl.com', 'michelle@pianosmtl.com'].map((email) => {
-                const name = email.split('@')[0];
-                const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-                const isChecked = formData.techniciensAssistants.includes(email);
+              {/* SOURCE DE VÉRITÉ: config/techniciens.config.ts */}
+              {TECHNICIENS_LISTE.map((tech) => {
+                const isChecked = formData.techniciensAssistants.includes(tech.email);
 
                 return (
                   <label
-                    key={email}
+                    key={tech.gazelleId}
                     className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer"
                   >
                     <input
@@ -186,14 +188,14 @@ export function CreateTourneeModal({ etablissement, onClose, onCreate }: CreateT
                       checked={isChecked}
                       onChange={(e) => {
                         const newAssistants = e.target.checked
-                          ? [...formData.techniciensAssistants, email]
-                          : formData.techniciensAssistants.filter((a) => a !== email);
+                          ? [...formData.techniciensAssistants, tech.email]
+                          : formData.techniciensAssistants.filter((a) => a !== tech.email);
                         setFormData({ ...formData, techniciensAssistants: newAssistants });
                       }}
                       disabled={loading}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="text-sm text-gray-700">{displayName}</span>
+                    <span className="text-sm text-gray-700">{tech.abbreviation}</span>
                   </label>
                 );
               })}

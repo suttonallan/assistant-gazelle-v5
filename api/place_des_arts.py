@@ -6,6 +6,7 @@ la logique V4 n'est pas portée.
 """
 
 import sys
+import os
 from pathlib import Path
 from typing import List, Literal, Optional, Dict, Any
 import requests
@@ -19,11 +20,29 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.supabase_storage import SupabaseStorage  # noqa: E402
+from core.gazelle_api_client import GazelleAPIClient  # noqa: E402
 from modules.place_des_arts.services.event_parser import EventParser  # noqa: E402
 from modules.place_des_arts.services.event_manager import EventManager  # noqa: E402
 from modules.place_des_arts.services.email_parser import parse_email_text  # noqa: E402
 
 router = APIRouter(prefix="/place-des-arts", tags=["place-des-arts"])
+
+# Client ID Place des Arts dans Gazelle
+PLACE_DES_ARTS_CLIENT_ID = os.getenv("GAZELLE_CLIENT_ID_PDA") or "cli_HbEwl9rN11pSuDEU"
+
+# Singletons
+_api_client = None
+
+def get_api_client() -> Optional[GazelleAPIClient]:
+    """Retourne l'instance du client API Gazelle (singleton)."""
+    global _api_client
+    if _api_client is None:
+        try:
+            _api_client = GazelleAPIClient()
+        except Exception as e:
+            print(f"⚠️ Erreur lors de l'initialisation du client API: {e}")
+            _api_client = None
+    return _api_client
 
 # Singletons légers
 _storage = None
@@ -141,6 +160,144 @@ class ImportRequest(BaseModel):
 async def health_check():
     """Health check minimal du module Place des Arts."""
     return {"status": "ok", "module": "place-des-arts"}
+
+
+@router.get("/pianos", response_model=Dict[str, Any])
+async def get_pianos(include_inactive: bool = False):
+    """
+    Récupère tous les pianos Place des Arts depuis Gazelle API.
+    
+    Args:
+        include_inactive: Si True, inclut les pianos avec tag "non" (masqués par défaut)
+    
+    Architecture:
+    - Gazelle API = Source unique de vérité (filtre par client ID Place des Arts)
+    - Tag "non" dans Gazelle = piano masqué de l'inventaire
+    - Filtre par défaut = masque les pianos avec tag "non"
+    - Supabase = Modifications dynamiques (status, notes, etc.)
+    """
+    import logging
+    import ast
+    
+    try:
+        logging.info(f"🔍 Chargement des pianos Place des Arts depuis Gazelle (client: {PLACE_DES_ARTS_CLIENT_ID})")
+        
+        # 1. Charger TOUS les pianos Place des Arts depuis Gazelle
+        api_client = get_api_client()
+        
+        if not api_client:
+            raise HTTPException(status_code=500, detail="Client API Gazelle non disponible")
+        
+        query = """
+        query GetPlaceDesArtsPianos($clientId: String!) {
+          allPianos(first: 200, filters: { clientId: $clientId }) {
+            nodes {
+              id
+              serialNumber
+              make
+              model
+              location
+              type
+              status
+              notes
+              calculatedLastService
+              calculatedNextService
+              serviceIntervalMonths
+              tags
+            }
+          }
+        }
+        """
+        
+        variables = {"clientId": PLACE_DES_ARTS_CLIENT_ID}
+        result = api_client._execute_query(query, variables)
+        gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
+        
+        logging.info(f"📋 {len(gazelle_pianos)} pianos Place des Arts chargés depuis Gazelle")
+        
+        # 2. Charger les modifications depuis Supabase (flags + overlays)
+        # Note: Pour Place des Arts, on pourrait utiliser une table spécifique
+        # ou la même table avec un filtre par client_id
+        storage = get_storage()
+        # TODO: Créer une table place_des_arts_piano_updates ou utiliser vincent_dindy_piano_updates avec filtre
+        # Pour l'instant, on utilise la même table mais on pourrait filtrer par client_id
+        supabase_updates = storage.get_all_piano_updates()  # TODO: Filtrer par client Place des Arts
+        
+        logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées")
+        
+        # 3. FUSION: Transformer pianos Gazelle + appliquer overlays Supabase
+        pianos = []
+        
+        for gz_piano in gazelle_pianos:
+            gz_id = gz_piano['id']
+            serial = gz_piano.get('serialNumber', gz_id)
+            
+            # Trouver les updates Supabase
+            updates = {}
+            for piano_id, data in supabase_updates.items():
+                if (piano_id == gz_id or piano_id == serial):
+                    updates = data
+                    break
+            
+            # Parser les tags Gazelle
+            tags_raw = gz_piano.get('tags', '')
+            tags = []
+            if tags_raw:
+                try:
+                    if isinstance(tags_raw, list):
+                        tags = tags_raw
+                    elif isinstance(tags_raw, str):
+                        tags = ast.literal_eval(tags_raw)
+                except Exception as e:
+                    logging.warning(f"Erreur parsing tags pour piano {serial}: {e}")
+                    tags = []
+            
+            # Filtrage par tag "non"
+            has_non_tag = 'non' in [t.lower() for t in tags]
+            
+            if not include_inactive and has_non_tag:
+                continue  # Ignorer les pianos marqués "non"
+            
+            # Construire l'objet piano
+            piano_type = gz_piano.get('type', 'UPRIGHT')
+            type_letter = piano_type[0].upper() if piano_type else 'D'
+            
+            piano = {
+                "id": gz_id,
+                "gazelleId": gz_id,
+                "local": gz_piano.get('location', ''),
+                "piano": gz_piano.get('make', ''),
+                "modele": gz_piano.get('model', ''),
+                "serie": serial,
+                "type": type_letter,
+                "usage": "",
+                "dernierAccord": gz_piano.get('calculatedLastService', ''),
+                "prochainAccord": gz_piano.get('calculatedNextService', ''),
+                "status": updates.get('status', 'normal'),
+                "aFaire": updates.get('a_faire', ''),
+                "travail": updates.get('travail', ''),
+                "observations": updates.get('observations', gz_piano.get('notes', '')),
+                "tags": tags,
+                "hasNonTag": has_non_tag,
+                "isInCsv": updates.get('is_in_csv', True),
+                "gazelleStatus": gz_piano.get('status', 'UNKNOWN')
+            }
+            
+            pianos.append(piano)
+        
+        return {
+            "pianos": pianos,
+            "count": len(pianos),
+            "source": "gazelle_api",
+            "client_id": PLACE_DES_ARTS_CLIENT_ID,
+            "include_inactive": include_inactive
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ Erreur lors de la récupération des pianos Place des Arts: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
 @router.get("/requests")

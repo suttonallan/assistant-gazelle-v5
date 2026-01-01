@@ -1,10 +1,14 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
+import PDAInventoryTable from './PDAInventoryTable'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
 export default function PlaceDesArtsDashboard({ currentUser }) {
-  const isRestrictedUser = currentUser?.role === 'nick' || currentUser?.role === 'louise'
+  // Onglets: 'inventaire-pianos' ou 'demandes' (Inventaire en premier comme VDI)
+  const [currentView, setCurrentView] = useState('inventaire-pianos')
+  
+  const isRestrictedUser = currentUser?.role === 'nick' // Louise a accès complet aux demandes
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -614,45 +618,96 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   return (
-    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white overflow-auto' : 'max-w-7xl mx-auto'} p-6 space-y-4`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-800">Place des Arts</h2>
-          <p className="text-sm text-gray-500">Demandes importées (limite 200, tri date RDV desc)</p>
-        </div>
-        <div className="flex gap-3">
-          <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
-            <span className="font-semibold">{stats.imported ?? 0}</span>
-            <span>nouvelles</span>
-          </div>
-          <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
-            <span className="font-semibold">{stats.to_bill ?? 0}</span>
-            <span>à facturer</span>
-          </div>
-          <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
-            <span className="font-semibold">{stats.this_month ?? 0}</span>
-            <span>ce mois</span>
-          </div>
-          <button
-            onClick={() => {
-              const next = !isFullscreen
-              setIsFullscreen(next)
-              try {
-                if (next && document.documentElement.requestFullscreen) {
-                  document.documentElement.requestFullscreen()
-                } else if (!next && document.exitFullscreen) {
-                  document.exitFullscreen()
+    <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white overflow-auto' : 'min-h-screen bg-gray-50'}`}>
+      {/* Navigation Tabs - Structure identique à VDI */}
+      <nav className="bg-white border-b border-gray-200 shadow-sm sticky top-[60px] z-40">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex space-x-1">
+            <button
+              onClick={() => setCurrentView('inventaire-pianos')}
+              className={`
+                px-6 py-3 text-sm font-medium transition-colors
+                border-b-2
+                ${
+                  currentView === 'inventaire-pianos'
+                    ? 'border-blue-600 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                 }
-              } catch (e) {
-                // fallback silencieux
-              }
-            }}
-            className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            {isFullscreen ? 'Mode fenêtré' : 'Plein écran'}
-          </button>
+              `}
+            >
+              📦 Inventaire Pianos
+            </button>
+            <button
+              onClick={() => setCurrentView('demandes')}
+              className={`
+                px-6 py-3 text-sm font-medium transition-colors
+                border-b-2
+                ${
+                  currentView === 'demandes'
+                    ? 'border-blue-600 text-blue-600 bg-blue-50'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                }
+              `}
+            >
+              📋 Demandes
+            </button>
+          </div>
         </div>
-      </div>
+      </nav>
+
+      {/* Main Content - Structure identique à VDI */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+
+        {/* Contenu selon l'onglet */}
+        {currentView === 'inventaire-pianos' && (
+          <PDAInventoryTable />
+        )}
+
+        {currentView === 'demandes' && (
+          <div className="space-y-4">
+            {/* Stats pour Demandes */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Demandes Place des Arts</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Demandes importées (limite 200, tri date RDV desc)
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
+                    <span className="font-semibold">{stats.imported ?? 0}</span>
+                    <span>nouvelles</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
+                    <span className="font-semibold">{stats.to_bill ?? 0}</span>
+                    <span>à facturer</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
+                    <span className="font-semibold">{stats.this_month ?? 0}</span>
+                    <span>ce mois</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !isFullscreen
+                      setIsFullscreen(next)
+                      try {
+                        if (next && document.documentElement.requestFullscreen) {
+                          document.documentElement.requestFullscreen()
+                        } else if (!next && document.exitFullscreen) {
+                          document.exitFullscreen()
+                        }
+                      } catch (e) {
+                        // fallback silencieux
+                      }
+                    }}
+                    className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    {isFullscreen ? 'Mode fenêtré' : 'Plein écran'}
+                  </button>
+                </div>
+              </div>
+            </div>
 
       {creating && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
@@ -1205,6 +1260,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           </datalist>
         </div>
       )}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
