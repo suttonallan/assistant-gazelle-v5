@@ -18,7 +18,7 @@ Usage:
 
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import requests
 
@@ -108,6 +108,7 @@ class GazelleToSupabaseSync:
                     # Email, téléphone, adresse du contact
                     email = None
                     phone = None
+                    address = None
                     city = None
                     postal_code = None
 
@@ -122,6 +123,16 @@ class GazelleToSupabaseSync:
 
                         default_location = default_contact.get('defaultLocation', {})
                         if default_location:
+                            # Construire l'adresse complète depuis street1/street2
+                            street1 = default_location.get('street1', '')
+                            street2 = default_location.get('street2', '')
+                            if street1 and street2:
+                                address = f"{street1}, {street2}"
+                            elif street1:
+                                address = street1
+                            elif street2:
+                                address = street2
+
                             city = default_location.get('municipality')
                             postal_code = default_location.get('postalCode')
 
@@ -133,6 +144,7 @@ class GazelleToSupabaseSync:
                         'tags': tags,
                         'email': email,
                         'phone': phone,
+                        'address': address,
                         'city': city,
                         'postal_code': postal_code,
                         'created_at': client_data.get('createdAt'),
@@ -294,6 +306,11 @@ class GazelleToSupabaseSync:
                     location = piano_data.get('location', '')
                     notes = piano_data.get('notes', '')
 
+                    # Nouveaux champs Dampp-Chaser (si disponibles dans l'API)
+                    dampp_chaser_installed = piano_data.get('damppChaserInstalled', False)
+                    dampp_chaser_humidistat_model = piano_data.get('damppChaserHumidistatModel')
+                    dampp_chaser_mfg_date = piano_data.get('damppChaserMfgDate')
+
                     piano_record = {
                         'external_id': external_id,
                         'client_external_id': client_id,
@@ -304,6 +321,9 @@ class GazelleToSupabaseSync:
                         'year': year,
                         'location': location,
                         'notes': notes,
+                        'dampp_chaser_installed': dampp_chaser_installed,
+                        'dampp_chaser_humidistat_model': dampp_chaser_humidistat_model,
+                        'dampp_chaser_mfg_date': dampp_chaser_mfg_date,
                         'updated_at': datetime.now().isoformat()
                     }
 
@@ -336,21 +356,61 @@ class GazelleToSupabaseSync:
             print(f"❌ Erreur lors de la synchronisation des pianos: {e}")
             raise
 
-    def sync_appointments(self) -> int:
+    def sync_appointments(self, start_date_override: Optional[str] = None, force_historical: bool = False) -> int:
         """
         Synchronise les rendez-vous depuis Gazelle vers Supabase.
 
-        Utilise la requête GraphQL V4 (allEventsBatched) pour récupérer tous les champs.
-        Pattern copié depuis V4 (Import_daily_update.py).
+        LOGIQUE INTELLIGENTE:
+        1. Premier import: Récupère TOUT depuis 2017 (historique complet)
+        2. Syncs suivants: Seulement les 7 derniers jours (incrémental)
+
+        Utilise un marqueur 'appointments_historical_import_done' dans system_settings.
+
+        Args:
+            start_date_override: Date de début explicite (YYYY-MM-DD). Si fourni, force cette date.
+            force_historical: Si True, force un import historique complet même si déjà fait.
 
         Returns:
             Nombre de rendez-vous synchronisés
         """
         print("\n📅 Synchronisation des rendez-vous...")
 
+        # Déterminer si c'est le premier import ou un sync incrémental
+        historical_done = False
+
+        if not force_historical and not start_date_override:
+            try:
+                # Vérifier si l'import historique a déjà été fait
+                url = f"{self.storage.api_url}/system_settings?key=eq.appointments_historical_import_done&select=value"
+                response = requests.get(url, headers=self.storage._get_headers())
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and len(data) > 0:
+                        historical_done = data[0]['value'] == 'true'
+            except Exception as e:
+                print(f"⚠️  Impossible de vérifier le marqueur d'import: {e}")
+
+        # Déterminer la date de début
+        if start_date_override:
+            # Override manuel
+            effective_start_date = start_date_override
+            print(f"🎯 Mode manuel: import depuis {effective_start_date}")
+        elif force_historical or not historical_done:
+            # Premier import: tout depuis 2017
+            effective_start_date = '2017-01-01'
+            print(f"🏛️  IMPORT HISTORIQUE COMPLET depuis {effective_start_date}")
+            print("   (Cette opération peut prendre plusieurs minutes...)")
+        else:
+            # Sync incrémental: seulement les 7 derniers jours
+            effective_start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            print(f"🔄 Sync incrémental: derniers 7 jours (depuis {effective_start_date})")
+
         try:
-            # get_appointments() utilise maintenant allEventsBatched avec pagination
-            api_appointments = self.api_client.get_appointments(limit=None)  # Tous les appointments
+            api_appointments = self.api_client.get_appointments(
+                limit=None,
+                start_date_override=effective_start_date
+            )
 
             if not api_appointments:
                 print("⚠️  Aucun rendez-vous récupéré depuis l'API")
@@ -379,18 +439,11 @@ class GazelleToSupabaseSync:
                     if start_time:
                         try:
                             from datetime import datetime as dt
-                            from zoneinfo import ZoneInfo
 
-                            # IMPORTANT: Gazelle stocke les heures en Eastern Time (America/Toronto)
-                            # mais ajoute un 'Z' trompeur. On doit interpréter comme Eastern, pas UTC.
-                            dt_obj = dt.fromisoformat(start_time.replace('Z', ''))
-
-                            # Marquer comme étant en Eastern Time (c'est ce que Gazelle utilise)
-                            eastern_tz = ZoneInfo('America/Toronto')
-                            dt_eastern = dt_obj.replace(tzinfo=eastern_tz)
-
-                            # Stocker en UTC dans Supabase (TIMESTAMPTZ)
-                            dt_utc = dt_eastern.astimezone(ZoneInfo('UTC'))
+                            # CORRECT: Gazelle retourne du VRAI UTC (le 'Z' est fiable)
+                            # L'API affiche 09:15 à l'écran (Toronto) et retourne 14:15Z dans l'API (UTC)
+                            # On stocke tel quel, sans double conversion.
+                            dt_utc = dt.fromisoformat(start_time)
 
                             appointment_date = dt_utc.date().isoformat()
                             appointment_time = dt_utc.time().isoformat()
@@ -471,6 +524,28 @@ class GazelleToSupabaseSync:
                     self.stats['appointments']['errors'] += 1
 
             print(f"✅ {self.stats['appointments']['synced']} rendez-vous synchronisés")
+
+            # Marquer l'import historique comme terminé si c'était un import complet
+            if not start_date_override and (force_historical or not historical_done):
+                try:
+                    print("\n💾 Marquage de l'import historique comme terminé...")
+                    url = f"{self.storage.api_url}/system_settings"
+                    headers = self.storage._get_headers()
+                    headers["Prefer"] = "resolution=merge-duplicates"
+
+                    response = requests.post(url, headers=headers, json={
+                        'key': 'appointments_historical_import_done',
+                        'value': 'true'
+                    })
+
+                    if response.status_code in [200, 201]:
+                        print("✅ Marqueur 'appointments_historical_import_done' enregistré")
+                        print("   → Les prochains syncs seront incrémentaux (7 derniers jours)")
+                    else:
+                        print(f"⚠️  Erreur lors de l'enregistrement du marqueur: {response.status_code}")
+                except Exception as e:
+                    print(f"⚠️  Impossible d'enregistrer le marqueur: {e}")
+
             return self.stats['appointments']['synced']
 
         except Exception as e:
@@ -479,24 +554,66 @@ class GazelleToSupabaseSync:
 
     def sync_timeline_entries(self) -> int:
         """
-        Synchronise les timeline entries depuis Gazelle vers Supabase.
+        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE 15 JOURS).
+
+        Stratégie simplifiée:
+        1. Récupère les entrées de l'API (triées du plus récent au plus ancien)
+        2. Arrête dès qu'une entrée a plus de 15 jours
+        3. Utilise UPSERT pour mettre à jour les entrées existantes
 
         Returns:
             Nombre d'entrées synchronisées
         """
-        print("\n📖 Synchronisation des timeline entries...")
+        print("\n📖 Synchronisation timeline (fenêtre glissante 30 jours)...")
 
         try:
-            api_entries = self.api_client.get_timeline_entries(limit=None)
+            from datetime import datetime, timedelta
+            from zoneinfo import ZoneInfo
+
+            # Date de cutoff: maintenant - 30 jours (étendu pour capturer services de fin décembre)
+            cutoff_date = datetime.now() - timedelta(days=30)
+            cutoff_iso = cutoff_date.isoformat()
+
+            print(f"📅 Fenêtre de synchronisation: entrées depuis {cutoff_iso}")
+
+            # Utiliser le filtre API pour récupérer SEULEMENT les 30 derniers jours
+            # Cela évite de télécharger 100,000+ entrées inutiles à chaque sync
+            api_entries = self.api_client.get_timeline_entries(
+                since_date=cutoff_iso,
+                limit=None
+            )
 
             if not api_entries:
                 print("⚠️  Aucune timeline entry récupérée depuis l'API")
                 return 0
 
-            print(f"📥 {len(api_entries)} timeline entries récupérées depuis l'API")
+            print(f"📥 {len(api_entries)} timeline entries reçues de l'API")
+
+            synced_count = 0
+            stopped_by_age = False
 
             for entry_data in api_entries:
                 try:
+                    # CRITICAL: Vérifier si l'entrée est trop ancienne (>30 jours)
+                    occurred_at = entry_data.get('occurredAt')
+
+                    if occurred_at:
+                        # Parser la date (format ISO)
+                        try:
+                            entry_date = datetime.fromisoformat(occurred_at.replace('Z', '+00:00'))
+                            # Rendre aware si naive
+                            if entry_date.tzinfo is None:
+                                entry_date = entry_date.replace(tzinfo=ZoneInfo('UTC'))
+
+                            # Comparer avec cutoff (rendre cutoff aware aussi)
+                            cutoff_aware = cutoff_date.replace(tzinfo=ZoneInfo('UTC'))
+
+                            if entry_date < cutoff_aware:
+                                # SKIP cette entrée (trop vieille), mais continuer la sync
+                                continue
+                        except Exception as e:
+                            print(f"⚠️  Erreur parsing date '{occurred_at}': {e}")
+
                     external_id = entry_data.get('id')
 
                     # Client
@@ -519,13 +636,17 @@ class GazelleToSupabaseSync:
                     user_id = user_obj.get('id') if user_obj else None
 
                     # Données de l'entrée
-                    occurred_at = entry_data.get('occurredAt')
                     entry_type = entry_data.get('type', 'UNKNOWN')
-                    title = entry_data.get('title', '')
-                    details = entry_data.get('details', '')
+                    # IMPORTANT: GraphQL retourne summary/comment, pas title/details
+                    title = entry_data.get('summary', '')
+                    details = entry_data.get('comment', '')
+
+                    # DEBUG: Logger les SERVICE_ENTRY_MANUAL du 26-28 déc
+                    if entry_type == 'SERVICE_ENTRY_MANUAL' and occurred_at and occurred_at >= '2025-12-26':
+                        print(f"🔍 SERVICE_ENTRY_MANUAL: {occurred_at} | {(details or title)[:50]}")
 
                     timeline_record = {
-                        'id': external_id,
+                        'external_id': external_id,
                         'client_id': client_id,
                         'piano_id': piano_id,
                         'invoice_id': invoice_id,
@@ -534,22 +655,33 @@ class GazelleToSupabaseSync:
                         'occurred_at': occurred_at,
                         'entry_type': entry_type,
                         'title': title,
-                        'details': details,
-                        'created_at': entry_data.get('createdAt'),
-                        'updated_at': entry_data.get('updatedAt')
+                        'description': details  # La colonne s'appelle 'description' pas 'details'
+                        # Note: createdAt/updatedAt n'existent pas dans PrivateTimelineEntry
                     }
 
                     # UPSERT
-                    url = f"{self.storage.api_url}/timeline_entries"
+                    url = f"{self.storage.api_url}/gazelle_timeline_entries"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
                     response = requests.post(url, headers=headers, json=timeline_record)
 
-                    if response.status_code in [200, 201, 409]:
+                    # DEBUG: Logger réponse complète pour services du 26-28 déc
+                    if entry_type == 'SERVICE_ENTRY_MANUAL' and occurred_at and occurred_at >= '2025-12-26':
+                        print(f"  📤 POST Response: {response.status_code}")
+                        print(f"     Body: {response.text[:300]}")
+
+                    if response.status_code in [200, 201]:
                         self.stats['timeline']['synced'] += 1
+                        synced_count += 1
+                    elif response.status_code == 409:
+                        # 409 peut être un succès (merge) OU une erreur - vérifier la réponse
+                        print(f"⚠️  409 Conflict pour {external_id}: {response.text[:200]}")
+                        self.stats['timeline']['synced'] += 1
+                        synced_count += 1
                     else:
                         print(f"❌ Erreur UPSERT timeline {external_id}: {response.status_code}")
+                        print(f"   Response: {response.text[:200]}")
                         self.stats['timeline']['errors'] += 1
 
                 except Exception as e:
@@ -557,11 +689,78 @@ class GazelleToSupabaseSync:
                     self.stats['timeline']['errors'] += 1
                     continue
 
-            print(f"✅ {self.stats['timeline']['synced']} timeline entries synchronisées")
-            return self.stats['timeline']['synced']
+            # Affichage final
+            if stopped_by_age:
+                print(f"✅ {synced_count} timeline entries synchronisées (fenêtre 15 jours)")
+            else:
+                print(f"✅ {synced_count} timeline entries synchronisées (toutes < 15 jours)")
+
+            return synced_count
 
         except Exception as e:
             print(f"❌ Erreur lors de la synchronisation des timeline entries: {e}")
+            raise
+
+    def sync_users(self) -> int:
+        """
+        Synchronise les techniciens (users) depuis l'API Gazelle vers Supabase.
+
+        Returns:
+            Nombre de techniciens synchronisés
+        """
+        print("\n👥 Synchronisation des techniciens (users)...")
+
+        try:
+            # Récupérer les users depuis l'API Gazelle
+            users_data = self.api_client.get_users()
+
+            if not users_data:
+                print("⚠️  Aucun utilisateur récupéré depuis l'API")
+                return 0
+
+            print(f"📥 {len(users_data)} utilisateurs récupérés depuis l'API")
+
+            synced_count = 0
+
+            for user in users_data:
+                try:
+                    user_id = user.get('id')
+                    if not user_id:
+                        continue
+
+                    # Préparer les données pour Supabase
+                    user_record = {
+                        'id': user_id,  # Gazelle ID (ex: usr_ofYggsCDt2JAVeNP)
+                        'external_id': user.get('externalId'),
+                        'first_name': user.get('firstName'),
+                        'last_name': user.get('lastName'),
+                        'email': user.get('email'),
+                        'phone': user.get('phone'),
+                        'role': user.get('role'),
+                        'updated_at': datetime.now().isoformat()
+                    }
+
+                    # UPSERT via REST API
+                    url = f"{self.storage.api_url}/users"
+                    headers = self.storage._get_headers()
+                    headers["Prefer"] = "resolution=merge-duplicates"
+
+                    response = requests.post(url, headers=headers, json=user_record)
+
+                    if response.status_code in [200, 201]:
+                        synced_count += 1
+                    else:
+                        print(f"⚠️  Erreur sync user {user_id}: HTTP {response.status_code} - {response.text[:200]}")
+
+                except Exception as e:
+                    print(f"❌ Erreur sync user {user.get('id', 'unknown')}: {e}")
+                    continue
+
+            print(f"✅ {synced_count} techniciens synchronisés")
+            return synced_count
+
+        except Exception as e:
+            print(f"❌ Erreur lors de la synchronisation des users: {e}")
             raise
 
     def sync_all(self) -> Dict[str, Any]:
@@ -581,6 +780,9 @@ class GazelleToSupabaseSync:
 
         try:
             # Synchroniser dans l'ordre de dépendance
+            # 0. Users/Techniciens (requis pour timeline entries FK)
+            self.sync_users()
+
             # 1. Clients (requis pour pianos, contacts, etc.)
             self.sync_clients()
 

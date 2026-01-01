@@ -268,3 +268,4 @@ UpdatedAt DATETIME                      -- Dernière mise à jour
 3. Vérifier les scripts existants
 4. Demander à l'utilisateur si nécessaire
 
+

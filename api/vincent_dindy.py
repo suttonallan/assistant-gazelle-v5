@@ -9,6 +9,7 @@ Utilise Supabase pour le stockage persistant (rapide et fiable).
 import json
 import os
 import csv
+import ast
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -93,12 +94,13 @@ async def get_pianos(include_inactive: bool = False):
     Récupère tous les pianos depuis Gazelle API.
 
     Args:
-        include_inactive: Si True, inclut les pianos hors CSV (is_in_csv=False)
+        include_inactive: Si True, inclut les pianos avec tag "non" (masqués par défaut)
 
-    Architecture V6:
-    - Gazelle API = Source de vérité (119 pianos total)
-    - Filtre par défaut = is_in_csv=TRUE OU status=ACTIVE (~94 pianos)
-    - Supabase = Modifications dynamiques + flags is_in_csv
+    Architecture V7:
+    - Gazelle API = Source unique de vérité (tags inclus)
+    - Tag "non" dans Gazelle = piano masqué de l'inventaire/tournées
+    - Filtre par défaut = masque les pianos avec tag "non"
+    - Supabase = Modifications dynamiques (status, notes, etc.)
     """
     try:
         import logging
@@ -125,6 +127,7 @@ async def get_pianos(include_inactive: bool = False):
               calculatedLastService
               calculatedNextService
               serviceIntervalMonths
+              tags
             }
           }
         }
@@ -149,21 +152,36 @@ async def get_pianos(include_inactive: bool = False):
             gz_id = gz_piano['id']
             serial = gz_piano.get('serialNumber', gz_id)  # Fallback au gazelle_id si pas de serial
 
-            # Trouver les updates Supabase (matcher par serial OU gazelle_id)
+            # Trouver les updates Supabase (matcher par gazelleId OU serial)
+            # Note: piano_id dans Supabase = gazelleId en priorité
             updates = {}
             for piano_id, data in supabase_updates.items():
-                if (piano_id == serial or
-                    data.get('gazelle_id') == gz_id):
+                if (piano_id == gz_id or piano_id == serial):
                     updates = data
                     break
 
-            # Vérifier le flag is_in_csv
-            is_in_csv = updates.get('is_in_csv', False)  # Par défaut False si pas dans Supabase
+            # Parser les tags Gazelle (source unique de vérité)
+            # Format Gazelle: peut être une liste Python ['non'] OU une string "['non']"
+            tags_raw = gz_piano.get('tags', '')
+            tags = []
+            if tags_raw:
+                try:
+                    # Si c'est déjà une liste, utiliser directement
+                    if isinstance(tags_raw, list):
+                        tags = tags_raw
+                    # Sinon, parser la string
+                    elif isinstance(tags_raw, str):
+                        tags = ast.literal_eval(tags_raw)
+                except Exception as e:
+                    logging.warning(f"Erreur parsing tags pour piano {serial}: {e} - tags_raw: {tags_raw}")
+                    tags = []
 
-            # Filtrage: Par défaut, montrer seulement is_in_csv=TRUE OU status=ACTIVE
-            if not include_inactive:
-                if not is_in_csv and gz_piano.get('status') != 'ACTIVE':
-                    continue  # Ignorer les pianos inactifs hors CSV
+            # Filtrage par tag: si le piano a le tag "non", le masquer par défaut
+            has_non_tag = 'non' in [t.lower() for t in tags]
+
+            # Filtrage: Par défaut, masquer les pianos avec tag "non"
+            if not include_inactive and has_non_tag:
+                continue  # Ignorer les pianos marqués "non"
 
             # Construire l'objet piano
             piano_type = gz_piano.get('type', 'UPRIGHT')
@@ -173,7 +191,7 @@ async def get_pianos(include_inactive: bool = False):
                 type_letter = 'D'
 
             piano = {
-                "id": serial,  # Garder serial comme ID pour compatibilité frontend
+                "id": gz_id,  # TOUJOURS utiliser gazelleId comme clé unique (car les serials peuvent être dupliqués)
                 "gazelleId": gz_id,
                 "local": gz_piano.get('location', ''),
                 "piano": gz_piano.get('make', ''),
@@ -187,7 +205,9 @@ async def get_pianos(include_inactive: bool = False):
                 "aFaire": updates.get('a_faire', ''),
                 "travail": updates.get('travail', ''),
                 "observations": updates.get('observations', gz_piano.get('notes', '')),
-                "isInCsv": is_in_csv,  # Nouveau flag pour le frontend
+                "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
+                "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
+                "isInCsv": updates.get('is_in_csv', True),  # Flag inventaire CSV (True par défaut si non spécifié)
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN')  # Status Gazelle
             }
 
@@ -217,6 +237,7 @@ class PianoUpdate(BaseModel):
     aFaire: Optional[str] = None
     travail: Optional[str] = None
     observations: Optional[str] = None
+    isInCsv: Optional[bool] = None  # Flag d'inventaire
     updated_by: Optional[str] = None  # Email ou nom de l'utilisateur
 
 
@@ -285,23 +306,8 @@ async def get_piano(piano_id: str):
 async def update_piano(piano_id: str, update: PianoUpdate):
     """Met à jour un piano (sauvegarde dans Supabase)."""
     try:
-        # Vérifier que le piano existe dans le CSV
-        csv_path = get_csv_path()
-        piano_exists = False
-
-        if os.path.exists(csv_path):
-            with open(csv_path, 'r', encoding='utf-8-sig') as f:
-                reader = csv.DictReader(f)
-                for idx, row in enumerate(reader, start=1):
-                    serie = row.get("# série", "").strip() or row.get("série", "").strip()
-                    current_id = serie if serie else f"piano_{idx}"
-                    if current_id == piano_id:
-                        piano_exists = True
-                        break
-
-        if not piano_exists:
-            raise HTTPException(status_code=404, detail="Piano non trouvé")
-
+        # Note: On ne vérifie plus si le piano existe dans Gazelle pour des raisons de performance.
+        # Supabase acceptera la mise à jour que le piano existe ou non.
         # Sauvegarder les modifications dans Supabase
         storage = get_supabase_storage()
 
@@ -313,6 +319,8 @@ async def update_piano(piano_id: str, update: PianoUpdate):
                 update_data['a_faire'] = value
             elif key == 'dernierAccord':
                 update_data['dernier_accord'] = value
+            elif key == 'isInCsv':
+                update_data['is_in_csv'] = value
             elif key == 'updated_by':
                 update_data['updated_by'] = value
             else:
@@ -528,7 +536,7 @@ async def get_stats():
     try:
         storage = get_supabase_storage()
         reports = storage.get_reports()
-        
+
         stats = {
             "total_reports": len(reports),
             "pending": 0,
@@ -536,23 +544,66 @@ async def get_stats():
             "by_technician": {},
             "by_type": {}
         }
-        
+
         for report_data in reports:
             status = report_data.get("status", "pending")
             if status == "pending":
                 stats["pending"] += 1
             elif status == "processed":
                 stats["processed"] += 1
-            
+
             # Stats par technicien
             tech_name = report_data.get("report", {}).get("technician_name", "Unknown")
             stats["by_technician"][tech_name] = stats["by_technician"].get(tech_name, 0) + 1
-            
+
             # Stats par type
             report_type = report_data.get("report", {}).get("report_type", "unknown")
             stats["by_type"][report_type] = stats["by_type"].get(report_type, 0) + 1
-        
+
         return stats
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors du calcul des stats: {str(e)}")
+
+
+@router.get("/tournees", response_model=Dict[str, Any])
+async def get_tournees():
+    """
+    Récupère toutes les tournées depuis Supabase.
+
+    Architecture V7:
+    - Supabase = Source unique pour les tournées
+    - Table: public.tournees
+    """
+    try:
+        import logging
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            logging.warning("⚠️ Supabase non configuré, retour liste vide")
+            return {"tournees": [], "count": 0}
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Requête vers la table tournees
+        response = supabase.table('tournees').select('*').execute()
+
+        tournees = response.data if response.data else []
+
+        logging.info(f"✅ {len(tournees)} tournées récupérées depuis Supabase")
+
+        return {
+            "tournees": tournees,
+            "count": len(tournees)
+        }
+
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la récupération des tournées: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        # Retourner liste vide plutôt qu'une erreur pour ne pas bloquer le frontend
+        return {"tournees": [], "count": 0, "error": str(e)}

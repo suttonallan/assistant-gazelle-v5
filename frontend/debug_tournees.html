@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Tournées</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        pre { background: #f9f9f9; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; }
+        button { padding: 10px 20px; margin: 10px 5px; cursor: pointer; }
+        .tournee { border: 2px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; }
+        .tournee.selected { border-color: #4CAF50; background: #e8f5e9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Debug Tournées LocalStorage</h1>
+
+        <button onclick="loadData()">🔄 Recharger</button>
+        <button onclick="clearAll()">🗑️ Tout effacer</button>
+
+        <h2>État actuel:</h2>
+        <div id="output"></div>
+    </div>
+
+    <script>
+        function loadData() {
+            const tournees = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+            const output = document.getElementById('output');
+
+            if (tournees.length === 0) {
+                output.innerHTML = '<p>Aucune tournée trouvée</p>';
+                return;
+            }
+
+            let html = `<p><strong>Nombre de tournées:</strong> ${tournees.length}</p>`;
+
+            tournees.forEach((tournee, idx) => {
+                html += `
+                    <div class="tournee">
+                        <h3>Tournée #${idx + 1}: ${tournee.nom}</h3>
+                        <p><strong>ID:</strong> ${tournee.id}</p>
+                        <p><strong>Date:</strong> ${tournee.date_debut}</p>
+                        <p><strong>Établissement:</strong> ${tournee.etablissement}</p>
+                        <p><strong>Status:</strong> ${tournee.status}</p>
+                        <p><strong>Nombre de pianos:</strong> ${(tournee.piano_ids || []).length}</p>
+                        <details>
+                            <summary>Piano IDs (${(tournee.piano_ids || []).length})</summary>
+                            <pre>${JSON.stringify(tournee.piano_ids || [], null, 2)}</pre>
+                        </details>
+                        <details>
+                            <summary>Données complètes</summary>
+                            <pre>${JSON.stringify(tournee, null, 2)}</pre>
+                        </details>
+                    </div>
+                `;
+            });
+
+            output.innerHTML = html;
+        }
+
+        function clearAll() {
+            if (!confirm('⚠️ Supprimer toutes les tournées ?')) return;
+            localStorage.removeItem('tournees_accords');
+            loadData();
+        }
+
+        // Charger au démarrage
+        window.addEventListener('load', loadData);
+    </script>
+</body>
+</html>

@@ -9,7 +9,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-ap
 const TECHNICIENS = [
   { id: 'usr_ofYggsCDt2JAVeNP', name: 'Allan', username: 'allan' },
   { id: 'usr_ReUSmIJmBF86ilY1', name: 'Jean-Philippe', username: 'jeanphilippe' },
-  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nicolas', username: 'nicolas' }  // name doit correspondre au nom dans la DB
+  { id: 'usr_HcCiFk7o0vZ9xAI0', name: 'Nick', username: 'nicolas' },
+  { id: 'usr_nicolas_tech', name: 'Nicolas', username: 'nicolas_tech' }
 ]
 
 const InventaireDashboard = ({ currentUser }) => {
@@ -771,9 +772,10 @@ const InventaireDashboard = ({ currentUser }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredProducts
-                  .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
-                  .map((product, index) => {
+                {(() => {
+                  // Créer liste triée une seule fois pour cohérence Shift+Clic
+                  const sortedProducts = [...filteredProducts].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                  return sortedProducts.map((product, index) => {
                     const isSelected = selectedProducts.has(product.code_produit)
                     const typeLabel = product.type_produit || '(non défini)'
                     const hasCommission = product.has_commission || false
@@ -794,36 +796,54 @@ const InventaireDashboard = ({ currentUser }) => {
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={(e) => {
+                        onMouseDown={(e) => {
+                          // CRITICAL FIX: onMouseDown capture shiftKey correctement (onChange ne fonctionne pas)
+                          e.preventDefault()
+                          e.stopPropagation()
+
+                          const shiftPressed = e.shiftKey
                           const newSelected = new Set(selectedProducts)
 
-                          // Shift+Click : sélection range
-                          if (e.nativeEvent.shiftKey && lastSelectedIndex !== null) {
-                            const sortedFiltered = [...filteredProducts].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                          console.log('[Inventaire] Checkbox mousedown - shiftKey:', shiftPressed)
+
+                          // Shift+Click : sélection range (TOUJOURS cocher, jamais décocher)
+                          if (shiftPressed && lastSelectedIndex !== null) {
+                            // Utiliser sortedProducts du scope parent (déjà trié)
                             const start = Math.min(lastSelectedIndex, index)
                             const end = Math.max(lastSelectedIndex, index)
 
+                            console.log('[Shift+Click] Range selection:', {
+                              lastIndex: lastSelectedIndex,
+                              currentIndex: index,
+                              start,
+                              end,
+                              rangeSize: end - start + 1
+                            })
+
+                            // Comportement standard: Shift+Clic = COCHER tous les éléments du range
                             for (let i = start; i <= end; i++) {
-                              if (e.target.checked) {
-                                newSelected.add(sortedFiltered[i].code_produit)
-                              } else {
-                                newSelected.delete(sortedFiltered[i].code_produit)
-                              }
+                              newSelected.add(sortedProducts[i].code_produit)
+                              console.log(`  → Adding ${i}: ${sortedProducts[i].code_produit}`)
                             }
+
+                            console.log('[Shift+Click] Total selected after range:', newSelected.size)
                           } else {
                             // Clic simple : toggle
-                            if (e.target.checked) {
-                              newSelected.add(product.code_produit)
-                            } else {
+                            if (newSelected.has(product.code_produit)) {
                               newSelected.delete(product.code_produit)
+                              console.log('[Click] Removed:', product.code_produit)
+                            } else {
+                              newSelected.add(product.code_produit)
+                              console.log('[Click] Added:', product.code_produit)
                             }
                           }
 
                           setSelectedProducts(newSelected)
                           setLastSelectedIndex(index)
                         }}
+                        onChange={() => {}}
                         className="w-4 h-4"
-                        onClick={(e) => e.stopPropagation()}
+                        data-version="v2-shift-fix"
                       />
                     </td>
                     <td className="px-4 py-3 text-sm">
@@ -1019,7 +1039,8 @@ const InventaireDashboard = ({ currentUser }) => {
                     </td>
                   </tr>
                     )
-                  })}
+                  })
+                })()}
               </tbody>
             </table>
             {filteredProducts.length === 0 && (

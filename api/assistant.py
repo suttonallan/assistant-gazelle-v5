@@ -222,24 +222,79 @@ async def get_client_details(client_id: str):
         queries = get_queries()
         print(f"🔍 /assistant/client -> lookup id: {client_id}")
         
-        def build_timeline_summary(entity_id: str) -> dict:
+        from typing import Optional, List
+
+        def build_timeline_summary(entity_id: str, contact_ids: Optional[List[str]] = None) -> dict:
             """
             Récupère et résume les entrées timeline depuis Supabase.
             Retourne un dict avec compte total, bornes de dates et extraits récents.
+
+            IMPORTANT: Les notes de service sont souvent liées aux pianos, pas au client.
+            On cherche donc:
+            1. Les timeline entries du client
+            2. Les timeline entries de tous les pianos appartenant au client
+            3. Les timeline entries des contacts associés
             """
-            entries, total = queries.get_timeline_entries(
-                entity_id,
-                entity_type="CLIENT",
-                limit=200,
-                include_count=True
+            contact_ids = contact_ids or []
+
+            # 1. Récupérer tous les pianos du client
+            piano_ids = []
+            try:
+                import requests
+                # Chercher les pianos qui ont ce client_external_id
+                pianos_url = f"{queries.storage.api_url}/gazelle_pianos"
+                pianos_url += f"?select=external_id,id&client_external_id=eq.{entity_id}"
+                pianos_response = requests.get(pianos_url, headers=queries.storage._get_headers())
+
+                if pianos_response.status_code == 200:
+                    pianos = pianos_response.json()
+                    piano_ids = [p.get('external_id') or p.get('id') for p in pianos if p.get('external_id') or p.get('id')]
+                    print(f"🎹 Trouvé {len(piano_ids)} pianos pour le client {entity_id}")
+            except Exception as e:
+                print(f"⚠️ Erreur récupération pianos du client: {e}")
+
+            # 2. Construire la liste complète des IDs à chercher
+            # Inclure: client + contacts + tous les pianos
+            ids_union = [entity_id] + contact_ids + piano_ids
+
+            print(f"🔍 Recherche timeline pour {len(ids_union)} entités (1 client + {len(contact_ids)} contacts + {len(piano_ids)} pianos)")
+
+            entries_client, total_client = queries.get_timeline_entries(
+                entity_type=None,  # pas de filtre, car entity_type souvent vide
+                entity_ids=ids_union,
+                client_ids=[entity_id] + contact_ids,  # garder aussi le filtre client_external_id
+                limit=500,
+                include_count=True,
+                debug=True
             )
 
-            # Séparer les entrées potentiellement non pertinentes (pianos déplacés/inactifs)
+            all_entries = list(entries_client or [])
+
+            # Séparer les entrées non pertinentes (bruit administratif)
+            # Liste des patterns à exclure
+            exclude_patterns = [
+                "inactivating this piano record",
+                "moved piano to",
+                "exporté vers mailchimp",
+                "exported to mailchimp",
+                "courriel envoyé",
+                "email sent",
+                "rendez-vous complété",
+                "appointment completed",
+                "rv complété",
+                "reminder sent",
+                "rappel envoyé",
+                "synced to",
+                "synchronisé",
+            ]
+
             flagged_entries_raw = []
             kept_entries = []
-            for e in entries or []:
+            for e in all_entries or []:
                 desc = (e.get("description") or "").lower()
-                if "inactivating this piano record" in desc or "moved piano to" in desc:
+                # Vérifier si l'entrée contient un pattern à exclure
+                is_flagged = any(pattern in desc for pattern in exclude_patterns)
+                if is_flagged:
                     flagged_entries_raw.append(e)
                 else:
                     kept_entries.append(e)
@@ -248,7 +303,7 @@ async def get_client_details(client_id: str):
 
             if not entries:
                 return {
-                    "total_entries": total or 0,
+                    "total_entries": (total_client or 0),
                     "recent_entries": [],
                     "top_messages": [],
                     "by_year": {},
@@ -299,7 +354,7 @@ async def get_client_details(client_id: str):
             flagged_entries = [render_entry(e) for e in flagged_entries_raw[:20]]
 
             return {
-                "total_entries": total or len(entries),
+                "total_entries": max(total_client or 0, len(entries)),
                 "recent_entries": recent_entries,
                 "top_messages": [{"text": msg, "count": cnt} for msg, cnt in top_messages],
                 "by_year": dict(by_year),
@@ -427,36 +482,10 @@ async def get_client_details(client_id: str):
                 print(f"⚠️ Erreur récupération pianos pour {entity_id}: {e}")
                 details['pianos'] = []
             
-            # Service history (timeline entries pour client + pianos)
-            try:
-                timeline_summary = build_timeline_summary(entity_id)
-                details['timeline_summary'] = timeline_summary
+            details['admin_feedback'] = []
+            contact_ids = []
+            service_notes = []
 
-                # Garder compatibilité avec l'affichage existant (liste simple)
-                details['service_history'] = [
-                    f"{entry.get('date', '')}: {entry.get('text', '')}"
-                    for entry in timeline_summary.get('recent_entries', [])
-                ]
-            except Exception as e:
-                print(f"⚠️ Erreur timeline pour {entity_id}: {e}")
-                details['timeline_summary'] = {
-                    "total_entries": 0,
-                    "recent_entries": [],
-                    "top_messages": [],
-                    "by_year": {},
-                    "null_descriptions": 0,
-                    "first_entry_date": None,
-                    "last_entry_date": None,
-                }
-                details['service_history'] = []
-
-            # Feedback admin (notes internes utilisées pour améliorer les résumés)
-            try:
-                details['admin_feedback'] = queries.get_admin_feedback(entity_id, limit=50)
-            except Exception as e:
-                print(f"⚠️ Erreur admin_feedback pour {entity_id}: {e}")
-                details['admin_feedback'] = []
-            
             # Contacts associés
             try:
                 contacts_url = f"{queries.storage.api_url}/gazelle_contacts?client_external_id=eq.{entity_id}&limit=10"
@@ -464,17 +493,38 @@ async def get_client_details(client_id: str):
                 if contacts_response.status_code == 200:
                     contacts = contacts_response.json()
                     if contacts:
-                        details['associated_contacts'] = [
-                            {
+                        details['associated_contacts'] = []
+                        for c in contacts[:10]:
+                            cid = c.get('external_id') or c.get('id')
+                            if cid:
+                                contact_ids.append(cid)
+                            details['associated_contacts'].append({
                                 'name': f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or c.get('name', 'N/A'),
                                 'role': c.get('role') or c.get('title') or '',
                                 'phone': c.get('phone') or c.get('telephone') or '',
                                 'email': c.get('email', '')
-                            }
-                            for c in contacts[:10]
-                        ]
+                            })
                     else:
                         details['associated_contacts'] = []
+
+                    # Ajouter les notes de service des contacts associés
+                    for cid in contact_ids[:5]:
+                        try:
+                            contact_entries = queries.get_timeline_entries(
+                                cid,
+                                entity_type="contact",
+                                limit=10,
+                                include_count=False
+                            )
+                            for e in contact_entries or []:
+                                note = (
+                                    e.get('notes') or e.get('description') or e.get('content')
+                                    or e.get('note') or e.get('text') or e.get('summary')
+                                )
+                                if note:
+                                    service_notes.append(str(note))
+                        except Exception as err:
+                            print(f"⚠️ Erreur timeline contact {cid}: {err}")
                 else:
                     details['associated_contacts'] = []
             except Exception as e:
@@ -500,6 +550,67 @@ async def get_client_details(client_id: str):
             except Exception as e:
                 print(f"⚠️ Erreur prochains RV pour {entity_id}: {e}")
                 details['upcoming_appointments'] = []
+
+            # Timeline summary (client + contacts, fenêtre large)
+            timeline_summary = build_timeline_summary(entity_id, contact_ids)
+            details['timeline_summary'] = timeline_summary
+
+            def _note_from_entry(entry: dict) -> str:
+                return str(entry.get('text') or '').strip()
+
+            service_notes_from_timeline = [
+                f"{entry.get('date', '')}: {_note_from_entry(entry)}".strip(': ')
+                for entry in (timeline_summary.get('recent_entries') or [])
+                if _note_from_entry(entry)
+            ]
+
+            # Fusionner notes timeline + notes contacts (si ajoutées plus haut)
+            details['service_history'] = service_notes_from_timeline + service_notes
+
+            # NOUVEAU: Calculer les frais de déplacement pour ce client
+            try:
+                from modules.travel_fees.calculator import TravelFeeCalculator
+
+                # Construire l'adresse complète du client
+                address_parts = []
+                if details.get('address'):
+                    address_parts.append(details['address'])
+                if details.get('city'):
+                    address_parts.append(details['city'])
+                if details.get('postal_code'):
+                    address_parts.append(details['postal_code'])
+
+                full_address = ', '.join(address_parts) if address_parts else None
+
+                if full_address:
+                    calculator = TravelFeeCalculator()
+                    results = calculator.calculate_all_technicians(full_address)
+
+                    # Trier par coût croissant
+                    results_sorted = sorted(results, key=lambda x: x.total_fee)
+
+                    # Formater pour le frontend
+                    details['travel_fees'] = {
+                        'destination': full_address,
+                        'cheapest_technician': results_sorted[0].technician_name if results_sorted else None,
+                        'results': [
+                            {
+                                'technician_name': r.technician_name,
+                                'distance_km': r.distance_km,
+                                'duration_minutes': r.duration_minutes,
+                                'distance_fee': r.distance_fee,
+                                'time_fee': r.time_fee,
+                                'total_fee': r.total_fee,
+                                'is_free': r.is_free
+                            }
+                            for r in results_sorted
+                        ]
+                    }
+                else:
+                    details['travel_fees'] = None
+            except Exception as e:
+                print(f"⚠️ Erreur calcul frais déplacement pour {entity_id}: {e}")
+                details['travel_fees'] = None
         else:
             # Pour les contacts: pas d'enrichissement
             details['client_notes'] = ''
@@ -507,7 +618,9 @@ async def get_client_details(client_id: str):
             details['service_history'] = []
             details['associated_contacts'] = []
             details['upcoming_appointments'] = []
-        
+            details['timeline_summary'] = None
+            details['travel_fees'] = None
+
         return details
     
     except HTTPException:
@@ -750,71 +863,122 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]):
         return response
 
     elif query_type in [QueryType.SEARCH_CLIENT, QueryType.SEARCH_PIANO]:
-        count = results.get('count', 0)
         search_terms = results.get('search_terms', [])
-        data = results.get('data', [])
-
+        data = results.get('data', []) or []
         entity_type = "clients" if query_type == QueryType.SEARCH_CLIENT else "pianos"
 
-        if count == 0:
+        if not data:
             return f"Aucun {entity_type[:-1]} trouvé pour: {' '.join(search_terms)}"
 
-        response = f"🔍 **{count} {entity_type} trouvés:**\n\n"
+        # ======================================
+        # Recherche de clients (déduplication)
+        # ======================================
+        if query_type == QueryType.SEARCH_CLIENT:
+            deduped_entities = {}
 
-        # Collecter les IDs pour rendre les clients cliquables
-        clickable_entities = []
-
-        for item in data[:10]:
-            if query_type == QueryType.SEARCH_CLIENT:
-                # Support both clients and contacts
-                # Clients have: company_name
-                # Contacts have: first_name + last_name
+            def _normalize_client(item):
                 source = item.get('_source', 'client')
                 city = item.get('city', '')
-                # Préférer l'ID externe (cli_/con_) si présent, sinon fallback sur id interne
-                entity_id = item.get('external_id') or item.get('id')
 
                 if source == 'contact':
-                    # Contact: first_name + last_name
                     first_name = item.get('first_name', '')
                     last_name = item.get('last_name', '')
                     display_name = f"{first_name} {last_name}".strip()
+                    base_id = item.get('client_external_id') or item.get('external_id') or item.get('id')
+                    # Si on a un client_external_id, considérer que l'entité pointe vers le client
+                    if item.get('client_external_id'):
+                        source = 'client'
+                        base_id = item.get('client_external_id')
                 else:
-                    # Client: company_name
-                    display_name = item.get('company_name', 'N/A')
+                    display_name = item.get('company_name') or item.get('name') or 'N/A'
+                    base_id = item.get('external_id') or item.get('id')
 
-                response += f"- **{display_name}**"
-                if city:
-                    response += f" ({city})"
-                if source == 'contact':
-                    response += f" [Contact]"
+                # Clé de déduplication: nom normalisé (en minuscules, sans espaces multiples)
+                normalized_name = ' '.join(display_name.lower().split())
+                dedupe_key = normalized_name if normalized_name and normalized_name != 'n/a' else base_id
 
-                # Ajouter à la liste des entités cliquables
-                if entity_id:
+                return {
+                    'id': base_id or item.get('external_id') or item.get('id'),
+                    'name': display_name,
+                    'city': city,
+                    'source': source,
+                    'dedupe_key': dedupe_key
+                }
+
+            # Garder l'ordre d'apparition, préférer les fiches client aux contacts
+            for item in data[:20]:
+                normalized = _normalize_client(item)
+                if not normalized['dedupe_key']:
+                    continue
+
+                # Debug: afficher la clé de déduplication
+                print(f"🔍 Déduplication: '{normalized['name']}' -> clé='{normalized['dedupe_key']}' source={normalized['source']} id={normalized['id']}")
+
+                existing = deduped_entities.get(normalized['dedupe_key'])
+                if existing is None:
+                    # Première occurrence de ce nom
+                    deduped_entities[normalized['dedupe_key']] = normalized
+                    print(f"  ✅ Ajouté (première occurrence)")
+                elif normalized['source'] == 'client' and existing['source'] != 'client':
+                    # Remplacer un contact par un client avec le même nom
+                    deduped_entities[normalized['dedupe_key']] = normalized
+                    print(f"  🔄 Remplacé contact par client")
+                else:
+                    # Doublon ignoré
+                    print(f"  ⏭️  Ignoré (doublon)")
+
+            unique_entities = list(deduped_entities.values())
+            unique_count = len(unique_entities)
+
+            response = f"🔍 **{unique_count} {entity_type} trouvés:**\n\n"
+            clickable_entities = []
+
+            for entity in unique_entities[:10]:
+                response += f"- **{entity['name']}**"
+                if entity['city']:
+                    response += f" ({entity['city']})"
+                # Ne pas tagger [Contact] si on a basculé sur l'ID client
+                if entity['source'] == 'contact' and not (entity['id'] or "").startswith('cli_'):
+                    response += " [Contact]"
+                response += "\n"
+
+                if entity['id']:
                     clickable_entities.append({
-                        'id': entity_id,
-                        'name': display_name,
-                        'type': source,
-                        'city': city
+                        'id': entity['id'],
+                        'name': entity['name'],
+                        # Si l'ID pointe vers un client, considérer type=client pour le modal
+                        'type': 'client' if (entity['id'] or "").startswith('cli_') else entity['source'],
+                        'city': entity['city']
                     })
-            else:  # Piano
-                brand = item.get('brand', 'N/A')
-                model = item.get('model', '')
-                serial = item.get('serial_number', '')
-                response += f"- **{brand} {model}**"
-                if serial:
-                    response += f" (S/N: {serial})"
 
+            # Indiquer s'il reste des résultats après déduplication
+            extra_results = results.get('count', 0) - unique_count
+            if extra_results > 0:
+                response += f"\n... et {extra_results} autres résultats."
+
+            return {
+                'text': response,
+                'entities': clickable_entities
+            }
+
+        # ======================================
+        # Recherche de pianos (pas d'entités cliquables)
+        # ======================================
+        response = f"🔍 **{len(data)} {entity_type} trouvés:**\n\n"
+        for piano in data[:10]:
+            brand = piano.get('brand', 'N/A')
+            model = piano.get('model', '')
+            serial = piano.get('serial_number', '')
+
+            response += f"- **{brand} {model}**"
+            if serial:
+                response += f" (S/N: {serial})"
             response += "\n"
 
-        if count > 10:
-            response += f"\n... et {count - 10} autres résultats."
+        if len(data) > 10:
+            response += f"\n... et {len(data) - 10} autres résultats."
 
-        # Ajouter les données structurées pour les clients cliquables
-        return {
-            'text': response,
-            'entities': clickable_entities
-        }
+        return response
 
     elif query_type == QueryType.SUMMARY:
         summary_data = results.get('data', {})
@@ -833,24 +997,29 @@ def _format_response(query_type: QueryType, results: Dict[str, Any]):
         return _format_response(QueryType.SUMMARY, results)
 
     elif query_type == QueryType.TIMELINE:
+        # Vérifier s'il y a une erreur
+        if 'error' in results:
+            return f"❌ {results['error']}"
+
         count = results.get('count', 0)
-        entity_id = results.get('entity_id', '')
+        entity_name = results.get('entity_name', results.get('entity_id', ''))
 
         if count == 0:
-            return f"Aucun événement trouvé pour l'entité: {entity_id}"
+            return f"Aucun événement trouvé dans l'historique de **{entity_name}**."
 
         data = results.get('data', [])
-        response = f"📜 **Historique ({count} événements):**\n\n"
+        response = f"📜 **Historique de {entity_name}** ({count} événements au total):\n\n"
 
-        for entry in data[:10]:
+        # Afficher jusqu'à 20 entrées (limit=20 dans queries.py)
+        for entry in data[:20]:
             date = entry.get('created_at', 'N/A')[:10]
             event_type = entry.get('event_type', 'N/A')
             description = entry.get('description', '')
 
             response += f"- **{date}** [{event_type}]: {description}\n"
 
-        if count > 10:
-            response += f"\n... et {count - 10} autres événements."
+        if count > 20:
+            response += f"\n... et {count - 20} autres événements plus anciens."
 
         return response
 

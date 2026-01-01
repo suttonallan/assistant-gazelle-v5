@@ -81,6 +81,61 @@ class ChatService:
                 data_source=self.data_source
             )
 
+        elif query_type == "departure_time":
+            # Calculer heure de départ recommandée
+            target_technician = parsed_params.get("requested_technician") or request.technician_id
+
+            day_overview = self.data_provider.get_day_overview(
+                date=parsed_params["date"],
+                technician_id=target_technician,
+                user_role=request.user_role
+            )
+
+            # Calculer heure de départ (premier RDV - temps trajet - préparation)
+            recommended_time = self._calculate_departure_time(day_overview)
+
+            return ChatResponse(
+                interpreted_query=f"Heure de départ recommandée pour le {parsed_params['date']}",
+                query_type="text_response",
+                text_response=recommended_time,
+                day_overview=day_overview,
+                data_source=self.data_source
+            )
+
+        elif query_type == "total_distance":
+            # Calculer distance totale de la journée
+            target_technician = parsed_params.get("requested_technician") or request.technician_id
+
+            day_overview = self.data_provider.get_day_overview(
+                date=parsed_params["date"],
+                technician_id=target_technician,
+                user_role=request.user_role
+            )
+
+            # Calculer distance totale
+            total_km = self._calculate_total_distance(day_overview)
+
+            return ChatResponse(
+                interpreted_query=f"Distance totale pour le {parsed_params['date']}",
+                query_type="text_response",
+                text_response=total_km,
+                day_overview=day_overview,
+                data_source=self.data_source
+            )
+
+        elif query_type == "search_client":
+            # Recherche de client/contact
+            search_results = self.data_provider.search_clients(
+                search_term=parsed_params["search_term"]
+            )
+
+            return ChatResponse(
+                interpreted_query=f"Recherche: {parsed_params['search_term']}",
+                query_type="search_client",
+                text_response=search_results,
+                data_source=self.data_source
+            )
+
         else:
             # Fallback: retourner journée d'aujourd'hui
             today = datetime.now().strftime("%Y-%m-%d")
@@ -111,7 +166,28 @@ class ChatService:
         # Détecter si la requête concerne un autre technicien
         requested_technician = self._detect_technician_in_query(query_lower)
 
-        # Patterns pour les dates
+        # Essayer de parser une date depuis la requête avec dateparser
+        # Supporte: "demain", "la semaine prochaine", "le 15 janvier", "dans 3 jours", etc.
+        try:
+            import dateparser
+            parsed_date = dateparser.parse(
+                query,
+                languages=['fr', 'en'],
+                settings={
+                    'PREFER_DATES_FROM': 'future',
+                    'RELATIVE_BASE': datetime.now()
+                }
+            )
+            if parsed_date:
+                target_date = parsed_date.strftime("%Y-%m-%d")
+                # Vérifier si la date parsée n'est pas trop loin dans le passé/futur (validation)
+                days_diff = (parsed_date - datetime.now()).days
+                if -7 <= days_diff <= 365:  # Entre 7 jours passés et 1 an futur
+                    return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+        except:
+            pass  # Si dateparser n'est pas installé ou échoue, continuer avec patterns manuels
+
+        # Fallback: Patterns manuels pour dates courantes
         if any(word in query_lower for word in ["demain", "tomorrow"]):
             target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
@@ -120,12 +196,22 @@ class ChatService:
             target_date = datetime.now().strftime("%Y-%m-%d")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
-        if "après-demain" in query_lower:
-            target_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+        # Questions de suivi (nécessitent contexte de la journée)
+        if any(word in query_lower for word in ["heure de départ", "quand partir", "partir à quelle heure"]):
+            target_date = date_override or datetime.now().strftime("%Y-%m-%d")
+            return ("departure_time", {"date": target_date, "requested_technician": requested_technician})
 
-        # Pattern pour date spécifique (ex: "le 30 décembre")
-        # TODO: Améliorer avec dateparser ou spacy
+        if any(word in query_lower for word in ["distance totale", "combien de km", "kilométrage"]):
+            target_date = date_override or datetime.now().strftime("%Y-%m-%d")
+            return ("total_distance", {"date": target_date, "requested_technician": requested_technician})
+
+        # Recherche de client/contact
+        # Ex: "client michelle", "cherche Yamaha", "contact sophie lambert"
+        if any(word in query_lower for word in ["client", "contact", "cherche", "trouve", "recherche"]):
+            # Extraire le terme de recherche (tout sauf les mots-clés)
+            search_term = re.sub(r'\b(client|contact|cherche|trouve|recherche)\b', '', query_lower, flags=re.IGNORECASE).strip()
+            if search_term:
+                return ("search_client", {"search_term": search_term, "requested_technician": requested_technician})
 
         # Pattern pour détail d'un RDV
         # Ex: "détails du rendez-vous apt_123"
@@ -222,7 +308,8 @@ class V5DataProvider:
                     make,
                     model,
                     type,
-                    serial_number
+                    serial_number,
+                    dampp_chaser_installed
                 )
             """,
             "appointment_date": f"eq.{date}",
@@ -340,11 +427,7 @@ class V5DataProvider:
         headers = self.storage._get_headers()
 
         params = {
-            "select": """
-                *,
-                client:client_external_id(*),
-                piano:piano_external_id(*)
-            """,
+            "select": "*,client:client_external_id(*)",
             "external_id": f"eq.{appointment_id}"
         }
 
@@ -355,16 +438,29 @@ class V5DataProvider:
 
         apt_raw = response.json()[0]
 
-        # 2. Récupérer timeline entries du piano
-        piano_id = apt_raw.get("piano_id")
+        # 2. Récupérer les pianos du CLIENT et leur timeline
         timeline_entries = []
+        client = apt_raw.get("client")
 
-        if piano_id:
+        if client:
+            client_id = client.get("external_id")
+
+            # Récupérer les pianos de ce client
+            pianos_url = f"{self.storage.api_url}/gazelle_pianos"
+            pianos_params = {
+                "select": "external_id,make,model,serial_number",
+                "client_external_id": f"eq.{client_id}"
+            }
+
+            pianos_response = requests.get(pianos_url, headers=headers, params=pianos_params)
+
+            # Récupérer la timeline du CLIENT (pas par piano individuel)
+            # La plupart des timeline entries sont liées au client directement
             timeline_url = f"{self.storage.api_url}/gazelle_timeline_entries"
             timeline_params = {
-                "select": "occurred_at,entry_type,title,details,user:user_id(first_name,last_name)",
-                "piano_id": f"eq.{piano_id}",
-                "order": "occurred_at.desc",
+                "select": "occurred_at,entry_type,title,description,entry_date,event_type",
+                "client_external_id": f"eq.{client_id}",
+                "order": "entry_date.desc",
                 "limit": 10
             }
 
@@ -372,14 +468,32 @@ class V5DataProvider:
 
             if timeline_response.status_code == 200:
                 timeline_raw = timeline_response.json()
+                # Mapper toutes les entrées
+                all_entries = [self._map_to_timeline_entry(entry) for entry in timeline_raw]
+
+                # Filtrer les entrées inutiles (garder si summary OU details utiles)
                 timeline_entries = [
-                    self._map_to_timeline_entry(entry) for entry in timeline_raw
+                    entry for entry in all_entries
+                    if self._is_useful_note(entry.summary) or self._is_useful_note(entry.details)
                 ]
 
         # 3. Construire les objets
         overview = self._map_to_overview(apt_raw, apt_raw.get("appointment_date"))
         comfort = self._map_to_comfort_info(apt_raw)
-        timeline_summary = self._generate_timeline_summary(timeline_entries)
+
+        # Différencier événement personnel vs client
+        is_personal_event = client is None
+        event_data = {
+            'title': apt_raw.get('title', ''),
+            'location': apt_raw.get('location', ''),
+            'description': apt_raw.get('description', '')
+        } if is_personal_event else None
+
+        timeline_summary = self._generate_timeline_summary(
+            timeline_entries,
+            is_personal_event=is_personal_event,
+            event_data=event_data
+        )
 
         return AppointmentDetail(
             overview=overview,
@@ -389,9 +503,188 @@ class V5DataProvider:
             photos=[]  # TODO: Ajouter si photos disponibles
         )
 
+    def search_clients(self, search_term: str, limit: int = 20) -> str:
+        """
+        Recherche des clients et contacts dans Supabase.
+
+        Args:
+            search_term: Terme de recherche
+            limit: Nombre maximum de résultats
+
+        Returns:
+            Résumé textuel des résultats
+        """
+        import requests
+        from urllib.parse import quote
+
+        if not search_term:
+            return "Aucun terme de recherche fourni."
+
+        search_query = search_term.strip()
+        search_pattern = f"*{search_query}*"
+
+        try:
+            headers = self.storage._get_headers()
+            all_results = []
+            seen_ids = set()
+
+            # Recherche dans gazelle_clients sur plusieurs champs
+            search_fields = ['name', 'company_name', 'full_name', 'email', 'city', 'postal_code']
+            for field in search_fields:
+                try:
+                    clients_url = (
+                        f"{self.storage.api_url}/gazelle_clients"
+                        f"?select=external_id,name,company_name,full_name,email,phone,city,postal_code"
+                        f"&{field}=ilike.{search_pattern}"
+                        f"&limit={limit}"
+                    )
+                    clients_resp = requests.get(clients_url, headers=headers)
+                    if clients_resp.status_code == 200:
+                        for client in clients_resp.json():
+                            client_id = client.get("external_id")
+                            if client_id and client_id not in seen_ids:
+                                client["_source"] = "client"
+                                all_results.append(client)
+                                seen_ids.add(client_id)
+                except:
+                    pass  # Ignore field errors
+
+            # Recherche dans gazelle_contacts
+            for field in ['name', 'full_name', 'email', 'city']:
+                try:
+                    contacts_url = (
+                        f"{self.storage.api_url}/gazelle_contacts"
+                        f"?select=external_id,name,full_name,email,phone,city,postal_code,client_external_id"
+                        f"&{field}=ilike.{search_pattern}"
+                        f"&limit={limit}"
+                    )
+                    contacts_resp = requests.get(contacts_url, headers=headers)
+                    if contacts_resp.status_code == 200:
+                        for contact in contacts_resp.json():
+                            contact_id = contact.get("external_id")
+                            if contact_id and contact_id not in seen_ids:
+                                contact["_source"] = "contact"
+                                all_results.append(contact)
+                                seen_ids.add(contact_id)
+                except:
+                    pass  # Ignore field errors
+
+            # Formatter les résultats
+            if not all_results:
+                return f"Aucun résultat trouvé pour '{search_term}'."
+
+            # Compter rendez-vous pour chaque résultat
+            result_lines = [f"Trouvé {len(all_results)} résultat(s) pour '{search_term}':\n"]
+
+            for idx, result in enumerate(all_results[:10], 1):  # Limiter à 10 affichés
+                name = result.get("full_name") or result.get("name", "Sans nom")
+                source_type = result["_source"]
+                external_id = result.get("external_id", "N/A")
+                city = result.get("city", "")
+                postal_code = result.get("postal_code", "")
+
+                # Chercher le nombre de RDV
+                appointments_url = (
+                    f"{self.storage.api_url}/gazelle_appointments"
+                    f"?select=external_id"
+                )
+
+                if source_type == "client":
+                    appointments_url += f"&client_id=eq.{external_id}"
+                else:
+                    # Pour contact, chercher via client_external_id
+                    client_id = result.get("client_external_id")
+                    if client_id:
+                        appointments_url += f"&client_id=eq.{client_id}"
+                    else:
+                        continue  # Skip si pas de client lié
+
+                appointments_resp = requests.get(appointments_url, headers=headers)
+                rdv_count = len(appointments_resp.json()) if appointments_resp.status_code == 200 else 0
+
+                location = f"{city} {postal_code}".strip() if city or postal_code else "Lieu inconnu"
+                result_lines.append(
+                    f"{idx}. {name} ({source_type}) - {location} - {rdv_count} RDV"
+                )
+
+            return "\n".join(result_lines)
+
+        except Exception as e:
+            return f"Erreur lors de la recherche: {str(e)}"
+
     # ============================================================
     # MAPPING FUNCTIONS (V5 → Standard Schema)
     # ============================================================
+
+    def _is_useful_note(self, text: str) -> bool:
+        """
+        Détermine si une note est utile à afficher.
+
+        Filtre les notes automatiques Gazelle sans valeur pour le technicien.
+
+        Args:
+            text: Texte de la note
+
+        Returns:
+            True si la note est utile, False sinon
+        """
+        if not text or not text.strip():
+            return False
+
+        text_lower = text.lower().strip()
+
+        # Patterns de notes inutiles (auto-générées par Gazelle)
+        useless_patterns = [
+            "note gazelle",
+            "an appointment was created",
+            "a new appointment was created",
+            "appointment was completed",
+            "appointment for this client was completed"
+        ]
+
+        # Si la note contient un de ces patterns, elle est inutile
+        for pattern in useless_patterns:
+            if pattern in text_lower:
+                return False
+
+        # Si la note est très courte (< 10 chars), probablement inutile
+        if len(text.strip()) < 10:
+            return False
+
+        return True
+
+    def _extract_contact_name(self, notes: str, location: str) -> Optional[str]:
+        """
+        Extrait le nom du contact (personne physique) depuis notes ou location.
+
+        Pattern: Cherche "Prénom Nom" au début des notes ou dans location.
+        Exemples:
+            "Sophie Lambert, Piano Kawai..." → "Sophie Lambert"
+            "Contact: Jean Tremblay" → "Jean Tremblay"
+
+        Args:
+            notes: Champ notes du rendez-vous
+            location: Champ location du rendez-vous
+
+        Returns:
+            Nom du contact ou None si non trouvé
+        """
+        import re
+
+        # Pattern: Prénom Nom (2 mots capitalisés)
+        # Ex: "Sophie Lambert", "Jean-Pierre Tremblay"
+        contact_pattern = r'\b([A-Z][a-zé]+(?:-[A-Z][a-zé]+)?)\s+([A-Z][a-zé]+(?:-[A-Z][a-zé]+)?)\b'
+
+        # Chercher dans notes en premier
+        text_to_search = notes or location or ""
+
+        match = re.search(contact_pattern, text_to_search)
+        if match:
+            first_name = match.group(1)
+            last_name = match.group(2)
+            return f"{first_name} {last_name}"
+
+        return None
 
     def _convert_utc_to_montreal(self, time_utc_str: str) -> str:
         """
@@ -447,14 +740,26 @@ class V5DataProvider:
         # Client info (ou titre si événement personnel)
         title = apt_raw.get("title") or ""
         description = apt_raw.get("description") or ""
+        notes = apt_raw.get("notes") or ""
+        location = apt_raw.get("location") or ""
 
-        # Priorité: 1) Nom client (company_name), 2) Titre événement, 3) Fallback
-        if client:
-            client_name = client.get("company_name")
+        # Extraction du nom du contact (personne physique) depuis notes/location
+        # Pattern: Chercher un nom propre (Prénom Nom) au début des notes ou location
+        contact_name = self._extract_contact_name(notes, location)
+
+        # Client name (institution/entreprise)
+        institution_name = client.get("company_name") if client else None
+
+        # Logique d'affichage:
+        # 1. Si contact trouvé: afficher contact (institution en secondaire)
+        # 2. Sinon: afficher institution ou titre
+        if contact_name and institution_name and contact_name != institution_name:
+            # Cas: Contact différent du client (ex: Sophie Lambert chez SEC-Cibèle)
+            client_name = contact_name
+        elif institution_name:
+            # Cas: Pas de contact trouvé, afficher institution
+            client_name = institution_name
         else:
-            client_name = None
-
-        if not client_name:
             # Événement personnel: utiliser titre
             client_name = title if title else "Événement personnel"
 
@@ -482,6 +787,7 @@ class V5DataProvider:
         piano_brand = piano.get("make")
         piano_model = piano.get("model")
         piano_type = piano.get("type")
+        has_dampp_chaser = piano.get("dampp_chaser_installed", False)
 
         # Action items (extraire des notes)
         notes = apt_raw.get("notes") or ""
@@ -491,18 +797,25 @@ class V5DataProvider:
         last_visit_date = None
         days_since_last_visit = None
 
+        # Billing client: afficher seulement si différent du contact
+        billing_client = None
+        if contact_name and institution_name and contact_name != institution_name:
+            billing_client = institution_name
+
         return AppointmentOverview(
             appointment_id=apt_raw.get("external_id"),
-            client_id=client.get("external_id"),
-            piano_id=piano.get("external_id"),
+            client_id=client.get("external_id") if client else None,
+            piano_id=piano.get("external_id") if piano else None,
             time_slot=time_slot,
             date=date,
             client_name=client_name,
+            billing_client=billing_client,
             neighborhood=neighborhood,
             address_short=address_short,
             piano_brand=piano_brand,
             piano_model=piano_model,
             piano_type=piano_type,
+            has_dampp_chaser=has_dampp_chaser,
             last_visit_date=last_visit_date,
             days_since_last_visit=days_since_last_visit,
             action_items=action_items,
@@ -518,6 +831,9 @@ class V5DataProvider:
         client = apt_raw.get("client") or {}
         notes = apt_raw.get("notes") or ""
 
+        # Filtrer les notes inutiles
+        useful_notes = notes if self._is_useful_note(notes) else None
+
         # Parser les notes pour extraire infos confort
         # TODO: Améliorer avec NLP ou structure dédiée
 
@@ -527,7 +843,7 @@ class V5DataProvider:
             floor_number=None,
             dog_name=None,  # TODO: Parser notes (regex pour "chien: X")
             cat_name=None,
-            special_notes=notes if notes else None,
+            special_notes=useful_notes,  # Afficher seulement si utile, SANS tronquer
             preferred_tuning_hz=None,
             climate_sensitive=False,
             contact_phone=None,  # TODO: Ajouter depuis client
@@ -548,51 +864,175 @@ class V5DataProvider:
         temperature = self._extract_temperature(details)
         humidity = self._extract_humidity(details)
 
+        # Utiliser entry_date si disponible, sinon occurred_at
+        date_field = entry_raw.get("entry_date") or entry_raw.get("occurred_at", "")
+        date_str = date_field[:10] if date_field else ""
+
+        # Utiliser description si disponible, sinon details
+        details = entry_raw.get("description") or entry_raw.get("details") or ""
+
         return TimelineEntry(
-            date=entry_raw.get("occurred_at", "")[:10],
-            type=self._map_entry_type(entry_raw.get("entry_type")),
+            date=date_str,
+            type=self._map_entry_type(entry_raw.get("entry_type") or entry_raw.get("event_type")),
             technician=technician,
             summary=entry_raw.get("title") or "",
             details=details,
-            temperature=temperature,
-            humidity=humidity
+            temperature=self._extract_temperature(details),
+            humidity=self._extract_humidity(details)
         )
 
-    def _generate_timeline_summary(self, entries: List[TimelineEntry]) -> str:
+    def _generate_timeline_summary(self, entries: List[TimelineEntry], client_data: Dict[str, Any] = None, is_personal_event: bool = False, event_data: Dict[str, Any] = None) -> str:
         """
-        Génère un résumé textuel de l'historique.
+        Génère un résumé INTELLIGENT et NARRATIF de l'historique.
+
+        Analyse et met en évidence CE QUI SORT DE L'ORDINAIRE:
+        - Régularité des visites (depuis quand, fréquence)
+        - Dernière visite avec détails importants
+        - Notes "à faire la prochaine fois" ou action items
+        - ALERTES: Paiements lents, conditions anormales, problèmes récurrents
+
+        Format: Texte narratif pour le technicien, pas une liste.
         """
         if not entries:
-            return "Aucun historique disponible pour ce piano."
+            if is_personal_event and event_data:
+                # Détecter événements spéciaux (Vincent d'Indy, etc.)
+                title = event_data.get('title', '').lower()
+                location = event_data.get('location', '').lower()
+                description = event_data.get('description', '').lower()
+
+                # Vincent d'Indy
+                if 'vd' in title or 'vincent' in title or 'indy' in title or \
+                   'vincent' in location or 'indy' in location or \
+                   'vincent' in description or 'indy' in description:
+                    return "📍 Événement à Vincent d'Indy. Consultez le volet Vincent d'Indy pour voir les demandes en cours."
+
+                # Autres événements de travail
+                return "Événement personnel (pas de client associé)"
+            return "Aucun historique disponible pour ce client."
+
+        from datetime import datetime
+        from dateutil import parser
 
         latest = entries[0]
-
         summary_parts = []
+        alerts = []  # Alertes importantes à afficher EN PREMIER
 
-        # Dernière visite
+        # 1. RÉGULARITÉ - Analyser la fréquence des visites
+        service_entries = [e for e in entries if e.type == "service"]
+        if len(service_entries) >= 2:
+            # Calculer la première et dernière visite
+            try:
+                first_date = parser.parse(service_entries[-1].date)
+                last_date = parser.parse(service_entries[0].date)
+                years_diff = (last_date - first_date).days / 365.25
+
+                if years_diff >= 1:
+                    year_first = first_date.year
+                    frequency = len(service_entries) / years_diff if years_diff > 0 else len(service_entries)
+
+                    if frequency >= 2:
+                        freq_text = f"environ {int(frequency)} fois par an"
+                    elif frequency >= 1:
+                        freq_text = "environ 1 fois par an"
+                    else:
+                        freq_text = f"environ tous les {int(1/frequency)} ans"
+
+                    summary_parts.append(f"Client régulier depuis {year_first} ({freq_text}).")
+            except:
+                pass  # Si parsing échoue, ignorer l'analyse de fréquence
+
+        # 2. DERNIÈRE VISITE - Infos importantes
         if latest.technician:
-            summary_parts.append(f"Dernière visite le {latest.date} par {latest.technician}.")
+            summary_parts.append(f"Dernière visite: {latest.date} par {latest.technician}.")
         else:
-            summary_parts.append(f"Dernière visite le {latest.date}.")
+            summary_parts.append(f"Dernière visite: {latest.date}.")
 
-        # Mesures si disponibles
+        # 3. ALERTES ENVIRONNEMENTALES - Conditions anormales
         if latest.temperature or latest.humidity:
             measures = []
+            temp_alert = False
+            humidity_alert = False
+
             if latest.temperature:
-                measures.append(f"{latest.temperature}°C")
+                temp = latest.temperature
+                measures.append(f"{temp}°C")
+                # Alerte si température anormale (< 18°C ou > 26°C)
+                if temp < 18 or temp > 26:
+                    temp_alert = True
+
             if latest.humidity:
-                measures.append(f"{latest.humidity}%")
-            summary_parts.append(f"Conditions: {', '.join(measures)}.")
+                hum = latest.humidity
+                measures.append(f"{hum}%")
+                # Alerte si humidité anormale (< 30% ou > 60%)
+                if hum < 30 or hum > 60:
+                    humidity_alert = True
 
-        # Résumé du service
-        if latest.summary:
-            summary_parts.append(latest.summary)
+            if temp_alert or humidity_alert:
+                alerts.append(f"🌡️ ALERTE CLIMAT: {', '.join(measures)} - Conditions hors norme!")
+            else:
+                summary_parts.append(f"Conditions: {', '.join(measures)}.")
 
-        # Nombre total de services
-        service_count = sum(1 for e in entries if e.type == "service")
-        summary_parts.append(f"{service_count} services enregistrés.")
+        # 4. ALERTES PAIEMENT - Analyser les notes de paiement
+        payment_keywords = ["paiement", "payer", "facture", "impayé", "solde", "argent", "chèque"]
+        slow_payment_keywords = ["lent à payer", "retard", "relance", "rappel", "pas encore payé"]
 
-        return " ".join(summary_parts)
+        for entry in entries[:5]:  # Chercher dans les 5 dernières entrées
+            details_lower = (entry.details or "").lower()
+            summary_lower = (entry.summary or "").lower()
+            text_lower = details_lower + " " + summary_lower
+
+            # Chercher mentions de paiement lent
+            if any(kw in text_lower for kw in slow_payment_keywords):
+                alerts.append("💰 ALERTE PAIEMENT: Client lent à payer - Demander paiement sur le champ!")
+                break
+
+        # 5. NOTES IMPORTANTES - Chercher "à faire", "prochaine fois", "apporter"
+        action_keywords = ["à faire", "prochaine fois", "apporter", "prévoir", "rappel"]
+        for entry in entries[:3]:  # Chercher dans les 3 dernières entrées
+            details_lower = (entry.details or "").lower()
+            summary_lower = (entry.summary or "").lower()
+
+            # Chercher si contient un keyword d'action
+            for keyword in action_keywords:
+                if keyword in details_lower or keyword in summary_lower:
+                    # Extraire la phrase pertinente
+                    text = entry.details or entry.summary or ""
+                    # Trouver la ligne contenant le keyword
+                    for line in text.split('\n'):
+                        if any(kw in line.lower() for kw in action_keywords):
+                            clean_line = line.strip('- ').strip()
+                            if len(clean_line) > 10:  # Éviter les fragments
+                                summary_parts.append(f"📝 Note: {clean_line}")
+                                break
+                    break  # Une seule note importante
+
+        # 6. ALERTES TECHNIQUES - Problèmes récurrents
+        problem_keywords = ["problème", "casse", "défaut", "attention", "fragile", "sensible", "urgent"]
+        for entry in entries[:3]:
+            details_lower = (entry.details or "").lower()
+            summary_lower = (entry.summary or "").lower()
+            text_lower = details_lower + " " + summary_lower
+
+            if any(kw in text_lower for kw in problem_keywords):
+                # Extraire la phrase de problème
+                text = entry.details or entry.summary or ""
+                for line in text.split('\n'):
+                    if any(kw in line.lower() for kw in problem_keywords):
+                        clean_line = line.strip('- ').strip()
+                        if len(clean_line) > 10:
+                            alerts.append(f"⚠️ ATTENTION: {clean_line}")
+                            break
+                break
+
+        # 7. RÉSUMÉ TECHNIQUE - Si pertinent
+        if latest.summary and len(latest.summary) > 20:
+            # Tronquer si trop long (garder essentiel)
+            summary_text = latest.summary[:150] + "..." if len(latest.summary) > 150 else latest.summary
+            summary_parts.append(f"Travail: {summary_text}")
+
+        # ASSEMBLAGE FINAL: Alertes EN PREMIER, puis résumé normal
+        final_parts = alerts + summary_parts
+        return " ".join(final_parts)
 
     # ============================================================
     # HELPER FUNCTIONS
@@ -604,6 +1044,7 @@ class V5DataProvider:
 
         Cherche patterns comme:
         - "À apporter: X, Y, Z"
+        - "Buvards bouteille" (nom d'objet à la fin)
         - "TODO: X"
         - Liste à puces
         """
@@ -621,6 +1062,17 @@ class V5DataProvider:
         # Pattern "TODO:"
         todos = re.findall(r'todo[:\s]+([^\n]+)', notes, re.IGNORECASE)
         action_items.extend([todo.strip() for todo in todos])
+
+        # Pattern: dernière ligne (objets à apporter)
+        # Ex: "Buvards bouteille", "Cordes #3", etc.
+        lines = notes.strip().split('\n')
+        if lines:
+            last_line = lines[-1].strip()
+            # Si la dernière ligne est courte (< 30 chars) et pas une phrase complète
+            if last_line and len(last_line) < 30 and not last_line.endswith('.'):
+                # Vérifier que ce n'est pas déjà capturé
+                if last_line not in action_items:
+                    action_items.append(f"À apporter: {last_line}")
 
         return action_items[:5]  # Limiter à 5 items
 
@@ -650,3 +1102,96 @@ class V5DataProvider:
             return "measurement"
         else:
             return "note"
+
+    def _calculate_departure_time(self, day_overview: DayOverview) -> str:
+        """
+        Calcule l'heure de départ recommandée.
+
+        Formule: Premier RDV - Temps de trajet - Temps de préparation
+
+        Assumptions:
+        - Base: Montréal (coordonnées Piano-Tek)
+        - Temps de préparation: 15 minutes
+        - Temps de trajet: estimation basée sur le premier quartier
+        """
+        if not day_overview.appointments:
+            return "Aucun rendez-vous pour cette journée."
+
+        first_apt = day_overview.appointments[0]
+        first_time_str = first_apt.time_slot  # Format "HH:MM"
+
+        try:
+            # Parser l'heure du premier RDV
+            hour, minute = map(int, first_time_str.split(":"))
+            from datetime import datetime, timedelta
+
+            # Créer un datetime pour aujourd'hui à cette heure
+            first_apt_time = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            # Estimer temps de trajet basé sur le quartier
+            # TODO: Utiliser l'API de distance réelle
+            neighborhood = first_apt.neighborhood.lower()
+            if any(word in neighborhood for word in ["plateau", "mile-end", "rosemont"]):
+                travel_minutes = 20
+            elif any(word in neighborhood for word in ["laval", "longueuil", "brossard"]):
+                travel_minutes = 30
+            elif any(word in neighborhood for word in ["rive-sud", "rive-nord"]):
+                travel_minutes = 40
+            else:
+                travel_minutes = 25  # Défaut: 25 minutes
+
+            # Ajouter temps de préparation
+            prep_minutes = 15
+
+            # Calculer heure de départ
+            departure_time = first_apt_time - timedelta(minutes=travel_minutes + prep_minutes)
+
+            return (
+                f"Heure de départ recommandée: {departure_time.strftime('%H:%M')}\n\n"
+                f"Premier rendez-vous à {first_time_str} ({first_apt.client_name} - {first_apt.neighborhood})\n"
+                f"Temps de trajet estimé: {travel_minutes} min\n"
+                f"Temps de préparation: {prep_minutes} min"
+            )
+
+        except Exception as e:
+            return f"Impossible de calculer l'heure de départ: {str(e)}"
+
+    def _calculate_total_distance(self, day_overview: DayOverview) -> str:
+        """
+        Calcule la distance totale de la journée.
+
+        TODO: Intégrer avec l'API Google Maps pour distances réelles.
+        Pour l'instant, estimation basée sur le nombre de quartiers différents.
+        """
+        if not day_overview.appointments:
+            return "Aucun rendez-vous pour cette journée."
+
+        # Compter les quartiers uniques
+        neighborhoods_set = set()
+        for apt in day_overview.appointments:
+            if apt.neighborhood:
+                neighborhoods_set.add(apt.neighborhood)
+
+        num_neighborhoods = len(neighborhoods_set)
+        num_appointments = len(day_overview.appointments)
+
+        # Estimation grossière:
+        # - Base → Premier quartier: ~20km
+        # - Entre quartiers: ~15km par quartier
+        # - Retour à la base: ~20km
+
+        if num_neighborhoods == 1:
+            # Tous les RDV dans le même quartier
+            estimated_km = 20 + (num_appointments * 2) + 20  # Base + déplacements locaux + retour
+        else:
+            # Plusieurs quartiers
+            estimated_km = 20 + (num_neighborhoods * 15) + (num_appointments * 3) + 20
+
+        return (
+            f"Distance totale estimée: ~{estimated_km} km\n\n"
+            f"Rendez-vous: {num_appointments}\n"
+            f"Quartiers différents: {num_neighborhoods}\n"
+            f"Quartiers: {', '.join(sorted(neighborhoods_set))}\n\n"
+            f"⚠️ Note: Estimation basée sur le nombre de quartiers. "
+            f"Pour une distance précise, utiliser Google Maps."
+        )

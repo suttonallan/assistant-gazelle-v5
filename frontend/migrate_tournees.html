@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Migration Tournées - IDs Gazelle</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        h1 { color: #333; }
+        pre { background: #f9f9f9; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        .primary { background: #4CAF50; color: white; border: none; }
+        .danger { background: #f44336; color: white; border: none; }
+        .info { background: #2196F3; color: white; border: none; }
+        #output { white-space: pre-wrap; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        .warning { color: orange; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Migration des Tournées - IDs Gazelle</h1>
+
+        <h3>État actuel:</h3>
+        <pre id="current-state"></pre>
+
+        <h3>Actions:</h3>
+        <button class="info" onclick="showCurrentState()">📋 Afficher l'état actuel</button>
+        <button class="primary" onclick="migrateTournees()">🔄 Migrer les IDs vers gazelleId</button>
+        <button class="danger" onclick="clearAll()">🗑️ Tout effacer (réinitialiser)</button>
+
+        <h3>Log:</h3>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let pianosData = [];
+
+        async function loadPianos() {
+            try {
+                const response = await fetch(`${API_URL}/vincent-dindy/pianos?include_inactive=true`);
+                const data = await response.json();
+                pianosData = data.pianos || [];
+                log(`✅ ${pianosData.length} pianos chargés depuis l'API`, 'success');
+                return pianosData;
+            } catch (err) {
+                log(`❌ Erreur chargement pianos: ${err.message}`, 'error');
+                return [];
+            }
+        }
+
+        function log(message, type = '') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const line = `[${timestamp}] ${message}\n`;
+            output.textContent += line;
+            if (type) {
+                output.className = type;
+            }
+        }
+
+        async function showCurrentState() {
+            const tournees = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+            const stateDiv = document.getElementById('current-state');
+
+            let state = `Nombre de tournées: ${tournees.length}\n\n`;
+
+            tournees.forEach((t, idx) => {
+                state += `Tournée #${idx + 1}: ${t.nom}\n`;
+                state += `  ID: ${t.id}\n`;
+                state += `  Date: ${t.date_debut}\n`;
+                state += `  Status: ${t.status}\n`;
+                state += `  Pianos (${(t.piano_ids || []).length}):\n`;
+                (t.piano_ids || []).forEach(pid => {
+                    state += `    - ${pid}\n`;
+                });
+                state += '\n';
+            });
+
+            stateDiv.textContent = state;
+            log('État actuel affiché', 'info');
+        }
+
+        async function migrateTournees() {
+            log('🔄 Début de la migration...', 'info');
+
+            // Charger les pianos depuis l'API
+            await loadPianos();
+
+            if (pianosData.length === 0) {
+                log('❌ Aucun piano chargé, migration annulée', 'error');
+                return;
+            }
+
+            // Charger les tournées
+            const tournees = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+            log(`📋 ${tournees.length} tournées à migrer`, 'info');
+
+            // Créer un mapping serial -> gazelleId
+            const serialToGazelleId = {};
+            pianosData.forEach(p => {
+                if (p.serie && p.gazelleId) {
+                    serialToGazelleId[p.serie] = p.gazelleId;
+                }
+            });
+
+            log(`🗺️  ${Object.keys(serialToGazelleId).length} mappings serial->gazelleId créés`, 'info');
+
+            // Migrer chaque tournée
+            let migratedCount = 0;
+            const migratedTournees = tournees.map(tournee => {
+                const oldPianoIds = tournee.piano_ids || [];
+                const newPianoIds = [];
+
+                oldPianoIds.forEach(oldId => {
+                    // Si l'ID ressemble à un gazelleId (commence par "ins_"), le garder
+                    if (oldId.startsWith('ins_')) {
+                        newPianoIds.push(oldId);
+                    }
+                    // Sinon, essayer de le mapper vers un gazelleId
+                    else if (serialToGazelleId[oldId]) {
+                        const newId = serialToGazelleId[oldId];
+                        newPianoIds.push(newId);
+                        log(`  ✓ Migré: ${oldId} → ${newId}`, 'success');
+                        migratedCount++;
+                    }
+                    // Si on ne trouve pas de mapping, chercher par serial dans les pianos
+                    else {
+                        const piano = pianosData.find(p => p.serie === oldId || p.id === oldId);
+                        if (piano && piano.gazelleId) {
+                            newPianoIds.push(piano.gazelleId);
+                            log(`  ✓ Trouvé par recherche: ${oldId} → ${piano.gazelleId}`, 'success');
+                            migratedCount++;
+                        } else {
+                            log(`  ⚠️  ID non trouvé, conservé: ${oldId}`, 'warning');
+                            newPianoIds.push(oldId);
+                        }
+                    }
+                });
+
+                return {
+                    ...tournee,
+                    piano_ids: newPianoIds
+                };
+            });
+
+            // Sauvegarder
+            localStorage.setItem('tournees_accords', JSON.stringify(migratedTournees));
+
+            log(`\n✅ Migration terminée!`, 'success');
+            log(`   ${migratedCount} IDs migrés vers gazelleId`, 'success');
+
+            // Afficher le nouvel état
+            await showCurrentState();
+        }
+
+        function clearAll() {
+            if (!confirm('⚠️ Êtes-vous sûr de vouloir supprimer TOUTES les tournées ?')) {
+                return;
+            }
+
+            localStorage.removeItem('tournees_accords');
+            log('🗑️ Toutes les tournées ont été supprimées', 'warning');
+            showCurrentState();
+        }
+
+        // Charger l'état au démarrage
+        window.addEventListener('load', () => {
+            showCurrentState();
+            loadPianos();
+        });
+    </script>
+</body>
+</html>

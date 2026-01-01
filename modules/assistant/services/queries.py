@@ -7,7 +7,7 @@ Utilise SupabaseStorage (REST API) au lieu de connexion PostgreSQL directe.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple, Union
 from core.supabase_storage import SupabaseStorage
 from modules.assistant.services.parser import QueryType
 
@@ -51,7 +51,7 @@ class GazelleQueries:
         end_date: Optional[datetime] = None,
         technicien: Optional[str] = None,
         limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    ) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], int]]:
         """
         Récupère les rendez-vous depuis Supabase.
 
@@ -298,9 +298,13 @@ class GazelleQueries:
 
     def get_timeline_entries(
         self,
-        entity_id: str,
-        entity_type: str = "piano",
-        limit: int = 50
+        entity_id: Optional[str] = None,
+        entity_type: Optional[str] = "piano",
+        limit: int = 50,
+        include_count: bool = False,
+        debug: bool = False,
+        entity_ids: Optional[List[str]] = None,
+        client_ids: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Récupère l'historique d'un piano ou client.
@@ -309,36 +313,130 @@ class GazelleQueries:
             entity_id: ID de l'entité
             entity_type: Type (piano, client, contact)
             limit: Nombre maximum d'entrées
+            include_count: Retourner aussi le nombre total d'entrées
 
         Returns:
-            Liste d'événements timeline
+            Liste d'événements timeline ou tuple (entrées, total) si include_count=True
         """
         try:
-            url = f"{self.storage.api_url}/gazelle.timeline_entries"
+            from urllib.parse import quote
+
+            ids_filter = entity_ids or ([entity_id] if entity_id else [])
+            client_ids = client_ids or []
+
+            # Table réelle avec underscore
+            url = f"{self.storage.api_url}/gazelle_timeline_entries"
             url += "?select=*"
-            url += f"&entity_id=eq.{entity_id}"
-            url += f"&entity_type=eq.{entity_type}"
+
+            or_parts = []
+            if ids_filter:
+                encoded_ids = ",".join(quote(eid) for eid in ids_filter if eid)
+                if encoded_ids:
+                    or_parts.append(f"entity_id.in.({encoded_ids})")
+            if client_ids:
+                encoded_cids = ",".join(quote(cid) for cid in client_ids if cid)
+                if encoded_cids:
+                    or_parts.append(f"client_external_id.in.({encoded_cids})")
+            if or_parts:
+                url += f"&or=({','.join(or_parts)})"
+
+            # Ne pas filtrer par entity_type si non renseigné (beaucoup de lignes n'ont rien)
+            if entity_type:
+                url += f"&entity_type=eq.{entity_type}"
+
             url += f"&limit={limit}"
+            # occurred_at est souvent nul; on ordonne sur created_at (desc)
             url += "&order=created_at.desc"
 
             import requests
-            response = requests.get(url, headers=self.storage._get_headers())
+            headers = self.storage._get_headers()
+            if include_count:
+                # Prefer exact count pour récupérer Content-Range
+                headers = headers.copy()
+                headers["Prefer"] = "count=exact"
 
+            response = requests.get(url, headers=headers)
+
+            entries = []
             if response.status_code == 200:
-                return response.json()
+                entries = response.json()
             else:
                 print(f"❌ Erreur Supabase: {response.status_code} - {response.text}")
+                if include_count:
+                    return [], 0
                 return []
+
+            if include_count:
+                total = len(entries)
+                content_range = response.headers.get("Content-Range", "")
+                if "/" in content_range:
+                    try:
+                        total = int(content_range.split("/")[-1])
+                    except ValueError:
+                        pass
+                if debug:
+                    print(f"🔎 timeline fetch ({entity_type}) url={url} total={total} returned={len(entries)}")
+                return entries, total
+
+            if debug:
+                print(f"🔎 timeline fetch ({entity_type}) url={url} returned={len(entries)}")
+            return entries
 
         except Exception as e:
             print(f"❌ Erreur lors de la récupération timeline: {e}")
+            if include_count:
+                return [], 0
+            return []
+
+    def search_timeline_entity_ids_by_text(
+        self,
+        text: str,
+        limit: int = 5,
+        debug: bool = False
+    ) -> List[str]:
+        """
+        Recherche des entity_id dans gazelle_timeline_entries via description ILIKE.
+        """
+        if not text:
+            return []
+        try:
+            from urllib.parse import quote
+            encoded = quote(f"*{text}*")
+            url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries"
+                f"?select=entity_id"
+                f"&description=ilike.{encoded}"
+                f"&order=created_at.desc"
+                f"&limit={limit}"
+            )
+            import requests
+            response = requests.get(url, headers=self.storage._get_headers())
+            if response.status_code != 200:
+                if debug:
+                    print(f"⚠️ search_timeline_entity_ids_by_text status {response.status_code}: {response.text}")
+                return []
+            ids = []
+            for row in response.json() or []:
+                eid = row.get("entity_id")
+                if eid:
+                    ids.append(eid)
+            if debug:
+                print(f"🔎 fallback text search '{text}' → ids={ids}")
+            # dédup
+            dedup_ids = list(dict.fromkeys(ids))
+            return dedup_ids
+        except Exception as e:
+            print(f"❌ Erreur search_timeline_entity_ids_by_text: {e}")
             return []
 
     def get_summary(
         self,
         start_date: datetime,
         end_date: datetime,
-        technicien: Optional[str] = None
+        technicien: Optional[str] = None,
+        entity_ids: Optional[List[str]] = None,
+        client_ids: Optional[List[str]] = None,
+        debug: bool = False
     ) -> Dict[str, Any]:
         """
         Génère un résumé d'activité pour une période.
@@ -364,31 +462,54 @@ class GazelleQueries:
         }
 
         try:
-            # Compter les RV dans la période
-            url = f"{self.storage.api_url}/gazelle.appointments"
-            url += "?select=id"
-            url += f"&date=gte.{start_str}"
-            url += f"&date=lte.{end_str}"
-
-            if technicien:
-                url += f"&technicien=eq.{technicien}"
-
             import requests
-            response = requests.get(url, headers=self.storage._get_headers())
 
+            # Compter les RV dans la période (non filtré par client: conserve le comportement existant)
+            appt_url = f"{self.storage.api_url}/gazelle.appointments"
+            appt_url += "?select=id"
+            appt_url += f"&date=gte.{start_str}"
+            appt_url += f"&date=lte.{end_str}"
+            if technicien:
+                appt_url += f"&technicien=eq.{technicien}"
+
+            response = requests.get(appt_url, headers=self.storage._get_headers())
             if response.status_code == 200:
                 summary['appointments_count'] = len(response.json())
 
-            # Compter les entrées timeline
-            url = f"{self.storage.api_url}/gazelle.timeline_entries"
-            url += "?select=id"
-            url += f"&created_at=gte.{start_date.isoformat()}"
-            url += f"&created_at=lte.{end_date.isoformat()}"
+            # Compter les timelines en réutilisant la même requête que build_timeline_summary
+            entries, total = self.get_timeline_entries(
+                entity_type=None,
+                entity_ids=entity_ids,
+                client_ids=client_ids,
+                limit=1,  # on ne ramène qu'une entrée, mais on veut le total
+                include_count=True,
+                debug=debug
+            )
+            summary['timeline_entries_count'] = total
 
-            response = requests.get(url, headers=self.storage._get_headers())
+            # Fallback fuzzy: si 0 et on a des ids, chercher par description ilike (même logique que timeline)
+            if total == 0 and entity_ids:
+                try:
+                    text = " ".join(entity_ids)
+                    extra_ids = self.search_timeline_entity_ids_by_text(text, limit=5, debug=debug)
+                    if extra_ids:
+                        combined = list(dict.fromkeys((entity_ids or []) + extra_ids))
+                        _, total = self.get_timeline_entries(
+                            entity_type=None,
+                            entity_ids=combined,
+                            client_ids=combined,
+                            limit=1,
+                            include_count=True,
+                            debug=debug
+                        )
+                        summary['timeline_entries_count'] = total
+                        if debug:
+                            print(f"🔎 summary fallback text search ids={combined} total={total}")
+                except Exception as e:
+                    print(f"⚠️ Fallback text search summary: {e}")
 
-            if response.status_code == 200:
-                summary['timeline_entries_count'] = len(response.json())
+            if debug:
+                print(f"🔎 summary timeline count ids={entity_ids} client_ids={client_ids} total={summary['timeline_entries_count']}")
 
         except Exception as e:
             print(f"❌ Erreur lors de la génération du résumé: {e}")
@@ -475,16 +596,37 @@ class GazelleQueries:
 
         elif query_type == QueryType.SUMMARY:
             period = params.get('period')
+            search_terms = params.get('search_terms', [])
 
             if period:
                 start_date = period['start_date']
                 end_date = period['end_date']
             else:
-                # Par défaut: 7 derniers jours
-                end_date = datetime.now()
-                start_date = end_date - timedelta(days=7)
+                # Par défaut: toute l'année 2025 pour couvrir l'historique complet
+                start_date = datetime(2025, 1, 1)
+                end_date = datetime(2025, 12, 31, 23, 59, 59)
 
-            summary = self.get_summary(start_date, end_date)
+            entity_ids = []
+            if search_terms:
+                try:
+                    clients = self.search_clients(search_terms)
+                    for c in clients[:3]:
+                        cid = c.get('external_id') or c.get('id')
+                        if cid:
+                            entity_ids.append(cid)
+                        # Inclure aussi le client_external_id des contacts si présent
+                        if c.get('client_external_id'):
+                            entity_ids.append(c.get('client_external_id'))
+                except Exception as e:
+                    print(f"⚠️ Erreur recherche clients pour summary: {e}")
+
+            summary = self.get_summary(
+                start_date,
+                end_date,
+                entity_ids=list(dict.fromkeys(entity_ids)),  # dedup
+                client_ids=list(dict.fromkeys(entity_ids)),
+                debug=True
+            )
 
             return {
                 'type': 'summary',
@@ -501,13 +643,47 @@ class GazelleQueries:
                     'error': 'ID d\'entité requis pour l\'historique'
                 }
 
-            entity_id = search_terms[0]
-            timeline = self.get_timeline_entries(entity_id)
+            # Vérifier si c'est un ID ou un nom
+            first_term = search_terms[0]
+
+            # Si c'est un ID (commence par cli_ ou con_), utiliser directement
+            if first_term.startswith('cli_') or first_term.startswith('con_'):
+                entity_id = first_term
+                entity_name = first_term
+            else:
+                # Sinon, chercher le client par nom
+                clients = self.search_clients(search_terms)
+                if not clients:
+                    return {
+                        'type': 'timeline',
+                        'error': f'Aucun client trouvé pour: {" ".join(search_terms)}'
+                    }
+
+                # Prendre le premier résultat (le plus pertinent)
+                client = clients[0]
+                entity_id = client.get('external_id') or client.get('id')
+
+                # Extraire le nom pour l'affichage
+                source = client.get('_source', 'client')
+                if source == 'contact':
+                    first_name = client.get('first_name', '')
+                    last_name = client.get('last_name', '')
+                    entity_name = f"{first_name} {last_name}".strip()
+                else:
+                    entity_name = client.get('company_name', 'N/A')
+
+            timeline, total_count = self.get_timeline_entries(
+                entity_id,
+                entity_type="client",
+                limit=20,
+                include_count=True
+            )
 
             return {
                 'type': 'timeline',
                 'entity_id': entity_id,
-                'count': len(timeline),
+                'entity_name': entity_name,
+                'count': total_count if total_count else len(timeline),
                 'data': timeline
             }
 

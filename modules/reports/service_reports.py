@@ -25,7 +25,8 @@ from gspread.exceptions import SpreadsheetNotFound, WorksheetNotFound
 from core.supabase_storage import SupabaseStorage
 
 MONTREAL_TZ = ZoneInfo("America/Toronto")
-SHEET_NAME = "Rapport Timeline v5"
+# Google Sheet: https://docs.google.com/spreadsheets/d/1ZZsMrIT0BEwHKQ6-BKGzFoXR3k99zCEzixp0tsRKUj8
+SHEET_NAME = "Rapport Timeline de l'assistant v5"
 
 CLIENT_KEYWORDS = {
     "UQAM": ["uqam"],
@@ -91,19 +92,46 @@ class ServiceReports:
         return {item.get("external_id"): item.get("company_name") for item in data if item.get("external_id")}
 
     def _fetch_timeline_entries(self, since: Optional[datetime]) -> List[Dict]:
-        """Récupère les timeline entries (optionnellement depuis une date)."""
-        url = f"{self.storage.api_url}/gazelle_timeline_entries"
-        params = {
-            "select": "external_id,description,entry_date,entity_id,entity_type,event_type",
-            "order": "entry_date.asc",
-        }
+        """Récupère les timeline entries avec infos piano et user."""
+        from supabase import create_client
+
+        supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
+
+        # Construire la requête avec relations
+        query = supabase.table('gazelle_timeline_entries').select('''
+            external_id,
+            description,
+            title,
+            entry_date,
+            occurred_at,
+            entity_id,
+            entity_type,
+            event_type,
+            entry_type,
+            piano_id,
+            user_id,
+            piano:gazelle_pianos(
+                make,
+                model,
+                serial_number,
+                type,
+                year,
+                location,
+                client_external_id
+            ),
+            user:users(
+                first_name,
+                last_name
+            )
+        ''') \
+        .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'PIANO_MEASUREMENT']) \
+        .order('occurred_at', desc=True)
+
         if since:
-            # Supabase filtre ISO 8601 via gte.
-            params["entry_date"] = f"gte.{since.isoformat()}"
-        resp = requests.get(url, headers=self.storage._get_headers(), params=params, timeout=30)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Erreur Supabase timeline ({resp.status_code}): {resp.text}")
-        return resp.json() or []
+            query = query.gte('occurred_at', since.isoformat())
+
+        result = query.execute()
+        return result.data or []
 
     def _fetch_maintenance_alerts(self) -> List[Dict]:
         """Tente de récupérer les alertes de maintenance depuis Supabase."""
@@ -191,29 +219,268 @@ class ServiceReports:
         """Ajoute l'en-tête si la feuille est vide."""
         try:
             if not ws.acell("A1").value:
-                ws.update("A1:D1", [["Date", "Client", "Description", "Type"]])
+                headers = [
+                    "DateEvenement",
+                    "TypeEvenement",
+                    "Description",
+                    "NomClient",
+                    "Marque",
+                    "Modele",
+                    "NumeroSerie",
+                    "TypePiano",
+                    "Annee",
+                    "Local",
+                    "Technicien",
+                    "MesureHumidite"
+                ]
+                ws.update("A1:L1", [headers])
         except Exception as e:
             print(f"⚠️ Impossible d'écrire l'en-tête sur {ws.title}: {e}")
 
     # ------------------------------------------------------------------
     # Construction et écriture des rapports
     # ------------------------------------------------------------------
+    @staticmethod
+    def _simplify_measurement(description: str) -> str:
+        """Simplifie la description d'une mesure (ex: 'Piano measurement taken: 20°C, 42%' -> '20°C, 42%')."""
+        if not description:
+            return ""
+        # Format anglais
+        if "Piano measurement taken:" in description:
+            return description.split(":", 1)[1].strip()
+        # Format français
+        elif "Mesure du piano prise :" in description or "Mesure du piano prise:" in description:
+            return description.split(":", 1)[1].strip()
+        # Déjà simplifié (contient ° et %)
+        elif "°" in description and "%" in description:
+            return description.strip()
+        return ""
+
+    @staticmethod
+    def _extract_measurements_from_text(text: str) -> str:
+        """Extrait température et humidité d'un texte (ex: 'Température ambiante 23° Celsius, humidité relative 35%' -> '23°, 35%')."""
+        import re
+
+        if not text:
+            return ""
+
+        # Chercher température (23°, 23° Celsius, 23 degrés, etc.)
+        temp_match = re.search(r'(\d+)\s*°\s*(?:Celsius|C)?', text, re.IGNORECASE)
+
+        # Chercher humidité (35%, humidité 35%, humidité relative 35%, etc.)
+        humidity_match = re.search(r'(?:humidité|humidity)[^0-9]*(\d+)\s*%', text, re.IGNORECASE)
+
+        # Si pas trouvé avec "humidité", chercher juste un nombre suivi de %
+        if not humidity_match:
+            # Chercher pattern: nombre + %
+            all_percent = re.findall(r'(\d+)\s*%', text)
+            if all_percent:
+                humidity_match = type('obj', (object,), {'group': lambda self, x: all_percent[0]})()
+
+        if temp_match and humidity_match:
+            temp = temp_match.group(1)
+            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else humidity_match.group(0) if hasattr(humidity_match, 'group') else all_percent[0]
+            return f"{temp}°, {humidity}%"
+        elif temp_match:
+            return f"{temp_match.group(1)}°"
+        elif humidity_match:
+            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else all_percent[0]
+            return f"{humidity}%"
+
+        return ""
+
     def _build_rows_from_timeline(
         self,
         entries: List[Dict],
         clients_map: Dict[str, str],
     ) -> Dict[str, List[List[str]]]:
+        from datetime import datetime
+        import pytz
+
         rows_by_tab = {tab: [] for tab in CLIENT_KEYWORDS.keys()}
         rows_by_tab["Alertes Maintenance"] = []
 
+        # Séparer services et mesures
+        services = []
+        measurements = []
+
         for entry in entries:
-            description = entry.get("description") or ""
-            client_name = clients_map.get(entry.get("entity_id"), "Inconnu")
-            entry_date = self._to_montreal_date(entry.get("entry_date", ""))
-            entry_type = entry.get("event_type", "") or "timeline_event"
+            entry_type = entry.get("entry_type") or ""
+            if entry_type == "SERVICE_ENTRY_MANUAL":
+                services.append(entry)
+            elif entry_type == "PIANO_MEASUREMENT":
+                measurements.append(entry)
+
+        # Grouper les mesures par (piano_id, date_only)
+        measurements_by_piano_date = {}
+        for measurement in measurements:
+            piano_id = measurement.get("piano_id")
+            date_raw = measurement.get("occurred_at") or measurement.get("entry_date", "")
+
+            if not piano_id or not date_raw:
+                continue
+
+            # Convertir en date Montreal (sans heure)
+            try:
+                cleaned = date_raw.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(cleaned)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                date_only = dt.astimezone(MONTREAL_TZ).date()
+            except:
+                continue
+
+            key = (piano_id, date_only)
+            if key not in measurements_by_piano_date:
+                measurements_by_piano_date[key] = []
+
+            # Simplifier la description
+            desc = measurement.get("title") or measurement.get("description") or ""
+            simplified = self._simplify_measurement(desc)
+            if simplified:
+                measurements_by_piano_date[key].append(simplified)
+
+        # Traiter les services
+        service_keys = set()
+        for service in services:
+            piano = service.get("piano") or {}
+            entity_id = service.get("entity_id")
+            client_id = piano.get("client_external_id") or entity_id
+            client_name = clients_map.get(client_id, "Inconnu")
+
+            date_raw = service.get("occurred_at") or service.get("entry_date", "")
+            entry_date = self._to_montreal_date(date_raw)
+
+            # Date_only pour lookup mesures
+            try:
+                cleaned = date_raw.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(cleaned)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=pytz.utc)
+                date_only = dt.astimezone(MONTREAL_TZ).date()
+            except:
+                date_only = None
+
+            description = service.get("title") or service.get("description") or ""
+
+            marque = piano.get("make") or ""
+            modele = piano.get("model") or ""
+            numero_serie = piano.get("serial_number") or ""
+            type_piano = piano.get("type") or ""
+            annee = str(piano.get("year") or "")
+            local = piano.get("location") or ""
+
+            user = service.get("user") or {}
+            first_name = user.get("first_name") or ""
+            last_name = user.get("last_name") or ""
+            technicien = f"{first_name} {last_name}".strip() if (first_name or last_name) else ""
+
+            # Récupérer mesures du même piano + même jour
+            piano_id = service.get("piano_id")
+            mesure_humidite = ""
+
+            # 1. Parser mesures depuis la description du service
+            extracted_from_text = self._extract_measurements_from_text(description)
+
+            # 2. Récupérer mesures des PIANO_MEASUREMENT entries
+            if piano_id and date_only:
+                key = (piano_id, date_only)
+                service_keys.add(key)
+                measures = measurements_by_piano_date.get(key, [])
+
+                # 3. Combiner les deux sources
+                all_measures = []
+                if extracted_from_text:
+                    all_measures.append(extracted_from_text)
+                if measures:
+                    all_measures.extend(measures)
+
+                if all_measures:
+                    mesure_humidite = " | ".join(all_measures)
+
+            row = [
+                entry_date,          # DateEvenement
+                "Service",           # TypeEvenement
+                description,         # Description
+                client_name,         # NomClient
+                marque,              # Marque
+                modele,              # Modele
+                numero_serie,        # NumeroSerie
+                type_piano,          # TypePiano
+                annee,               # Annee
+                local,               # Local
+                technicien,          # Technicien
+                mesure_humidite      # MesureHumidite
+            ]
 
             for tab in self._categories_for_entry(client_name, description):
-                rows_by_tab[tab].append([entry_date, client_name, description, entry_type])
+                rows_by_tab[tab].append(row)
+
+        # Ajouter mesures orphelines (sans service le même jour)
+        for (piano_id, date_only), measures in measurements_by_piano_date.items():
+            key = (piano_id, date_only)
+            if key in service_keys:
+                continue  # Déjà associée à un service
+
+            # Trouver l'entry pour récupérer les infos
+            measurement_entry = None
+            for m in measurements:
+                if m.get("piano_id") == piano_id:
+                    try:
+                        date_raw = m.get("occurred_at") or m.get("entry_date", "")
+                        cleaned = date_raw.replace("Z", "+00:00")
+                        dt = datetime.fromisoformat(cleaned)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=pytz.utc)
+                        m_date_only = dt.astimezone(MONTREAL_TZ).date()
+                        if m_date_only == date_only:
+                            measurement_entry = m
+                            break
+                    except:
+                        continue
+
+            if not measurement_entry:
+                continue
+
+            piano = measurement_entry.get("piano") or {}
+            entity_id = measurement_entry.get("entity_id")
+            client_id = piano.get("client_external_id") or entity_id
+            client_name = clients_map.get(client_id, "Inconnu")
+
+            date_raw = measurement_entry.get("occurred_at") or measurement_entry.get("entry_date", "")
+            entry_date = self._to_montreal_date(date_raw)
+
+            marque = piano.get("make") or ""
+            modele = piano.get("model") or ""
+            numero_serie = piano.get("serial_number") or ""
+            type_piano = piano.get("type") or ""
+            annee = str(piano.get("year") or "")
+            local = piano.get("location") or ""
+
+            user = measurement_entry.get("user") or {}
+            first_name = user.get("first_name") or ""
+            last_name = user.get("last_name") or ""
+            technicien = f"{first_name} {last_name}".strip() if (first_name or last_name) else ""
+
+            mesure_humidite = " | ".join(measures)
+
+            row = [
+                entry_date,          # DateEvenement
+                "Mesure",            # TypeEvenement (orpheline)
+                "",                  # Description vide
+                client_name,         # NomClient
+                marque,              # Marque
+                modele,              # Modele
+                numero_serie,        # NumeroSerie
+                type_piano,          # TypePiano
+                annee,               # Annee
+                local,               # Local
+                technicien,          # Technicien
+                mesure_humidite      # MesureHumidite
+            ]
+
+            for tab in self._categories_for_entry(client_name, ""):
+                rows_by_tab[tab].append(row)
 
         return rows_by_tab
 
@@ -234,8 +501,23 @@ class ServiceReports:
                 or ""
             )
             description = alert.get("description") or alert.get("notes") or ""
-            entry_type = "maintenance_alert"
-            rows.append([self._to_montreal_date(date_str), client_name, description, entry_type])
+
+            # Construire ligne avec 12 colonnes (alertes n'ont pas d'infos piano)
+            row = [
+                self._to_montreal_date(date_str),  # DateEvenement
+                "Alerte",                          # TypeEvenement
+                description,                       # Description
+                client_name,                       # NomClient
+                "",                                # Marque
+                "",                                # Modele
+                "",                                # NumeroSerie
+                "",                                # TypePiano
+                "",                                # Annee
+                "",                                # Local
+                "",                                # Technicien
+                ""                                 # MesureHumidite
+            ]
+            rows.append(row)
         return rows
 
     def generate_reports(self, since: Optional[datetime] = None, append: bool = True) -> Dict[str, int]:

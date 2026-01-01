@@ -386,12 +386,147 @@ async def import_email(payload: ImportRequest):
     }
 
 
+class SyncManualRequest(BaseModel):
+    request_ids: Optional[List[str]] = None
+
+
 @router.post("/sync-manual")
-async def sync_manual():
+async def sync_manual(payload: Optional[SyncManualRequest] = None):
     """
-    Synchronisation manuelle (stub).
+    Synchronisation manuelle: Met à jour le statut 'Créé Gazelle' pour les demandes
+    qui ont un RV correspondant dans Gazelle.
+
+    Si request_ids est fourni, synchronise seulement ces demandes.
+    Sinon, synchronise toutes les demandes avec statut ASSIGN_OK.
     """
-    return {"success": True, "message": "Sync manuelle non implémentée (stub)."}
+    try:
+        # Importer le validateur
+        sys.path.insert(0, str(Path(__file__).parent.parent / "assistant-v6" / "modules" / "assistant" / "services"))
+        from pda_validation import PlaceDesArtsValidator
+
+        validator = PlaceDesArtsValidator()
+        storage = get_storage()
+
+        # Si des IDs spécifiques sont fournis, les récupérer
+        if payload and payload.request_ids:
+            # Récupérer seulement les demandes spécifiques
+            url = f"{storage.api_url}/place_des_arts_requests"
+            url += f"?id=in.({','.join(payload.request_ids)})"
+            url += "&select=*"
+            resp = requests.get(url, headers=storage._get_headers())
+
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail="Erreur récupération demandes")
+
+            requests_to_check = resp.json()
+        else:
+            # Récupérer toutes les demandes assignées mais pas encore marquées "Créé Gazelle"
+            params = [
+                "select=*",
+                "status=eq.ASSIGN_OK",
+                "limit=200"
+            ]
+            url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
+            resp = requests.get(url, headers=storage._get_headers())
+
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail="Erreur récupération demandes")
+
+            requests_to_check = resp.json()
+        updated_count = 0
+        not_found_warnings = []
+
+        # Pour chaque demande assignée, vérifier si un RV existe dans Gazelle
+        for req in requests_to_check:
+            req_id = req.get('id')
+            room = req.get('room', '')
+            appt_date = req.get('appointment_date', '')
+            for_who = req.get('for_who', '')
+
+            # Chercher le RV dans Gazelle
+            gazelle_appt = validator.find_gazelle_appointment_for_pda(
+                appointment_date=appt_date,
+                room=room,
+                debug=False
+            )
+
+            # Si trouvé, mettre à jour le statut
+            if gazelle_appt:
+                update_url = f"{storage.api_url}/place_des_arts_requests"
+                update_params = f"?id=eq.{req_id}"
+                update_data = {"status": "CREATED_IN_GAZELLE"}
+
+                update_resp = requests.patch(
+                    update_url + update_params,
+                    headers=storage._get_headers(),
+                    json=update_data
+                )
+
+                if update_resp.status_code in (200, 204):
+                    updated_count += 1
+            else:
+                # RV non trouvé - ajouter un warning
+                not_found_warnings.append({
+                    "id": req_id,
+                    "date": appt_date,
+                    "room": room,
+                    "for_who": for_who
+                })
+
+        return {
+            "success": True,
+            "message": f"Synchronisation terminée: {updated_count} demande(s) mise(s) à jour",
+            "updated": updated_count,
+            "checked": len(requests_to_check),
+            "warnings": not_found_warnings,
+            "has_warnings": len(not_found_warnings) > 0
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur sync: {str(e)}") from e
+
+
+@router.post("/validate-gazelle-rv")
+async def validate_gazelle_rv(payload: Dict[str, Any]):
+    """
+    Valide qu'un RV existe dans Gazelle pour une demande Place des Arts.
+    Retourne {"found": true/false, "appointment": {...}} si trouvé.
+    """
+    try:
+        request_id = payload.get("request_id")
+        appointment_date = payload.get("appointment_date")
+        room = payload.get("room")
+
+        if not appointment_date or not room:
+            return {"found": False, "error": "Date ou salle manquante"}
+
+        # Importer le validateur
+        sys.path.insert(0, str(Path(__file__).parent.parent / "assistant-v6" / "modules" / "assistant" / "services"))
+        from pda_validation import PlaceDesArtsValidator
+
+        validator = PlaceDesArtsValidator()
+
+        # Chercher le RV dans Gazelle
+        gazelle_appt = validator.find_gazelle_appointment_for_pda(
+            appointment_date=appointment_date,
+            room=room,
+            debug=False
+        )
+
+        if gazelle_appt:
+            return {
+                "found": True,
+                "appointment": {
+                    "external_id": gazelle_appt.get("external_id"),
+                    "appointment_time": gazelle_appt.get("appointment_time"),
+                    "notes": gazelle_appt.get("notes", "")[:100]
+                }
+            }
+        else:
+            return {"found": False}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur validation: {str(e)}") from e
 
 
 @router.get("/diagnostic")

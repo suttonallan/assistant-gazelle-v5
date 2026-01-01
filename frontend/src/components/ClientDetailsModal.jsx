@@ -166,6 +166,33 @@ export default function ClientDetailsModal({ clientId, onClose, onAskQuestion })
                 </div>
               )}
 
+              {/* Timeline détaillée */}
+              {details.timeline_summary && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">📜 Timeline</h3>
+                  <div className="bg-gray-50 p-4 rounded border border-gray-200 space-y-2">
+                    <div className="text-sm text-gray-700">
+                      Total: {details.timeline_summary.total_entries || 0}
+                      {details.timeline_summary.first_entry_date && details.timeline_summary.last_entry_date && (
+                        <span className="ml-2 text-gray-500">
+                          ({details.timeline_summary.first_entry_date} → {details.timeline_summary.last_entry_date})
+                        </span>
+                      )}
+                    </div>
+                    {details.timeline_summary.recent_entries && details.timeline_summary.recent_entries.length > 0 && (
+                      <div className="space-y-1 text-sm text-gray-700">
+                        {details.timeline_summary.recent_entries.map((entry, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <span className="text-gray-500 min-w-[80px]">{entry.date || ''}</span>
+                            <span className="whitespace-pre-wrap">{entry.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Prochains RV */}
               {details.upcoming_appointments && details.upcoming_appointments.length > 0 && (
                 <div>
@@ -208,7 +235,7 @@ export default function ClientDetailsModal({ clientId, onClose, onAskQuestion })
                     </button>
                     <button
                       onClick={() => {
-                        onAskQuestion(`résumé historique service pour ${details.name}`)
+                        onAskQuestion(`montre-moi l'historique complet de ${details.name} avec toutes les notes de service`)
                         onClose()
                       }}
                       className="px-3 py-1.5 text-sm bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100 transition-colors"

@@ -55,7 +55,9 @@ class ConversationalParser:
         ],
         QueryType.TIMELINE: [
             'historique', 'histoire', 'timeline', 'passé',
-            'dernières interventions', 'derniers événements'
+            'dernières interventions', 'derniers événements',
+            'notes de service', 'historique complet', 'toutes les notes',
+            'montre-moi l\'historique', 'affiche l\'historique'
         ],
         QueryType.STATS: [
             'combien', 'statistiques', 'stats', 'nombre',
@@ -187,6 +189,12 @@ class ConversationalParser:
                 return QueryType.SEARCH_CLIENT, 0.5
 
             return QueryType.UNKNOWN, 0.0
+
+        # Règles de priorité spéciales
+        # Si "historique" ou "timeline" est présent, forcer TIMELINE (même si d'autres mots-clés matchent)
+        if QueryType.TIMELINE in scores and any(kw in question_lower for kw in ['historique', 'timeline', 'notes de service']):
+            print(f"🔍 Parser: Priorité TIMELINE détectée (mots-clés: historique/timeline/notes)")
+            return QueryType.TIMELINE, 0.9
 
         # Retourner le type avec le plus de matches
         best_type = max(scores, key=scores.get)

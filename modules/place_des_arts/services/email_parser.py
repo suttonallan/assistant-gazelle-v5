@@ -653,3 +653,4 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
 
     return requests
+

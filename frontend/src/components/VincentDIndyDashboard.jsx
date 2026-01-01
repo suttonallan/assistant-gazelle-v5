@@ -13,6 +13,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nick : filtrer sur pianos sélectionnés
   const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local
+  const [showAllPianos, setShowAllPianos] = useState(false); // Afficher tous les pianos (même masqués de l'inventaire)
 
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
   const [filterUsage, setFilterUsage] = useState('all');
@@ -60,7 +61,12 @@ const VincentDIndyDashboard = ({ currentUser }) => {
       setError(null);
       console.log('🔄 Chargement des pianos depuis:', API_URL);
 
-      const data = await getPianos(API_URL);
+      // Toujours charger TOUS les pianos (include_inactive=true)
+      // Le filtrage se fera côté frontend via showAllPianos
+      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true`;
+      const response = await fetch(url);
+      const data = await response.json();
+
       console.log('✅ Données reçues:', data);
       console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
 
@@ -117,9 +123,29 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     return tournee?.piano_ids || [];
   };
 
-  // Obtenir l'ID unique d'un piano (priorité: gazelleId > id)
+  // Vérifier si un piano est dans une tournée - utilise UNIQUEMENT gazelleId
+  const isPianoInTournee = (piano, tourneeId) => {
+    const tourneePianoIds = getTourneePianos(tourneeId);
+    const pianoGzId = piano.gazelleId || piano.id;
+    const isIn = tourneePianoIds.includes(pianoGzId);
+
+    // Debug détaillé pour comprendre pourquoi test4 montre les pianos de test3
+    if (window.DEBUG_TOURNEES) {
+      console.log(`🔍 isPianoInTournee: ${piano.serie}`);
+      console.log(`   tourneeId demandée: ${tourneeId}`);
+      console.log(`   piano.gazelleId: ${piano.gazelleId}`);
+      console.log(`   piano.id: ${piano.id}`);
+      console.log(`   pianoGzId utilisé: ${pianoGzId}`);
+      console.log(`   tourneePianoIds:`, tourneePianoIds);
+      console.log(`   Résultat: ${isIn}`);
+    }
+
+    return isIn;
+  };
+
+  // Obtenir l'ID unique d'un piano - TOUJOURS le gazelleId
   const getPianoUniqueId = (piano) => {
-    return piano.gazelleId || piano.id;
+    return piano.gazelleId;  // UNIQUEMENT gazelleId, rien d'autre
   };
 
   const handleSort = (key) => {
@@ -149,11 +175,15 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const pianosFiltres = useMemo(() => {
     let result = [...pianos];
 
+    // Filtre d'inventaire : masquer les pianos avec isInCsv=false (sauf si "Tout voir" activé)
+    if (!showAllPianos) {
+      result = result.filter(p => p.isInCsv !== false);
+    }
+
     if (currentView === 'nicolas') {
       // Si une tournée est sélectionnée, filtrer sur les pianos de cette tournée
       if (selectedTourneeId && showOnlySelected) {
-        const tourneePianoIds = getTourneePianos(selectedTourneeId);
-        result = result.filter(p => tourneePianoIds.includes(getPianoUniqueId(p)));
+        result = result.filter(p => isPianoInTournee(p, selectedTourneeId));
       }
       // Sinon : tous les pianos (pas de filtre)
     } else if (currentView === 'technicien') {
@@ -180,14 +210,18 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     result.sort((a, b) => {
       switch (sortConfig.key) {
         case 'local':
-          return sortConfig.direction === 'asc' 
-            ? a.local.localeCompare(b.local, undefined, { numeric: true })
-            : b.local.localeCompare(a.local, undefined, { numeric: true });
+          const aLocal = a.local || '';
+          const bLocal = b.local || '';
+          return sortConfig.direction === 'asc'
+            ? aLocal.localeCompare(bLocal, undefined, { numeric: true })
+            : bLocal.localeCompare(aLocal, undefined, { numeric: true });
         case 'piano':
-          return sortConfig.direction === 'asc' ? a.piano.localeCompare(b.piano) : b.piano.localeCompare(a.piano);
+          const aPiano = a.piano || '';
+          const bPiano = b.piano || '';
+          return sortConfig.direction === 'asc' ? aPiano.localeCompare(bPiano) : bPiano.localeCompare(aPiano);
         case 'accord':
-          const aTime = new Date(a.dernierAccord).getTime();
-          const bTime = new Date(b.dernierAccord).getTime();
+          const aTime = a.dernierAccord ? new Date(a.dernierAccord).getTime() : 0;
+          const bTime = b.dernierAccord ? new Date(b.dernierAccord).getTime() : 0;
           return sortConfig.direction === 'asc' ? aTime - bTime : bTime - aTime;
         case 'mois':
           const aMois = moisDepuisAccord(a.dernierAccord);
@@ -199,7 +233,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal, selectedTourneeId, tournees]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal, selectedTourneeId, tournees, showAllPianos]);
 
   // Gérer l'état indeterminate de la checkbox "sélectionner tous"
   useEffect(() => {
@@ -235,13 +269,46 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     await savePianoToAPI(id, { status: newStatus });
   };
 
-  const toggleSelected = (id) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleSelected = async (id) => {
+    // Trouver le piano correspondant
+    const piano = pianos.find(p => p.id === id);
+
+    if (!piano) {
+      console.error('❌ Piano non trouvé:', id);
+      return;
+    }
+
+    console.log('\n✅ TOGGLE PIANO:', piano.serie || id);
+    console.log('   Piano ID (gazelleId):', piano.id);
+    console.log('   Tournée active:', selectedTourneeId);
+
+    // Si une tournée est sélectionnée, gérer l'assignation automatiquement
+    if (selectedTourneeId) {
+      console.log('   → Ajout/retrait à la tournée...');
+      await togglePianoInTournee(piano);
+
+      // Recharger les tournées pour obtenir les données à jour
+      await loadTournees();
+
+      // Resynchroniser selectedIds avec la tournée mise à jour
+      const tourneeData = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
+      const currentTournee = tourneeData.find(t => t.id === selectedTourneeId);
+      if (currentTournee) {
+        // Les piano_ids sont des gazelleId, on les utilise directement
+        const tourneePianoIds = currentTournee.piano_ids || [];
+        console.log('   → Tournée mise à jour, pianos:', tourneePianoIds.length);
+        setSelectedIds(new Set(tourneePianoIds));
+      }
+    } else {
+      // Pas de tournée sélectionnée, juste toggle la sélection visuelle
+      console.log('   → Sélection visuelle seulement (pas de tournée)');
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
   };
 
   const selectAll = () => setSelectedIds(new Set(pianosFiltres.map(p => p.id)));
@@ -277,6 +344,32 @@ const VincentDIndyDashboard = ({ currentUser }) => {
     // Sauvegarder chaque piano via API (utiliser idsToUpdate au lieu de selectedIds)
     for (const id of idsToUpdate) {
       await savePianoToAPI(id, { usage });
+    }
+  };
+
+  const batchHideFromInventory = async () => {
+    // Sauvegarder les IDs sélectionnés avant de vider
+    const idsToUpdate = Array.from(selectedIds);
+
+    if (idsToUpdate.length === 0) {
+      alert('Aucun piano sélectionné');
+      return;
+    }
+
+    // Confirmation
+    if (!confirm(`Masquer ${idsToUpdate.length} piano(s) de l'inventaire?`)) {
+      return;
+    }
+
+    // Mise à jour optimiste
+    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, isInCsv: false } : p));
+
+    // Désélectionner immédiatement
+    setSelectedIds(new Set());
+
+    // Sauvegarder chaque piano via API
+    for (const id of idsToUpdate) {
+      await savePianoToAPI(id, { isInCsv: false });
     }
   };
 
@@ -405,10 +498,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   const togglePianoInTournee = async (piano) => {
     if (!selectedTourneeId) return;
 
-    const pianoUniqueId = getPianoUniqueId(piano);
-    const tourneePianos = getTourneePianos(selectedTourneeId);
-
-    if (tourneePianos.includes(pianoUniqueId)) {
+    if (isPianoInTournee(piano, selectedTourneeId)) {
       await removePianoFromTournee(piano);
     } else {
       await addPianoToTournee(piano);
@@ -441,6 +531,10 @@ const VincentDIndyDashboard = ({ currentUser }) => {
       alert('✅ Tournée créée avec succès!')
       setNewTournee({ nom: '', date_debut: '', date_fin: '', notes: '' })
       await loadTournees()
+
+      // Sélectionner automatiquement la nouvelle tournée et vider la sélection
+      setSelectedTourneeId(nouvelleTournee.id)
+      setSelectedIds(new Set())
     } catch (err) {
       alert('❌ Erreur: ' + err.message)
     }
@@ -513,17 +607,18 @@ const VincentDIndyDashboard = ({ currentUser }) => {
   };
 
   const getRowClass = (piano) => {
-    if (selectedIds.has(piano.id)) return 'bg-purple-200';
     // Si Top → brun
     if (piano.status === 'top') return 'bg-amber-200';
     // Si complété → vert
     if (piano.status === 'completed') return 'bg-green-200';
-    // Si dans la tournée sélectionnée OU proposed OU si "À faire" est rempli → jaune
+    // Si dans la tournée OU proposed OU "À faire" rempli → JAUNE (tout pareil)
     if (
-      (selectedTourneeId && getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano))) ||
+      (selectedTourneeId && isPianoInTournee(piano, selectedTourneeId)) ||
       piano.status === 'proposed' ||
       (piano.aFaire && piano.aFaire.trim() !== '')
     ) return 'bg-yellow-200';
+    // Si coché (pour actions batch) → mauve léger
+    if (selectedIds.has(piano.id)) return 'bg-purple-100';
     // Sinon → normal (blanc)
     return 'bg-white';
   };
@@ -864,8 +959,18 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                     <div
                       key={tournee.id}
                       onClick={() => {
+                        console.log('\n🎹 CLIC SUR TOURNÉE:', tournee.nom);
+                        console.log('   ID tournée:', tournee.id);
+                        console.log('   Piano IDs stockés:', tournee.piano_ids);
+                        console.log('   Nombre de pianos:', (tournee.piano_ids || []).length);
+
                         setSelectedTourneeId(tournee.id);
-                        setShowOnlySelected(false); // Afficher TOUTE la liste par défaut
+                        setShowOnlySelected(false);
+
+                        // VIDER les sélections - les checkboxes servent juste aux actions batch
+                        // Elles ne doivent PAS refléter les pianos de la tournée
+                        console.log('   → Vidage de selectedIds (checkboxes)');
+                        setSelectedIds(new Set());
                       }}
                       className={`p-3 rounded-lg border-2 cursor-pointer transition-colors ${
                         selectedTourneeId === tournee.id
@@ -983,15 +1088,31 @@ const VincentDIndyDashboard = ({ currentUser }) => {
           )}
 
           {/* Boutons de vue */}
-          <div className="flex gap-3 items-center">
+          <div className="flex gap-3 items-center flex-wrap">
             <button
-              onClick={() => setShowOnlySelected(false)}
-              className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+              onClick={() => {
+                setShowOnlySelected(false);
+                setShowAllPianos(false);
+              }}
+              className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && !showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
             >
-              📋 Tous les pianos ({stats.total})
+              📦 Inventaire ({pianos.filter(p => p.isInCsv !== false).length})
             </button>
             <button
-              onClick={() => setShowOnlySelected(true)}
+              onClick={() => {
+                setShowOnlySelected(false);
+                setShowAllPianos(true);
+              }}
+              className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && showAllPianos ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+              title="Afficher tous les pianos (même ceux masqués de l'inventaire)"
+            >
+              📋 Tout voir ({stats.total})
+            </button>
+            <button
+              onClick={() => {
+                setShowOnlySelected(true);
+                setShowAllPianos(false);
+              }}
               className={`px-4 py-2 rounded text-sm font-medium ${showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
             >
               {selectedTourneeId ? (
@@ -999,6 +1120,16 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               ) : (
                 <>🎯 Projet de tournée ({stats.proposed + stats.completed})</>
               )}
+            </button>
+            <button
+              onClick={async () => {
+                await loadPianosFromAPI();
+              }}
+              className="px-4 py-2 rounded text-sm font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
+              disabled={loading}
+              title="Rafraîchir les données depuis Gazelle"
+            >
+              {loading ? '⏳ Sync...' : '🔄 Sync Gazelle'}
             </button>
           </div>
 
@@ -1033,6 +1164,13 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                   <option value="">Usage...</option>
                   {usages.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
+                <button
+                  onClick={batchHideFromInventory}
+                  className="px-3 py-1 rounded text-sm bg-red-100 hover:bg-red-200 text-red-700 border border-red-300"
+                  title="Masquer les pianos sélectionnés de l'inventaire"
+                >
+                  🚫 Masquer de l'inventaire
+                </button>
               </>
             )}
           </div>
@@ -1060,11 +1198,6 @@ const VincentDIndyDashboard = ({ currentUser }) => {
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               {currentView === 'nicolas' && (
                 <>
-                  {selectedTourneeId && (
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-green-50">
-                      Dans tournée
-                    </th>
-                  )}
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Notes (Tech)</th>
                 </>
@@ -1107,22 +1240,6 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                   {/* Colonnes pour l'onglet Nick */}
                   {currentView === 'nicolas' && (
                     <>
-                      {/* Colonne "Dans tournée" - bouton pour ajouter/retirer */}
-                      {selectedTourneeId && (
-                        <td className="px-3 py-3 bg-green-50 text-center" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => togglePianoInTournee(piano)}
-                            className={`px-3 py-1 rounded text-xs font-medium ${
-                              getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano))
-                                ? 'bg-green-500 text-white hover:bg-green-600'
-                                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                            }`}
-                          >
-                            {getTourneePianos(selectedTourneeId).includes(getPianoUniqueId(piano)) ? '✓ Dans tournée' : '+ Ajouter'}
-                          </button>
-                        </td>
-                      )}
-
                       {/* Colonne "À faire" de Nick */}
                       <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>
                         {editingAFaireId === piano.id ? (
@@ -1196,6 +1313,7 @@ const VincentDIndyDashboard = ({ currentUser }) => {
                           </span>
                         )}
                       </td>
+
                     </>
                   )}
 

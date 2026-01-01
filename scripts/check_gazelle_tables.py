@@ -146,3 +146,4 @@ def check_tables():
 if __name__ == "__main__":
     check_tables()
 
+

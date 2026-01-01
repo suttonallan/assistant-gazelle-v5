@@ -29,6 +29,8 @@ from api.tournees import router as tournees_router
 from api.assistant import router as assistant_router
 from api.admin import router as admin_router
 from api.place_des_arts import router as place_des_arts_router
+from api.reports import router as reports_router
+from api.chat_routes import router as chat_router
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
 
 app = FastAPI(
@@ -93,6 +95,8 @@ app.include_router(tournees_router)
 app.include_router(assistant_router)
 app.include_router(admin_router)
 app.include_router(place_des_arts_router)
+app.include_router(reports_router)
+app.include_router(chat_router)
 
 
 @app.get("/")

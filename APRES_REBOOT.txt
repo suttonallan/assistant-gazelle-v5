@@ -1,0 +1,122 @@
+═══════════════════════════════════════════════════════════
+  ASSISTANT GAZELLE - APRÈS REDÉMARRAGE
+═══════════════════════════════════════════════════════════
+
+📋 TOUT EST PRÊT POUR LE REDÉMARRAGE
+
+✅ Documents créés:
+   • REDEMARRAGE.md              (guide complet)
+   • REFONTE_TOURNEES_ARCHITECTURE.md (pour Gemini)
+   • start_services.sh           (démarrage rapide)
+   • APRES_REBOOT.txt            (ce fichier)
+
+✅ Services arrêtés proprement
+
+✅ Outils de debug disponibles:
+   • frontend/debug_tournees.html
+   • frontend/migrate_tournees.html
+   • frontend/reset_tournees.html
+
+───────────────────────────────────────────────────────────
+  DÉMARRAGE RAPIDE (après reboot)
+───────────────────────────────────────────────────────────
+
+Option 1 - Script Automatique (Recommandé):
+
+   cd /Users/allansutton/Documents/assistant-gazelle-v5./start_services.sh
+
+
+Option 2 - Manuel (2 terminaux):
+
+   Terminal 1:
+   cd /Users/allansutton/Documents/assistant-gazelle-v5
+   source venv/bin/activate
+   python -m uvicorn api.main:app --reload --port 8000
+
+   Terminal 2:
+   cd /Users/allansutton/Documents/assistant-gazelle-v5/frontend
+   npm run dev
+
+───────────────────────────────────────────────────────────
+  VÉRIFICATION POST-DÉMARRAGE
+───────────────────────────────────────────────────────────
+
+1. Tester l'API:
+   curl http://localhost:8000/vincent-dindy/pianos | jq '.count'
+
+2. Ouvrir le frontend:
+   http://localhost:5173
+
+3. Vérifier les tournées:
+   file:///Users/allansutton/Documents/assistant-gazelle-v5/frontend/debug_tournees.html
+
+───────────────────────────────────────────────────────────
+  BUG EN COURS
+───────────────────────────────────────────────────────────
+
+Problème: Cliquer sur "test4" montre les pianos de "test3"
+
+Pour debugger:
+1. Ouvrir http://localhost:5173
+2. F12 → Console
+3. Taper: window.DEBUG_TOURNEES = true
+4. Cliquer sur test3, puis test4
+5. Regarder les logs
+
+───────────────────────────────────────────────────────────
+  PROCHAINES ÉTAPES
+───────────────────────────────────────────────────────────
+
+Choix 1: Fix rapide
+   → Modifier VincentDIndyDashboard.jsx
+   → Ajouter un useEffect pour forcer re-render
+
+Choix 2: Refonte architecturale
+   → Lire REFONTE_TOURNEES_ARCHITECTURE.md
+   → Partager avec Gemini
+   → Suivre le plan de migration
+
+Choix 3: Debug approfondi
+   → Utiliser window.DEBUG_TOURNEES
+   → Inspecter localStorage avec debug_tournees.html
+   → Comprendre la cause racine
+
+───────────────────────────────────────────────────────────
+  FICHIERS MODIFIÉS (non committés)
+───────────────────────────────────────────────────────────
+
+⚠️  IMPORTANT:
+   frontend/src/components/VincentDIndyDashboard.jsx
+
+Modifications:
+   • Lignes 602-617: Couleurs unifiées en jaune
+   • Lignes 126-144: Mode debug ajouté
+
+───────────────────────────────────────────────────────────
+  COMMANDES UTILES
+───────────────────────────────────────────────────────────
+
+Voir les logs en temps réel:
+   tail -f logs/backend.log
+   tail -f logs/frontend.log
+
+Arrêter les services:
+   pkill -f "uvicorn api.main"
+   pkill -f "vite"
+
+Vérifier les ports:
+   lsof -ti:8000,5173
+
+Status Git:
+   git status
+   git diff frontend/src/components/VincentDIndyDashboard.jsx
+
+───────────────────────────────────────────────────────────
+
+Bon redémarrage! 🚀
+
+Pour reprendre avec Claude Code, dire:
+"Je reviens après redémarrage, le bug des tournées persiste.
+ Que faire: fix rapide ou refonte?"
+
+═══════════════════════════════════════════════════════════

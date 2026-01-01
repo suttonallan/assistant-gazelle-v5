@@ -20,7 +20,7 @@ export default function ClickableMessage({
   entities.forEach(entity => {
     // Échapper les caractères spéciaux pour la regex
     const escapedName = entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    // Chercher le nom en gras (**nom**) ou juste le nom
+    // Chercher UNIQUEMENT le nom en gras (**nom**) pour éviter les doublons
     const regex = new RegExp(`\\*\\*${escapedName}\\*\\*`, 'g')
     displayContent = displayContent.replace(
       regex,

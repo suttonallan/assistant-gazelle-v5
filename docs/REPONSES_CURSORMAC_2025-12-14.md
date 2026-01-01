@@ -284,3 +284,4 @@ OPENAI_API_KEY=sk-xxx
 **Créé:** 2025-12-14  
 **Par:** Cursor Mac Assistant  
 **Statut:** ✅ Prêt pour validation
+

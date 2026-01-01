@@ -1,60 +1,59 @@
-# Ignorer le dossier de l'environnement virtuel
+# Python
 venv/
-.venv/
-
-# Ignorer les fichiers de données locaux
-*.db
-*.sqlite
-*.pkl
-data/gazelle_vectors.pkl
-
-# Ignorer les fichiers temporaires/de cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
 
-# Ignorer les secrets de configuration
+# Environment variables
 .env
-config/token.json
-config/.env
-config/env.txt
-config/*credentials*.md
-config/*secret*.md
-*.token.json
-token.json
-
-# Cache de référence (peut être régénéré)
-.reference_cache.json
-
-# Ignorer les exports de données V4 (utilisés pour l'import initial)
-*.csv
-*.sql
-
-# Ignorer les rapports des techniciens (données sensibles)
-/reports/
-/backups/
-
-# Fichiers système macOS
-.DS_Store
-**/.DS_Store
-
-# Fichiers temporaires et logs
-*.pid
-*.log
-*.log.*
-
-# Fichiers de credentials et variables d'environnement
-data/credentials.json
-data/credentials_ptm.json
-frontend/.env.local
 .env.local
 .env.*.local
 
-# Guides de migration avec secrets (webhooks Slack)
-GUIDE_MIGRATION_*.md
+# Secrets et credentials
+token.json
+*credentials*.json
+SECRETS*.md
 
-# Fichiers de backup des secrets - NE JAMAIS pousser sur GitHub
-SECRETS_PERMANENTS.md
-docs/SECRETS_REFERENCE.md
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Archives de scripts de test et debug (V4/V5)
-scripts/archives_v4_v5/
+# Logs
+*.log
+logs/
+
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (pour frontend)
+node_modules/
+.cache/
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+.cache
+
+# Refactor VDI build artifacts
+refactor/vdi/dist/
+refactor/vdi/node_modules/
+refactor/vdi/.cache/

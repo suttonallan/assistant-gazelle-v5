@@ -34,3 +34,4 @@ apscheduler>=3.10.4
 sendgrid>=6.11.0
 pytz>=2024.1
 
+dateparser>=1.1.0  # Parser de dates naturelles (français, anglais)

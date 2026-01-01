@@ -41,7 +41,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
  * - Icônes pour scannabilité rapide
  */
 export default function ChatIntelligent({ currentUser }) {
-  const [query, setQuery] = useState('Ma journée de demain');
+  const [query, setQuery] = useState("aujourd'hui");
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -195,6 +195,15 @@ export default function ChatIntelligent({ currentUser }) {
         </Box>
       )}
 
+      {/* Réponse textuelle (questions de suivi) */}
+      {response?.text_response && (
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'info.light', borderRadius: 2, borderLeft: '4px solid', borderColor: 'info.main' }}>
+          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: 'info.contrastText' }}>
+            {response.text_response}
+          </Typography>
+        </Box>
+      )}
+
       {/* Cards Niveau 1: Appointments */}
       {loading && (
         <Box sx={{ textAlign: 'center', py: 4 }}>
@@ -210,7 +219,7 @@ export default function ChatIntelligent({ currentUser }) {
         />
       ))}
 
-      {response?.day_overview?.appointments.length === 0 && (
+      {response?.day_overview?.appointments.length === 0 && !response?.text_response && (
         <Box sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
           <Typography>Aucun rendez-vous pour cette journée</Typography>
         </Box>
@@ -282,21 +291,47 @@ function AppointmentCard({ appointment, onClick }) {
           </Box>
         </Box>
 
-        {/* Client name */}
-        <Typography variant="h6" sx={{ mb: 1 }}>
+        {/* Contact name (principal) */}
+        <Typography
+          variant="h6"
+          sx={{
+            mb: 0.5,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical'
+          }}
+        >
           {appointment.client_name}
         </Typography>
 
+        {/* Billing client (institution) - Si différent */}
+        {appointment.billing_client && (
+          <Typography variant="body2" sx={{ fontStyle: 'italic', color: 'text.secondary', mb: 1 }}>
+            Facturer à: {appointment.billing_client}
+          </Typography>
+        )}
+
         {/* Location (PRIORITÉ TERRAIN) */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-          <LocationOn fontSize="small" color="action" />
-          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
-            {appointment.neighborhood}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            • {appointment.address_short}
-          </Typography>
-        </Box>
+        {(appointment.neighborhood || appointment.address_short) && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+            <LocationOn fontSize="small" color="action" />
+            {appointment.neighborhood && (
+              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                {appointment.neighborhood}
+              </Typography>
+            )}
+            {appointment.neighborhood && appointment.address_short && (
+              <Typography variant="body2" color="text.secondary">•</Typography>
+            )}
+            {appointment.address_short && (
+              <Typography variant="body2" color="text.secondary">
+                {appointment.address_short}
+              </Typography>
+            )}
+          </Box>
+        )}
 
         {/* Piano */}
         {appointment.piano_brand && (
@@ -306,6 +341,14 @@ function AppointmentCard({ appointment, onClick }) {
               {appointment.piano_brand} {appointment.piano_model}
               {appointment.piano_type && ` (${appointment.piano_type})`}
             </Typography>
+            {appointment.has_dampp_chaser && (
+              <Chip
+                label="PLS"
+                size="small"
+                color="info"
+                sx={{ height: '20px', fontSize: '0.7rem', fontWeight: 'bold' }}
+              />
+            )}
           </Box>
         )}
 
@@ -412,60 +455,15 @@ function AppointmentDetailDrawer({ appointment, detail, loading, onClose }) {
 
       <Divider sx={{ my: 2 }} />
 
-      {/* Timeline Summary */}
+      {/* Timeline Summary - Résumé intelligent SEULEMENT */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" sx={{ mb: 1 }}>
           📖 Historique
         </Typography>
-        <Typography variant="body2" sx={{ p: 1, bgcolor: 'blue.50', borderRadius: 1 }}>
+        <Typography variant="body2" sx={{ p: 2, bgcolor: 'blue.50', borderRadius: 1, lineHeight: 1.6 }}>
           {timeline_summary}
         </Typography>
       </Box>
-
-      {/* Timeline Entries détaillées */}
-      {timeline_entries && timeline_entries.length > 0 && (
-        <Box>
-          <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
-            Dernières interventions:
-          </Typography>
-          <List dense>
-            {timeline_entries.map((entry, i) => (
-              <React.Fragment key={i}>
-                <ListItem alignItems="flex-start">
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                          {entry.date}
-                        </Typography>
-                        <Chip label={entry.type} size="small" />
-                        {entry.technician && (
-                          <Typography variant="caption" color="text.secondary">
-                            par {entry.technician}
-                          </Typography>
-                        )}
-                      </Box>
-                    }
-                    secondary={
-                      <>
-                        <Typography variant="body2">{entry.summary}</Typography>
-                        {(entry.temperature || entry.humidity) && (
-                          <Typography variant="caption" color="text.secondary">
-                            {entry.temperature && `${entry.temperature}°C`}
-                            {entry.temperature && entry.humidity && ' • '}
-                            {entry.humidity && `${entry.humidity}%`}
-                          </Typography>
-                        )}
-                      </>
-                    }
-                  />
-                </ListItem>
-                {i < timeline_entries.length - 1 && <Divider />}
-              </React.Fragment>
-            ))}
-          </List>
-        </Box>
-      )}
     </Box>
   );
 }

@@ -238,8 +238,11 @@ class GazelleAPIClient:
                             phoneNumber
                         }
                         defaultLocation {
+                            street1
+                            street2
                             municipality
                             postalCode
+                            region
                         }
                     }
                 }
@@ -370,6 +373,9 @@ class GazelleAPIClient:
                     year
                     location
                     notes
+                    damppChaserInstalled
+                    damppChaserHumidistatModel
+                    damppChaserMfgDate
                 }
             }
         }
@@ -386,7 +392,7 @@ class GazelleAPIClient:
         print(f"✅ {len(all_pianos)} pianos récupérés depuis l'API")
         return all_pianos
 
-    def get_appointments(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_appointments(self, limit: Optional[int] = None, start_date_override: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Récupère tous les rendez-vous depuis l'API Gazelle (allEventsBatched).
 
@@ -395,6 +401,7 @@ class GazelleAPIClient:
 
         Args:
             limit: Nombre maximum d'appointments à retourner (None = tous)
+            start_date_override: Date de début explicite (format YYYY-MM-DD). Si fourni, override le calcul automatique.
 
         Returns:
             Liste de dictionnaires contenant les données des rendez-vous
@@ -402,8 +409,13 @@ class GazelleAPIClient:
         from datetime import datetime, timedelta
         import time
 
-        # Période : 60 jours dans le passé → 90 jours dans le futur (config V4)
-        start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+        # FIXED: Permettre override de la date de début pour récupérer historique
+        if start_date_override:
+            start_date = start_date_override
+        else:
+            # Période : 60 jours dans le passé → 90 jours dans le futur (config V4)
+            start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+
         end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
 
         # Requête GraphQL (copié de V4 - ligne 258)
@@ -440,10 +452,12 @@ class GazelleAPIClient:
         """
 
         # Filtres (copié de V4 - ligne 259)
+        # FIXED: Inclure tous les statuts (ACTIVE, COMPLETED, etc.) pour récupérer l'historique complet
         filters = {
             "startOn": start_date,
             "endOn": end_date,
             "type": ["APPOINTMENT", "PERSONAL", "MEMO", "SYNCED"]
+            # Note: Pas de filtre "status" → récupère TOUS les statuts (ACTIVE, COMPLETED, CANCELLED, etc.)
         }
 
         # Pagination automatique (pattern V4 - lignes 136-189)
@@ -516,6 +530,21 @@ class GazelleAPIClient:
                     notes
                     createdAt
                     dueOn
+                    allInvoiceItems {
+                        nodes {
+                            id
+                            description
+                            type
+                            quantity
+                            amount
+                            subTotal
+                            taxTotal
+                            total
+                            billable
+                            taxable
+                            sequenceNumber
+                        }
+                    }
                 }
             }
         }
@@ -606,26 +635,29 @@ class GazelleAPIClient:
         print(f"✅ {len(products_transformed)} produits/services récupérés depuis Master Service Items")
         return products_transformed
 
-    def get_timeline_entries(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    def get_timeline_entries(self, limit: Optional[int] = None, since_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Récupère les entrées de timeline (notes techniques, mesures, événements).
 
         Args:
             limit: Nombre maximum d'entrées (None = toutes)
+            since_date: Date ISO depuis laquelle récupérer les entrées (mode incrémental)
 
         Returns:
             Liste de dictionnaires contenant les timeline entries
         """
+        # Construire la query avec filtre de date optionnel
+        # NOTE: Utiliser occurredAtGet (pas Gte!) selon la doc API Gazelle
         query = """
-        query GetTimelineEntries($cursor: String) {
-            allTimelineEntriesBatched(first: 100, after: $cursor) {
+        query GetTimelineEntries($cursor: String, $occurredAtGet: CoreDateTime) {
+            allTimelineEntries(first: 100, after: $cursor, occurredAtGet: $occurredAtGet) {
                 edges {
                     node {
                         id
                         occurredAt
                         type
-                        title
-                        details
+                        summary
+                        comment
                         client {
                             id
                         }
@@ -641,8 +673,6 @@ class GazelleAPIClient:
                         user {
                             id
                         }
-                        createdAt
-                        updatedAt
                     }
                 }
                 pageInfo {
@@ -658,10 +688,16 @@ class GazelleAPIClient:
         page_count = 0
 
         while True:
-            variables = {"cursor": cursor} if cursor else {}
+            # Construire les variables avec filtre de date optionnel
+            variables = {}
+            if cursor:
+                variables["cursor"] = cursor
+            if since_date:
+                variables["occurredAtGet"] = since_date
+
             result = self._execute_query(query, variables)
 
-            batch_data = result.get('data', {}).get('allTimelineEntriesBatched', {})
+            batch_data = result.get('data', {}).get('allTimelineEntries', {})
             edges = batch_data.get('edges', [])
             page_info = batch_data.get('pageInfo', {})
 
@@ -687,6 +723,84 @@ class GazelleAPIClient:
 
         print(f"✅ {len(all_entries)} entrées timeline récupérées depuis l'API")
         return all_entries
+
+    def get_users(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Récupère tous les utilisateurs/techniciens depuis l'API.
+
+        Args:
+            limit: Nombre maximum d'utilisateurs par page (défaut: 100)
+
+        Returns:
+            Liste de dictionnaires contenant les données des utilisateurs
+        """
+        # Note: L'API Gazelle GraphQL utilise probablement allCompanyUsers ou similar
+        # Essayons d'abord avec les users directement depuis timeline entries
+        # Comme workaround, on va extraire les users uniques des timeline entries
+
+        print("⚠️  Note: L'API Gazelle ne semble pas exposer allUsers directement")
+        print("   Extraction des users depuis les timeline entries...")
+
+        # Récupérer les timeline entries avec les users
+        query = """
+        query GetUsersFromTimeline($cursor: String) {
+            allTimelineEntries(first: 100, after: $cursor) {
+                edges {
+                    node {
+                        user {
+                            id
+                            firstName
+                            lastName
+                        }
+                    }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
+        """
+
+        users_map = {}  # Utiliser un dict pour dédupliquer par ID
+        cursor = None
+        page_count = 0
+
+        while True:
+            variables = {}
+            if cursor:
+                variables["cursor"] = cursor
+
+            result = self._execute_query(query, variables)
+            batch_data = result.get('data', {}).get('allTimelineEntries', {})
+            edges = batch_data.get('edges', [])
+            page_info = batch_data.get('pageInfo', {})
+
+            # Extraire les users uniques
+            for edge in edges:
+                node = edge.get('node', {})
+                user = node.get('user')
+                if user and user.get('id'):
+                    user_id = user['id']
+                    if user_id not in users_map:
+                        users_map[user_id] = user
+
+            page_count += 1
+            print(f"📄 Page {page_count}: {len(users_map)} users uniques trouvés")
+
+            # Limiter les pages pour ne pas tout scanner
+            if page_count >= 10:  # Limiter à 10 pages (1000 entries)
+                break
+
+            if not page_info.get('hasNextPage'):
+                break
+
+            cursor = page_info.get('endCursor')
+
+        all_users = list(users_map.values())
+
+        print(f"✅ {len(all_users)} utilisateurs uniques récupérés depuis timeline entries")
+        return all_users
 
 
 if __name__ == '__main__':

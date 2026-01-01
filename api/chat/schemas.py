@@ -29,7 +29,8 @@ class AppointmentOverview(BaseModel):
     date: str = Field(..., description="Date ISO", example="2025-12-29")
 
     # Localisation (PRIORITÉ #1 pour le terrain)
-    client_name: str = Field(..., description="Nom du client")
+    client_name: str = Field(..., description="Nom du contact (personne physique)")
+    billing_client: Optional[str] = Field(None, description="Institution qui paie (si différent du contact)")
     neighborhood: str = Field(..., description="Quartier/Ville", example="Plateau Mont-Royal")
     address_short: str = Field(..., description="Adresse courte", example="4520 rue St-Denis")
 
@@ -37,6 +38,7 @@ class AppointmentOverview(BaseModel):
     piano_brand: Optional[str] = Field(None, description="Marque", example="Yamaha")
     piano_model: Optional[str] = Field(None, description="Modèle", example="U1")
     piano_type: Optional[str] = Field(None, description="Type", example="Droit")
+    has_dampp_chaser: bool = Field(default=False, description="Piano Life Saver (système humidité)")
 
     # Contexte historique (QUICK REFERENCE)
     last_visit_date: Optional[str] = Field(None, description="Dernière visite", example="2024-11-15")
@@ -210,6 +212,7 @@ class ChatResponse(BaseModel):
     # Données
     day_overview: Optional[DayOverview] = Field(None, description="Vue journée (si applicable)")
     appointment_detail: Optional[AppointmentDetail] = Field(None, description="Détail RDV (si applicable)")
+    text_response: Optional[str] = Field(None, description="Réponse textuelle (questions de suivi)")
 
     # Métadata
     data_source: str = Field(default="v5", description="v5|v6 (pour debugging)")

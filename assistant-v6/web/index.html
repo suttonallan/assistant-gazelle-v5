@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistant v6 - Test Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 800px;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.95em;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            margin-top: 10px;
+        }
+
+        .chat-container {
+            padding: 30px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            text-align: right;
+        }
+
+        .message.assistant {
+            text-align: left;
+        }
+
+        .message-content {
+            display: inline-block;
+            padding: 15px 20px;
+            border-radius: 15px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            background: #f1f3f4;
+            color: #202124;
+        }
+
+        .message-meta {
+            font-size: 0.75em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .input-container {
+            padding: 20px 30px 30px;
+            border-top: 1px solid #e0e0e0;
+            background: #f9f9f9;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .examples {
+            padding: 0 30px 20px;
+            font-size: 0.9em;
+        }
+
+        .examples h3 {
+            color: #666;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+
+        .example-btn {
+            display: inline-block;
+            padding: 8px 15px;
+            margin: 5px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85em;
+        }
+
+        .example-btn:hover {
+            background: #f5f5f5;
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px 30px;
+            background: #f9f9f9;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.85em;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .client-item {
+            padding: 12px 15px;
+            margin: 8px 0;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .client-item:hover {
+            background: #f5f5f5;
+            border-color: #667eea;
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .client-name {
+            font-weight: 600;
+            color: #202124;
+        }
+
+        .client-city {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .client-badge {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1967d2;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            margin-left: 8px;
+        }
+
+        .client-piano {
+            color: #667eea;
+            font-size: 0.9em;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Assistant Gazelle v6</h1>
+            <p>Interface de test avec Vues SQL optimisées</p>
+            <span class="badge">Version 6.0 - SQL Views</span>
+        </div>
+
+        <div class="examples">
+            <h3>💡 Exemples de questions:</h3>
+            <span class="example-btn" onclick="setQuestion('montre-moi l\'historique complet de Monique Hallé')">
+                Historique Monique Hallé
+            </span>
+            <span class="example-btn" onclick="setQuestion('cherche Steinway')">
+                Chercher Steinway
+            </span>
+            <span class="example-btn" onclick="setQuestion('qui est Jean-Philippe')">
+                Chercher contact
+            </span>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="message assistant">
+                <div class="message-content">
+                    Bonjour! Je suis l'assistant v6 avec les nouvelles vues SQL.
+                    Posez-moi une question sur vos clients, pianos ou historiques!
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <span style="margin-left: 10px;">Recherche en cours...</span>
+        </div>
+
+        <div class="input-container">
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="questionInput"
+                    placeholder="Posez votre question..."
+                    onkeypress="handleKeyPress(event)"
+                >
+                <button onclick="sendQuestion()" id="sendBtn">Envoyer</button>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="queryCount">0</div>
+                <div class="stat-label">Requêtes</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="avgTime">0ms</div>
+                <div class="stat-label">Temps moyen</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">SQL Views</div>
+                <div class="stat-label">Mode</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let queryCount = 0;
+        let totalTime = 0;
+
+        // API endpoint (modifier selon votre configuration)
+        const API_URL = 'http://localhost:8002/v6/assistant/chat';
+
+        function setQuestion(question) {
+            document.getElementById('questionInput').value = question;
+            document.getElementById('questionInput').focus();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendQuestion();
+            }
+        }
+
+        async function sendQuestion() {
+            const input = document.getElementById('questionInput');
+            const question = input.value.trim();
+
+            if (!question) {
+                return;
+            }
+
+            // Afficher le message utilisateur
+            addMessage('user', question);
+            input.value = '';
+
+            // Désactiver le bouton et afficher le loading
+            const sendBtn = document.getElementById('sendBtn');
+            const loading = document.getElementById('loading');
+            sendBtn.disabled = true;
+            loading.classList.add('active');
+
+            const startTime = Date.now();
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question })
+                });
+
+                const elapsed = Date.now() - startTime;
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // Afficher la réponse
+                addMessage('assistant', data.response, {
+                    type: data.data?.type,
+                    count: data.data?.count,
+                    clients: data.data?.clients,  // Passer les données clients pour créer les boutons cliquables
+                    time: elapsed
+                });
+
+                // Mettre à jour les stats
+                updateStats(elapsed);
+
+            } catch (error) {
+                console.error('Erreur:', error);
+                addMessage('assistant', `❌ Erreur: ${error.message}`, { error: true });
+            } finally {
+                sendBtn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        function addMessage(type, content, meta = {}) {
+            const container = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            // Si c'est une recherche de clients, créer des boutons cliquables
+            if (type === 'assistant' && meta.type === 'search_client' && meta.clients) {
+                contentDiv.innerHTML = createClientList(meta.clients, content);
+            } else {
+                // Formatter le markdown simple
+                content = content
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>');
+
+                contentDiv.innerHTML = content;
+            }
+
+            messageDiv.appendChild(contentDiv);
+
+            // Ajouter les métadonnées
+            if (meta.time) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'message-meta';
+                metaDiv.textContent = `${meta.type || 'query'} • ${meta.time}ms`;
+                if (meta.count !== undefined) {
+                    metaDiv.textContent += ` • ${meta.count} résultats`;
+                }
+                messageDiv.appendChild(metaDiv);
+            }
+
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function createClientList(clients, originalContent) {
+            if (!clients || clients.length === 0) {
+                return originalContent;
+            }
+
+            let html = '<div style="margin-bottom: 10px;"><strong>🔍 Cliquez sur un client pour voir son historique:</strong></div>';
+
+            clients.forEach(client => {
+                const name = client.display_name || client.company_name || 'N/A';
+                const city = client.client_city || '';
+                const pianoCount = client.piano_count || 0;
+                const sourceType = client.source_type || 'client';
+
+                html += '<div class="client-item" onclick="showClientTimeline(\'' +
+                        name.replace(/'/g, "\\'") + '\', \'' +
+                        (client.client_external_id || '') + '\')">';
+                html += '<span class="client-name">' + name + '</span>';
+                if (city) {
+                    html += ' <span class="client-city">(' + city + ')</span>';
+                }
+                if (sourceType === 'contact') {
+                    html += ' <span class="client-badge">[Contact]</span>';
+                }
+                if (pianoCount > 0) {
+                    html += ' <span class="client-piano">🎹 ' + pianoCount + ' piano' + (pianoCount > 1 ? 's' : '') + '</span>';
+                }
+                html += '</div>';
+            });
+
+            return html;
+        }
+
+        function showClientTimeline(clientName, clientExternalId) {
+            const input = document.getElementById('questionInput');
+            input.value = 'historique de ' + clientName;
+            sendQuestion();
+        }
+
+        function updateStats(elapsed) {
+            queryCount++;
+            totalTime += elapsed;
+
+            document.getElementById('queryCount').textContent = queryCount;
+            document.getElementById('avgTime').textContent = Math.round(totalTime / queryCount) + 'ms';
+        }
+
+        // Message de bienvenue au chargement
+        console.log('🚀 Assistant v6 Interface Ready');
+        console.log('API Endpoint:', API_URL);
+    </script>
+</body>
+</html>

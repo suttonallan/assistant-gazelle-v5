@@ -22,7 +22,7 @@ export const ROLES = {
       'view_tours',
       'use_assistant' // Nick peut utiliser l'assistant
     ],
-    dashboards: ['inventaire', 'tournees']
+    dashboards: ['inventaire', 'tournees', 'vincent-dindy']
   },
 
   louise: {

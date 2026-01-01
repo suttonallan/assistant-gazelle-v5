@@ -7,6 +7,10 @@ export default defineConfig({
   base: process.env.NODE_ENV === 'production' ? '/assistant-gazelle-v5/' : '/',
   build: {
     outDir: 'dist'
+  },
+  server: {
+    port: 5173,
+    open: false
   }
 })
 

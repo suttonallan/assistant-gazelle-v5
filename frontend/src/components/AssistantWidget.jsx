@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import ClickableMessage from './ClickableMessage'
+import ChatIntelligent from './ChatIntelligent'
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
 
@@ -14,8 +15,9 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-ap
  * - role: Rôle de l'utilisateur ('admin', 'nick', 'louise', 'jeanphilippe')
  * - compact: Mode compact (false par défaut)
  * - onBackToDashboard: Callback pour revenir au dashboard (mobile)
+ * - useChatIntelligent: Si true, utilise Chat Intelligent V6 au lieu de Assistant V4
  */
-export default function AssistantWidget({ currentUser, role = 'admin', compact = false, onBackToDashboard }) {
+export default function AssistantWidget({ currentUser, role = 'admin', compact = false, onBackToDashboard, useChatIntelligent = false }) {
   // Détection mobile pour affichage plein écran
   const [isMobile, setIsMobile] = useState(false)
   
@@ -105,13 +107,27 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
 
       const data = await response.json()
 
+      // Dédupliquer les entités cliquables (le backend peut encore renvoyer doublons client/contact)
+      const rawEntities = data.structured_data?.clickable_entities || []
+      const byNameCity = new Map()
+      rawEntities.forEach((e) => {
+        if (!e?.name) return
+        const key = `${e.name.trim().toLowerCase()}|${(e.city || '').trim().toLowerCase()}`
+        const existing = byNameCity.get(key)
+        // Préférer toujours le type client sur contact pour la même personne
+        if (!existing || (existing.type !== 'client' && e.type === 'client')) {
+          byNameCity.set(key, e)
+        }
+      })
+      const dedupedEntities = Array.from(byNameCity.values())
+
       const assistantMessage = {
         role: 'assistant',
         content: data.answer || "Désolé, je n'ai pas pu traiter votre demande.",
         metadata: {
           query_type: data.query_type,
           confidence: data.confidence,
-          clickable_entities: data.structured_data?.clickable_entities || []
+          clickable_entities: dedupedEntities
         },
         structured_data: data.structured_data || null
       }
@@ -155,10 +171,38 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     )
   }
 
-  // Widget ouvert
+  // Si useChatIntelligent est activé, utiliser Chat Intelligent V6
+  if (useChatIntelligent && isOpen) {
+    return (
+      <div
+        className={`fixed ${isMobile ? 'inset-0 w-full h-full rounded-none' : 'bottom-6 right-6 rounded-lg'} bg-white shadow-2xl border border-gray-200 z-50 flex flex-col`}
+        style={isMobile ? {} : { width: '600px', maxWidth: '90vw', height: '80vh', maxHeight: '800px' }}
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-lg flex justify-between items-center">
+          <h2 className="text-lg font-bold">mes journées, nos clients</h2>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/80 hover:text-white transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto">
+          <ChatIntelligent currentUser={currentUser} />
+        </div>
+      </div>
+    )
+  }
+
+  // Widget ouvert (Assistant V4 - legacy)
   // Sur mobile, prendre toute la largeur et hauteur
   return (
-    <div 
+    <div
       className={`fixed ${isMobile ? 'inset-0 w-full h-full rounded-none' : 'bottom-6 right-6 w-96 rounded-lg'} bg-white shadow-2xl border border-gray-200 z-50 flex flex-col`}
       style={isMobile ? {} : { height: compact ? '400px' : '600px' }}
     >
@@ -217,12 +261,40 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
                   : 'bg-white border border-gray-200 text-gray-800'
               }`}
             >
-              {msg.role === 'assistant' && msg.metadata?.clickable_entities && msg.metadata.clickable_entities.length > 0 ? (
-                <ClickableMessage
-                  content={msg.content}
-                  entities={msg.metadata.clickable_entities}
-                />
-              ) : (
+              {msg.role === 'assistant' && msg.metadata?.clickable_entities && msg.metadata.clickable_entities.length > 0 ? (() => {
+                // Dédupliquer aussi côté rendu (sécurité si anciens messages)
+                const byNameCity = new Map()
+                msg.metadata.clickable_entities.forEach((e) => {
+                  if (!e?.name) return
+                  const key = `${e.name.trim().toLowerCase()}|${(e.city || '').trim().toLowerCase()}`
+                  const existing = byNameCity.get(key)
+                  if (!existing || (existing.type !== 'client' && e.type === 'client')) {
+                    byNameCity.set(key, e)
+                  }
+                })
+                const unique = Array.from(byNameCity.values())
+
+                // Recomposer le contenu pour n'afficher qu'une fois chaque client/contact
+                const header = `🔍 **${unique.length} clients trouvés:**\n\n`
+                const list = unique.map((e) => {
+                  const city = e.city ? ` (${e.city})` : ''
+                  const tag = e.type === 'contact' ? ' [Contact]' : ''
+                  return `- **${e.name}**${city}${tag}`
+                }).join('\n')
+                const safeContent = unique.length > 0 ? `${header}${list}` : msg.content
+
+                return (
+                  <ClickableMessage
+                    content={safeContent}
+                    entities={unique}
+                    currentUser={currentUser}
+                    onAskQuestion={handleSendMessage}
+                    onSelectClient={(entity) => {
+                      console.log('Client sélectionné:', entity)
+                    }}
+                  />
+                )
+              })() : (
                 <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
               )}
 

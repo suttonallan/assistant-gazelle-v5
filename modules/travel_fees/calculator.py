@@ -88,9 +88,14 @@ class TravelFeeCalculator:
         Initialise le calculateur.
 
         Args:
-            api_key: Clé API Google Maps. Si None, utilise GOOGLE_MAPS_API_KEY de l'environnement.
+            api_key: Clé API Google Maps. Si None, charge depuis Supabase ou .env.
         """
-        self.api_key = api_key or os.getenv('GOOGLE_MAPS_API_KEY')
+        if api_key:
+            self.api_key = api_key
+        else:
+            # Charger depuis Supabase en priorité, puis .env en fallback
+            self.api_key = self._load_api_key_from_supabase()
+
         # Mode dégradé: si pas de clé, on utilisera des distances estimées
         self.degraded_mode = not self.api_key
         if self.degraded_mode:
@@ -99,6 +104,26 @@ class TravelFeeCalculator:
                 "Google Maps API key not found. Using degraded mode with estimated distances.",
                 UserWarning
             )
+
+    def _load_api_key_from_supabase(self) -> Optional[str]:
+        """Charge la clé Google Maps depuis Supabase system_settings."""
+        try:
+            from core.supabase_storage import SupabaseStorage
+            from supabase import create_client
+
+            storage = SupabaseStorage()
+            supabase = create_client(storage.supabase_url, storage.supabase_key)
+
+            result = supabase.table('system_settings').select('value').eq('key', 'google_maps_api_key').execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]['value']
+            else:
+                # Fallback: essayer .env
+                return os.getenv('GOOGLE_MAPS_API_KEY')
+        except Exception:
+            # En cas d'erreur, essayer .env
+            return os.getenv('GOOGLE_MAPS_API_KEY')
 
     def _call_distance_matrix_api(
         self,

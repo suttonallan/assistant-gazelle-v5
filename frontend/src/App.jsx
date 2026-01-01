@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { Fab, Drawer, IconButton } from '@mui/material'
+import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import LoginScreen from './components/LoginScreen'
 import DashboardHome from './components/DashboardHome'
@@ -74,6 +76,7 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null)
   const [currentView, setCurrentView] = useState('dashboard') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire', 'tournees'
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
+  const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [isFestiveTheme, setIsFestiveTheme] = useState(() => {
     const saved = localStorage.getItem('festiveTheme')
     if (saved !== null) return saved === 'true'
@@ -135,8 +138,8 @@ function App() {
         if (currentView === 'place-des-arts') {
           return <PlaceDesArtsDashboard currentUser={effectiveUser} />
         }
-        // Par défaut, Nick voit uniquement l'inventaire
-        return <InventaireDashboard currentUser={effectiveUser} />
+        // Nick utilise son dashboard avec onglets (Inventaire, Tournées, Vincent d'Indy, Calculateur)
+        return <NickDashboard currentUser={effectiveUser} />
       case 'louise':
         return <LouiseDashboard currentUser={effectiveUser} />
       case 'jeanphilippe':
@@ -410,11 +413,12 @@ function App() {
       {/* Contenu principal */}
       {renderDashboard()}
 
-      {/* Assistant Widget (disponible pour tous les profils) */}
+      {/* Chat Intelligent Widget - Remplace l'ancien assistant v4 */}
       <AssistantWidget
         currentUser={effectiveUser}
         role={effectiveRole}
         onBackToDashboard={currentView === 'assistant' ? () => setCurrentView('dashboard') : undefined}
+        useChatIntelligent={true} // NOUVEAU: Utiliser Chat Intelligent au lieu de v4
       />
     </div>
   )

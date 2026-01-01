@@ -96,3 +96,4 @@ def shutdown_scheduler():
             print("✅ Scheduler reports arrêté")
     except Exception as e:
         print(f"⚠️ Erreur arrêt scheduler: {e}")
+
