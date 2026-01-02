@@ -170,15 +170,29 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         # Déterminer la plage de dates
         if request.quarter:
             # Trimestre: déterminer start et end automatiquement
-            year = datetime.now().year
+            # Logique intelligente: si le trimestre demandé est dans le futur, utiliser l'année précédente
+            now = datetime.now()
+            year = now.year
+
+            # Mapper le trimestre au mois de fin
+            quarter_end_months = {'Q1': 3, 'Q2': 6, 'Q3': 9, 'Q4': 12}
+
+            if request.quarter not in quarter_end_months:
+                raise HTTPException(status_code=400, detail=f"Trimestre invalide: {request.quarter}. Utilisez Q1, Q2, Q3 ou Q4.")
+
+            # Si on est dans l'année courante mais avant la fin du trimestre demandé,
+            # utiliser l'année précédente
+            quarter_end_month = quarter_end_months[request.quarter]
+            if now.month <= quarter_end_month:
+                # On est avant ou pendant le trimestre demandé → utiliser année précédente
+                year = year - 1
+
             quarters = {
                 'Q1': (f"{year}-01-01", f"{year}-03-31"),
                 'Q2': (f"{year}-04-01", f"{year}-06-30"),
                 'Q3': (f"{year}-07-01", f"{year}-09-30"),
                 'Q4': (f"{year}-10-01", f"{year}-12-31"),
             }
-            if request.quarter not in quarters:
-                raise HTTPException(status_code=400, detail=f"Trimestre invalide: {request.quarter}. Utilisez Q1, Q2, Q3 ou Q4.")
 
             date_start_str, date_end_str = quarters[request.quarter]
         elif request.date:
