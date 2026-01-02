@@ -1519,20 +1519,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         )}
       </div>
 
-          {/* Légende */}
-          <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
-            <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
-            <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
-            <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
-            <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
-            <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
-            <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
-            <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
-            <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
-            <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
+            {/* Légende */}
+            <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
+              <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
+              <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
+              <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
+              <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
+              <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
+              <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
+              <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
+              <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
+              <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
         </div>
       </div>
     </div>
