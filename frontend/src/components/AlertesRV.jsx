@@ -124,7 +124,9 @@ export default function AlertesRV({ currentUser }) {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-gray-600 mb-1">Taux de confirmation</div>
             <div className="text-3xl font-bold text-green-600">
-              {Math.round((stats.by_status.confirmed / stats.total_alerts_sent) * 100)}%
+              {stats.by_status?.confirmed && stats.total_alerts_sent > 0
+                ? Math.round((stats.by_status.confirmed / stats.total_alerts_sent) * 100)
+                : 0}%
             </div>
           </div>
         </div>
