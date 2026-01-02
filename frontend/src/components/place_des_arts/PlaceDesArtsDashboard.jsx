@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
 import PDAInventoryTable from './PDAInventoryTable'
 
-import { API_URL } from '../utils/apiConfig'
+import { API_URL } from '../../utils/apiConfig'
 
 export default function PlaceDesArtsDashboard({ currentUser }) {
   // Onglets: 'inventaire-pianos' ou 'demandes' (Inventaire en premier comme VDI)

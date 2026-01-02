@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { API_URL } from '../utils/apiConfig'
+import { API_URL } from '../../utils/apiConfig'
 
 /**
  * Composant pour afficher/éditer un item de prévisualisation

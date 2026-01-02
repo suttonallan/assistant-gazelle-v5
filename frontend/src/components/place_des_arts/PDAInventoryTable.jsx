@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 
-import { API_URL } from '../utils/apiConfig'
+import { API_URL } from '../../utils/apiConfig'
 
 // ==========================================
 // HELPERS
