@@ -788,11 +788,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   if (currentView === 'technicien') {
 
     return (
-      <div className="min-h-screen bg-gray-100">
-        {/* Header compact */}
-        <div className="bg-white shadow p-3 sticky top-[60px] z-10">
-          <div className="flex justify-between items-center mb-2">
-            <h1 className="text-lg font-bold">🎹 Tournée</h1>
+      <div className="min-h-screen bg-gray-100 p-4">
+        {/* Stats et contrôles - Simplifié, pas de header séparé */}
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-semibold text-gray-800">Tournée</h2>
             <div className="flex gap-2 text-xs">
               {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
               <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
@@ -801,7 +801,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
           {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
           {!hideLocationSelector && (
-            <div className="flex gap-2 mb-2">
+            <div className="flex gap-2 mb-3">
               <button
                 onClick={() => setSelectedLocation('vincent-dindy')}
                 className={`flex-1 py-1 px-3 text-sm rounded ${
@@ -988,12 +988,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Si on arrive ici, c'est que currentView === 'nicolas' (ou autre vue non-technicien)
   return (
     <div className="min-h-screen bg-gray-100 p-4">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow mb-4">
-        <div className="p-4 border-b">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">🎹 Tournées</h1>
+      {/* Stats et contrôles - Simplifié, pas de header séparé */}
+      <div className="mb-4">
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">Tournées</h2>
               <div className="flex gap-4 mt-2 text-sm flex-wrap">
                 <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
                 {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
@@ -1011,7 +1010,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
 
           {/* Sélecteur d'établissement */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 mb-3">
             <button
               onClick={() => setSelectedLocation('vincent-dindy')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -1033,10 +1032,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']} tournées)</span>
             </button>
           </div>
-        </div>
-        
-        {/* Onglets */}
-        <div className="flex">
+
+          {/* Onglets */}
+          <div className="flex border-t pt-3 mt-3">
           {[
             { key: 'nicolas', label: 'Gestion & Pianos' },
             { key: 'technicien', label: 'Technicien' },
