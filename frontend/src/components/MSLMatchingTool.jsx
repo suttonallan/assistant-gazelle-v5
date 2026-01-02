@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 /**
  * Outil visuel pour associer les items internes aux items MSL Gazelle
@@ -53,7 +53,7 @@ const MSLMatchingTool = () => {
       setLoading(true)
 
       // Charger le catalogue
-      const response = await fetch(`${API_URL}/inventaire/catalogue`)
+      const response = await fetch(`${API_URL}/api/inventaire/catalogue`)
       const data = await response.json()
       const items = data.produits || []
 

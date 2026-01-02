@@ -30,7 +30,8 @@ import {
   Phone,
 } from '@mui/icons-material';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Utiliser le proxy Vite en développement, ou l'URL de production
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
 /**
  * Chat Intelligent - Interface moderne pour la journée du technicien.

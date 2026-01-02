@@ -137,15 +137,13 @@ export function TourneesSidebar({
               <TourneeCard
                 key={tournee.id}
                 tournee={tournee}
-                isActive={tournee.id === activeTournee?.id}
-                isSelected={tournee.id === selectedTourneeId}
+                isActive={String(tournee.id) === String(activeTournee?.id)}
+                isSelected={String(tournee.id) === String(selectedTourneeId)}
                 onClick={() => {
                   // TOUJOURS garder une tournée sélectionnée - ne pas permettre désélection
-                  if (tournee.id !== selectedTourneeId) {
-                    console.log(`[TourneesSidebar] Clic sur ${tournee.nom}, nouvelle sélection:`, tournee.id);
+                  // Comparaison stricte avec String() pour éviter les problèmes de typage
+                  if (String(tournee.id) !== String(selectedTourneeId)) {
                     onSelectTournee?.(tournee.id);
-                  } else {
-                    console.log(`[TourneesSidebar] Clic sur ${tournee.nom} (déjà sélectionnée), ignoré`);
                   }
                 }}
                 onActivate={() => activateTournee(tournee.id)}

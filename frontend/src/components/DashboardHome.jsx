@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+// Utiliser le proxy Vite en développement, ou l'URL de production
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 export default function DashboardHome({ currentUser }) {
   const [activities, setActivities] = useState([])
@@ -17,7 +18,8 @@ export default function DashboardHome({ currentUser }) {
   const loadActivities = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_URL}/vincent-dindy/activity?limit=50`)
+      // Utiliser /api pour que le proxy Vite redirige vers le backend
+      const response = await fetch(`${API_URL}/api/vincent-dindy/activity?limit=50`)
       const data = await response.json()
       setActivities(data.activities || [])
       setError(null)

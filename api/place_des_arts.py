@@ -10,7 +10,8 @@ import os
 from pathlib import Path
 from typing import List, Literal, Optional, Dict, Any
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response
 from starlette.responses import StreamingResponse
@@ -49,11 +50,19 @@ _storage = None
 _parser = None
 _manager = None
 
+# Cache pour l'inventaire (évite les appels répétés à Gazelle)
+_inventory_cache = {
+    "data": None,
+    "timestamp": None,
+    "ttl_seconds": 300  # 5 minutes
+}
+
 
 def get_storage() -> SupabaseStorage:
     global _storage
     if _storage is None:
-        _storage = SupabaseStorage()
+        # Utiliser silent=True pour éviter les logs répétés (singleton)
+        _storage = SupabaseStorage(silent=True)
     return _storage
 
 
@@ -132,6 +141,15 @@ class UpdateCellRequest(BaseModel):
     request_id: str
     field: str
     value: Any
+
+class PushToGazelleRequest(BaseModel):
+    """Requête pour pousser une note vers Gazelle"""
+    request_id: str
+    piano_id: str  # ID Gazelle du piano
+    technician_id: str  # ID Gazelle du technicien
+    summary: str  # Résumé (ex: "Accord", "Humidité à faire")
+    comment: str  # Commentaire détaillé (notes de travail)
+    update_last_tuned: bool = True  # Mettre à jour last_tuned_date si True (déprécié, toujours True via événement)
 
 
 class StatusBatchRequest(BaseModel):
@@ -229,7 +247,11 @@ async def get_pianos(include_inactive: bool = False):
         pianos = []
         
         for gz_piano in gazelle_pianos:
-            gz_id = gz_piano['id']
+            # Gérer les deux formats possibles : 'id' ou 'instrument_id'
+            gz_id = gz_piano.get('id') or gz_piano.get('instrument_id')
+            if not gz_id:
+                logging.warning(f"⚠️ Piano sans ID trouvé: {gz_piano}")
+                continue
             serial = gz_piano.get('serialNumber', gz_id)
             
             # Trouver les updates Supabase
@@ -285,12 +307,31 @@ async def get_pianos(include_inactive: bool = False):
             
             pianos.append(piano)
         
-        return {
+        # Mettre à jour le cache
+        result_data = {
             "pianos": pianos,
             "count": len(pianos),
             "source": "gazelle_api",
             "client_id": PLACE_DES_ARTS_CLIENT_ID,
             "include_inactive": include_inactive
+        }
+        
+        _inventory_cache["data"] = result_data
+        _inventory_cache["timestamp"] = time.time()
+        
+        # Filtrer les inactifs si nécessaire
+        if not include_inactive:
+            filtered_pianos = [p for p in pianos if not p.get("hasNonTag", False)]
+            return {
+                **result_data,
+                "pianos": filtered_pianos,
+                "count": len(filtered_pianos),
+                "cached": False
+            }
+        
+        return {
+            **result_data,
+            "cached": False
         }
         
     except Exception as e:
@@ -363,6 +404,152 @@ async def stats():
         return manager.get_stats()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/requests/{request_id}/gazelle-piano-id")
+async def get_gazelle_piano_id(request_id: str):
+    """
+    Récupère l'ID Gazelle du piano associé à une demande Place des Arts.
+    
+    Cherche le piano par:
+    1. Mapping PDA (si existe dans pda_piano_mappings)
+    2. Room/location dans les pianos Gazelle
+    3. Champ 'piano' de la demande
+    """
+    try:
+        storage = get_storage()
+        
+        # Récupérer la demande
+        url = f"{storage.api_url}/place_des_arts_requests?id=eq.{request_id}&select=*&limit=1"
+        resp = requests.get(url, headers=storage._get_headers())
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="Demande non trouvée")
+        
+        requests_data = resp.json()
+        if not requests_data:
+            raise HTTPException(status_code=404, detail="Demande non trouvée")
+        
+        request_data = requests_data[0]
+        room = request_data.get('room', '')
+        piano_abbrev = request_data.get('piano', '')
+        
+        # 1. Chercher dans le mapping PDA
+        # TODO: Implémenter la recherche dans pda_piano_mappings si la table existe
+        
+        # 2. Chercher dans les pianos Gazelle par location/room
+        api_client = get_api_client()
+        if api_client:
+            # Récupérer les pianos directement depuis Gazelle
+            query = """
+            query GetPlaceDesArtsPianos($clientId: String!) {
+              allPianos(first: 200, filters: { clientId: $clientId }) {
+                nodes {
+                  id
+                  location
+                  make
+                  model
+                  serialNumber
+                }
+              }
+            }
+            """
+            variables = {"clientId": PLACE_DES_ARTS_CLIENT_ID}
+            result = api_client._execute_query(query, variables)
+            gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
+            
+            # Chercher par room/location
+            for piano in gazelle_pianos:
+                piano_location = piano.get('location', '').upper()
+                if piano_location and piano_location == room.upper():
+                    # Gérer les deux formats possibles : 'id' ou 'instrument_id'
+                    piano_id = piano.get('id') or piano.get('instrument_id')
+                    return {
+                        "piano_id": piano_id,
+                        "found_by": "location",
+                        "piano_info": {
+                            "make": piano.get('make'),
+                            "model": piano.get('model'),
+                            "location": piano.get('location')
+                        }
+                    }
+            
+            # Chercher par abréviation piano
+            if piano_abbrev:
+                for piano in gazelle_pianos:
+                    piano_make = (piano.get('make', '') or '').upper()
+                    if piano_abbrev.upper() in piano_make or piano_make in piano_abbrev.upper():
+                        # Gérer les deux formats possibles : 'id' ou 'instrument_id'
+                        piano_id = piano.get('id') or piano.get('instrument_id')
+                        return {
+                            "piano_id": piano_id,
+                            "found_by": "piano_abbrev",
+                            "piano_info": {
+                                "make": piano.get('make'),
+                                "model": piano.get('model'),
+                                "location": piano.get('location')
+                            }
+                        }
+        
+        return {
+            "piano_id": None,
+            "found_by": None,
+            "message": "Piano Gazelle non trouvé pour cette demande"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.post("/requests/push-to-gazelle")
+async def push_to_gazelle(payload: PushToGazelleRequest):
+    """
+    Pousse une note de service vers Gazelle via createEvent.
+    
+    Miroir de la logique du module Tournée:
+    - Crée un événement de type APPOINTMENT avec statut COMPLETE
+    - Associe le piano à l'événement
+    - La note du technicien est incluse dans le champ notes
+    - L'événement apparaîtra dans l'historique du piano dans Gazelle
+    """
+    try:
+        api_client = get_api_client()
+        if not api_client:
+            raise HTTPException(
+                status_code=500,
+                detail="Client API Gazelle non disponible. Vérifiez la configuration OAuth."
+            )
+
+        # Utiliser push_technician_service qui crée un événement complet
+        event = api_client.push_technician_service(
+            piano_id=payload.piano_id,
+            technician_note=payload.comment,
+            service_type=payload.summary or "TUNING",
+            technician_id=payload.technician_id
+        )
+
+        return {
+            "success": True,
+            "message": "Mis à jour dans Gazelle",
+            "event": {
+                "id": event.get("id"),
+                "title": event.get("title"),
+                "status": event.get("status"),
+                "notes": event.get("notes")
+            },
+            "piano_id": payload.piano_id,
+            "technician_id": payload.technician_id
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la mise à jour Gazelle: {str(e)}")
 
 
 @router.post("/requests/update-cell")

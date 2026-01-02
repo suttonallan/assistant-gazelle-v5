@@ -62,7 +62,13 @@ const JeanPhilippeDashboard = ({ currentUser }) => {
             </p>
           </div>
         </div>
-        <VincentDIndyDashboard currentUser={currentUser} tourneeId={selectedTournee.id} />
+        <VincentDIndyDashboard 
+          currentUser={currentUser} 
+          tourneeId={selectedTournee.id}
+          initialView="technicien"
+          hideNickView={true}
+          hideLocationSelector={true}
+        />
       </div>
     )
   }

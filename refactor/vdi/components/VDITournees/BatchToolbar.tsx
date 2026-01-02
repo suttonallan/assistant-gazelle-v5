@@ -94,13 +94,6 @@ export function BatchToolbar({
     // Utiliser tournée sélectionnée OU active
     const tourneeId = selectedTourneeId || activeTourneeId;
 
-    console.log('[BatchToolbar] handleMarkAsTop called');
-    console.log('  - selectedTourneeId:', selectedTourneeId);
-    console.log('  - activeTourneeId:', activeTourneeId);
-    console.log('  - tourneeId (used):', tourneeId);
-    console.log('  - selectedIds:', Array.from(selectedIds));
-    console.log('  - batchMarkAsTopInTournee exists:', !!batchMarkAsTopInTournee);
-
     if (!tourneeId) {
       alert('⚠️ Aucune tournée sélectionnée. Impossible de marquer comme Top.');
       return;

@@ -87,11 +87,16 @@ export function TechnicianView({
 
   const handleMarkCompleted = async (piano: Piano) => {
     try {
+      // Enregistrer la date de complétion
+      const completedAt = new Date().toISOString();
+      
       await updatePiano(piano.gazelleId, {
         pianoId: piano.gazelleId,
         status: 'completed',
+        isWorkCompleted: true,  // CRITIQUE: Marquer comme work completed
         travail: workNotes[piano.gazelleId] || piano.travail || '',
         completedInTourneeId: activeTournee?.id,
+        completedAt: completedAt,  // Date de complétion pour Gazelle
         updatedBy: technicianEmail
       });
 
@@ -101,10 +106,13 @@ export function TechnicianView({
         return next;
       });
 
-      await refreshPianos();
+      // Ne pas appeler refreshPianos si updatePiano réussit (optimistic update déjà fait)
+      // refreshPianos() est appelé automatiquement par updatePiano en cas d'erreur
     } catch (err) {
       console.error('Error marking completed:', err);
       alert('Erreur lors de la sauvegarde');
+      // Recharger en cas d'erreur pour restaurer l'état
+      await refreshPianos();
     }
   };
 
@@ -260,11 +268,21 @@ export function TechnicianView({
                             px-1.5 py-0.5 rounded text-xs font-bold
                             ${isCompleted ? 'bg-green-600 text-white' : 'bg-yellow-600 text-white'}
                           `}
+                          title={isCompleted ? 'Piano complété' : 'Piano à faire'}
                         >
                           {isCompleted ? '✓' : '○'}
                         </span>
                       )}
-                      <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                      {/* Type de piano badge */}
+                      <span 
+                        className="px-1.5 py-0.5 rounded text-xs font-bold bg-gray-200 text-gray-700"
+                        title={
+                          piano.type === 'G' ? 'Grand (piano à queue)' :
+                          piano.type === 'U' ? 'Upright (piano droit)' :
+                          piano.type === 'D' ? 'Digital Grand' :
+                          'Type inconnu'
+                        }
+                      >
                         {piano.type}
                       </span>
                       <LastTunedBadge lastTuned={piano.lastTuned} size="xs" />
@@ -280,8 +298,8 @@ export function TechnicianView({
                     </div>
 
                     {piano.aFaire && isInTournee && (
-                      <div className="mt-1 text-xs text-gray-700 truncate">
-                        📋 {piano.aFaire}
+                      <div className="mt-1 px-2 py-1 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-900 truncate">
+                        <span className="font-semibold">📋 Note de Nick:</span> {piano.aFaire}
                       </div>
                     )}
                   </div>
@@ -295,6 +313,23 @@ export function TechnicianView({
               {/* Details (Expanded) */}
               {isExpanded && (
                 <div className="border-t-2 border-gray-300 bg-white p-4 space-y-4">
+                  {/* Note de Nick (À faire) - Affichage proéminent */}
+                  {piano.aFaire && isInTournee && (
+                    <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-yellow-600 text-lg">📋</span>
+                        <div className="flex-1">
+                          <div className="text-xs font-semibold text-yellow-800 uppercase mb-1">
+                            Note de Nick
+                          </div>
+                          <div className="text-sm text-yellow-900 font-medium">
+                            {piano.aFaire}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Info */}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -354,20 +389,20 @@ export function TechnicianView({
 
                   {/* Actions - only for tournee pianos */}
                   {isInTournee && (
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-2 pt-2 border-t border-gray-200">
                       {!isCompleted ? (
                         <button
                           onClick={() => handleMarkCompleted(piano)}
-                          className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors text-sm"
+                          className="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors text-sm shadow-md"
                         >
-                          ✓ Marquer comme complété
+                          ✓ Terminé
                         </button>
                       ) : (
                         <button
                           onClick={() => handleUndoCompleted(piano)}
-                          className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-lg transition-colors text-sm"
+                          className="flex-1 px-4 py-3 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-lg transition-colors text-sm shadow-md"
                         >
-                          ↺ Annuler complétion
+                          ↶ Annuler
                         </button>
                       )}
                     </div>

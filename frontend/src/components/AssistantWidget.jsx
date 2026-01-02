@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ClickableMessage from './ClickableMessage'
 import ChatIntelligent from './ChatIntelligent'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 /**
  * Widget Assistant Conversationnel
@@ -92,7 +92,7 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     setIsLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/assistant/chat`, {
+      const response = await fetch(`${API_URL}/api/assistant/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

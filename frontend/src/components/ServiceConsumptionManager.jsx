@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 /**
  * Interface moderne "Industrial Clean" pour gérer les associations service → matériaux
@@ -32,12 +32,12 @@ const ServiceConsumptionManager = () => {
       // Charger catalogue et règles en parallèle
       const [catalogueData, rulesData] = await Promise.all([
         (async () => {
-          const res = await fetch(`${API_URL}/inventaire/catalogue`)
+          const res = await fetch(`${API_URL}/api/inventaire/catalogue`)
           if (!res.ok) throw new Error('Erreur chargement catalogue')
           return res.json()
         })(),
         (async () => {
-          const res = await fetch(`${API_URL}/inventaire/service-consumption/rules`)
+          const res = await fetch(`${API_URL}/api/inventaire/service-consumption/rules`)
           if (res.ok) {
             return res.json()
           }
@@ -127,7 +127,7 @@ const ServiceConsumptionManager = () => {
 
       const newValue = !service.is_inventory_item
 
-      const res = await fetch(`${API_URL}/inventaire/catalogue/${service.code_produit}`, {
+      const res = await fetch(`${API_URL}/api/inventaire/catalogue/${service.code_produit}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -173,7 +173,7 @@ const ServiceConsumptionManager = () => {
         notes: ''
       }
 
-      const res = await fetch(`${API_URL}/inventaire/service-consumption/rules`, {
+      const res = await fetch(`${API_URL}/api/inventaire/service-consumption/rules`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -201,7 +201,7 @@ const ServiceConsumptionManager = () => {
     try {
       setSaving(true)
 
-      const res = await fetch(`${API_URL}/inventaire/service-consumption/rules/${ruleId}`, {
+      const res = await fetch(`${API_URL}/api/inventaire/service-consumption/rules/${ruleId}`, {
         method: 'DELETE'
       })
 
@@ -224,7 +224,7 @@ const ServiceConsumptionManager = () => {
     try {
       setSaving(true)
 
-      await fetch(`${API_URL}/inventaire/service-consumption/rules/${ruleId}`, {
+      await fetch(`${API_URL}/api/inventaire/service-consumption/rules/${ruleId}`, {
         method: 'DELETE'
       })
 

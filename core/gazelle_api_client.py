@@ -724,6 +724,584 @@ class GazelleAPIClient:
         print(f"✅ {len(all_entries)} entrées timeline récupérées depuis l'API")
         return all_entries
 
+    def create_timeline_entry(
+        self,
+        piano_id: str,
+        summary: str,
+        comment: Optional[str] = None,
+        technician_id: Optional[str] = None,
+        occurred_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Crée une entrée de timeline (note de service) pour un piano dans Gazelle.
+
+        Args:
+            piano_id: ID du piano dans Gazelle
+            summary: Résumé de l'entrée (ex: "Accord", "Humidité à faire")
+            comment: Commentaire détaillé (ex: notes de travail)
+            technician_id: ID du technicien qui a effectué le travail
+            occurred_at: Date ISO de l'événement (défaut: maintenant)
+
+        Returns:
+            Dictionnaire contenant l'entrée créée
+        """
+        from datetime import datetime
+
+        if not occurred_at:
+            occurred_at = datetime.now().isoformat()
+
+        mutation = """
+        mutation CreateTimelineEntry(
+            $pianoId: ID!
+            $summary: String!
+            $comment: String
+            $userId: ID
+            $occurredAt: CoreDateTime!
+        ) {
+            createTimelineEntry(
+                input: {
+                    pianoId: $pianoId
+                    summary: $summary
+                    comment: $comment
+                    userId: $userId
+                    occurredAt: $occurredAt
+                }
+            ) {
+                timelineEntry {
+                    id
+                    occurredAt
+                    type
+                    summary
+                    comment
+                    piano {
+                        id
+                    }
+                    user {
+                        id
+                    }
+                }
+                errors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        variables = {
+            "pianoId": piano_id,
+            "summary": summary,
+            "comment": comment,
+            "userId": technician_id,
+            "occurredAt": occurred_at
+        }
+
+        result = self._execute_query(mutation, variables)
+
+        if not result:
+            raise ValueError("Erreur lors de la création de l'entrée timeline")
+
+        create_result = result.get("data", {}).get("createTimelineEntry", {})
+        errors = create_result.get("errors", [])
+
+        if errors:
+            error_messages = [e.get("message", "Erreur inconnue") for e in errors]
+            raise ValueError(f"Erreurs lors de la création: {', '.join(error_messages)}")
+
+        timeline_entry = create_result.get("timelineEntry")
+        if not timeline_entry:
+            raise ValueError("Aucune entrée timeline retournée par l'API")
+
+        print(f"✅ Timeline entry créée: {timeline_entry.get('id')}")
+        return timeline_entry
+
+    def update_piano_last_tuned_date(self, piano_id: str, last_tuned_date: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Met à jour la date du dernier accord (last_tuned_date) d'un piano dans Gazelle.
+
+        Args:
+            piano_id: ID du piano dans Gazelle
+            last_tuned_date: Date ISO du dernier accord (défaut: aujourd'hui)
+
+        Returns:
+            Dictionnaire contenant le piano mis à jour
+        """
+        from datetime import datetime
+
+        if not last_tuned_date:
+            last_tuned_date = datetime.now().date().isoformat()
+
+        mutation = """
+        mutation UpdatePianoLastTunedDate(
+            $pianoId: ID!
+            $lastTunedDate: CoreDate!
+        ) {
+            updatePiano(
+                input: {
+                    id: $pianoId
+                    lastTunedDate: $lastTunedDate
+                }
+            ) {
+                piano {
+                    id
+                    lastTunedDate
+                    calculatedLastService
+                }
+                errors {
+                    field
+                    message
+                }
+            }
+        }
+        """
+
+        variables = {
+            "pianoId": piano_id,
+            "lastTunedDate": last_tuned_date
+        }
+
+        result = self._execute_query(mutation, variables)
+
+        if not result:
+            raise ValueError("Erreur lors de la mise à jour du piano")
+
+        update_result = result.get("data", {}).get("updatePiano", {})
+        errors = update_result.get("errors", [])
+
+        if errors:
+            error_messages = [e.get("message", "Erreur inconnue") for e in errors]
+            raise ValueError(f"Erreurs lors de la mise à jour: {', '.join(error_messages)}")
+
+        piano = update_result.get("piano")
+        if not piano:
+            raise ValueError("Aucun piano retourné par l'API")
+
+        print(f"✅ Piano mis à jour: {piano.get('id')} - lastTunedDate: {piano.get('lastTunedDate')}")
+        return piano
+
+    def push_technician_service(
+        self,
+        piano_id: str,
+        technician_note: str,
+        service_type: str = "TUNING",
+        technician_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        event_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Crée un événement de service dans Gazelle pour enregistrer une note de technicien.
+        
+        Cette fonction crée un événement de type SERVICE qui apparaîtra dans l'historique
+        du piano et créera automatiquement une timeline entry.
+        
+        Args:
+            piano_id: ID du piano dans Gazelle
+            technician_note: Note du technicien (sera placée dans le champ notes)
+            service_type: Type de service (TUNING, REPAIR, etc.) - défaut: TUNING
+            technician_id: ID du technicien qui a effectué le travail (défaut: utilisateur actuel)
+            client_id: ID du client propriétaire du piano (optionnel, sera récupéré si non fourni)
+            event_date: Date ISO de l'événement (défaut: maintenant)
+        
+        Returns:
+            Dictionnaire contenant l'événement créé
+        """
+        from datetime import datetime
+        
+        if not event_date:
+            event_date = datetime.now().isoformat()
+        
+        # Si client_id n'est pas fourni, récupérer le piano pour obtenir son client
+        if not client_id:
+            try:
+                piano_query = """
+                query GetPianoClient($pianoId: String!) {
+                    piano(id: $pianoId) {
+                        id
+                        client {
+                            id
+                        }
+                    }
+                }
+                """
+                piano_result = self._execute_query(piano_query, {"pianoId": piano_id})
+                piano_data = piano_result.get("data", {}).get("piano", {})
+                client_id = piano_data.get("client", {}).get("id")
+                
+                if not client_id:
+                    raise ValueError(f"Impossible de récupérer le client pour le piano {piano_id}")
+            except Exception as e:
+                raise ValueError(f"Erreur lors de la récupération du client: {str(e)}")
+        
+        # Si technician_id n'est pas fourni, utiliser l'utilisateur actuel (sera géré par l'API)
+        # Pour l'instant, on utilise Nick par défaut si non fourni
+        if not technician_id:
+            technician_id = "usr_HcCiFk7o0vZ9xAI0"  # Nick par défaut
+        
+        # Créer le titre de l'événement
+        title = f"Service: {service_type}"
+        
+        # Mutation pour créer l'événement
+        mutation = """
+        mutation CreateServiceEvent(
+            $input: PrivateEventInput!
+        ) {
+            createEvent(input: $input) {
+                event {
+                    id
+                    title
+                    start
+                    type
+                    status
+                    notes
+                    client {
+                        id
+                    }
+                    user {
+                        id
+                    }
+                    allEventPianos(first: 10) {
+                        nodes {
+                            piano {
+                                id
+                            }
+                        }
+                    }
+                }
+                mutationErrors {
+                    fieldName
+                    messages
+                }
+            }
+        }
+        """
+        
+        # Construire l'input pour createEvent
+        # Les types valides sont: APPOINTMENT, PERSONAL, MEMO, SYNCED
+        # Pour un service, on utilise APPOINTMENT
+        # Note: Le statut sera défini par défaut (probablement ACTIVE)
+        # Note: Le champ pianos sera ajouté après création si nécessaire
+        event_input = {
+            "title": title,
+            "start": event_date,
+            "duration": 60,  # Durée par défaut: 1 heure
+            "type": "APPOINTMENT",  # Type fixe: APPOINTMENT (les services sont des appointments)
+            "notes": f"{service_type}: {technician_note}",  # Inclure le type de service dans les notes
+            "clientId": client_id,
+            "userId": technician_id
+            # Note: status sera défini par défaut
+            # Note: pianos sera ajouté via une mutation séparée si nécessaire
+        }
+        
+        variables = {
+            "input": event_input
+        }
+        
+        try:
+            result = self._execute_query(mutation, variables)
+        except Exception as e:
+            error_msg = str(e)
+            # Si pianos cause une erreur, essayer sans
+            if "pianos" in error_msg.lower() or "Field is not defined" in error_msg:
+                print("⚠️  Tentative sans champ pianos...")
+                event_input_no_pianos = {k: v for k, v in event_input.items() if k != "pianos"}
+                variables = {"input": event_input_no_pianos}
+                result = self._execute_query(mutation, variables)
+            else:
+                raise
+        
+        if not result:
+            raise ValueError("Erreur lors de la création de l'événement")
+        
+        # Vérifier s'il y a des erreurs dans la réponse
+        errors = result.get("errors", [])
+        if errors:
+            error_messages = [e.get("message", "Erreur inconnue") for e in errors]
+            raise ValueError(f"Erreurs GraphQL: {', '.join(error_messages)}")
+        
+        create_result = result.get("data", {}).get("createEvent")
+        
+        if not create_result:
+            raise ValueError(f"Aucune réponse de createEvent. Structure: {result}")
+        
+        # Vérifier les erreurs de mutation
+        mutation_errors = create_result.get("mutationErrors", [])
+        if mutation_errors:
+            error_messages = []
+            for e in mutation_errors:
+                field = e.get('fieldName', '')
+                messages = e.get('messages', [])
+                if messages:
+                    error_messages.append(f"{field}: {', '.join(messages)}")
+                else:
+                    error_messages.append(f"{field}: Erreur inconnue")
+            raise ValueError(f"Erreurs de mutation: {', '.join(error_messages)}")
+        
+        # La réponse peut être directement l'événement ou dans un champ event
+        event = create_result if isinstance(create_result, dict) and "id" in create_result else create_result.get("event")
+        
+        if not event:
+            raise ValueError(f"Événement None retourné. Réponse complète: {result}. Vérifiez les champs requis.")
+        
+        event_id = event.get('id')
+        print(f"✅ Événement de service créé: {event_id}")
+        
+        # Associer le piano à l'événement et marquer comme COMPLETE via updateEvent
+        try:
+            update_mutation = """
+            mutation UpdateEventWithPiano(
+                $eventId: String!
+                $input: PrivateEventInput!
+            ) {
+                updateEvent(id: $eventId, input: $input) {
+                    event {
+                        id
+                        title
+                        start
+                        type
+                        status
+                        notes
+                        allEventPianos(first: 10) {
+                            nodes {
+                                piano {
+                                    id
+                                }
+                            }
+                        }
+                    }
+                    mutationErrors {
+                        fieldName
+                        messages
+                    }
+                }
+            }
+            """
+            
+            # Essayer d'ajouter le piano et marquer comme COMPLETE
+            # Note: La structure exacte dépend de PrivateEventInput
+            update_input = {
+                "status": "COMPLETE",
+                "pianos": [{"pianoId": piano_id}]
+            }
+            
+            update_result = self._execute_query(update_mutation, {
+                "eventId": event_id,
+                "input": update_input
+            })
+            
+            update_data = update_result.get("data", {}).get("updateEvent", {})
+            mutation_errors = update_data.get("mutationErrors", [])
+            
+            if mutation_errors:
+                # Si pianos cause une erreur, essayer seulement avec status
+                print(f"⚠️  Erreur lors de l'association du piano, tentative avec status seulement...")
+                update_input_status_only = {"status": "COMPLETE"}
+                update_result = self._execute_query(update_mutation, {
+                    "eventId": event_id,
+                    "input": update_input_status_only
+                })
+                update_data = update_result.get("data", {}).get("updateEvent", {})
+            
+            updated_event = update_data.get("event")
+            if updated_event:
+                if updated_event.get("status") == "COMPLETE":
+                    print(f"✅ Événement marqué comme COMPLETE")
+                # Fusionner les données mises à jour avec l'événement initial
+                event = {**event, **updated_event}
+        except Exception as e:
+            print(f"⚠️  Impossible de mettre à jour l'événement: {e}")
+            print(f"   L'événement a été créé mais doit être complété manuellement dans Gazelle")
+        
+        print(f"   Piano: {piano_id}")
+        print(f"   Technicien: {technician_id}")
+        print(f"   Note: {technician_note[:50]}...")
+        
+        return event
+
+    def parse_temperature_humidity(self, text: str) -> Optional[Dict[str, int]]:
+        """
+        Parse temperature and humidity from service note text.
+
+        Args:
+            text: Service note text (e.g., "24c. 34%" or "Temperature: 22°C, humidity: 45%")
+
+        Returns:
+            Dict with 'temperature' (int, Celsius) and 'humidity' (int, percent)
+            or None if both values not found
+
+        Examples:
+            >>> parse_temperature_humidity("24c. 34%")
+            {'temperature': 24, 'humidity': 34}
+        """
+        import re
+
+        if not text:
+            return None
+
+        # Extract temperature (22°C, 22c, 22 degrees) - require degree symbol or explicit temp keywords
+        temp_match = re.search(r'(\d+)\s*(?:°\s*(?:Celsius|C)?|c(?:elsius)?(?:\s|\.|\b))', text, re.IGNORECASE)
+
+        # Extract humidity - try with keyword first
+        humidity_match = re.search(r'(?:humidité|humidity)[^0-9]*(\d+)\s*%', text, re.IGNORECASE)
+
+        # Fallback: find all percentages, take first one
+        if not humidity_match:
+            all_percent = re.findall(r'(\d+)\s*%', text)
+            if all_percent:
+                humidity_value = int(all_percent[0])
+            else:
+                humidity_value = None
+        else:
+            humidity_value = int(humidity_match.group(1))
+
+        # Only return if BOTH temperature AND humidity found
+        if temp_match and humidity_value is not None:
+            temp_value = int(temp_match.group(1))
+
+            # Validate ranges
+            if -20 <= temp_value <= 50 and 0 <= humidity_value <= 100:
+                return {
+                    'temperature': temp_value,
+                    'humidity': humidity_value
+                }
+
+        return None
+
+    def create_piano_measurement(
+        self,
+        piano_id: str,
+        temperature: int,
+        humidity: int,
+        taken_on: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a piano measurement (temperature/humidity) in Gazelle.
+
+        Args:
+            piano_id: ID of the piano in Gazelle (e.g., "ins_hUTnjvtZc6I6cXxA")
+            temperature: Temperature in Celsius (integer)
+            humidity: Relative humidity percentage (integer)
+            taken_on: ISO date when measurement was taken (default: today)
+
+        Returns:
+            Dict containing the created measurement with id, pianoId, temperature, humidity
+
+        Raises:
+            ValueError: If Gazelle API returns mutationErrors
+        """
+        from datetime import date
+
+        if not taken_on:
+            taken_on = date.today().isoformat()
+
+        mutation = """
+        mutation CreatePianoMeasurement($input: PrivatePianoMeasurementInput!) {
+            createPianoMeasurement(input: $input) {
+                pianoMeasurement {
+                    id
+                    pianoId
+                    takenOn
+                    temperature
+                    humidity
+                    createdAt
+                }
+                mutationErrors {
+                    fieldName
+                    messages
+                }
+            }
+        }
+        """
+
+        variables = {
+            "input": {
+                "pianoId": piano_id,
+                "temperature": temperature,
+                "humidity": humidity,
+                "takenOn": taken_on
+            }
+        }
+
+        result = self._execute_query(mutation, variables)
+        data = result.get("data", {}).get("createPianoMeasurement", {})
+
+        # Check for errors
+        mutation_errors = data.get("mutationErrors", [])
+        if mutation_errors:
+            error_msgs = [f"{e.get('fieldName')}: {', '.join(e.get('messages', []))}"
+                         for e in mutation_errors]
+            raise ValueError(f"Failed to create measurement: {'; '.join(error_msgs)}")
+
+        measurement = data.get("pianoMeasurement")
+        if not measurement:
+            raise ValueError("No measurement returned from API")
+
+        return measurement
+
+    def push_technician_service_with_measurements(
+        self,
+        piano_id: str,
+        technician_note: str,
+        service_type: str = "TUNING",
+        technician_id: Optional[str] = None,
+        client_id: Optional[str] = None,
+        event_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Push service note avec parsing automatique de température/humidité.
+        
+        Crée une note de service et crée automatiquement une mesure si température/humidité détectée.
+        
+        Args:
+            event_date: Date ISO de l'événement (utilisée pour l'historique Gazelle)
+                       Si None, utilise maintenant. Si fournie, utilise cette date
+                       (ex: date de complétion du piano, pas date du push).
+            Autres args: Identiques à push_technician_service
+
+        Returns:
+            {
+                "service_note": {...},      # Event from push_technician_service
+                "measurement": {...} | None, # Created measurement or None
+                "parsed_values": {...} | None # Parsed temp/humidity or None
+            }
+        """
+        # 1. Create service note (always)
+        service_note = self.push_technician_service(
+            piano_id=piano_id,
+            technician_note=technician_note,
+            service_type=service_type,
+            technician_id=technician_id,
+            client_id=client_id,
+            event_date=event_date
+        )
+
+        # 2. Parse for measurements
+        parsed = self.parse_temperature_humidity(technician_note)
+
+        # 3. Create measurement if found
+        measurement = None
+        if parsed:
+            try:
+                from datetime import datetime
+                # Use event_date if provided, otherwise today
+                measurement_date = event_date.split('T')[0] if event_date else None
+
+                measurement = self.create_piano_measurement(
+                    piano_id=piano_id,
+                    temperature=parsed['temperature'],
+                    humidity=parsed['humidity'],
+                    taken_on=measurement_date
+                )
+                print(f"✅ Measurement created: {measurement['id']} ({parsed['temperature']}°C, {parsed['humidity']}%)")
+            except Exception as e:
+                # Log warning but don't fail service note creation
+                print(f"⚠️  Failed to create measurement: {e}")
+
+        return {
+            "service_note": service_note,
+            "measurement": measurement,
+            "parsed_values": parsed
+        }
+
     def get_users(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Récupère tous les utilisateurs/techniciens depuis l'API.

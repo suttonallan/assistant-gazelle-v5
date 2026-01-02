@@ -23,7 +23,7 @@
  * ```
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase, subscribeToTournees } from '@lib/supabase.client';
 import { formatSupabaseError, getCurrentUserEmail } from '@lib/supabase.client';
 import { generateTourneeId, parseDate } from '@lib/utils';
@@ -127,6 +127,9 @@ export function useTournees(
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  
+  // Ref pour tracker la dernière clé de fetch (évite re-fetch inutiles)
+  const lastFetchKeyRef = useRef<string>('');
 
   // ==========================================
   // FETCH TOURNEES
@@ -178,7 +181,10 @@ export function useTournees(
               .map((rel) => rel.gazelle_id)
           );
 
-          console.log(`[useTournees] Tournée ${row.id} (${row.nom}): ${pianoIds.length} pianos (${topPianoIds.size} top)`, pianoIds);
+          // Log réduit (uniquement en mode debug)
+          if (process.env.NODE_ENV === 'development' && window.DEBUG_TOURNEES) {
+            console.log(`[useTournees] Tournée ${row.id} (${row.nom}): ${pianoIds.length} pianos (${topPianoIds.size} top)`, pianoIds);
+          }
 
           return {
             id: row.id,
@@ -204,6 +210,7 @@ export function useTournees(
     } catch (err) {
       console.error('[useTournees] Fetch error:', err);
       setError(formatSupabaseError(err));
+      setTournees([]); // Vider en cas d'erreur
     } finally {
       setLoading(false);
     }
@@ -620,11 +627,20 @@ export function useTournees(
   // AUTO-FETCH
   // ==========================================
 
+  // Auto-fetch au mount ou quand les dépendances critiques changent
+  // Utiliser une clé composite mémorisée pour éviter les re-fetch inutiles
+  const fetchKey = useMemo(
+    () => `${etablissement}-${onlyActive}-${technicianEmail || 'all'}`,
+    [etablissement, onlyActive, technicianEmail]
+  );
+  
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && fetchKey !== lastFetchKeyRef.current) {
+      lastFetchKeyRef.current = fetchKey;
       fetchTournees();
     }
-  }, [autoFetch, fetchTournees]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFetch, fetchKey]); // fetchKey change seulement si dépendances critiques changent
 
   // ==========================================
   // RETURN

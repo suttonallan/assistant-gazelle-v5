@@ -1,0 +1,46 @@
+{
+  "piano": {
+    "id": "ins_9H7Mh59SXwEs2JxL",
+    "make": "X",
+    "model": null,
+    "serialNumber": null,
+    "type": "UNKNOWN",
+    "year": null,
+    "location": null,
+    "notes": null,
+    "status": "ACTIVE",
+    "lifecycleState": "no-lifecycle",
+    "client": {
+      "id": "cli_YCh6GMzNfXWxJ2um",
+      "companyName": "",
+      "defaultContact": {
+        "firstName": "Allan Test",
+        "lastName": "Sutton",
+        "defaultEmail": {
+          "email": "suttonallan@gmail.com"
+        }
+      }
+    },
+    "createdAt": "2016-05-11T19:09:15Z",
+    "updatedAt": "2026-01-02T15:45:24Z",
+    "calculatedLastService": "2026-01-01",
+    "manualLastService": "2026-01-01",
+    "eventLastService": null,
+    "calculatedNextService": "2026-07-01",
+    "nextServiceOverride": null,
+    "damppChaserInstalled": null,
+    "damppChaserHumidistatModel": null,
+    "damppChaserMfgDate": null,
+    "caseColor": "",
+    "caseFinish": "",
+    "hasIvory": false,
+    "serviceIntervalMonths": 6,
+    "rental": null,
+    "consignment": null,
+    "useType": "",
+    "nextTuningScheduled": null,
+    "tags": []
+  },
+  "timeline_entries": [],
+  "events": []
+}

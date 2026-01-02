@@ -51,24 +51,56 @@ export function PianosTable({ etablissement, selectedTourneeId }: PianosTablePro
 
   const { activeTournee, tournees, refreshTournees, batchRemovePianosFromTournee, batchMarkAsTopInTournee } = useTournees(etablissement);
 
-  // Get tournée à afficher (sélectionnée ou active)
+  // LOG: Affichage tournée pour debug
+  useEffect(() => {
+    console.log('[PianosTable] Affichage tournée:', selectedTourneeId);
+  }, [selectedTourneeId]);
+
+  // Get tournée à afficher - selectedTourneeId est la SEULE source de vérité
+  // Si selectedTourneeId est null, on utilise activeTournee comme fallback
   const displayedTournee = useMemo(() => {
-    if (selectedTourneeId) {
-      return tournees.find((t) => t.id === selectedTourneeId) || null;
+    try {
+      if (selectedTourneeId) {
+        // Protection: vérifier que tournees est un array
+        if (!Array.isArray(tournees)) {
+          console.warn('[PianosTable] tournees n\'est pas un array:', tournees);
+          return null;
+        }
+        // Comparaison stricte avec === pour éviter les problèmes de typage
+        const found = tournees.find((t) => t && String(t.id) === String(selectedTourneeId));
+        return found || null;
+      }
+      return activeTournee || null;
+    } catch (err) {
+      console.error('[PianosTable] Erreur dans displayedTournee useMemo:', err);
+      return null;
     }
-    return activeTournee;
   }, [selectedTourneeId, tournees, activeTournee]);
 
   // Get pianos in displayed tournee
   const pianosInDisplayedTournee = useMemo(() => {
-    if (!displayedTournee) return new Set<string>();
-    return new Set(displayedTournee.pianoIds);
+    try {
+      if (!displayedTournee || !Array.isArray(displayedTournee.pianoIds)) {
+        return new Set<string>();
+      }
+      return new Set(displayedTournee.pianoIds);
+    } catch (err) {
+      console.error('[PianosTable] Erreur dans pianosInDisplayedTournee useMemo:', err);
+      return new Set<string>();
+    }
   }, [displayedTournee]);
 
   // Get top pianos in displayed tournee
   const topPianosInDisplayedTournee = useMemo(() => {
-    if (!displayedTournee) return new Set<string>();
-    return displayedTournee.topPianoIds;
+    try {
+      if (!displayedTournee || !(displayedTournee.topPianoIds instanceof Set)) {
+        return new Set<string>();
+      }
+      return displayedTournee.topPianoIds;
+    } catch (err) {
+      console.error('[PianosTable] Erreur dans topPianosInDisplayedTournee useMemo:', err);
+      return new Set<string>();
+    }
   }, [displayedTournee]);
 
   const { getColor, getColorWithReason } = usePianoColors(etablissement, {
@@ -162,6 +194,42 @@ export function PianosTable({ etablissement, selectedTourneeId }: PianosTablePro
   const handleCancelEdit = () => {
     setEditingPianoId(null);
     setEditValues({});
+  };
+
+  const handleMarkCompleted = async (pianoId: string) => {
+    try {
+      // Enregistrer la date de complétion
+      const completedAt = new Date().toISOString();
+      
+      await updatePiano(pianoId, {
+        pianoId,
+        status: 'completed',
+        isWorkCompleted: true,
+        completedAt: completedAt,  // Date de complétion pour Gazelle
+        updatedBy: 'current-user@example.com' // TODO: Get from auth
+      });
+      // Ne pas appeler refreshPianos si updatePiano réussit (optimistic update déjà fait)
+    } catch (err) {
+      console.error('Mark completed error:', err);
+      alert('Erreur lors du marquage comme terminé');
+      // Recharger en cas d'erreur pour restaurer l'état
+      await refreshPianos();
+    }
+  };
+
+  const handleUnmarkCompleted = async (pianoId: string) => {
+    try {
+      await updatePiano(pianoId, {
+        pianoId,
+        status: 'normal',
+        isWorkCompleted: false,
+        updatedBy: 'current-user@example.com' // TODO: Get from auth
+      });
+      await refreshPianos();
+    } catch (err) {
+      console.error('Unmark completed error:', err);
+      alert('Erreur lors de l\'annulation');
+    }
   };
 
   // ==========================================
@@ -430,12 +498,31 @@ export function PianosTable({ etablissement, selectedTourneeId }: PianosTablePro
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => handleEdit(piano)}
-                          className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                        >
-                          ✏️ Éditer
-                        </button>
+                        <div className="flex gap-1 items-center">
+                          <button
+                            onClick={() => handleEdit(piano)}
+                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          >
+                            ✏️ Éditer
+                          </button>
+                          {piano.status === 'completed' ? (
+                            <button
+                              onClick={() => handleUnmarkCompleted(piano.gazelleId)}
+                              className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
+                              title="Annuler le statut terminé"
+                            >
+                              ↶
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleMarkCompleted(piano.gazelleId)}
+                              className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200"
+                              title="Marquer comme terminé"
+                            >
+                              ✓ Terminé
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -502,5 +589,3 @@ function SortableHeader({
     </th>
   );
 }
-
-export default PianosTable;

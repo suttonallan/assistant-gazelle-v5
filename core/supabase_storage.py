@@ -14,15 +14,17 @@ import requests
 class SupabaseStorage:
     """Gère le stockage des modifications de pianos dans Supabase."""
     
-    def __init__(self, supabase_url: Optional[str] = None, supabase_key: Optional[str] = None):
+    def __init__(self, supabase_url: Optional[str] = None, supabase_key: Optional[str] = None, silent: bool = False):
         """
         Initialise le stockage Supabase.
 
         Args:
             supabase_url: URL du projet Supabase (si None, utilise SUPABASE_URL de l'environnement)
             supabase_key: Clé API Supabase (si None, utilise SUPABASE_KEY de l'environnement)
+            silent: Si True, ne pas afficher les messages d'initialisation (pour éviter les logs répétés)
         """
-        print("🔧 Initialisation SupabaseStorage...")
+        if not silent:
+            print("🔧 Initialisation SupabaseStorage...")
         self.supabase_url = supabase_url or os.environ.get('SUPABASE_URL')
         # Fallback: essaye SUPABASE_SERVICE_ROLE_KEY puis SUPABASE_KEY
         self.supabase_key = supabase_key or os.getenv('SUPABASE_SERVICE_ROLE_KEY', os.getenv('SUPABASE_KEY'))
@@ -35,7 +37,8 @@ class SupabaseStorage:
 
         self.api_url = f"{self.supabase_url}/rest/v1"
         self.table = "vincent_dindy_piano_updates"
-        print(f"✅ SupabaseStorage initialisé: {self.supabase_url}")
+        if not silent:
+            print(f"✅ SupabaseStorage initialisé: {self.supabase_url}")
     
     def _get_headers(self) -> Dict[str, str]:
         """Retourne les headers pour les requêtes Supabase API."""

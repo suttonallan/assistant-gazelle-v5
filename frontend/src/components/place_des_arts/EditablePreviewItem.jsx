@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 /**
  * Composant pour afficher/éditer un item de prévisualisation
@@ -28,7 +28,7 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
     setSaving(true)
     try {
       // Enregistrer la correction pour apprentissage
-      await fetch(`${API_URL}/place-des-arts/learn`, {
+      await fetch(`${API_URL}/api/place-des-arts/learn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 /**
  * Interface simplifiée pour gérer TOUS les items du catalogue
@@ -26,7 +26,7 @@ const CatalogueManager = () => {
       setError(null)
 
       // Charger TOUS les items depuis l'API backend (comme l'onglet Admin)
-      const response = await fetch(`${API_URL}/inventaire/catalogue`)
+      const response = await fetch(`${API_URL}/api/inventaire/catalogue`)
       if (!response.ok) throw new Error('Erreur chargement catalogue')
 
       const data = await response.json()

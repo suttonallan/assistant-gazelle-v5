@@ -123,10 +123,21 @@ export function usePianos(
 
     try {
       // Déterminer l'endpoint API selon l'établissement
+      // OPTION 1: Utiliser le proxy Vite (recommandé en dev)
+      // OPTION 2: URL complète si proxy ne fonctionne pas (décommenter pour tester)
+      // Utiliser le proxy Vite par défaut (recommandé)
+      // Si VITE_USE_DIRECT_API=true, utiliser l'URL directe pour debug
+      const useDirectUrl = import.meta.env.VITE_USE_DIRECT_API === 'true';
+      const apiBaseUrl = useDirectUrl 
+        ? 'http://127.0.0.1:8000'  // Utiliser 127.0.0.1 au lieu de localhost
+        : '';
+      
+      // Le proxy Vite enlève /api, donc on utilise /api/... pour que le proxy le transforme en /...
+      // Exemple: /api/vincent-dindy/pianos -> proxy -> http://127.0.0.1:8000/vincent-dindy/pianos
       const apiEndpoint = 
         etablissement === 'place-des-arts' 
-          ? '/api/place-des-arts/pianos'
-          : '/api/vincent-dindy/pianos';
+          ? `${apiBaseUrl}/api/place-des-arts/pianos`
+          : `${apiBaseUrl}/api/vincent-dindy/pianos`;
       
       // Déterminer la table Supabase selon l'établissement
       const supabaseTable = 
@@ -134,16 +145,50 @@ export function usePianos(
           ? 'place_des_arts_piano_updates'  // TODO: Créer cette table ou utiliser vincent_dindy_piano_updates avec filtre
           : 'vincent_dindy_piano_updates';
 
-      // ÉTAPE 1: Fetch pianos depuis Gazelle API (données statiques)
-      const response = await fetch(
-        `${apiEndpoint}?include_inactive=${includeHidden}`
-      );
+      console.log('[usePianos] Fetch pianos depuis:', apiEndpoint, '(proxy:', !useDirectUrl, ')');
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // ÉTAPE 1: Fetch pianos depuis Gazelle API (données statiques)
+      // PROTECTION: Gestion robuste des erreurs réseau
+      let response: Response;
+      try {
+        response = await fetch(
+          `${apiEndpoint}?include_inactive=${includeHidden}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            // Timeout implicite via AbortController si nécessaire
+          }
+        );
+      } catch (fetchError: any) {
+        // Erreur réseau (CORS, connexion refusée, timeout, etc.)
+        console.error('[usePianos] Erreur réseau lors du fetch:', fetchError);
+        const errorMessage = fetchError.message || 'Erreur de connexion';
+        const detailedError = 
+          errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')
+            ? `Impossible de se connecter au serveur. Vérifiez que le backend est lancé sur http://localhost:8000`
+            : `Erreur réseau: ${errorMessage}`;
+        
+        setError(detailedError);
+        setPianos([]); // Vider la liste en cas d'erreur
+        setLoading(false);
+        return; // Sortir de la fonction
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Erreur inconnue');
+        console.error('[usePianos] Erreur HTTP:', response.status, errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorText}`);
+      }
+
+      let data: any;
+      try {
+        data = await response.json();
+      } catch (jsonError: any) {
+        console.error('[usePianos] Erreur parsing JSON:', jsonError);
+        throw new Error(`Réponse invalide du serveur: ${jsonError.message}`);
+      }
 
       // ÉTAPE 2: Fetch overlays depuis Supabase (données dynamiques)
       // Note: Pour Place des Arts, on utilise temporairement la même table
@@ -161,7 +206,11 @@ export function usePianos(
       const overlayMap = new Map<string, any>();
       if (overlays) {
         overlays.forEach((overlay) => {
-          overlayMap.set(overlay.gazelle_id, overlay);
+          // Support both piano_id (new) and gazelle_id (old) for compatibility
+          const pianoId = overlay.piano_id || overlay.gazelle_id;
+          if (pianoId) {
+            overlayMap.set(pianoId, overlay);
+          }
         });
       }
 
@@ -227,13 +276,26 @@ export function usePianos(
 
       setPianos(transformedPianos);
       setLastSync(new Date());
+      console.log('[usePianos] Fetch réussi:', transformedPianos.length, 'pianos chargés');
     } catch (err) {
       console.error('[usePianos] Fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      const errorMessage = err instanceof Error 
+        ? err.message 
+        : typeof err === 'string' 
+          ? err 
+          : 'Erreur inconnue lors du chargement des pianos';
+      
+      // Message d'erreur plus détaillé pour l'utilisateur
+      const userFriendlyMessage = errorMessage.includes('Failed to fetch') || errorMessage.includes('connexion')
+        ? `❌ Impossible de se connecter au serveur backend.\n\nVérifiez que le serveur Python est lancé sur http://localhost:8000\n\nErreur technique: ${errorMessage}`
+        : errorMessage;
+      
+      setError(userFriendlyMessage);
+      setPianos([]);  // Vider la liste en cas d'erreur pour éviter d'afficher d'anciennes données
     } finally {
       setLoading(false);
     }
-  }, [includeHidden]);
+  }, [etablissement, includeHidden]);
 
   // ==========================================
   // UPDATE PIANO
@@ -255,8 +317,11 @@ export function usePianos(
       );
 
       try {
+        // Filtrer les champs qui ne doivent pas être envoyés à Supabase
+        const { pianoId: _, updatedBy, ...fieldsToUpdate } = updates;
+        
         // Convert to snake_case pour API Python
-        const snakeCaseUpdates = keysToSnakeCase(updates);
+        const snakeCaseUpdates = keysToSnakeCase(fieldsToUpdate);
 
         // Déterminer la table selon l'établissement
         const supabaseTable = 
@@ -264,24 +329,37 @@ export function usePianos(
             ? 'place_des_arts_piano_updates'  // TODO: Créer cette table
             : 'vincent_dindy_piano_updates';
         
+        // Préparer les données pour Supabase
+        const supabaseData: Record<string, any> = {
+          piano_id: pianoId,
+          updated_at: new Date().toISOString()
+        };
+
+        // Ajouter updated_by si fourni
+        if (updatedBy) {
+          supabaseData.updated_by = updatedBy;
+        }
+
+        // Ajouter tous les autres champs convertis en snake_case
+        Object.assign(supabaseData, snakeCaseUpdates);
+        
         const { error: updateError } = await supabase
           .from('vincent_dindy_piano_updates')  // TODO: Utiliser supabaseTable quand créée
-          .upsert(
-            {
-              gazelle_id: pianoId,
-              ...snakeCaseUpdates,
-              updated_at: new Date().toISOString()
-            },
-            { onConflict: 'gazelle_id' }
-          );
+          .upsert(supabaseData, { onConflict: 'piano_id' });
 
         if (updateError) {
           throw updateError;
         }
       } catch (err) {
         console.error('[usePianos] Update error:', err);
-        // Rollback optimistic update
-        await fetchPianos();
+        // Rollback optimistic update - mais ne pas re-lancer fetchPianos si ça échoue
+        // pour éviter les boucles infinies
+        try {
+          await fetchPianos();
+        } catch (fetchErr) {
+          console.error('[usePianos] Rollback fetch also failed:', fetchErr);
+          // Ne pas propager l'erreur de fetch pour éviter double erreur
+        }
         throw new Error(formatSupabaseError(err));
       }
     },

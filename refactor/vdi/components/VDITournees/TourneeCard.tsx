@@ -36,9 +36,6 @@ export function TourneeCard({
   onEdit,
   onOpenEditModal
 }: TourneeCardProps) {
-  // DEBUG: Log état sélection
-  console.log(`[TourneeCard] ${tournee.nom}: isActive=${isActive}, isSelected=${isSelected}`);
-
   const statusConfig: Record<string, { label: string; color: string; icon: string }> = {
     en_cours: {
       label: 'Active',

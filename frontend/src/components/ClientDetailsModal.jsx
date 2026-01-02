@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 export default function ClientDetailsModal({ clientId, onClose, onAskQuestion }) {
   const [loading, setLoading] = useState(true)
@@ -14,7 +14,7 @@ export default function ClientDetailsModal({ clientId, onClose, onAskQuestion })
         setError(null)
         // Encoder l'ID pour éviter les 404 si l'ID contient des caractères spéciaux
         const safeId = encodeURIComponent(clientId)
-        const response = await fetch(`${API_URL}/assistant/client/${safeId}`)
+        const response = await fetch(`${API_URL}/api/assistant/client/${safeId}`)
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)

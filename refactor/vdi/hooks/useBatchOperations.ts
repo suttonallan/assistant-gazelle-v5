@@ -143,9 +143,9 @@ export function useBatchOperations(): UseBatchOperationsReturn {
         // Convert camelCase → snake_case pour Supabase
         const dbUpdates = enrichedUpdates.map((u) => {
           const snakeCase = keysToSnakeCase(u) as any;
-          // Renommer pianoId → gazelle_id (obligatoire)
-          snakeCase.gazelle_id = u.pianoId;
-          delete snakeCase.piano_id;  // Supprimer piano_id si créé par keysToSnakeCase
+          // Renommer pianoId → piano_id (obligatoire - colonne renommée par migration 011)
+          snakeCase.piano_id = u.pianoId;
+          delete snakeCase.gazelle_id;  // Supprimer gazelle_id si créé par keysToSnakeCase
 
           return snakeCase;
         });
@@ -158,7 +158,7 @@ export function useBatchOperations(): UseBatchOperationsReturn {
         const { data, error: upsertError } = await supabase
           .from('vincent_dindy_piano_updates')
           .upsert(dbUpdates, {
-            onConflict: 'gazelle_id',
+            onConflict: 'piano_id',
             ignoreDuplicates: false
           })
           .select();

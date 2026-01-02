@@ -21,10 +21,10 @@ export function TourneesView({ etablissement }: TourneesViewProps) {
   const [selectedTourneeId, setSelectedTourneeId] = useState<string | null>(null);
 
   // Auto-sélectionner la tournée active au démarrage (ou la première tournée si aucune active)
+  // selectedTourneeId est la SEULE source de vérité pour l'affichage
   useEffect(() => {
     if (!selectedTourneeId && tournees.length > 0) {
       const initialSelection = activeTournee?.id || tournees[0].id;
-      console.log('[TourneesView] Auto-sélection initiale:', initialSelection);
       setSelectedTourneeId(initialSelection);
     }
   }, [tournees, activeTournee, selectedTourneeId]);

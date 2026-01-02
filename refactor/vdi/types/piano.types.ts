@@ -165,6 +165,12 @@ export interface PianoUpdate {
   /** Marquer comme complété dans une tournée */
   completedInTourneeId?: string | null;
 
+  /** Travail complété (checkbox) */
+  isWorkCompleted?: boolean;
+
+  /** Date de complétion (pour push Gazelle) */
+  completedAt?: string;
+
   /** Auteur de la modification (REQUIS) */
   updatedBy: string;
 }

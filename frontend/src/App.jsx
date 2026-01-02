@@ -15,6 +15,7 @@ import AssistantWidget from './components/AssistantWidget'
 import ChatIntelligent from './components/ChatIntelligent'
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
+import ErrorBoundary from './components/ErrorBoundary'
 import { getUserRole, ROLES } from './config/roles'
 
 // V7 Imports - Master Template Vincent d'Indy (527 lignes)
@@ -89,13 +90,24 @@ function App() {
 
   // Charger l'utilisateur depuis localStorage au démarrage
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser')
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser))
-      } catch (e) {
-        localStorage.removeItem('currentUser')
+    console.log('[App.jsx] useEffect chargement utilisateur - début');
+    try {
+      const savedUser = localStorage.getItem('currentUser')
+      console.log('[App.jsx] Utilisateur sauvegardé trouvé:', savedUser ? 'OUI' : 'NON');
+      if (savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser)
+          console.log('[App.jsx] Utilisateur parsé:', parsedUser?.email || parsedUser?.name);
+          setCurrentUser(parsedUser)
+        } catch (e) {
+          console.error('[App.jsx] Erreur parsing utilisateur:', e);
+          localStorage.removeItem('currentUser')
+        }
       }
+      console.log('[App.jsx] useEffect chargement utilisateur - fin');
+    } catch (e) {
+      console.error('[App.jsx] Erreur dans useEffect chargement utilisateur:', e);
+      alert(`Erreur au chargement utilisateur: ${e.message}\n\nStack: ${e.stack}`);
     }
   }, [])
 
@@ -142,22 +154,32 @@ function App() {
   }, [effectiveRole])
 
   // Initialiser la vue par défaut selon le rôle
+  // PROTECTION: Éviter les boucles de redirection
   useEffect(() => {
-    if (effectiveRole === 'nick') {
-      // Nick démarre sur Inventaire (pas Dashboard)
-      if (currentView === 'dashboard') {
-        setCurrentView('inventaire')
+    console.log('[App.jsx] useEffect initialisation vue - effectiveRole:', effectiveRole, 'currentView:', currentView);
+    try {
+      if (effectiveRole === 'nick') {
+        // Nick démarre sur Inventaire (pas Dashboard)
+        if (currentView === 'dashboard') {
+          console.log('[App.jsx] Redirection Nick: dashboard -> inventaire');
+          setCurrentView('inventaire')
+        }
+      } else if (effectiveRole === 'louise') {
+        // Louise démarre sur Inventaire
+        if (currentView === 'dashboard' || !currentView) {
+          console.log('[App.jsx] Redirection Louise: dashboard/null -> inventaire');
+          setCurrentView('inventaire')
+        }
+      } else if (effectiveRole === 'jeanphilippe') {
+        // Jean-Philippe démarre sur Inventaire
+        if (currentView === 'dashboard' || !currentView) {
+          console.log('[App.jsx] Redirection Jean-Philippe: dashboard/null -> inventaire');
+          setCurrentView('inventaire')
+        }
       }
-    } else if (effectiveRole === 'louise') {
-      // Louise démarre sur Inventaire
-      if (currentView === 'dashboard' || !currentView) {
-        setCurrentView('inventaire')
-      }
-    } else if (effectiveRole === 'jeanphilippe') {
-      // Jean-Philippe démarre sur Inventaire
-      if (currentView === 'dashboard' || !currentView) {
-        setCurrentView('inventaire')
-      }
+    } catch (e) {
+      console.error('[App.jsx] Erreur dans useEffect initialisation vue:', e);
+      alert(`Erreur dans initialisation vue: ${e.message}\n\nStack: ${e.stack}`);
     }
   }, [effectiveRole, currentView])
 
@@ -200,72 +222,148 @@ function App() {
       case 'louise':
         // Louise: Navigation par currentView (comme admin)
         if (currentView === 'inventaire') {
-          return <InventaireDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Inventaire Dashboard">
+              <InventaireDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
-            <div className="space-y-8">
-              <TravelFeeCalculator />
-              <div className="border-t border-gray-200 pt-8">
-                <KilometersCalculator />
+            <ErrorBoundary componentName="Calculateur Frais">
+              <div className="space-y-8">
+                <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <KilometersCalculator />
+                </div>
               </div>
-            </div>
+            </ErrorBoundary>
           )
         } else if (currentView === 'vincent-dindy-v7') {
-          return <VDIInventoryWrapper />
+          return (
+            <ErrorBoundary componentName="VDI V7">
+              <VDIInventoryWrapper />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'place-des-arts') {
-          return <PlaceDesArtsDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Place des Arts">
+              <PlaceDesArtsDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         }
         // Par défaut: Inventaire
-        return <InventaireDashboard currentUser={effectiveUser} />
+        return (
+          <ErrorBoundary componentName="Inventaire Dashboard">
+            <InventaireDashboard currentUser={effectiveUser} />
+          </ErrorBoundary>
+        )
       case 'jeanphilippe':
         // Jean-Philippe: Inventaire et Tournées (vue technicien)
         if (currentView === 'inventaire') {
-          return <InventaireDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Inventaire Dashboard">
+              <InventaireDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'tournees') {
-          return <VincentDIndyDashboard currentUser={effectiveUser} initialView="technicien" />
+          return (
+            <ErrorBoundary componentName="Vincent d'Indy (Tournées)">
+              <VincentDIndyDashboard 
+                currentUser={effectiveUser} 
+                initialView="technicien"
+                hideNickView={true}
+                hideLocationSelector={true}
+              />
+            </ErrorBoundary>
+          )
         }
         // Par défaut: Inventaire
-        return <InventaireDashboard currentUser={effectiveUser} />
+        return (
+          <ErrorBoundary componentName="Inventaire Dashboard">
+            <InventaireDashboard currentUser={effectiveUser} />
+          </ErrorBoundary>
+        )
       case 'admin':
       default:
         // Dashboard admin (actuel)
         if (currentView === 'dashboard') {
-          return <DashboardHome currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Dashboard Home">
+              <DashboardHome currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'notifications') {
-          return <NotificationsPanel currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Notifications">
+              <NotificationsPanel currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'alertes-rv') {
-          return <AlertesRV currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Alertes RV">
+              <AlertesRV currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'inventaire') {
-          return <InventaireDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Inventaire Dashboard">
+              <InventaireDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'tournees') {
-          return <NickDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Nick Dashboard">
+              <NickDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'place-des-arts') {
-          return <PlaceDesArtsDashboard currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Place des Arts">
+              <PlaceDesArtsDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'chat') {
-          return <ChatIntelligent currentUser={effectiveUser} />
+          return (
+            <ErrorBoundary componentName="Chat Intelligent">
+              <ChatIntelligent currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
-            <div className="space-y-8">
-              <TravelFeeCalculator />
-              <div className="border-t border-gray-200 pt-8">
-                <KilometersCalculator />
+            <ErrorBoundary componentName="Calculateur Frais">
+              <div className="space-y-8">
+                <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <KilometersCalculator />
+                </div>
               </div>
-            </div>
+            </ErrorBoundary>
           )
         } else if (currentView === 'vincent-dindy-v7') {
           // V7 Master Template (527 lignes) - Isolation via iframe
-          return <VDIInventoryWrapper />
+          return (
+            <ErrorBoundary componentName="VDI V7">
+              <VDIInventoryWrapper />
+            </ErrorBoundary>
+          )
         } else {
-          return <VincentDIndyDashboard currentUser={effectiveUser} />
+          // Vincent d'Indy Dashboard avec ErrorBoundary
+          return (
+            <ErrorBoundary componentName="Vincent d'Indy">
+              <VincentDIndyDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         }
     }
   }
 
   return (
-    <div className={`App ${isFestiveTheme ? 'festive' : ''}`}>
-      <FestiveDecor show={isFestiveTheme} />
-      {/* Header avec nom d'utilisateur */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
+    <>
+      <ErrorBoundary componentName="Application principale">
+        <div className={`App ${isFestiveTheme ? 'festive' : ''}`}>
+          <FestiveDecor show={isFestiveTheme} />
+          {/* Header avec nom d'utilisateur */}
+          <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-3">
@@ -551,8 +649,10 @@ function App() {
         </div>
       </header>
 
-      {/* Contenu principal */}
-      {renderDashboard()}
+          {/* Contenu principal */}
+          {renderDashboard()}
+        </div>
+      </ErrorBoundary>
 
       {/* Chat Intelligent Widget - Remplace l'ancien assistant v4 */}
       <AssistantWidget
@@ -561,7 +661,7 @@ function App() {
         onBackToDashboard={currentView === 'assistant' ? () => setCurrentView('dashboard') : undefined}
         useChatIntelligent={true} // NOUVEAU: Utiliser Chat Intelligent au lieu de v4
       />
-    </div>
+    </>
   )
 }
 

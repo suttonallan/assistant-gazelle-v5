@@ -47,6 +47,16 @@ async def startup_event():
     print("\n" + "="*60)
     print("🚀 DÉMARRAGE API ASSISTANT GAZELLE V5")
     print("="*60)
+    
+    # Initialiser les singletons au démarrage pour éviter les réinitialisations
+    try:
+        from api.place_des_arts import get_storage, get_api_client
+        print("\n🔧 Initialisation des singletons...")
+        get_storage()  # Initialise SupabaseStorage (singleton)
+        get_api_client()  # Initialise GazelleAPIClient (singleton)
+        print("✅ Singletons initialisés")
+    except Exception as e:
+        print(f"⚠️  Erreur lors de l'initialisation des singletons: {e}")
 
     # Vérification des variables d'environnement critiques
     supabase_url = os.getenv('SUPABASE_URL')
@@ -97,9 +107,18 @@ async def shutdown_event():
         print(f"⚠️  Erreur lors de l'arrêt du scheduler: {e}")
 
 # CORS - Permet au frontend d'appeler l'API
+# Autoriser les ports de développement Vite (5173, 5174, 5175) et production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En production, remplace par ton domaine GitHub Pages
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175",
+        "*"  # En production, remplace par ton domaine GitHub Pages
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

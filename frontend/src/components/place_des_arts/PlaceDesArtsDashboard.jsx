@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
 import PDAInventoryTable from './PDAInventoryTable'
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
 
 export default function PlaceDesArtsDashboard({ currentUser }) {
   // Onglets: 'inventaire-pianos' ou 'demandes' (Inventaire en premier comme VDI)
@@ -55,7 +55,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     try {
       setLoading(true)
       setError(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/requests?limit=200`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests?limit=200`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setItems(data || [])
@@ -68,7 +68,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_URL}/place-des-arts/stats`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/stats`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setStats(data || { imported: 0, to_bill: 0, this_month: 0 })
@@ -269,7 +269,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           if (!item) continue
 
           // Appeler l'API de validation
-          const resp = await fetch(`${API_URL}/place-des-arts/validate-gazelle-rv`, {
+          const resp = await fetch(`${API_URL}/api/place-des-arts/validate-gazelle-rv`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -310,7 +310,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         }
 
         // Procéder avec le changement de statut
-        await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
+        await callAction(`${API_URL}/api/place-des-arts/requests/update-status-batch`, {
           request_ids: ids,
           status: newStatus
         })
@@ -326,7 +326,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
 
     // Pour les autres statuts, changement direct
-    await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/update-status-batch`, {
       request_ids: ids,
       status: newStatus
     })
@@ -334,7 +334,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const handleBill = async () => {
     if (selectedIds.length === 0) return
-    await callAction(`${API_URL}/place-des-arts/requests/bill`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/bill`, {
       request_ids: selectedIds,
       status: 'BILLED'
     })
@@ -342,7 +342,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const handleDelete = async () => {
     if (selectedIds.length === 0) return
-    await callAction(`${API_URL}/place-des-arts/requests/delete`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/delete`, {
       request_ids: selectedIds
     })
   }
@@ -353,7 +353,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setInfoMessage(null)
 
       // 1. Récupérer la liste des doublons
-      const resp = await fetch(`${API_URL}/place-des-arts/requests/find-duplicates`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/find-duplicates`)
       if (!resp.ok) {
         throw new Error(`Erreur lors de la recherche de doublons: ${resp.status}`)
       }
@@ -379,7 +379,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       }
 
       // 3. Supprimer seulement si confirmé
-      await callAction(`${API_URL}/place-des-arts/requests/delete-duplicates`, {})
+      await callAction(`${API_URL}/api/place-des-arts/requests/delete-duplicates`, {})
 
     } catch (err) {
       setError(err.message || 'Erreur lors de la suppression des doublons')
@@ -398,7 +398,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setInfoMessage('🔄 Synchronisation en cours...')
 
       // Envoyer seulement les IDs sélectionnés
-      const resp = await fetch(`${API_URL}/place-des-arts/sync-manual`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_ids: selectedIds })
@@ -435,7 +435,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleExport = () => {
-    window.open(`${API_URL}/place-des-arts/export`, '_blank')
+    window.open(`${API_URL}/api/place-des-arts/export`, '_blank')
   }
 
   const updateCellRaw = async (id, field, value, retries = 2) => {
@@ -447,7 +447,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       const timeoutId = setTimeout(() => controller.abort(), 30000)
 
       try {
-        const resp = await fetch(`${API_URL}/place-des-arts/requests/update-cell`, {
+        const resp = await fetch(`${API_URL}/api/place-des-arts/requests/update-cell`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ request_id: id, field, value }),
@@ -484,20 +484,93 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }
 
+  const pushToGazelle = async (requestId, pianoGazelleId, technicianId, notes) => {
+    try {
+      if (!pianoGazelleId || !technicianId || !notes) {
+        return null // Pas de push si données manquantes
+      }
+
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/push-to-gazelle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          piano_id: pianoGazelleId,
+          technician_id: technicianId,
+          summary: 'Accord', // Par défaut, on peut l'adapter selon le contexte
+          comment: notes,
+          update_last_tuned: true
+        })
+      })
+
+      if (!resp.ok) {
+        const errorText = await resp.text()
+        throw new Error(errorText || `HTTP ${resp.status}`)
+      }
+
+      const data = await resp.json()
+      return data
+    } catch (err) {
+      console.error('Erreur push vers Gazelle:', err)
+      throw err
+    }
+  }
+
   const handleCellUpdate = async (id, field, value) => {
     try {
       setError(null)
       // Si plusieurs lignes sont cochées et incluent cette ligne, propager la même valeur
       const targetIds = selectedIds.includes(id) && selectedIds.length > 1 ? selectedIds : [id]
+      let gazelleSuccess = false
+
       for (const targetId of targetIds) {
+        const item = items.find(it => it.id === targetId)
+        if (!item) continue
+
         await updateCellRaw(targetId, field, value)
+        
         if (field === 'technician_id' && value) {
           // Auto: passer en "Assigné" dès qu'un technicien est défini
           await updateCellRaw(targetId, 'status', 'ASSIGN_OK')
         }
+
+        // Si on met à jour les notes ET qu'on a un technicien, pousser vers Gazelle
+        if (field === 'notes' && value && item.technician_id) {
+          try {
+            // Récupérer le piano_id Gazelle depuis l'API
+            const pianoIdResp = await fetch(`${API_URL}/api/place-des-arts/requests/${targetId}/gazelle-piano-id`)
+            if (pianoIdResp.ok) {
+              const pianoIdData = await pianoIdResp.json()
+              const pianoGazelleId = pianoIdData.piano_id
+              
+              if (pianoGazelleId && item.technician_id) {
+                const gazelleResult = await pushToGazelle(
+                  targetId,
+                  pianoGazelleId,
+                  item.technician_id,
+                  value
+                )
+                if (gazelleResult && gazelleResult.success) {
+                  gazelleSuccess = true
+                }
+              } else {
+                console.warn('Piano Gazelle ou technicien manquant pour push')
+              }
+            }
+          } catch (gazelleErr) {
+            console.warn('Push Gazelle échoué (non bloquant):', gazelleErr)
+            // Ne pas bloquer la mise à jour locale si Gazelle échoue
+          }
+        }
       }
+      
       await fetchData()
-      setInfoMessage(`Champ mis à jour pour ${targetIds.length} élément(s)`)
+      
+      let message = `Champ mis à jour pour ${targetIds.length} élément(s)`
+      if (gazelleSuccess) {
+        message += ' - Mis à jour dans Gazelle ✓'
+      }
+      setInfoMessage(message)
     } catch (err) {
       setError(err.message)
     }
@@ -542,7 +615,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     try {
       setPreviewLoading(true)
       setInfoMessage(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/preview`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_text: rawText, source: 'email' })
@@ -566,7 +639,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setImportLoading(true)
       setError(null)
       setInfoMessage(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/import`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_text: rawText, source: 'email' })
@@ -769,7 +842,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 try {
                   setError(null)
                   setInfoMessage(null)
-                  const resp = await fetch(`${API_URL}/place-des-arts/requests/create`, {
+                  const resp = await fetch(`${API_URL}/api/place-des-arts/requests/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(createForm)

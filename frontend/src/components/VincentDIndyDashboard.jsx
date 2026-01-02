@@ -1,15 +1,26 @@
+// LOG: Début du fichier VincentDIndyDashboard.jsx
+console.log('[VincentDIndyDashboard] Fichier chargé - ligne 1');
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
 
-// Configuration de l'API - sera remplacée par la variable d'environnement en production
-const API_URL = import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com';
+// Configuration de l'API - utiliser le proxy Vite en développement
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
-const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
+const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, hideLocationSelector = false }) => {
   const [pianos, setPianos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [currentView, setCurrentView] = useState(initialView);
+  // Si hideNickView est true, forcer la vue technicien et empêcher le changement
+  const [currentView, setCurrentView] = useState(hideNickView ? 'technicien' : initialView);
+  
+  // Si hideNickView est true, empêcher le changement de vue
+  useEffect(() => {
+    if (hideNickView && currentView !== 'technicien') {
+      setCurrentView('technicien');
+    }
+  }, [hideNickView, currentView]);
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nick : filtrer sur pianos sélectionnés
   const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local
@@ -27,6 +38,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
   const [expandedPianoId, setExpandedPianoId] = useState(null);
   const [travailInput, setTravailInput] = useState('');
   const [observationsInput, setObservationsInput] = useState('');
+  const [isWorkCompleted, setIsWorkCompleted] = useState(false);
 
   // Pour vue Nick - édition "à faire" et "notes"
   const [editingAFaireId, setEditingAFaireId] = useState(null);
@@ -47,13 +59,42 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
     notes: ''
   });
 
+  // Pour push vers Gazelle
+  const [readyForPushCount, setReadyForPushCount] = useState(0);
+  const [pushInProgress, setPushInProgress] = useState(false);
+
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
-    loadPianosFromAPI();
-    loadTournees();
+    console.log('[VincentDIndyDashboard] useEffect de chargement initial déclenché');
+    try {
+      loadPianosFromAPI();
+      loadTournees();
+    } catch (e) {
+      console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
+      alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
+    }
   }, []);
+
+  // Charger le compteur de pianos prêts pour push
+  useEffect(() => {
+    const loadReadyCount = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
+        if (response.ok) {
+          const data = await response.json();
+          setReadyForPushCount(data.count || 0);
+        }
+      } catch (err) {
+        console.error('Erreur chargement pianos prêts:', err);
+      }
+    };
+
+    if (currentView === 'nicolas') {
+      loadReadyCount();
+    }
+  }, [pianos, currentView]);
 
   const loadPianosFromAPI = async () => {
     try {
@@ -63,7 +104,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
 
       // Toujours charger TOUS les pianos (include_inactive=true)
       // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true`;
+      const url = `${API_URL}/api/vincent-dindy/pianos?include_inactive=true`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -382,6 +423,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
       setExpandedPianoId(piano.id);
       setTravailInput(piano.travail || '');
       setObservationsInput(piano.observations || '');
+      setIsWorkCompleted(piano.is_work_completed || false);
     }
   };
 
@@ -405,16 +447,31 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
       // Envoyer le rapport à l'API
       await submitReport(API_URL, report);
 
+      // Déterminer le statut selon la logique de transition
+      let newStatus = piano.status;
+      if (isWorkCompleted) {
+        newStatus = 'completed';
+      } else if (travailInput || observationsInput) {
+        newStatus = 'work_in_progress';
+      }
+
       // Mise à jour optimiste
       setPianos(pianos.map(p =>
-        p.id === id ? { ...p, travail: travailInput, observations: observationsInput, status: 'completed' } : p
+        p.id === id ? { 
+          ...p, 
+          travail: travailInput, 
+          observations: observationsInput, 
+          is_work_completed: isWorkCompleted,
+          status: newStatus
+        } : p
       ));
 
       // Sauvegarder le piano via API
       await savePianoToAPI(id, {
         travail: travailInput,
         observations: observationsInput,
-        status: 'completed'
+        isWorkCompleted: isWorkCompleted,
+        status: newStatus
       });
 
       // Passer au suivant
@@ -593,64 +650,142 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
     }
   };
 
-  const stats = {
-    total: pianos.length,
-    top: pianos.filter(p => p.status === 'top').length,
-    proposed: pianos.filter(p => p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== '')).length,
-    completed: pianos.filter(p => p.status === 'completed').length,
-  };
+  // Calcul des stats avec protection contre les erreurs
+  const stats = useMemo(() => {
+    if (!pianos || !Array.isArray(pianos)) {
+      return { total: 0, top: 0, proposed: 0, completed: 0 };
+    }
+    return {
+      total: pianos.length,
+      top: pianos.filter(p => p && p.status === 'top').length,
+      proposed: pianos.filter(p => p && (p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== ''))).length,
+      completed: pianos.filter(p => p && p.status === 'completed').length,
+    };
+  }, [pianos]);
 
-  // Statistiques des tournées par établissement
-  const tourneesStats = {
-    'vincent-dindy': tournees.filter(t => t.etablissement === 'vincent-dindy').length,
-    'orford': tournees.filter(t => t.etablissement === 'orford').length,
-  };
+  // Statistiques des tournées par établissement (avec protection)
+  const tourneesStats = useMemo(() => {
+    if (!tournees || !Array.isArray(tournees)) {
+      return { 'vincent-dindy': 0, 'orford': 0 };
+    }
+    return {
+      'vincent-dindy': tournees.filter(t => t && t.etablissement === 'vincent-dindy').length,
+      'orford': tournees.filter(t => t && t.etablissement === 'orford').length,
+    };
+  }, [tournees]);
 
   const getRowClass = (piano) => {
-    // Si Top → brun
+    // Priorité 1: Sélection (mauve)
+    if (selectedIds.has(piano.id)) return 'bg-purple-100';
+    
+    // Priorité 2: Haute priorité (ambre)
     if (piano.status === 'top') return 'bg-amber-200';
-    // Si complété → vert
-    if (piano.status === 'completed') return 'bg-green-200';
-    // Si dans la tournée OU proposed OU "À faire" rempli → JAUNE (tout pareil)
+    
+    // Priorité 3: Travail complété (vert)
+    if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
+    
+    // Priorité 4: Travail en cours (bleu) - NOUVEAU
+    if (piano.status === 'work_in_progress' ||
+        ((piano.travail || piano.observations) && !piano.is_work_completed)) {
+      return 'bg-blue-200';
+    }
+    
+    // Priorité 5: Proposé ou à faire (jaune)
     if (
       (selectedTourneeId && isPianoInTournee(piano, selectedTourneeId)) ||
       piano.status === 'proposed' ||
       (piano.aFaire && piano.aFaire.trim() !== '')
     ) return 'bg-yellow-200';
-    // Si coché (pour actions batch) → mauve léger
-    if (selectedIds.has(piano.id)) return 'bg-purple-100';
-    // Sinon → normal (blanc)
+    
+    // Défaut: Blanc
     return 'bg-white';
   };
 
-  // ============ VUE TECHNICIEN (mobile-friendly) ============
-  if (currentView === 'technicien') {
-    if (loading) {
-      return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-lg text-gray-600">Chargement des pianos...</div>
-          </div>
-        </div>
-      );
+  // Fonction helper pour icône sync status
+  const getSyncStatusIcon = (syncStatus) => {
+    switch (syncStatus) {
+      case 'pending': return '⏳';
+      case 'pushed': return '✅';
+      case 'modified': return '🔄';
+      case 'error': return '⚠️';
+      default: return '';
+    }
+  };
+
+  // Fonction push vers Gazelle
+  const handlePushToGazelle = async () => {
+    if (readyForPushCount === 0) {
+      alert('Aucun piano prêt pour être envoyé à Gazelle.');
+      return;
     }
 
-    if (error) {
-      return (
-        <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-          <div className="text-center bg-white p-6 rounded-lg shadow">
-            <div className="text-red-600 mb-2">⚠️ Erreur</div>
-            <div className="text-sm text-gray-600">{error}</div>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-            >
-              Réessayer
-            </button>
-          </div>
-        </div>
-      );
+    if (!confirm(`Envoyer ${readyForPushCount} piano(s) vers Gazelle?`)) {
+      return;
     }
+
+    setPushInProgress(true);
+
+    try {
+      const response = await fetch(`${API_URL}/api/vincent-dindy/push-to-gazelle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tournee_id: selectedTourneeId || null,
+          technician_id: 'usr_HcCiFk7o0vZ9xAI0', // Nick par défaut
+          dry_run: false
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`✅ ${result.pushed_count}/${result.total_pianos} piano(s) envoyé(s) avec succès!`);
+        await loadPianosFromAPI(); // Recharger pour mettre à jour sync_status
+      } else {
+        alert(`⚠️ ${result.pushed_count || 0}/${result.total_pianos || 0} piano(s) envoyé(s), ${result.error_count || 0} erreur(s).\n\nVoir console pour détails.`);
+        console.error('Erreurs push:', result.results?.filter(r => r.status === 'error') || []);
+      }
+    } catch (err) {
+      alert(`❌ Erreur lors du push: ${err.message}`);
+      console.error(err);
+    } finally {
+      setPushInProgress(false);
+    }
+  };
+
+  // Gestion des états de chargement et d'erreur (pour toutes les vues)
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg text-gray-600">Chargement des pianos...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="text-center bg-white p-6 rounded-lg shadow max-w-md w-full">
+          <div className="text-red-600 mb-2 text-lg font-semibold">⚠️ Erreur</div>
+          <div className="text-sm text-gray-600 mb-4">{error}</div>
+          <button
+            onClick={() => {
+              setError(null);
+              loadPianosFromAPI();
+            }}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ VUE TECHNICIEN (mobile-friendly) ============
+  if (currentView === 'technicien') {
 
     return (
       <div className="min-h-screen bg-gray-100">
@@ -664,41 +799,51 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
               <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
             </div>
           </div>
-          {/* Sélecteur d'établissement */}
-          <div className="flex gap-2 mb-2">
-            <button
-              onClick={() => setSelectedLocation('vincent-dindy')}
-              className={`flex-1 py-1 px-3 text-sm rounded ${
-                selectedLocation === 'vincent-dindy'
-                  ? 'bg-blue-500 text-white font-medium'
-                  : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']})</span>
-            </button>
-            <button
-              onClick={() => setSelectedLocation('orford')}
-              className={`flex-1 py-1 px-3 text-sm rounded ${
-                selectedLocation === 'orford'
-                  ? 'bg-blue-500 text-white font-medium'
-                  : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']})</span>
-            </button>
-          </div>
-          {/* Onglets */}
-          <div className="flex mt-2 text-xs">
-            {['nicolas', 'technicien'].map(view => (
+          {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
+          {!hideLocationSelector && (
+            <div className="flex gap-2 mb-2">
               <button
-                key={view}
-                onClick={() => setCurrentView(view)}
-                className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
+                onClick={() => setSelectedLocation('vincent-dindy')}
+                className={`flex-1 py-1 px-3 text-sm rounded ${
+                  selectedLocation === 'vincent-dindy'
+                    ? 'bg-blue-500 text-white font-medium'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
               >
-                {view === 'nicolas' ? 'Nick' : 'Technicien'}
+                Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']})</span>
               </button>
-            ))}
-          </div>
+              <button
+                onClick={() => setSelectedLocation('orford')}
+                className={`flex-1 py-1 px-3 text-sm rounded ${
+                  selectedLocation === 'orford'
+                    ? 'bg-blue-500 text-white font-medium'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']})</span>
+              </button>
+            </div>
+          )}
+          {/* Onglets - Masqué si hideNickView, on affiche seulement "Technicien" */}
+          {hideNickView ? (
+            <div className="flex mt-2 text-xs">
+              <div className="flex-1 py-2 bg-blue-500 text-white rounded text-center font-medium">
+                Technicien
+              </div>
+            </div>
+          ) : (
+            <div className="flex mt-2 text-xs">
+              {['nicolas', 'technicien'].map(view => (
+                <button
+                  key={view}
+                  onClick={() => setCurrentView(view)}
+                  className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
+                >
+                  {view === 'nicolas' ? 'Nick' : 'Technicien'}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Boutons de filtrage */}
           <div className="mt-2 flex gap-2">
             <button
@@ -741,7 +886,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
               return (
                 <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
                   piano.status === 'top' ? 'bg-amber-100' :
-                  piano.status === 'completed' ? 'bg-green-100' :
+                  (piano.status === 'completed' && piano.is_work_completed) ? 'bg-green-100' :
+                  (piano.status === 'work_in_progress' || ((piano.travail || piano.observations) && !piano.is_work_completed)) ? 'bg-blue-100' :
                   (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) ? 'bg-yellow-100' :
                   'bg-white'
                 }`}>
@@ -756,6 +902,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
                     </div>
                     <div className="flex items-center gap-2">
                       {piano.status === 'completed' && <span className="text-green-600">✓</span>}
+                      {piano.sync_status && (
+                        <span title={`Sync: ${piano.sync_status}`} className="text-base">
+                          {getSyncStatusIcon(piano.sync_status)}
+                        </span>
+                      )}
                       <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>
                         {mois === 999 ? '-' : `${mois}m`}
                       </span>
@@ -802,6 +953,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
                         />
                       </div>
 
+                      {/* Checkbox Travail complété */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`completed-${piano.id}`}
+                          checked={isWorkCompleted}
+                          onChange={(e) => setIsWorkCompleted(e.target.checked)}
+                          className="w-4 h-4"
+                        />
+                        <label htmlFor={`completed-${piano.id}`} className="font-medium text-sm">
+                          ✅ Travail complété (prêt pour Gazelle)
+                        </label>
+                      </div>
+
                       <button
                         onClick={() => saveTravail(piano.id)}
                         className="w-full bg-green-500 text-white py-3 rounded-lg font-medium active:bg-green-600"
@@ -819,34 +984,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
     );
   }
 
-  // ============ VUES PRÉPARATION ET VALIDATION ============
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-gray-600">Chargement des pianos...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center bg-white p-6 rounded-lg shadow">
-          <div className="text-red-600 mb-2">⚠️ Erreur</div>
-          <div className="text-sm text-gray-600">{error}</div>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
-          >
-            Réessayer
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  // ============ VUE NICOLAS (Gestion & Pianos) ============
+  // Si on arrive ici, c'est que currentView === 'nicolas' (ou autre vue non-technicien)
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       {/* Header */}
@@ -1154,6 +1293,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
             <button onClick={selectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☑ Tous</button>
             <button onClick={deselectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☐ Aucun</button>
 
+            {/* Bouton Push vers Gazelle */}
+            {readyForPushCount > 0 && (
+              <button
+                onClick={handlePushToGazelle}
+                className="px-4 py-2 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                disabled={pushInProgress}
+              >
+                {pushInProgress ? (
+                  '⏳ Envoi en cours...'
+                ) : (
+                  `📤 Envoyer à Gazelle (${readyForPushCount})`
+                )}
+              </button>
+            )}
+
             {selectedIds.size > 0 && (
               <>
                 <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
@@ -1196,6 +1350,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sync</th>
               {currentView === 'nicolas' && (
                 <>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
@@ -1235,6 +1390,15 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
                   <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
                   <td className={`px-3 py-3 text-sm font-medium ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
                     {mois === 999 ? '-' : mois}
+                  </td>
+
+                  {/* Colonne Sync Status */}
+                  <td className="px-3 py-3 text-sm">
+                    {piano.sync_status && (
+                      <span title={`Sync: ${piano.sync_status}`} className="text-lg">
+                        {getSyncStatusIcon(piano.sync_status)}
+                      </span>
+                    )}
                   </td>
 
                   {/* Colonnes pour l'onglet Nick */}
@@ -1291,25 +1455,43 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
                             value={notesInput}
                             onChange={(e) => setNotesInput(e.target.value)}
                             onBlur={async () => {
-                              setPianos(pianos.map(p =>
-                                p.id === piano.id ? { ...p, notes: notesInput } : p
-                              ));
-                              setEditingNotesId(null);
-                              const valueToSave = notesInput;
-                              setNotesInput('');
-                              await savePianoToAPI(piano.id, { notes: valueToSave });
+                              try {
+                                // Mapper notes vers observations (le backend attend observations, pas notes)
+                                const notesValue = notesInput.trim();
+                                setPianos(pianos.map(p =>
+                                  p.id === piano.id ? { 
+                                    ...p, 
+                                    notes: notesValue,
+                                    observations: notesValue // Synchroniser avec observations
+                                  } : p
+                                ));
+                                setEditingNotesId(null);
+                                setNotesInput('');
+                                // Sauvegarder avec observations (le backend n'accepte pas "notes")
+                                await savePianoToAPI(piano.id, { observations: notesValue });
+                              } catch (err) {
+                                console.error('Erreur sauvegarde notes:', err);
+                                alert(`Erreur lors de la sauvegarde: ${err.message}`);
+                                // Restaurer l'état d'édition en cas d'erreur
+                                setEditingNotesId(piano.id);
+                                setNotesInput(notesInput);
+                              }
                             }}
                             className="border rounded px-2 py-1 text-xs w-full"
-                            placeholder="Notes du technicien..."
+                            placeholder="Notes du technicien (accord, humidité...)"
                             rows="3"
                             autoFocus
                           />
                         ) : (
                           <span
                             className="text-xs cursor-text block whitespace-pre-wrap"
-                            onClick={() => { setEditingNotesId(piano.id); setNotesInput(piano.notes || ''); }}
+                            onClick={() => { 
+                              setEditingNotesId(piano.id); 
+                              // Utiliser observations si disponible, sinon notes (pour compatibilité)
+                              setNotesInput(piano.observations || piano.notes || ''); 
+                            }}
                           >
-                            {piano.notes || <span className="text-gray-400">Cliquer...</span>}
+                            {piano.observations || piano.notes || <span className="text-gray-400">Cliquer...</span>}
                           </span>
                         )}
                       </td>
@@ -1340,7 +1522,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas' }) => {
         <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
         <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
         <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
+        <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
         <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
+        <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
+        <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
+        <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
+        <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
       </div>
           </div>
         </div>

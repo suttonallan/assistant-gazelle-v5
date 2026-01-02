@@ -205,6 +205,8 @@ async def get_pianos(include_inactive: bool = False):
                 "aFaire": updates.get('a_faire', ''),
                 "travail": updates.get('travail', ''),
                 "observations": updates.get('observations', gz_piano.get('notes', '')),
+                "is_work_completed": updates.get('is_work_completed', False),  # Checkbox "Travail complété"
+                "sync_status": updates.get('sync_status', 'pending'),  # État de synchronisation avec Gazelle
                 "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
                 "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
                 "isInCsv": updates.get('is_in_csv', True),  # Flag inventaire CSV (True par défaut si non spécifié)
@@ -238,6 +240,8 @@ class PianoUpdate(BaseModel):
     travail: Optional[str] = None
     observations: Optional[str] = None
     isInCsv: Optional[bool] = None  # Flag d'inventaire
+    isWorkCompleted: Optional[bool] = None  # Checkbox "Travail complété"
+    isHidden: Optional[bool] = None  # Masquer complètement le piano
     updated_by: Optional[str] = None  # Email ou nom de l'utilisateur
 
 
@@ -321,11 +325,34 @@ async def update_piano(piano_id: str, update: PianoUpdate):
                 update_data['dernier_accord'] = value
             elif key == 'isInCsv':
                 update_data['is_in_csv'] = value
+            elif key == 'isWorkCompleted':
+                update_data['is_work_completed'] = value
+            elif key == 'isHidden':
+                update_data['is_hidden'] = value
             elif key == 'updated_by':
                 update_data['updated_by'] = value
             else:
                 # status, usage, travail, observations restent identiques
                 update_data[key] = value
+
+        # LOGIQUE DE TRANSITION AUTOMATIQUE D'ÉTAT
+        # Si travail ou observations remplis ET is_work_completed = false → work_in_progress
+        if ('travail' in update_data or 'observations' in update_data) and \
+           update_data.get('is_work_completed') == False and \
+           'status' not in update_data:
+            update_data['status'] = 'work_in_progress'
+
+        # Si is_work_completed = true → completed
+        if update_data.get('is_work_completed') == True and 'status' not in update_data:
+            update_data['status'] = 'completed'
+            # Enregistrer la date de complétion si pas déjà définie
+            if 'completed_at' not in update_data:
+                from datetime import datetime
+                update_data['completed_at'] = datetime.now().isoformat()
+            # TODO: Ajouter completed_in_tournee_id si tournée active
+
+        # Si piano était pushed et on modifie travail/observations → sync_status = modified
+        # (géré par trigger SQL auto_mark_sync_modified)
 
         success = storage.update_piano(piano_id, update_data)
         
@@ -607,3 +634,128 @@ async def get_tournees():
         logging.error(f"❌ {error_detail}")
         # Retourner liste vide plutôt qu'une erreur pour ne pas bloquer le frontend
         return {"tournees": [], "count": 0, "error": str(e)}
+
+
+# ==========================================
+# PUSH TO GAZELLE ENDPOINTS
+# ==========================================
+
+class PushToGazelleRequest(BaseModel):
+    """Modèle pour la requête de push vers Gazelle."""
+    piano_ids: Optional[List[str]] = None  # Liste explicite de pianos
+    tournee_id: Optional[str] = None       # Filtre par tournée
+    technician_id: str = "usr_HcCiFk7o0vZ9xAI0"  # Nick par défaut
+    dry_run: bool = False                   # Test sans push réel
+
+
+@router.post("/push-to-gazelle", response_model=Dict[str, Any])
+async def push_to_gazelle(request: PushToGazelleRequest):
+    """
+    Push manuel de pianos vers Gazelle.
+
+    Processus:
+    1. Identifie pianos prêts (completed + work_completed + sync pending/modified/error)
+    2. Pour chaque piano:
+       - Crée service note via push_technician_service_with_measurements
+       - Parse température/humidité automatiquement
+       - Crée measurement si détecté
+       - Met à jour sync_status dans Supabase
+    3. Retourne résumé avec succès/erreurs
+
+    Body:
+        {
+            "piano_ids": ["ins_abc123", ...],  // Optional
+            "tournee_id": "tournee_123",       // Optional
+            "technician_id": "usr_xyz",        // Default: Nick
+            "dry_run": false                   // Default: false
+        }
+
+    Response:
+        {
+            "success": true,
+            "pushed_count": 5,
+            "error_count": 1,
+            "total_pianos": 6,
+            "results": [...],
+            "summary": "5/6 pianos pushés avec succès, 1 erreur"
+        }
+    """
+    try:
+        from core.gazelle_push_service import GazellePushService
+        import logging
+
+        logging.info(f"📤 Push manuel vers Gazelle - piano_ids={request.piano_ids}, tournee_id={request.tournee_id}, dry_run={request.dry_run}")
+
+        service = GazellePushService()
+
+        result = service.push_batch(
+            piano_ids=request.piano_ids,
+            tournee_id=request.tournee_id,
+            technician_id=request.technician_id,
+            dry_run=request.dry_run
+        )
+
+        logging.info(f"✅ Push terminé: {result['summary']}")
+
+        return result
+
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors du push vers Gazelle: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.get("/pianos-ready-for-push", response_model=Dict[str, Any])
+async def get_pianos_ready_for_push(
+    tournee_id: Optional[str] = None,
+    limit: int = 100
+):
+    """
+    Récupère les pianos prêts à être pushés vers Gazelle.
+
+    Critères:
+    - status = 'completed'
+    - is_work_completed = true
+    - sync_status IN ('pending', 'modified', 'error')
+    - travail OR observations non NULL
+
+    Query params:
+        tournee_id (optional): Filtrer par tournée
+        limit (optional): Max pianos à retourner (défaut: 100)
+
+    Response:
+        {
+            "pianos": [...],
+            "count": 5,
+            "ready_for_push": true
+        }
+    """
+    try:
+        from core.gazelle_push_service import GazellePushService
+        import logging
+
+        logging.info(f"🔍 Recherche pianos prêts pour push - tournee_id={tournee_id}, limit={limit}")
+
+        service = GazellePushService()
+
+        pianos = service.get_pianos_ready_for_push(
+            tournee_id=tournee_id,
+            limit=limit
+        )
+
+        logging.info(f"✅ {len(pianos)} pianos prêts pour push")
+
+        return {
+            "pianos": pianos,
+            "count": len(pianos),
+            "ready_for_push": len(pianos) > 0
+        }
+
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la récupération des pianos prêts: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)

@@ -9,8 +9,20 @@ export default defineConfig({
     outDir: 'dist'
   },
   server: {
-    port: 5173,
-    open: false
+    port: 5174,
+    open: false,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => {
+          // Le backend FastAPI a les routes montées directement (sans /api)
+          // Donc /api/vincent-dindy/pianos devient /vincent-dindy/pianos
+          return path.replace(/^\/api/, '');
+        }
+      }
+    }
   }
 })
 
