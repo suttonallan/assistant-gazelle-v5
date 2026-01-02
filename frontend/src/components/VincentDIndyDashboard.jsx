@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
-import { API_URL } from '../utils/apiConfig';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
 const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, hideLocationSelector = false }) => {
   const [pianos, setPianos] = useState([]);
@@ -789,21 +789,19 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     return (
       <div className="min-h-screen bg-gray-100">
-        {/* Contenu principal - Pas de header en haut */}
-        <div className="p-4">
-          {/* Stats et contrôles - Intégré dans le flux normal */}
-          <div className="mb-4">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg font-semibold text-gray-800">Tournée</h2>
-              <div className="flex gap-2 text-xs">
-                {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
-                <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
-                <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
-              </div>
+        {/* Header compact */}
+        <div className="bg-white shadow p-3 sticky top-0 z-10">
+          <div className="flex justify-between items-center mb-2">
+            <h1 className="text-lg font-bold">🎹 Tournée</h1>
+            <div className="flex gap-2 text-xs">
+              {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
+              <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
+              <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
             </div>
-            {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
-            {!hideLocationSelector && (
-              <div className="flex gap-2 mb-3">
+          </div>
+          {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
+          {!hideLocationSelector && (
+            <div className="flex gap-2 mb-2">
               <button
                 onClick={() => setSelectedLocation('vincent-dindy')}
                 className={`flex-1 py-1 px-3 text-sm rounded ${
@@ -989,14 +987,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ VUE NICOLAS (Gestion & Pianos) ============
   // Si on arrive ici, c'est que currentView === 'nicolas' (ou autre vue non-technicien)
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Contenu principal - Pas de header en haut */}
-      <div className="p-4">
-        {/* Stats et contrôles - Intégré dans le flux normal */}
-        <div className="mb-4">
+    <div className="min-h-screen bg-gray-100 p-4">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow mb-4">
+        <div className="p-4 border-b">
           <div className="flex justify-between items-start mb-3">
             <div>
-              <h2 className="text-xl font-semibold text-gray-800">Tournées</h2>
+              <h1 className="text-2xl font-bold text-gray-800">🎹 Tournées</h1>
               <div className="flex gap-4 mt-2 text-sm flex-wrap">
                 <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
                 {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
@@ -1014,7 +1011,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
 
           {/* Sélecteur d'établissement */}
-          <div className="flex gap-3 mb-3">
+          <div className="flex gap-3">
             <button
               onClick={() => setSelectedLocation('vincent-dindy')}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -1036,9 +1033,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']} tournées)</span>
             </button>
           </div>
-
-          {/* Onglets */}
-          <div className="flex pt-3 mt-3">
+        </div>
+        
+        {/* Onglets */}
+        <div className="flex">
           {[
             { key: 'nicolas', label: 'Gestion & Pianos' },
             { key: 'technicien', label: 'Technicien' },
@@ -1055,12 +1053,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               {tab.label}
             </button>
           ))}
-          </div>
         </div>
+      </div>
 
-        {/* Vue Gestion & Pianos */}
-        {currentView === 'nicolas' && (
-          <div className="flex gap-4">
+      {/* Vue Gestion & Pianos */}
+      {currentView === 'nicolas' && (
+        <div className="flex gap-4">
           {/* Sidebar Tournées */}
           <div className="w-80 flex-shrink-0">
             <div className="bg-white rounded-lg shadow p-4 sticky top-4">
@@ -1332,8 +1330,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
         </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-lg shadow overflow-hidden">
+        {/* Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 border-b">
@@ -1514,26 +1512,26 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </tbody>
         </table>
 
-            {pianosFiltres.length === 0 && (
-              <div className="p-8 text-center text-gray-500">Aucun piano.</div>
-            )}
-          </div>
-
-            {/* Légende */}
-            <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
-              <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
-              <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
-              <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
-              <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
-              <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
-              <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
-              <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
-              <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
-              <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
-            </div>
-          </div>
+        {pianosFiltres.length === 0 && (
+          <div className="p-8 text-center text-gray-500">Aucun piano.</div>
         )}
       </div>
+
+      {/* Légende */}
+      <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
+        <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
+        <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
+        <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
+        <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
+        <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
+        <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
+        <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
+        <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
+        <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
+      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
