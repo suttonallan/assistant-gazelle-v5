@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-
-// Utiliser le proxy Vite en développement, ou l'URL de production
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 export default function DashboardHome({ currentUser }) {
   const [activities, setActivities] = useState([])
@@ -19,6 +17,7 @@ export default function DashboardHome({ currentUser }) {
     try {
       setLoading(true)
       // Le proxy Vite retire /api automatiquement, donc on utilise directement l'endpoint
+      // En développement, API_URL est vide, donc l'appel est relatif et passe par le proxy
       const response = await fetch(`${API_URL}/api/vincent-dindy/activity?limit=50`)
       const data = await response.json()
       setActivities(data.activities || [])

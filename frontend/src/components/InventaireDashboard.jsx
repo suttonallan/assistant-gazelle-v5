@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import ExportButton from './ExportButton'
 import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 // Configuration des techniciens - SOURCE DE VÉRITÉ CENTRALISÉE
 // IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets

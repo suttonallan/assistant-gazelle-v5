@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import SchedulerJournal from './SchedulerJournal'
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 export default function NotificationsPanel({ currentUser }) {
   const [activeTab, setActiveTab] = useState('deductions') // deductions, alerts, tasks

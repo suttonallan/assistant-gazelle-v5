@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 /**
  * Journal des Tâches Planifiées

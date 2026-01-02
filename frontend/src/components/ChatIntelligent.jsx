@@ -31,7 +31,7 @@ import {
 } from '@mui/icons-material';
 
 // Utiliser le proxy Vite en développement, ou l'URL de production
-const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+import { API_URL as API_BASE } from '../utils/apiConfig';
 
 /**
  * Chat Intelligent - Interface moderne pour la journée du technicien.

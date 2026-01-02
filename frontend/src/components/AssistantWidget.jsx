@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import ClickableMessage from './ClickableMessage'
 import ChatIntelligent from './ChatIntelligent'
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 /**
  * Widget Assistant Conversationnel

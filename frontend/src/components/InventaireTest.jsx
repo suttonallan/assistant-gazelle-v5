@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com')
+import { API_URL } from '../utils/apiConfig'
 
 function InventaireTest() {
   const [catalogue, setCatalogue] = useState([])

@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+import { API_URL } from '../utils/apiConfig';
 
 const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, hideLocationSelector = false }) => {
   const [pianos, setPianos] = useState([]);
