@@ -16,13 +16,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => {
-          // Le backend FastAPI a les routes montées directement (sans /api)
-          // Donc /api/vincent-dindy/pianos devient /vincent-dindy/pianos
-          const newPath = path.replace(/^\/api/, '');
-          console.log(`[Proxy] ${path} -> ${newPath}`);
-          return newPath;
-        }
+        rewrite: (path) => path.replace(/^\/api/, '')
       }
     }
   }
