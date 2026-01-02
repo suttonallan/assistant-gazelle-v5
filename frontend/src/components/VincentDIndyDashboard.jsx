@@ -1532,8 +1532,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
             </div>
           </div>
+          </div>
         )}
-        </div>
       </div>
     </div>
   );
