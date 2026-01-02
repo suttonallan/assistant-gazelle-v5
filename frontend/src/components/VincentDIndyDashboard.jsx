@@ -495,15 +495,26 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ GESTION DES TOURNÉES ============
   const loadTournees = async () => {
     try {
-      const saved = localStorage.getItem('tournees_accords')
-      if (saved) {
-        setTournees(JSON.parse(saved))
-      } else {
-        setTournees([])
+      // Charger depuis l'API Supabase au lieu de localStorage
+      const response = await fetch(`${API_URL}/api/vincent-dindy/tournees`)
+      if (!response.ok) {
+        throw new Error(`Erreur ${response.status}`)
       }
+      const data = await response.json()
+      setTournees(data.tournees || [])
     } catch (err) {
       console.error('Erreur chargement tournées:', err)
-      setTournees([])
+      // Fallback: essayer localStorage si l'API échoue
+      try {
+        const saved = localStorage.getItem('tournees_accords')
+        if (saved) {
+          setTournees(JSON.parse(saved))
+        } else {
+          setTournees([])
+        }
+      } catch (localErr) {
+        setTournees([])
+      }
     }
   };
 
