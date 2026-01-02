@@ -2,7 +2,8 @@
 console.log('[VincentDIndyDashboard] Fichier chargé - ligne 1');
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { submitReport, getReports, getPianos, updatePiano } from '../api/vincentDIndyApi';
+import { submitReport, getReports, getPianos, updatePiano, getTournees as getTourneesAPI, getActivity } from '../api/vincentDIndyApi';
+import VDI_Navigation from './vdi/VDI_Navigation';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
@@ -495,25 +496,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ GESTION DES TOURNÉES ============
   const loadTournees = async () => {
     try {
-      // Charger depuis l'API Supabase au lieu de localStorage
-      const response = await fetch(`${API_URL}/api/vincent-dindy/tournees`)
-      if (!response.ok) {
-        throw new Error(`Erreur ${response.status}`)
-      }
-      const data = await response.json()
-      setTournees(data.tournees || [])
+      // Utiliser le service API centralisé
+      const tournees = await getTourneesAPI(`${API_URL}/api`);
+      setTournees(tournees);
     } catch (err) {
-      console.error('Erreur chargement tournées:', err)
+      console.error('Erreur chargement tournées:', err);
       // Fallback: essayer localStorage si l'API échoue
       try {
-        const saved = localStorage.getItem('tournees_accords')
+        const saved = localStorage.getItem('tournees_accords');
         if (saved) {
-          setTournees(JSON.parse(saved))
+          setTournees(JSON.parse(saved));
         } else {
-          setTournees([])
+          setTournees([]);
         }
       } catch (localErr) {
-        setTournees([])
+        setTournees([]);
       }
     }
   };
@@ -799,31 +796,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   }
 
   // ============ NAVIGATION UNIFIÉE ============
-  // Pill buttons pour switcher entre vues (sauf si hideNickView)
-  const renderNavigation = () => {
-    if (hideNickView) return null; // Pas de navigation si vue forcée
-
-    return (
-      <div className="flex gap-2 mb-4">
-        {[
-          { key: 'nicolas', label: 'Gestion & Pianos' },
-          { key: 'technicien', label: 'Technicien' },
-        ].map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setCurrentView(tab.key); setSelectedIds(new Set()); }}
-            className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
-              currentView === tab.key
-                ? 'bg-blue-500 text-white shadow-sm'
-                : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-    );
-  };
+  // Composant externe pour la navigation (pill buttons)
 
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
@@ -831,7 +804,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return (
       <div className="min-h-screen bg-gray-100 p-4">
         {/* Navigation unifiée */}
-        {renderNavigation()}
+        <VDI_Navigation
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          setSelectedIds={setSelectedIds}
+          hideNickView={hideNickView}
+        />
 
         {/* Filtres compacts pour la vue technicien */}
         <div className="bg-white rounded-lg shadow p-3 mb-4">
@@ -976,7 +954,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       {/* Navigation unifiée */}
-      {renderNavigation()}
+      <VDI_Navigation
+        currentView={currentView}
+        setCurrentView={setCurrentView}
+        setSelectedIds={setSelectedIds}
+        hideNickView={hideNickView}
+      />
 
       {/* Vue Gestion & Pianos */}
       {currentView === 'nicolas' && (

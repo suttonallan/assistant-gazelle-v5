@@ -83,3 +83,27 @@ export const updatePiano = async (apiUrl, pianoId, updates) => {
   return response.json();
 };
 
+// ============ TOURNÉES API ============
+
+export const getTournees = async (apiUrl) => {
+  const response = await fetch(`${apiUrl}/vincent-dindy/tournees`);
+
+  if (!response.ok) {
+    throw new Error(`Erreur ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.tournees || [];
+};
+
+export const getActivity = async (apiUrl, limit = 50) => {
+  const response = await fetch(`${apiUrl}/vincent-dindy/activity?limit=${limit}`);
+
+  if (!response.ok) {
+    throw new Error(`Erreur ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.activity || [];
+};
+
