@@ -1060,7 +1060,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
         {/* Vue Gestion & Pianos */}
         {currentView === 'nicolas' && (
-        <div className="flex gap-4">
+          <div className="flex gap-4">
           {/* Sidebar Tournées */}
           <div className="w-80 flex-shrink-0">
             <div className="bg-white rounded-lg shadow p-4 sticky top-4">
