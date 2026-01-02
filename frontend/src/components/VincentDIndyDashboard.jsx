@@ -788,20 +788,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   if (currentView === 'technicien') {
 
     return (
-      <div className="min-h-screen bg-gray-100 p-4">
-        {/* Stats et contrôles - Simplifié, pas de header séparé */}
-        <div className="mb-4">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">Tournée</h2>
-            <div className="flex gap-2 text-xs">
-              {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
-              <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
-              <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
+      <div className="min-h-screen bg-gray-100">
+        {/* Contenu principal - Pas de header en haut */}
+        <div className="p-4">
+          {/* Stats et contrôles - Intégré dans le flux normal */}
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold text-gray-800">Tournée</h2>
+              <div className="flex gap-2 text-xs">
+                {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
+                <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
+                <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
+              </div>
             </div>
-          </div>
-          {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
-          {!hideLocationSelector && (
-            <div className="flex gap-2 mb-3">
+            {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
+            {!hideLocationSelector && (
+              <div className="flex gap-2 mb-3">
               <button
                 onClick={() => setSelectedLocation('vincent-dindy')}
                 className={`flex-1 py-1 px-3 text-sm rounded ${
@@ -987,12 +989,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ VUE NICOLAS (Gestion & Pianos) ============
   // Si on arrive ici, c'est que currentView === 'nicolas' (ou autre vue non-technicien)
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      {/* Stats et contrôles - Simplifié, pas de header séparé */}
-      <div className="mb-4">
-        <div className="flex justify-between items-start mb-3">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-800">Tournées</h2>
+    <div className="min-h-screen bg-gray-100">
+      {/* Contenu principal - Pas de header en haut */}
+      <div className="p-4">
+        {/* Stats et contrôles - Intégré dans le flux normal */}
+        <div className="mb-4">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-800">Tournées</h2>
               <div className="flex gap-4 mt-2 text-sm flex-wrap">
                 <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
                 {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
@@ -1034,7 +1038,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
 
           {/* Onglets */}
-          <div className="flex border-t pt-3 mt-3">
+          <div className="flex pt-3 mt-3">
           {[
             { key: 'nicolas', label: 'Gestion & Pianos' },
             { key: 'technicien', label: 'Technicien' },
