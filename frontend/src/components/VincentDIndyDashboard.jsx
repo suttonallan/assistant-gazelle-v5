@@ -7,7 +7,9 @@ import { submitReport, getReports, getPianos, updatePiano } from '../api/vincent
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
-const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, hideLocationSelector = false }) => {
+const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false }) => {
+  // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
+  // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -663,16 +665,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     };
   }, [pianos]);
 
-  // Statistiques des tournées par établissement (avec protection)
-  const tourneesStats = useMemo(() => {
-    if (!tournees || !Array.isArray(tournees)) {
-      return { 'vincent-dindy': 0, 'orford': 0 };
-    }
-    return {
-      'vincent-dindy': tournees.filter(t => t && t.etablissement === 'vincent-dindy').length,
-      'orford': tournees.filter(t => t && t.etablissement === 'orford').length,
-    };
-  }, [tournees]);
+  // Note: tourneesStats était affiché dans l'ancien header sticky, mais n'est plus nécessaire
+  // Si besoin futur, décommenter :
+  // const tourneesStats = useMemo(() => {
+  //   if (!tournees || !Array.isArray(tournees)) {
+  //     return { 'vincent-dindy': 0, 'orford': 0 };
+  //   }
+  //   return {
+  //     'vincent-dindy': tournees.filter(t => t && t.etablissement === 'vincent-dindy').length,
+  //     'orford': tournees.filter(t => t && t.etablissement === 'orford').length,
+  //   };
+  // }, [tournees]);
 
   const getRowClass = (piano) => {
     // Priorité 1: Sélection (mauve)
@@ -784,68 +787,44 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     );
   }
 
+  // ============ NAVIGATION UNIFIÉE ============
+  // Pill buttons pour switcher entre vues (sauf si hideNickView)
+  const renderNavigation = () => {
+    if (hideNickView) return null; // Pas de navigation si vue forcée
+
+    return (
+      <div className="flex gap-2 mb-4">
+        {[
+          { key: 'nicolas', label: 'Gestion & Pianos' },
+          { key: 'technicien', label: 'Technicien' },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setCurrentView(tab.key); setSelectedIds(new Set()); }}
+            className={`px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+              currentView === tab.key
+                ? 'bg-blue-500 text-white shadow-sm'
+                : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
 
     return (
-      <div className="min-h-screen bg-gray-100">
-        {/* Header compact */}
-        <div className="bg-white shadow p-3 sticky top-0 z-10">
-          <div className="flex justify-between items-center mb-2">
-            <h1 className="text-lg font-bold">🎹 Tournée</h1>
-            <div className="flex gap-2 text-xs">
-              {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded">{stats.top} Top</span>}
-              <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
-              <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} ✓</span>
-            </div>
-          </div>
-          {/* Sélecteur d'établissement - Masqué si hideLocationSelector */}
-          {!hideLocationSelector && (
-            <div className="flex gap-2 mb-2">
-              <button
-                onClick={() => setSelectedLocation('vincent-dindy')}
-                className={`flex-1 py-1 px-3 text-sm rounded ${
-                  selectedLocation === 'vincent-dindy'
-                    ? 'bg-blue-500 text-white font-medium'
-                    : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']})</span>
-              </button>
-              <button
-                onClick={() => setSelectedLocation('orford')}
-                className={`flex-1 py-1 px-3 text-sm rounded ${
-                  selectedLocation === 'orford'
-                    ? 'bg-blue-500 text-white font-medium'
-                    : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']})</span>
-              </button>
-            </div>
-          )}
-          {/* Onglets - Masqué si hideNickView, on affiche seulement "Technicien" */}
-          {hideNickView ? (
-            <div className="flex mt-2 text-xs">
-              <div className="flex-1 py-2 bg-blue-500 text-white rounded text-center font-medium">
-                Technicien
-              </div>
-            </div>
-          ) : (
-            <div className="flex mt-2 text-xs">
-              {['nicolas', 'technicien'].map(view => (
-                <button
-                  key={view}
-                  onClick={() => setCurrentView(view)}
-                  className={`flex-1 py-2 ${currentView === view ? 'bg-blue-500 text-white rounded' : 'text-gray-500'}`}
-                >
-                  {view === 'nicolas' ? 'Nick' : 'Technicien'}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Boutons de filtrage */}
-          <div className="mt-2 flex gap-2">
+      <div className="min-h-screen bg-gray-100 p-4">
+        {/* Navigation unifiée */}
+        {renderNavigation()}
+
+        {/* Filtres compacts pour la vue technicien */}
+        <div className="bg-white rounded-lg shadow p-3 mb-4">
+          <div className="flex gap-2 mb-2">
             <button
               onClick={() => setShowOnlyProposed(false)}
               className={`flex-1 py-1 px-2 text-xs rounded ${!showOnlyProposed ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
@@ -860,16 +839,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             </button>
           </div>
 
-          {/* Barre de recherche par local */}
-          <div className="mt-2">
-            <input
-              type="text"
-              placeholder="Rechercher par local (ex: 301)"
-              value={searchLocal}
-              onChange={(e) => setSearchLocal(e.target.value)}
-              className="w-full px-3 py-2 border rounded text-sm"
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Rechercher par local (ex: 301)"
+            value={searchLocal}
+            onChange={(e) => setSearchLocal(e.target.value)}
+            className="w-full px-3 py-2 border rounded text-sm"
+          />
         </div>
 
         {/* Liste accordéon */}
@@ -988,73 +964,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Si on arrive ici, c'est que currentView === 'nicolas' (ou autre vue non-technicien)
   return (
     <div className="min-h-screen bg-gray-100 p-4">
-      {/* Header */}
-      <div className="bg-white rounded-lg shadow mb-4">
-        <div className="p-4 border-b">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">🎹 Tournées</h1>
-              <div className="flex gap-4 mt-2 text-sm flex-wrap">
-                <span className="px-2 py-1 bg-gray-200 rounded">{stats.total} pianos</span>
-                {stats.top > 0 && <span className="px-2 py-1 bg-amber-200 rounded font-medium">{stats.top} Top</span>}
-                <span className="px-2 py-1 bg-yellow-200 rounded">{stats.proposed} à faire</span>
-                <span className="px-2 py-1 bg-green-200 rounded">{stats.completed} complétés</span>
-              </div>
-            </div>
-            <button
-              onClick={loadPianosFromAPI}
-              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 border rounded"
-              title="Rafraîchir les données depuis l'API"
-            >
-              🔄 Rafraîchir
-            </button>
-          </div>
-
-          {/* Sélecteur d'établissement */}
-          <div className="flex gap-3">
-            <button
-              onClick={() => setSelectedLocation('vincent-dindy')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                selectedLocation === 'vincent-dindy'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Vincent d'Indy <span className={`text-xs ml-1 ${selectedLocation === 'vincent-dindy' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['vincent-dindy']} tournées)</span>
-            </button>
-            <button
-              onClick={() => setSelectedLocation('orford')}
-              className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                selectedLocation === 'orford'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Orford <span className={`text-xs ml-1 ${selectedLocation === 'orford' ? 'opacity-90' : 'opacity-60'}`}>({tourneesStats['orford']} tournées)</span>
-            </button>
-          </div>
-        </div>
-        
-        {/* Onglets */}
-        <div className="flex">
-          {[
-            { key: 'nicolas', label: 'Gestion & Pianos' },
-            { key: 'technicien', label: 'Technicien' },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => { setCurrentView(tab.key); setSelectedIds(new Set()); }}
-              className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 ${
-                currentView === tab.key
-                  ? 'border-blue-500 text-blue-600 bg-blue-50'
-                  : 'border-transparent text-gray-500 hover:bg-gray-50'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Navigation unifiée */}
+      {renderNavigation()}
 
       {/* Vue Gestion & Pianos */}
       {currentView === 'nicolas' && (

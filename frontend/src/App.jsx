@@ -215,7 +215,11 @@ function App() {
         } else if (currentView === 'place-des-arts') {
           return <PlaceDesArtsDashboard currentUser={effectiveUser} />
         } else if (currentView === 'vincent-dindy-v7') {
-          return <VDIInventoryWrapper />
+          return (
+            <ErrorBoundary componentName="Vincent d'Indy">
+              <VincentDIndyDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         }
         // Par défaut: Inventaire
         return <NickDashboard currentUser={effectiveUser} />
@@ -240,8 +244,8 @@ function App() {
           )
         } else if (currentView === 'vincent-dindy-v7') {
           return (
-            <ErrorBoundary componentName="VDI V7">
-              <VDIInventoryWrapper />
+            <ErrorBoundary componentName="Vincent d'Indy">
+              <VincentDIndyDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'place-des-arts') {
@@ -340,14 +344,14 @@ function App() {
             </ErrorBoundary>
           )
         } else if (currentView === 'vincent-dindy-v7') {
-          // V7 Master Template (527 lignes) - Isolation via iframe
+          // Vincent d'Indy Dashboard (version restaurée, sans iframe)
           return (
-            <ErrorBoundary componentName="VDI V7">
-              <VDIInventoryWrapper />
+            <ErrorBoundary componentName="Vincent d'Indy">
+              <VincentDIndyDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else {
-          // Vincent d'Indy Dashboard avec ErrorBoundary
+          // Fallback: Vincent d'Indy Dashboard
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
               <VincentDIndyDashboard currentUser={effectiveUser} />
