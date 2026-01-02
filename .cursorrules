@@ -18,6 +18,7 @@ Finaliser les clients cliquables dans le chat assistant. Tous les détails sont 
 3. **Ne PAS utiliser d'emojis** sauf si explicitement demandé
 4. **Ne PAS modifier** les fichiers sans raison claire
 5. **Toujours vérifier** `docs/ETAT_SESSION_ACTUELLE.md` avant de commencer
+6. **Ne JAMAIS essayer de pusher avec git push** - L'utilisateur push toujours via l'application GitHub Desktop. Créer les commits, mais laisser l'utilisateur pusher.
 
 ## 📚 GESTION STRICTE DE LA DOCUMENTATION
 
@@ -138,4 +139,6 @@ CREATE TABLE IF NOT EXISTS...
 
 Copiez ce script et exécutez-le dans **Supabase Dashboard → SQL Editor**.
 ```
+
+
 
