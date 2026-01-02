@@ -18,7 +18,7 @@ export default function DashboardHome({ currentUser }) {
   const loadActivities = async () => {
     try {
       setLoading(true)
-      // Utiliser /api pour que le proxy Vite redirige vers le backend
+      // Le proxy Vite retire /api automatiquement, donc on utilise directement l'endpoint
       const response = await fetch(`${API_URL}/api/vincent-dindy/activity?limit=50`)
       const data = await response.json()
       setActivities(data.activities || [])

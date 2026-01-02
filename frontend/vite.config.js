@@ -19,7 +19,9 @@ export default defineConfig({
         rewrite: (path) => {
           // Le backend FastAPI a les routes montées directement (sans /api)
           // Donc /api/vincent-dindy/pianos devient /vincent-dindy/pianos
-          return path.replace(/^\/api/, '');
+          const newPath = path.replace(/^\/api/, '');
+          console.log(`[Proxy] ${path} -> ${newPath}`);
+          return newPath;
         }
       }
     }

@@ -790,7 +790,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return (
       <div className="min-h-screen bg-gray-100">
         {/* Header compact */}
-        <div className="bg-white shadow p-3 sticky top-0 z-10">
+        <div className="bg-white shadow p-3 sticky top-[60px] z-10">
           <div className="flex justify-between items-center mb-2">
             <h1 className="text-lg font-bold">🎹 Tournée</h1>
             <div className="flex gap-2 text-xs">
