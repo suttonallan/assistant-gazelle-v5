@@ -1332,8 +1332,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </div>
         </div>
 
-        {/* Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+            {/* Table */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 border-b">
@@ -1514,10 +1514,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           </tbody>
         </table>
 
-        {pianosFiltres.length === 0 && (
-          <div className="p-8 text-center text-gray-500">Aucun piano.</div>
-        )}
-      </div>
+            {pianosFiltres.length === 0 && (
+              <div className="p-8 text-center text-gray-500">Aucun piano.</div>
+            )}
+          </div>
 
             {/* Légende */}
             <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
@@ -1531,7 +1531,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
               <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
             </div>
-          </div>
           </div>
         )}
       </div>
