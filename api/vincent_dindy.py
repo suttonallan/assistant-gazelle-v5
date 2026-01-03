@@ -613,6 +613,7 @@ class TourneeUpdate(BaseModel):
     date_fin: Optional[str] = None
     status: Optional[str] = None
     technicien_responsable: Optional[str] = None
+    technicien_assigne: Optional[str] = None
     piano_ids: Optional[List[str]] = None
     notes: Optional[str] = None
 
@@ -786,6 +787,8 @@ async def update_tournee(tournee_id: str, update: TourneeUpdate):
             update_data["status"] = update.status
         if update.technicien_responsable is not None:
             update_data["technicien_responsable"] = update.technicien_responsable
+        if update.technicien_assigne is not None:
+            update_data["technicien_assigne"] = update.technicien_assigne
         if update.piano_ids is not None:
             update_data["piano_ids"] = update.piano_ids  # Passer directement la liste
         if update.notes is not None:

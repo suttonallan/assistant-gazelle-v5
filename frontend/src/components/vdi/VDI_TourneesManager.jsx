@@ -54,12 +54,16 @@ export default function VDI_TourneesManager({
 
   const handleTechnicienChange = async (e, tourneeId) => {
     e.stopPropagation();
-    const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-    const updated = existing.map(t =>
-      t.id === tourneeId ? { ...t, technicien_assigne: e.target.value } : t
-    );
-    localStorage.setItem('tournees_accords', JSON.stringify(updated));
-    await loadTournees();
+    const newTechnicien = e.target.value;
+
+    try {
+      // Utiliser handleUpdateTournee pour persister dans Supabase
+      await handleUpdateTournee(tourneeId, { technicien_assigne: newTechnicien });
+      console.log(`✅ Technicien assigné: ${newTechnicien} → tournée ${tourneeId}`);
+    } catch (err) {
+      console.error('❌ Erreur assignation technicien:', err);
+      alert(`Erreur lors de l'assignation: ${err.message}`);
+    }
   };
 
   /**
