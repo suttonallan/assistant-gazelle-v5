@@ -158,16 +158,18 @@ def complete_service_session(
             print(f"⚠️  Client ID non configuré pour '{institution}', utilisation du défaut Vincent d'Indy: {client_id}")
 
     # Résoudre technician_id depuis Supabase si non fourni
-    # NOTE: Si technician_id reste None, Gazelle créera l'événement sans technicien assigné
+    # Fallback: utiliser le compte par défaut (Nick) si technicien non trouvé
+    FALLBACK_TECHNICIAN_ID = "usr_HcCiFk7o0vZ9xAI0"  # Nick - compte par défaut
+    
     if not technician_id and technician_name:
         try:
             technician_id = get_technician_gazelle_id(technician_name)
             print(f"✅ Technicien '{technician_name}' trouvé dans Supabase: {technician_id}")
         except ValueError as e:
-            # Warning mais pas d'erreur - on continue sans technicien
+            # Fallback: utiliser le compte par défaut pour que la note soit quand même enregistrée
             print(f"⚠️  Technicien '{technician_name}' non trouvé dans Supabase: {e}")
-            print(f"   L'événement sera créé sans technicien assigné")
-            technician_id = None
+            print(f"   Fallback: utilisation du compte par défaut ({FALLBACK_TECHNICIAN_ID})")
+            technician_id = FALLBACK_TECHNICIAN_ID
 
     # Initialiser le résultat
     result = {
@@ -197,6 +199,13 @@ def complete_service_session(
         print(f"Notes: {service_notes[:100]}...")
         print(f"{'='*60}\n")
 
+        # Ajouter signature automatique du technicien au début de la note
+        # Format: **Technicien : [NOM]**\n\n[NOTE_ORIGINALE]
+        if technician_name:
+            service_notes_with_signature = f"**Technicien : {technician_name}**\n\n{service_notes}"
+        else:
+            service_notes_with_signature = service_notes
+
         # Initialiser le client Gazelle
         token_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'gazelle_token.json')
         gazelle_client = GazelleAPIClient(token_path=token_path)
@@ -210,7 +219,7 @@ def complete_service_session(
         # NOTE: On ne passe PAS client_id - push_technician_service le récupère depuis le piano
         push_result = gazelle_client.push_technician_service_with_measurements(
             piano_id=piano_id,
-            technician_note=service_notes,
+            technician_note=service_notes_with_signature,  # Note avec signature automatique
             service_type=service_type,
             technician_id=technician_id,
             client_id=None,  # Laisser récupérer depuis le piano (plus fiable)
