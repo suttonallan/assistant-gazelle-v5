@@ -89,15 +89,19 @@ class SupabaseStorage:
             if response.status_code == 200:
                 data = response.json()
                 # Convertir en dictionnaire avec piano_id comme clé
+                # Filtrer les items qui n'ont pas de piano_id
                 return {
                     item['piano_id']: item
                     for item in data
+                    if item.get('piano_id')  # Vérifier que piano_id existe
                 }
             
             return {}
             
         except Exception as e:
             print(f"⚠️ Erreur lors de la récupération des pianos: {e}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
             return {}
     
     def update_piano(self, piano_id: str, updates: Dict[str, Any]) -> bool:

@@ -181,3 +181,5 @@ Le problème principal est que **nous ne savons pas comment associer un service 
 
 Une fois cette étape résolue, Gazelle devrait mettre à jour automatiquement `calculatedLastService` quand un service d'accord est complété dans un événement.
 
+
+

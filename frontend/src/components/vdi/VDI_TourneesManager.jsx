@@ -5,11 +5,12 @@
  * - Formulaire de création de tournée
  * - Liste des tournées avec sélection
  * - Assignation technicien
- * - Actions: Activer, Terminer, Supprimer
+ * - Actions: Activer, Terminer, Supprimer, Mettre en pause
+ * - Édition inline: Nom, Dates, Notes
  * - Affichage du nombre de pianos par tournée
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function VDI_TourneesManager({
   // État
@@ -26,11 +27,15 @@ export default function VDI_TourneesManager({
   handleDeleteTournee,
   handleActiverTournee,
   handleConclureTournee,
+  handleUpdateTournee,
   loadTournees,
 
   // Utilitaires
   getTourneePianos
 }) {
+  // État local pour l'édition inline
+  const [editingField, setEditingField] = useState(null); // Format: `${tourneeId}_${fieldName}`
+  const [editValue, setEditValue] = useState('');
 
   const handleTourneeClick = (tournee) => {
     console.log('\n🎹 CLIC SUR TOURNÉE:', tournee.nom);
@@ -55,6 +60,64 @@ export default function VDI_TourneesManager({
     );
     localStorage.setItem('tournees_accords', JSON.stringify(updated));
     await loadTournees();
+  };
+
+  /**
+   * Démarre l'édition inline d'un champ
+   */
+  const startEditing = (tourneeId, fieldName, currentValue) => {
+    setEditingField(`${tourneeId}_${fieldName}`);
+    setEditValue(currentValue || '');
+  };
+
+  /**
+   * Annule l'édition en cours
+   */
+  const cancelEditing = () => {
+    setEditingField(null);
+    setEditValue('');
+  };
+
+  /**
+   * Sauvegarde la valeur éditée via l'API
+   */
+  const saveEdit = async (tourneeId, fieldName) => {
+    try {
+      // Construire l'objet de mise à jour avec le champ modifié
+      const updates = { [fieldName]: editValue };
+
+      // Appeler handleUpdateTournee qui gère l'API et le refresh
+      await handleUpdateTournee(tourneeId, updates);
+
+      // Réinitialiser l'état d'édition
+      setEditingField(null);
+      setEditValue('');
+    } catch (err) {
+      console.error('Erreur sauvegarde édition:', err);
+      // L'erreur est déjà gérée par handleUpdateTournee (alert)
+    }
+  };
+
+  /**
+   * Gère le onBlur pour sauvegarder automatiquement
+   */
+  const handleBlur = async (tourneeId, fieldName) => {
+    if (editingField === `${tourneeId}_${fieldName}`) {
+      await saveEdit(tourneeId, fieldName);
+    }
+  };
+
+  /**
+   * Gère la touche Enter pour sauvegarder
+   */
+  const handleKeyDown = async (e, tourneeId, fieldName) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await saveEdit(tourneeId, fieldName);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditing();
+    }
   };
 
   return (
@@ -104,10 +167,58 @@ export default function VDI_TourneesManager({
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <h4 className="font-semibold text-sm">{tournee.nom}</h4>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {new Date(tournee.date_debut).toLocaleDateString('fr-CA')}
-                    </p>
+                    {/* Nom éditable */}
+                    {editingField === `${tournee.id}_nom` ? (
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => handleBlur(tournee.id, 'nom')}
+                        onKeyDown={(e) => handleKeyDown(e, tournee.id, 'nom')}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-sm border border-blue-400 rounded px-1 w-full"
+                        autoFocus
+                      />
+                    ) : (
+                      <h4
+                        className="font-semibold text-sm cursor-text hover:bg-blue-100 rounded px-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (selectedTourneeId === tournee.id) {
+                            startEditing(tournee.id, 'nom', tournee.nom);
+                          }
+                        }}
+                      >
+                        {tournee.nom}
+                      </h4>
+                    )}
+
+                    {/* Date début éditable */}
+                    {editingField === `${tournee.id}_date_debut` ? (
+                      <input
+                        type="date"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => handleBlur(tournee.id, 'date_debut')}
+                        onKeyDown={(e) => handleKeyDown(e, tournee.id, 'date_debut')}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs text-gray-600 border border-blue-400 rounded px-1 mt-1 w-full"
+                        autoFocus
+                      />
+                    ) : (
+                      <p
+                        className="text-xs text-gray-600 mt-1 cursor-text hover:bg-blue-100 rounded px-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (selectedTourneeId === tournee.id) {
+                            startEditing(tournee.id, 'date_debut', tournee.date_debut);
+                          }
+                        }}
+                      >
+                        {new Date(tournee.date_debut).toLocaleDateString('fr-CA')}
+                      </p>
+                    )}
+
                     <p className="text-xs text-blue-600 mt-1">
                       {getTourneePianos(tournee.id).length} pianos
                     </p>
@@ -124,7 +235,70 @@ export default function VDI_TourneesManager({
                 </div>
 
                 {selectedTourneeId === tournee.id && (
-                  <div className="mt-2 pt-2 border-t space-y-1">
+                  <div className="mt-2 pt-2 border-t space-y-2">
+                    {/* Date fin éditable */}
+                    <div>
+                      <label className="text-xs text-gray-600">Date fin:</label>
+                      {editingField === `${tournee.id}_date_fin` ? (
+                        <input
+                          type="date"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleBlur(tournee.id, 'date_fin')}
+                          onKeyDown={(e) => handleKeyDown(e, tournee.id, 'date_fin')}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full text-xs border border-blue-400 rounded px-1"
+                          autoFocus
+                        />
+                      ) : (
+                        <p
+                          className="text-xs cursor-text hover:bg-blue-100 rounded px-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditing(tournee.id, 'date_fin', tournee.date_fin || '');
+                          }}
+                        >
+                          {tournee.date_fin ? new Date(tournee.date_fin).toLocaleDateString('fr-CA') : 'Non définie'}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Notes éditables */}
+                    <div>
+                      <label className="text-xs text-gray-600">Notes:</label>
+                      {editingField === `${tournee.id}_notes` ? (
+                        <textarea
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleBlur(tournee.id, 'notes')}
+                          onKeyDown={(e) => {
+                            // Ctrl+Enter ou Cmd+Enter pour sauvegarder
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              saveEdit(tournee.id, 'notes');
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              cancelEditing();
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full text-xs border border-blue-400 rounded px-1 py-1"
+                          rows="2"
+                          autoFocus
+                        />
+                      ) : (
+                        <p
+                          className="text-xs cursor-text hover:bg-blue-100 rounded px-1 py-1 min-h-[2rem] whitespace-pre-wrap"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditing(tournee.id, 'notes', tournee.notes || '');
+                          }}
+                        >
+                          {tournee.notes || 'Cliquez pour ajouter des notes...'}
+                        </p>
+                      )}
+                    </div>
+
                     {/* Assignation technicien */}
                     <div>
                       <select
@@ -141,7 +315,7 @@ export default function VDI_TourneesManager({
                     </div>
 
                     {/* Boutons d'action */}
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {tournee.status === 'planifiee' && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleActiverTournee(tournee.id); }}
@@ -151,12 +325,24 @@ export default function VDI_TourneesManager({
                         </button>
                       )}
                       {tournee.status === 'en_cours' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleConclureTournee(tournee.id); }}
-                          className="flex-1 px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs"
-                        >
-                          ✓ Terminer
-                        </button>
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUpdateTournee(tournee.id, { status: 'planifiee' });
+                            }}
+                            className="flex-1 px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 text-xs"
+                            title="Mettre la tournée en pause (retour à planifiée)"
+                          >
+                            ⏸️ Pause
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleConclureTournee(tournee.id); }}
+                            className="flex-1 px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200 text-xs"
+                          >
+                            ✓ Terminer
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteTournee(tournee.id); }}

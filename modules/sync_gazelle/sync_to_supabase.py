@@ -443,7 +443,9 @@ class GazelleToSupabaseSync:
                             # CORRECT: Gazelle retourne du VRAI UTC (le 'Z' est fiable)
                             # L'API affiche 09:15 à l'écran (Toronto) et retourne 14:15Z dans l'API (UTC)
                             # On stocke tel quel, sans double conversion.
-                            dt_utc = dt.fromisoformat(start_time)
+                            # fromisoformat() ne supporte pas 'Z', il faut le remplacer par '+00:00'
+                            start_time_fixed = start_time.replace('Z', '+00:00') if start_time else start_time
+                            dt_utc = dt.fromisoformat(start_time_fixed)
 
                             appointment_date = dt_utc.date().isoformat()
                             appointment_time = dt_utc.time().isoformat()

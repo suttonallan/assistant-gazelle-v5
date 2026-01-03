@@ -158,53 +158,78 @@ class GazelleAPIClient:
     def _execute_query(self, query: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Exécute une requête GraphQL.
-        
+
         Args:
             query: Requête GraphQL (string)
             variables: Variables pour la requête (dict optionnel)
-            
+
         Returns:
             Réponse JSON de l'API
-            
+
         Raises:
             ConnectionError: Si l'API retourne une erreur
         """
         # Skip expiration check - token is valid
         # if self._is_token_expired(self.token_data):
         #     self._refresh_token()
-        
+
         headers = {
             'Authorization': f"Bearer {self.token_data['access_token']}",
             'Content-Type': 'application/json'
         }
-        
+
         payload = {
             'query': query,
             'variables': variables or {}
         }
-        
+
         try:
             response = requests.post(API_URL, json=payload, headers=headers)
-            
+
             # Skip 401 handling - use token as-is per user request
             # if response.status_code == 401:
             #     print("⚠️ Token invalide, rafraîchissement...")
             #     self._refresh_token()
             #     headers['Authorization'] = f"Bearer {self.token_data['access_token']}"
             #     response = requests.post(API_URL, json=payload, headers=headers)
-            
+
+            # DETAILED ERROR LOGGING: Log response status and body for debugging
+            if response.status_code != 200:
+                print(f"❌ Gazelle API Error - Status {response.status_code}")
+                print(f"   URL: {API_URL}")
+                print(f"   Response Headers: {dict(response.headers)}")
+                print(f"   Response Body: {response.text[:1000]}")  # First 1000 chars
+
             response.raise_for_status()
-            
+
             result = response.json()
-            
+
             # Vérifier les erreurs GraphQL
             if 'errors' in result:
+                print(f"❌ GraphQL Errors detected:")
+                for idx, err in enumerate(result['errors'], 1):
+                    print(f"   Error {idx}: {err.get('message', 'Unknown error')}")
+                    if 'locations' in err:
+                        print(f"      Locations: {err['locations']}")
+                    if 'path' in err:
+                        print(f"      Path: {err['path']}")
+                    if 'extensions' in err:
+                        print(f"      Extensions: {err['extensions']}")
+
                 error_messages = [err.get('message', 'Unknown error') for err in result['errors']]
                 raise ValueError(f"Erreurs GraphQL: {', '.join(error_messages)}")
-            
+
             return result
-            
+
         except requests.exceptions.RequestException as e:
+            print(f"❌ Request Exception during Gazelle API call:")
+            print(f"   Exception type: {type(e).__name__}")
+            print(f"   Exception message: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   Response status: {e.response.status_code}")
+                print(f"   Response body: {e.response.text[:1000]}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
             raise ConnectionError(f"Erreur lors de l'appel API: {e}")
     
     def get_clients(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -817,7 +842,10 @@ class GazelleAPIClient:
 
     def update_piano_last_tuned_date(self, piano_id: str, last_tuned_date: Optional[str] = None) -> Dict[str, Any]:
         """
-        Met à jour la date du dernier accord (last_tuned_date) d'un piano dans Gazelle.
+        Met à jour la date du dernier accord (manualLastService) d'un piano dans Gazelle.
+
+        NOTE: Gazelle utilise 'manualLastService' pour la date du dernier accord manuel.
+              Cette fonction met à jour ce champ dans le piano.
 
         Args:
             piano_id: ID du piano dans Gazelle
@@ -831,25 +859,29 @@ class GazelleAPIClient:
         if not last_tuned_date:
             last_tuned_date = datetime.now().date().isoformat()
 
+        # Correct mutation syntax per Gazelle schema:
+        # updatePiano(id: String!, input: PrivatePianoInput!)
+        # Field name is 'manualLastService' not 'lastTunedDate'
         mutation = """
-        mutation UpdatePianoLastTunedDate(
-            $pianoId: ID!
-            $lastTunedDate: CoreDate!
+        mutation UpdatePianoManualLastService(
+            $pianoId: String!
+            $manualLastService: CoreDate!
         ) {
             updatePiano(
+                id: $pianoId
                 input: {
-                    id: $pianoId
-                    lastTunedDate: $lastTunedDate
+                    manualLastService: $manualLastService
                 }
             ) {
                 piano {
                     id
-                    lastTunedDate
+                    manualLastService
+                    eventLastService
                     calculatedLastService
                 }
-                errors {
-                    field
-                    message
+                mutationErrors {
+                    fieldName
+                    messages
                 }
             }
         }
@@ -857,7 +889,7 @@ class GazelleAPIClient:
 
         variables = {
             "pianoId": piano_id,
-            "lastTunedDate": last_tuned_date
+            "manualLastService": last_tuned_date
         }
 
         result = self._execute_query(mutation, variables)
@@ -866,17 +898,24 @@ class GazelleAPIClient:
             raise ValueError("Erreur lors de la mise à jour du piano")
 
         update_result = result.get("data", {}).get("updatePiano", {})
-        errors = update_result.get("errors", [])
+        mutation_errors = update_result.get("mutationErrors", [])
 
-        if errors:
-            error_messages = [e.get("message", "Erreur inconnue") for e in errors]
+        if mutation_errors:
+            error_messages = []
+            for e in mutation_errors:
+                field = e.get('fieldName', '')
+                messages = e.get('messages', [])
+                if messages:
+                    error_messages.append(f"{field}: {', '.join(messages)}")
+                else:
+                    error_messages.append(f"{field}: Erreur inconnue")
             raise ValueError(f"Erreurs lors de la mise à jour: {', '.join(error_messages)}")
 
         piano = update_result.get("piano")
         if not piano:
             raise ValueError("Aucun piano retourné par l'API")
 
-        print(f"✅ Piano mis à jour: {piano.get('id')} - lastTunedDate: {piano.get('lastTunedDate')}")
+        print(f"✅ Piano mis à jour: {piano.get('id')} - manualLastService: {piano.get('manualLastService')}")
         return piano
 
     def push_technician_service(
@@ -1248,9 +1287,12 @@ class GazelleAPIClient:
     ) -> Dict[str, Any]:
         """
         Push service note avec parsing automatique de température/humidité.
-        
-        Crée une note de service et crée automatiquement une mesure si température/humidité détectée.
-        
+
+        CRITICAL: Cette fonction effectue le pipeline complet de push vers Gazelle:
+        1. Met à jour le champ "Last Tuned" du piano dans Gazelle
+        2. Crée une note de service dans l'historique Gazelle
+        3. Parse température/humidité et crée une mesure si détectée
+
         Args:
             event_date: Date ISO de l'événement (utilisée pour l'historique Gazelle)
                        Si None, utilise maintenant. Si fournie, utilise cette date
@@ -1261,30 +1303,71 @@ class GazelleAPIClient:
             {
                 "service_note": {...},      # Event from push_technician_service
                 "measurement": {...} | None, # Created measurement or None
-                "parsed_values": {...} | None # Parsed temp/humidity or None
+                "parsed_values": {...} | None, # Parsed temp/humidity or None
+                "last_tuned_updated": bool # True if Last Tuned was updated
             }
         """
-        # 1. Create service note (always)
-        service_note = self.push_technician_service(
-            piano_id=piano_id,
-            technician_note=technician_note,
-            service_type=service_type,
-            technician_id=technician_id,
-            client_id=client_id,
-            event_date=event_date
-        )
+        from datetime import datetime
 
-        # 2. Parse for measurements
+        # Extract date for Last Tuned update
+        if event_date:
+            # Extract date portion from ISO datetime
+            last_tuned_date = event_date.split('T')[0]
+        else:
+            last_tuned_date = datetime.now().date().isoformat()
+
+        # 1. CRITICAL: Update "Last Tuned" field in Gazelle piano record
+        last_tuned_updated = False
+        try:
+            print(f"🔄 Updating Last Tuned date for piano {piano_id} to {last_tuned_date}...")
+            self.update_piano_last_tuned_date(
+                piano_id=piano_id,
+                last_tuned_date=last_tuned_date
+            )
+            last_tuned_updated = True
+            print(f"✅ Last Tuned date updated successfully")
+        except Exception as e:
+            # Log error but continue - service note is still valuable
+            print(f"⚠️  Failed to update Last Tuned date: {e}")
+            print(f"   Full error details: {str(e)}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
+
+        # 2. Create service note in Gazelle history (always)
+        service_note = None
+        try:
+            print(f"🔄 Creating service note in Gazelle history...")
+            service_note = self.push_technician_service(
+                piano_id=piano_id,
+                technician_note=technician_note,
+                service_type=service_type,
+                technician_id=technician_id,
+                client_id=client_id,
+                event_date=event_date
+            )
+            print(f"✅ Service note created: {service_note.get('id')}")
+        except Exception as e:
+            print(f"❌ CRITICAL: Failed to create service note: {e}")
+            print(f"   Full error details: {str(e)}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
+            raise  # Service note creation is critical - fail if it doesn't work
+
+        # 3. Parse for measurements
         parsed = self.parse_temperature_humidity(technician_note)
+        if parsed:
+            print(f"🔍 Parsed temperature/humidity: {parsed['temperature']}°C, {parsed['humidity']}%")
+        else:
+            print(f"ℹ️  No temperature/humidity detected in notes")
 
-        # 3. Create measurement if found
+        # 4. Create measurement if found
         measurement = None
         if parsed:
             try:
-                from datetime import datetime
                 # Use event_date if provided, otherwise today
                 measurement_date = event_date.split('T')[0] if event_date else None
 
+                print(f"🔄 Creating measurement in Gazelle...")
                 measurement = self.create_piano_measurement(
                     piano_id=piano_id,
                     temperature=parsed['temperature'],
@@ -1295,11 +1378,15 @@ class GazelleAPIClient:
             except Exception as e:
                 # Log warning but don't fail service note creation
                 print(f"⚠️  Failed to create measurement: {e}")
+                print(f"   Full error details: {str(e)}")
+                import traceback
+                print(f"   Traceback: {traceback.format_exc()}")
 
         return {
             "service_note": service_note,
             "measurement": measurement,
-            "parsed_values": parsed
+            "parsed_values": parsed,
+            "last_tuned_updated": last_tuned_updated
         }
 
     def get_users(self, limit: int = 100) -> List[Dict[str, Any]]:

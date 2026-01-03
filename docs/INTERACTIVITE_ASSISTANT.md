@@ -89,3 +89,5 @@ Boutons d'action pour chaque appointment :
 **Statut :** ✅ Interactivité de base implémentée
 **Prochaine étape :** Tester avec des appointments réels et affiner l'UX
 
+
+

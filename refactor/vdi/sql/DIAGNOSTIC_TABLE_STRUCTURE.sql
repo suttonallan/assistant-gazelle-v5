@@ -48,3 +48,5 @@ AND i.indisprimary;
 SELECT COUNT(*) as total_rows
 FROM public.vincent_dindy_piano_updates;
 
+
+

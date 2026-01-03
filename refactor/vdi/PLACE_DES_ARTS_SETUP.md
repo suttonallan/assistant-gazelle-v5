@@ -67,3 +67,5 @@ Une fois configuré, l'inventaire Place des Arts:
 3. Vérifier que les pianos récupérés sont bien ceux de Place des Arts
 4. Utiliser le composant `PDAInventoryTable` dans l'interface
 
+
+

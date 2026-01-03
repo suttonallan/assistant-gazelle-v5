@@ -663,6 +663,40 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
+  /**
+   * Fonction générique pour mettre à jour une tournée
+   * Utilise l'API REST Supabase pour persister les changements
+   *
+   * @param {string} tourneeId - ID de la tournée à modifier
+   * @param {object} updates - Objet contenant les champs à mettre à jour
+   *                           Exemples: { nom: "...", status: "...", notes: "...", etc. }
+   */
+  const handleUpdateTournee = async (tourneeId, updates) => {
+    try {
+      console.log(`🔄 Mise à jour tournée ${tourneeId}:`, updates);
+
+      // Import de la fonction API
+      const { updateTournee } = await import('../api/vincentDIndyApi');
+
+      // Appel API REST pour persister dans Supabase
+      await updateTournee(`${API_URL}/api`, tourneeId, updates);
+
+      console.log('✅ Tournée mise à jour dans Supabase');
+
+      // Rafraîchir la liste des tournées depuis l'API
+      await loadTournees();
+
+      // Toast de succès (simple pour l'instant, peut être amélioré avec une lib de toast)
+      const updateSummary = Object.keys(updates).join(', ');
+      console.log(`✅ Tournée modifiée: ${updateSummary}`);
+
+    } catch (err) {
+      console.error('❌ Erreur mise à jour tournée:', err);
+      alert(`❌ Erreur lors de la mise à jour: ${err.message}`);
+      throw err; // Re-throw pour permettre la gestion d'erreur par le composant appelant
+    }
+  };
+
   // Calcul des stats avec protection contre les erreurs
   const stats = useMemo(() => {
     if (!pianos || !Array.isArray(pianos)) {
@@ -863,6 +897,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             handleDeleteTournee={handleDeleteTournee}
             handleActiverTournee={handleActiverTournee}
             handleConclureTournee={handleConclureTournee}
+            handleUpdateTournee={handleUpdateTournee}
             loadTournees={loadTournees}
             getTourneePianos={getTourneePianos}
           />

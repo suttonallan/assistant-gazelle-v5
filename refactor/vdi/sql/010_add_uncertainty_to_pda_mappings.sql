@@ -17,3 +17,5 @@ ADD COLUMN IF NOT EXISTS uncertainty_note TEXT;
 COMMENT ON COLUMN pda_piano_mappings.is_uncertain IS 'Flag indiquant si le mapping nécessite vérification par le gestionnaire';
 COMMENT ON COLUMN pda_piano_mappings.uncertainty_note IS 'Note du gestionnaire expliquant l''incertitude';
 
+
+
