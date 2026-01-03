@@ -1,21 +1,30 @@
-// LOG: Début du fichier VincentDIndyDashboard.jsx
-console.log('[VincentDIndyDashboard] Fichier chargé - ligne 1');
-
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { submitReport, getReports, getPianos, updatePiano, getTournees as getTourneesAPI, getActivity } from '../api/vincentDIndyApi';
+import {
+  submitReport,
+  getReports,
+  getPianos,
+  updatePiano,
+  getTournees as getTourneesAPI,
+  getActivity,
+  addPianoToTournee as addPianoAPI,
+  removePianoFromTournee as removePianoAPI,
+  createTournee,
+  deleteTournee,
+  updateTournee
+} from '../api/vincentDIndyApi';
 import VDI_Navigation from './vdi/VDI_Navigation';
 import VDI_TechnicianView from './vdi/VDI_TechnicianView';
 import VDI_TourneesManager from './vdi/VDI_TourneesManager';
 import VDI_ManagementView from './vdi/VDI_ManagementView';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'https://assistant-gazelle-v5-api.onrender.com');
 
 const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false }) => {
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // FORCE: démarrer avec false pour voir l'interface
   const [error, setError] = useState(null);
 
   // Si hideNickView est true, forcer la vue technicien et empêcher le changement
@@ -72,30 +81,31 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
+  // Charger les pianos depuis l'API Gazelle + Supabase overlays
   const loadPianosFromAPI = useCallback(async () => {
     try {
+      console.log('🔍 Chargement des pianos depuis API...');
       setLoading(true);
       setError(null);
-      console.log('🔄 Chargement des pianos depuis:', API_URL);
 
-      // Toujours charger TOUS les pianos (include_inactive=true)
-      // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/api/vincent-dindy/pianos?include_inactive=true`;
+      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true`;
+      console.log(`   URL: ${url}`);
+
       const response = await fetch(url);
-      const data = await response.json();
 
-      console.log('✅ Données reçues:', data);
-      console.log('📊 Nombre de pianos:', data.count || data.pianos?.length || 0);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
 
       if (data.error) {
         console.error('❌ Erreur API:', data.message);
         setError(data.message || 'Erreur lors du chargement des pianos');
         setPianos([]);
       } else {
+        console.log(`✅ ${data.pianos?.length || 0} pianos chargés`);
         setPianos(data.pianos || []);
-        if (data.debug) {
-          console.log('🔍 Debug:', data.debug);
-        }
       }
     } catch (err) {
       console.error('❌ Erreur lors du chargement des pianos:', err);
@@ -104,7 +114,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } finally {
       setLoading(false);
     }
-  }, []); // Pas de dépendances - API_URL est constant
+  }, [API_URL]);
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -161,6 +171,25 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (!tourneeId) return [];
     const tournee = tournees.find(t => t.id === tourneeId);
     return tournee?.piano_ids || [];
+  };
+
+  // Obtenir le nombre RÉEL de pianos actifs dans une tournée
+  // (basé sur les pianos visibles avec status 'proposed', 'work_in_progress', 'completed', etc.)
+  const getTourneePianosCount = (tourneeId) => {
+    if (!tourneeId) return 0;
+
+    // Compter les pianos qui sont:
+    // 1. Dans la liste piano_ids de la tournée
+    // 2. ET qui ont un status actif (pas 'normal')
+    const tourneePianoIds = getTourneePianos(tourneeId);
+
+    return pianos.filter(piano => {
+      const pianoId = piano.gazelleId || piano.id;
+      const isInTournee = tourneePianoIds.includes(pianoId);
+      const hasActiveStatus = piano.status && piano.status !== 'normal';
+
+      return isInTournee && hasActiveStatus;
+    }).length;
   };
 
   // Vérifier si un piano est dans une tournée - utilise UNIQUEMENT gazelleId
@@ -250,9 +279,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (filterEtage !== 'all' && currentView === 'nicolas') {
       const etageNum = parseInt(filterEtage);
       result = result.filter(p => {
-        if (!p.local) return false;
-        const match = p.local.match(/^\d/); // Premier chiffre
-        return match && parseInt(match[0]) === etageNum;
+        // Protection: vérifier que local existe et est une string
+        if (!p || !p.local || typeof p.local !== 'string') return false;
+        const localTrimmed = p.local.trim();
+        return localTrimmed.startsWith(etageNum.toString());
       });
     }
 
@@ -336,18 +366,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       console.log('   → Ajout/retrait à la tournée...');
       await togglePianoInTournee(piano);
 
-      // Recharger les tournées pour obtenir les données à jour
+      // Recharger les tournées pour obtenir les données à jour depuis l'API
       await loadTournees();
 
       // Resynchroniser selectedIds avec la tournée mise à jour
-      const tourneeData = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-      const currentTournee = tourneeData.find(t => t.id === selectedTourneeId);
-      if (currentTournee) {
-        // Les piano_ids sont des gazelleId, on les utilise directement
-        const tourneePianoIds = currentTournee.piano_ids || [];
-        console.log('   → Tournée mise à jour, pianos:', tourneePianoIds.length);
-        setSelectedIds(new Set(tourneePianoIds));
-      }
+      // NOTE: On ne peut pas utiliser l'état 'tournees' ici car setState est asynchrone
+      // On va attendre que loadTournees() termine et on resynchronisera dans un useEffect
+      // Pour l'instant, on vide la sélection pour éviter les incohérences
+      setSelectedIds(new Set());
     } else {
       // Pas de tournée sélectionnée, juste toggle la sélection visuelle
       console.log('   → Sélection visuelle seulement (pas de tournée)');
@@ -484,7 +510,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         try {
           console.log(`🚀 Pushing piano ${id} to Gazelle (auto-push after completion)...`);
           const response = await fetch(
-            `${API_URL}/api/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
+            `${API_URL}/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
             { method: 'POST' }
           );
 
@@ -521,42 +547,29 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ GESTION DES TOURNÉES ============
   const loadTournees = useCallback(async () => {
     try {
+      console.log('📋 Chargement des tournées depuis API...');
       // Utiliser le service API centralisé
-      const tournees = await getTourneesAPI(`${API_URL}/api`);
+      const tournees = await getTourneesAPI(`${API_URL}`);
+      console.log(`✅ ${tournees?.length || 0} tournées chargées`);
       setTournees(tournees);
     } catch (err) {
-      console.error('Erreur chargement tournées:', err);
-      // Fallback: essayer localStorage si l'API échoue
-      try {
-        const saved = localStorage.getItem('tournees_accords');
-      if (saved) {
-          setTournees(JSON.parse(saved));
-      } else {
-          setTournees([]);
-        }
-      } catch (localErr) {
-        setTournees([]);
-      }
+      console.error('❌ Erreur chargement tournées:', err);
+      setTournees([]);
     }
-  }, []); // Pas de dépendances - API_URL est constant
+  }, [API_URL]);
 
-  // Charger les pianos depuis l'API au montage du composant
+  // Charger les pianos et tournées depuis l'API au montage du composant - UNE SEULE FOIS
   useEffect(() => {
-    console.log('[VincentDIndyDashboard] useEffect de chargement initial déclenché');
-    try {
-      loadPianosFromAPI();
-      loadTournees();
-    } catch (e) {
-      console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
-      alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
-    }
-  }, [loadPianosFromAPI, loadTournees]); // Maintenant mémorisés avec useCallback
+    console.log('🚀 Chargement initial Vincent d\'Indy...');
+    loadPianosFromAPI();
+    loadTournees();
+  }, []); // Pas de dépendances - s'exécute UNE SEULE FOIS au montage
 
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
     const loadReadyCount = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
+        const response = await fetch(`${API_URL}/vincent-dindy/pianos-ready-for-push`);
         if (response.ok) {
           const data = await response.json();
           setReadyForPushCount(data.count || 0);
@@ -578,20 +591,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoUniqueId = getPianoUniqueId(piano);
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-      const updated = existing.map(t => {
-        if (t.id === selectedTourneeId) {
-          const currentPianos = t.piano_ids || [];
-          if (!currentPianos.includes(pianoUniqueId)) {
-            return { ...t, piano_ids: [...currentPianos, pianoUniqueId] };
-          }
-        }
-        return t;
-      });
-      localStorage.setItem('tournees_accords', JSON.stringify(updated));
-      await loadTournees();
+      console.log(`➕ Ajout du piano ${pianoUniqueId} à la tournée ${selectedTourneeId}...`)
+
+      // Ajouter via l'API Supabase
+      await addPianoAPI(`${API_URL}`, selectedTourneeId, pianoUniqueId)
+
+      console.log(`✅ Piano ${pianoUniqueId} ajouté à la tournée`)
+
+      // Recharger les tournées depuis l'API pour mettre à jour piano_ids
+      await loadTournees()
+
+      // Recharger les pianos pour refléter le nouveau status 'proposed'
+      await loadPianosFromAPI()
     } catch (err) {
-      console.error('Erreur ajout piano à tournée:', err);
+      console.error('❌ Erreur ajout piano à tournée:', err)
+      alert(`❌ Erreur: ${err.message}`)
     }
   };
 
@@ -602,18 +616,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoUniqueId = getPianoUniqueId(piano);
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-      const updated = existing.map(t => {
-        if (t.id === selectedTourneeId) {
-          const currentPianos = t.piano_ids || [];
-          return { ...t, piano_ids: currentPianos.filter(id => id !== pianoUniqueId) };
-        }
-        return t;
-      });
-      localStorage.setItem('tournees_accords', JSON.stringify(updated));
-      await loadTournees();
+      console.log(`➖ Retrait du piano ${pianoUniqueId} de la tournée ${selectedTourneeId}...`)
+
+      // Retirer via l'API Supabase
+      await removePianoAPI(`${API_URL}`, selectedTourneeId, pianoUniqueId)
+
+      console.log(`✅ Piano ${pianoUniqueId} retiré de la tournée`)
+
+      // Recharger les tournées depuis l'API pour mettre à jour piano_ids
+      await loadTournees()
+
+      // Recharger les pianos pour refléter le nouveau status 'normal'
+      await loadPianosFromAPI()
     } catch (err) {
-      console.error('Erreur retrait piano de tournée:', err);
+      console.error('❌ Erreur retrait piano de tournée:', err)
+      alert(`❌ Erreur: ${err.message}`)
     }
   };
 
@@ -637,29 +654,37 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
 
     try {
-      const nouvelleTournee = {
-        id: `tournee_${Date.now()}`,
-        ...newTournee,
-        etablissement: selectedLocation, // Ajouter l'établissement sélectionné
+      console.log('➕ Création d\'une nouvelle tournée...')
+
+      const nouvelleTourneeData = {
+        nom: newTournee.nom,
+        date_debut: newTournee.date_debut,
+        date_fin: newTournee.date_fin || null,
+        notes: newTournee.notes || '',
+        etablissement: selectedLocation,
         technicien_responsable: currentUser?.email || 'nicolas@example.com',
-        techniciens_assignes: [],
-        status: 'planifiee',
-        created_at: new Date().toISOString()
+        status: 'planifiee'
       }
 
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
-      existing.push(nouvelleTournee)
-      localStorage.setItem('tournees_accords', JSON.stringify(existing))
+      // Créer via l'API Supabase
+      const createdTournee = await createTournee(`${API_URL}`, nouvelleTourneeData)
 
-      alert('✅ Tournée créée avec succès!')
-      setNewTournee({ nom: '', date_debut: '', date_fin: '', notes: '' })
+      console.log('✅ Tournée créée dans Supabase:', createdTournee)
+
+      // Recharger les tournées depuis l'API
       await loadTournees()
 
-      // Sélectionner automatiquement la nouvelle tournée et vider la sélection
-      setSelectedTourneeId(nouvelleTournee.id)
+      // Réinitialiser le formulaire
+      setNewTournee({ nom: '', date_debut: '', date_fin: '', notes: '' })
+
+      // Sélectionner automatiquement la nouvelle tournée
+      setSelectedTourneeId(createdTournee.id)
       setSelectedIds(new Set())
+
+      alert('✅ Tournée créée avec succès!')
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur lors de la création de la tournée:', err)
+      alert(`❌ Erreur: ${err.message}`)
     }
   };
 
@@ -669,30 +694,45 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
-      const updated = existing.filter(t => t.id !== tourneeId)
-      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+      console.log(`🗑️ Suppression de la tournée ${tourneeId}...`)
 
-      alert('✅ Tournée supprimée')
+      // Supprimer via l'API Supabase
+      await deleteTournee(`${API_URL}`, tourneeId)
+
+      console.log(`✅ Tournée ${tourneeId} supprimée de Supabase`)
+
+      // Désélectionner si la tournée supprimée était sélectionnée
+      if (selectedTourneeId === tourneeId) {
+        setSelectedTourneeId(null)
+        setShowOnlySelected(false)
+      }
+
+      // Recharger les tournées depuis Supabase pour refléter la réalité de la BD
       await loadTournees()
+
+      // Recharger aussi les pianos pour refléter les statuts réinitialisés
+      await loadPianosFromAPI()
+
+      console.log(`✅ Tournée ${tourneeId} supprimée avec succès`)
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur lors de la suppression de la tournée:', err)
+      alert(`❌ Erreur lors de la suppression: ${err.message}`)
+      // En cas d'erreur, recharger depuis l'API pour restaurer l'état cohérent
+      await loadTournees()
     }
   };
 
   const handleActiverTournee = async (tourneeId) => {
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
-      const updated = existing.map(t => ({
-        ...t,
-        status: t.id === tourneeId ? 'en_cours' : (t.status === 'en_cours' ? 'planifiee' : t.status)
-      }))
-      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+      console.log(`▶️ Activation de la tournée ${tourneeId}...`)
+
+      // Utiliser handleUpdateTournee qui gère l'API Supabase
+      await handleUpdateTournee(tourneeId, { status: 'en_cours' })
 
       alert('✅ Tournée activée')
-      await loadTournees()
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur lors de l\'activation de la tournée:', err)
+      alert(`❌ Erreur: ${err.message}`)
     }
   };
 
@@ -702,17 +742,15 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
-      const updated = existing.map(t => ({
-        ...t,
-        status: t.id === tourneeId ? 'terminee' : t.status
-      }))
-      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+      console.log(`✓ Conclusion de la tournée ${tourneeId}...`)
+
+      // Utiliser handleUpdateTournee qui gère l'API Supabase
+      await handleUpdateTournee(tourneeId, { status: 'terminee' })
 
       alert('✅ Tournée conclue')
-      await loadTournees()
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur lors de la conclusion de la tournée:', err)
+      alert(`❌ Erreur: ${err.message}`)
     }
   };
 
@@ -728,11 +766,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     try {
       console.log(`🔄 Mise à jour tournée ${tourneeId}:`, updates);
 
-      // Import de la fonction API
-      const { updateTournee } = await import('../api/vincentDIndyApi');
-
       // Appel API REST pour persister dans Supabase
-      await updateTournee(`${API_URL}/api`, tourneeId, updates);
+      await updateTournee(`${API_URL}`, tourneeId, updates);
 
       console.log('✅ Tournée mise à jour dans Supabase');
 
@@ -827,7 +862,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     setPushInProgress(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/vincent-dindy/push-to-gazelle`, {
+      const response = await fetch(`${API_URL}/vincent-dindy/push-to-gazelle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -855,15 +890,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   };
 
   // Gestion des états de chargement et d'erreur (pour toutes les vues)
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-gray-600">Chargement des pianos...</div>
-        </div>
-      </div>
-    );
-  }
+  // TEMPORAIREMENT DÉSACTIVÉ pour déboguer
+  // if (loading) {
+  //   return (
+  //     <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+  //       <div className="text-center">
+  //         <div className="text-lg text-gray-600">Chargement des pianos...</div>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   if (error) {
     return (
@@ -954,6 +990,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             handleUpdateTournee={handleUpdateTournee}
             loadTournees={loadTournees}
             getTourneePianos={getTourneePianos}
+            getTourneePianosCount={getTourneePianosCount}
           />
 
           {/* Zone principale - Management View */}
@@ -1008,6 +1045,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             isPianoInTournee={isPianoInTournee}
             filterEtage={filterEtage}
             setFilterEtage={setFilterEtage}
+            currentUser={currentUser}
           />
           </div>
         )}

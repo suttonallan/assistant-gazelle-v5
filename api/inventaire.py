@@ -244,23 +244,39 @@ async def get_all_techniciens_inventory():
         raise HTTPException(status_code=500, detail=f"Erreur récupération inventaire: {str(e)}")
 
 
-@router.get("/stock/{technicien}", response_model=Dict[str, Any])
-async def get_stock_technicien(technicien: str):
+@router.get("/stock/{technicien_id}", response_model=Dict[str, Any])
+async def get_stock_technicien(technicien_id: str):
     """
-    Récupère l'inventaire complet d'un technicien.
+    Récupère l'inventaire complet d'un technicien en utilisant son gazelle_user_id.
 
     Path params:
-        - technicien: Nom du technicien (ex: "Allan")
+        - technicien_id: gazelle_user_id du technicien (ex: "usr_HcCiFk7o0vZ9xAI0")
     """
     try:
         storage = get_supabase_storage()
-        inventaire = storage.get_inventaire_technicien(technicien)
+        
+        # 1. Récupérer le nom du technicien depuis la table users avec le gazelle_user_id
+        users = storage.get_data("users", filters={})
+        technicien_nom = None
+        for user in users:
+            if user.get("id") == technicien_id or user.get("external_id") == technicien_id:
+                technicien_nom = user.get("first_name")
+                break
+        
+        if not technicien_nom:
+            raise HTTPException(status_code=404, detail=f"Technicien avec ID {technicien_id} non trouvé")
+        
+        # 2. Récupérer l'inventaire avec le nom
+        inventaire = storage.get_inventaire_technicien(technicien_nom)
 
         return {
-            "technicien": technicien,
+            "technicien": technicien_nom,
+            "technicien_id": technicien_id,
             "inventaire": inventaire,
             "count": len(inventaire)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 

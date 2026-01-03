@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional
 import requests
+from api import technicians
 
 # Import des routes des modules
 from api.vincent_dindy import router as vincent_dindy_router
@@ -136,6 +137,7 @@ app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
 app.include_router(scheduler_router)
+app.include_router(technicians.router)
 
 
 @app.get("/")

@@ -210,6 +210,93 @@ class SupabaseStorage:
             return False
 
     # ============================================================
+    # Méthodes pour les rapports de techniciens
+    # ============================================================
+
+    def add_report(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ajoute un rapport de technicien dans Supabase.
+
+        Args:
+            report: Données du rapport à ajouter
+
+        Returns:
+            Rapport ajouté avec métadonnées
+        """
+        try:
+            # Créer le rapport avec métadonnées
+            report_with_metadata = {
+                "id": f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "submitted_at": datetime.now().isoformat(),
+                "status": "pending",
+                "report": report
+            }
+
+            # Insérer dans Supabase
+            url = f"{self.api_url}/technician_reports"
+            response = requests.post(url, headers=self._get_headers(), json=report_with_metadata)
+
+            if response.status_code in [200, 201]:
+                print(f"✅ Rapport {report_with_metadata['id']} sauvegardé dans Supabase")
+                return report_with_metadata
+            else:
+                error_msg = f"Erreur Supabase {response.status_code}: {response.text}"
+                print(f"❌ {error_msg}")
+                raise Exception(error_msg)
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de l'ajout du rapport: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def get_reports(self) -> List[Dict[str, Any]]:
+        """
+        Récupère tous les rapports de techniciens depuis Supabase.
+
+        Returns:
+            Liste des rapports
+        """
+        try:
+            url = f"{self.api_url}/technician_reports?select=*&order=submitted_at.desc"
+            response = requests.get(url, headers=self._get_headers())
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"❌ Erreur lors de la récupération des rapports: {response.status_code}")
+                return []
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération des rapports: {e}")
+            return []
+
+    def get_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère un rapport spécifique par son ID.
+
+        Args:
+            report_id: ID du rapport
+
+        Returns:
+            Rapport ou None si non trouvé
+        """
+        try:
+            url = f"{self.api_url}/technician_reports?id=eq.{report_id}&select=*"
+            response = requests.get(url, headers=self._get_headers())
+
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    return data[0]
+
+            return None
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération du rapport {report_id}: {e}")
+            return None
+
+    # ============================================================
     # Méthodes génériques pour toutes les tables Supabase
     # ============================================================
 

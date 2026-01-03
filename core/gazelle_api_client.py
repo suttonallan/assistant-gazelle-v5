@@ -1005,7 +1005,7 @@ class GazelleAPIClient:
         """
         
         # Construire l'input pour createEvent
-        # ESSENTIEL: title, start, duration, type, notes, clientId (si disponible), pianos
+        # ESSENTIEL: title, start, duration, type, notes, clientId, userId (si disponible), pianos
         event_input = {
             "title": title,
             "start": event_date,
@@ -1018,6 +1018,10 @@ class GazelleAPIClient:
         # Ajouter clientId si disponible (récupéré depuis le piano ou fourni)
         if client_id:
             event_input["clientId"] = client_id
+        
+        # Ajouter userId si fourni (technicien assigné)
+        if technician_id:
+            event_input["userId"] = technician_id
         
         variables = {
             "input": event_input

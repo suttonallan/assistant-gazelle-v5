@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+console.log('APP START - App.jsx');
+
+import { useState, useEffect, useRef } from 'react'
 import { Fab, Drawer, IconButton } from '@mui/material'
 import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import LoginScreen from './components/LoginScreen'
 import DashboardHome from './components/DashboardHome'
 import AlertesRV from './components/AlertesRV'
-import InventaireDashboard from './components/InventaireDashboard'
+import InventaireDashboard from './core-app/modules/inventaire/InventaireDashboard'
 import NotificationsPanel from './components/NotificationsPanel'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
@@ -88,6 +90,9 @@ function App() {
     return false // désactivé par défaut
   })
 
+  // useRef pour éviter la boucle infinie de redirection
+  const isMounted = useRef(false)
+
   // Charger l'utilisateur depuis localStorage au démarrage
   useEffect(() => {
     console.log('[App.jsx] useEffect chargement utilisateur - début');
@@ -153,35 +158,20 @@ function App() {
     setInstitutionsDropdownOpen(false)
   }, [effectiveRole])
 
-  // Initialiser la vue par défaut selon le rôle
-  // PROTECTION: Éviter les boucles de redirection
+  // Initialiser la vue par défaut selon le rôle - UNE SEULE FOIS au montage
   useEffect(() => {
-    console.log('[App.jsx] useEffect initialisation vue - effectiveRole:', effectiveRole, 'currentView:', currentView);
-    try {
-      if (effectiveRole === 'nick') {
-        // Nick démarre sur Inventaire (pas Dashboard)
-        if (currentView === 'dashboard') {
-          console.log('[App.jsx] Redirection Nick: dashboard -> inventaire');
-          setCurrentView('inventaire')
-        }
-      } else if (effectiveRole === 'louise') {
-        // Louise démarre sur Inventaire
-        if (currentView === 'dashboard' || !currentView) {
-          console.log('[App.jsx] Redirection Louise: dashboard/null -> inventaire');
-          setCurrentView('inventaire')
-        }
-      } else if (effectiveRole === 'jeanphilippe') {
-        // Jean-Philippe démarre sur Inventaire
-        if (currentView === 'dashboard' || !currentView) {
-          console.log('[App.jsx] Redirection Jean-Philippe: dashboard/null -> inventaire');
-          setCurrentView('inventaire')
-        }
-      }
-    } catch (e) {
-      console.error('[App.jsx] Erreur dans useEffect initialisation vue:', e);
-      alert(`Erreur dans initialisation vue: ${e.message}\n\nStack: ${e.stack}`);
+    // S'exécute UNE SEULE FOIS au montage initial
+    if (isMounted.current) return;
+    isMounted.current = true;
+
+    // Lire le rôle au moment du montage (pas de dépendance pour éviter boucle)
+    const role = simulatedRole || getUserRole(currentUser?.email);
+
+    // Redirection automatique pour certains rôles UNIQUEMENT au premier chargement
+    if (role === 'nick' || role === 'louise' || role === 'jeanphilippe') {
+      setCurrentView('inventaire')
     }
-  }, [effectiveRole, currentView])
+  }, [])
 
   // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
   const effectiveUser = simulatedRole ? {

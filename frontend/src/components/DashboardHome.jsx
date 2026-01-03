@@ -25,6 +25,8 @@ export default function DashboardHome({ currentUser }) {
     } catch (err) {
       console.error('Erreur chargement activités:', err)
       setError(err.message)
+      // Retourner un tableau vide pour éviter le crash de l'interface
+      setActivities([])
     } finally {
       setLoading(false)
     }

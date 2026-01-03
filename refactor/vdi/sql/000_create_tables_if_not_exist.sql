@@ -262,6 +262,43 @@ BEGIN
 END $$;
 
 -- ==========================================
+-- 4. TABLE: technician_reports
+-- ==========================================
+
+CREATE TABLE IF NOT EXISTS public.technician_reports (
+  id TEXT PRIMARY KEY,
+  submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processed')),
+  report JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index pour améliorer les performances de recherche
+CREATE INDEX IF NOT EXISTS idx_technician_reports_status ON public.technician_reports(status);
+CREATE INDEX IF NOT EXISTS idx_technician_reports_submitted_at ON public.technician_reports(submitted_at DESC);
+
+-- Commentaires pour la documentation
+COMMENT ON TABLE public.technician_reports IS 'Rapports soumis par les techniciens via Vincent d''Indy ou autres assistants';
+COMMENT ON COLUMN public.technician_reports.id IS 'ID unique du rapport (format: report_YYYYMMDD_HHMMSS)';
+COMMENT ON COLUMN public.technician_reports.submitted_at IS 'Date et heure de soumission du rapport';
+COMMENT ON COLUMN public.technician_reports.status IS 'Statut du rapport (pending, processed)';
+COMMENT ON COLUMN public.technician_reports.report IS 'Données complètes du rapport (format JSONB pour flexibilité)';
+
+-- RLS
+ALTER TABLE public.technician_reports ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'technician_reports' AND policyname = 'Enable read access for all users') THEN
+    EXECUTE 'CREATE POLICY "Enable read access for all users" ON public.technician_reports FOR SELECT USING (true)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'technician_reports' AND policyname = 'Enable insert for all users') THEN
+    EXECUTE 'CREATE POLICY "Enable insert for all users" ON public.technician_reports FOR INSERT WITH CHECK (true)';
+  END IF;
+END $$;
+
+-- ==========================================
 -- VALIDATION
 -- ==========================================
 
@@ -272,13 +309,14 @@ BEGIN
   SELECT COUNT(*) INTO table_count
   FROM pg_tables
   WHERE schemaname = 'public'
-  AND tablename IN ('tournees', 'tournee_pianos', 'vincent_dindy_piano_updates');
+  AND tablename IN ('tournees', 'tournee_pianos', 'vincent_dindy_piano_updates', 'technician_reports');
 
   RAISE NOTICE '✅ Migration 000 terminée:';
   RAISE NOTICE '   - % tables créées/vérifiées', table_count;
   RAISE NOTICE '   - tournees: structure tournées';
   RAISE NOTICE '   - tournee_pianos: relation many-to-many';
   RAISE NOTICE '   - vincent_dindy_piano_updates: états et notes pianos';
+  RAISE NOTICE '   - technician_reports: rapports de techniciens';
   RAISE NOTICE '';
   RAISE NOTICE '📝 Prochaine étape: Exécuter 011_add_sync_tracking.sql';
 END $$;

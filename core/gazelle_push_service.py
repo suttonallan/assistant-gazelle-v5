@@ -51,40 +51,45 @@ class GazellePushService:
             - sync_status IN ('pending', 'modified', 'error')
             - travail OR observations non NULL
         """
-        # Si piano_ids fourni, filtrer directement
-        if piano_ids:
-            query = """
-                SELECT
-                    piano_id, travail, observations, completed_in_tournee_id,
-                    sync_status, updated_at, a_faire, completed_at
-                FROM vincent_dindy_piano_updates
-                WHERE
-                    piano_id = ANY($1)
-                    AND status = 'completed'
-                    AND is_work_completed = true
-                    AND sync_status IN ('pending', 'modified', 'error')
-                    AND (travail IS NOT NULL OR observations IS NOT NULL)
-                ORDER BY
-                    CASE sync_status
-                        WHEN 'error' THEN 1
-                        WHEN 'modified' THEN 2
-                        WHEN 'pending' THEN 3
-                    END,
-                    updated_at DESC
-                LIMIT $2
-            """
-            result = self.supabase.client.rpc(
-                'execute_query',
-                {'query': query, 'params': [piano_ids, limit]}
-            ).execute()
-        else:
-            # Utiliser la fonction PostgreSQL get_pianos_ready_for_push
-            result = self.supabase.client.rpc(
-                'get_pianos_ready_for_push',
-                {'p_tournee_id': tournee_id, 'p_limit': limit}
-            ).execute()
+        # Construire la requête REST API Supabase
+        import requests
 
-        return result.data if result.data else []
+        url = f"{self.supabase.api_url}/vincent_dindy_piano_updates"
+
+        # Filtres de base (communs à tous les cas)
+        params = {
+            'status': 'eq.completed',
+            'is_work_completed': 'eq.true',
+            'sync_status': 'in.(pending,modified,error)',
+            'select': 'piano_id,travail,observations,completed_in_tournee_id,sync_status,updated_at,a_faire',
+            'limit': limit,
+            'order': 'updated_at.desc'
+        }
+
+        # Filtrer par piano_ids si fourni
+        if piano_ids:
+            # Convertir la liste en format Supabase: (id1,id2,id3)
+            ids_str = ','.join([f'"{pid}"' for pid in piano_ids])
+            params['piano_id'] = f'in.({ids_str})'
+        elif tournee_id:
+            # Filtrer par tournée
+            params['completed_in_tournee_id'] = f'eq.{tournee_id}'
+
+        # Filtrer: au moins travail OU observations doit être non-null
+        # Utiliser 'or' filter: https://postgrest.org/en/stable/api.html#operators
+        params['or'] = '(travail.not.is.null,observations.not.is.null)'
+
+        try:
+            response = requests.get(url, headers=self.supabase._get_headers(), params=params)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"⚠️ Erreur lors de la récupération des pianos prêts: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            print(f"⚠️ Exception lors de la récupération des pianos prêts: {e}")
+            return []
 
     def push_piano_to_gazelle(
         self,

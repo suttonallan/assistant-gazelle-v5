@@ -31,24 +31,19 @@ export default function VDI_TourneesManager({
   loadTournees,
 
   // Utilitaires
-  getTourneePianos
+  getTourneePianos,
+  getTourneePianosCount
 }) {
   // État local pour l'édition inline
   const [editingField, setEditingField] = useState(null); // Format: `${tourneeId}_${fieldName}`
   const [editValue, setEditValue] = useState('');
 
   const handleTourneeClick = (tournee) => {
-    console.log('\n🎹 CLIC SUR TOURNÉE:', tournee.nom);
-    console.log('   ID tournée:', tournee.id);
-    console.log('   Piano IDs stockés:', tournee.piano_ids);
-    console.log('   Nombre de pianos:', (tournee.piano_ids || []).length);
-
     setSelectedTourneeId(tournee.id);
     setShowOnlySelected(false);
 
     // VIDER les sélections - les checkboxes servent juste aux actions batch
     // Elles ne doivent PAS refléter les pianos de la tournée
-    console.log('   → Vidage de selectedIds (checkboxes)');
     setSelectedIds(new Set());
   };
 
@@ -59,9 +54,7 @@ export default function VDI_TourneesManager({
     try {
       // Utiliser handleUpdateTournee pour persister dans Supabase
       await handleUpdateTournee(tourneeId, { technicien_assigne: newTechnicien });
-      console.log(`✅ Technicien assigné: ${newTechnicien} → tournée ${tourneeId}`);
     } catch (err) {
-      console.error('❌ Erreur assignation technicien:', err);
       alert(`Erreur lors de l'assignation: ${err.message}`);
     }
   };
@@ -97,7 +90,6 @@ export default function VDI_TourneesManager({
       setEditingField(null);
       setEditValue('');
     } catch (err) {
-      console.error('Erreur sauvegarde édition:', err);
       // L'erreur est déjà gérée par handleUpdateTournee (alert)
     }
   };
@@ -144,7 +136,15 @@ export default function VDI_TourneesManager({
             value={newTournee.date_debut}
             onChange={(e) => setNewTournee({ ...newTournee, date_debut: e.target.value })}
             className="w-full px-3 py-2 border rounded-md text-sm mb-2"
+            placeholder="Date de début"
             required
+          />
+          <input
+            type="date"
+            value={newTournee.date_fin || ''}
+            onChange={(e) => setNewTournee({ ...newTournee, date_fin: e.target.value })}
+            className="w-full px-3 py-2 border rounded-md text-sm mb-2"
+            placeholder="Date de fin (optionnel)"
           />
           <button
             type="submit"
@@ -163,10 +163,10 @@ export default function VDI_TourneesManager({
               <div
                 key={tournee.id}
                 onClick={() => handleTourneeClick(tournee)}
-                className={`p-3 rounded-lg border-2 cursor-pointer transition-colors ${
+                className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
                   selectedTourneeId === tournee.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
+                    ? 'border-blue-600 bg-blue-50 shadow-md'
+                    : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm'
                 }`}
               >
                 <div className="flex justify-between items-start">
@@ -197,34 +197,60 @@ export default function VDI_TourneesManager({
                       </h4>
                     )}
 
-                    {/* Date début éditable */}
-                    {editingField === `${tournee.id}_date_debut` ? (
-                      <input
-                        type="date"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => handleBlur(tournee.id, 'date_debut')}
-                        onKeyDown={(e) => handleKeyDown(e, tournee.id, 'date_debut')}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs text-gray-600 border border-blue-400 rounded px-1 mt-1 w-full"
-                        autoFocus
-                      />
-                    ) : (
-                      <p
-                        className="text-xs text-gray-600 mt-1 cursor-text hover:bg-blue-100 rounded px-1"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (selectedTourneeId === tournee.id) {
-                            startEditing(tournee.id, 'date_debut', tournee.date_debut);
-                          }
-                        }}
-                      >
-                        {new Date(tournee.date_debut).toLocaleDateString('fr-CA')}
-                      </p>
-                    )}
+                    {/* Dates (début et fin) éditables */}
+                    <div className="text-xs text-gray-600 mt-1">
+                      {editingField === `${tournee.id}_date_debut` ? (
+                        <input
+                          type="date"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleBlur(tournee.id, 'date_debut')}
+                          onKeyDown={(e) => handleKeyDown(e, tournee.id, 'date_debut')}
+                          onClick={(e) => e.stopPropagation()}
+                          className="border border-blue-400 rounded px-1 w-full mb-1"
+                          autoFocus
+                        />
+                      ) : (
+                        <p
+                          className="cursor-text hover:bg-blue-100 rounded px-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedTourneeId === tournee.id) {
+                              startEditing(tournee.id, 'date_debut', tournee.date_debut);
+                            }
+                          }}
+                        >
+                          Début: {tournee.date_debut ? new Date(tournee.date_debut).toLocaleDateString('fr-CA') : '-'}
+                        </p>
+                      )}
+                      {editingField === `${tournee.id}_date_fin` ? (
+                        <input
+                          type="date"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={() => handleBlur(tournee.id, 'date_fin')}
+                          onKeyDown={(e) => handleKeyDown(e, tournee.id, 'date_fin')}
+                          onClick={(e) => e.stopPropagation()}
+                          className="border border-blue-400 rounded px-1 w-full"
+                          autoFocus
+                        />
+                      ) : (
+                        <p
+                          className="cursor-text hover:bg-blue-100 rounded px-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (selectedTourneeId === tournee.id) {
+                              startEditing(tournee.id, 'date_fin', tournee.date_fin);
+                            }
+                          }}
+                        >
+                          Fin: {tournee.date_fin ? new Date(tournee.date_fin).toLocaleDateString('fr-CA') : '-'}
+                        </p>
+                      )}
+                    </div>
 
                     <p className="text-xs text-blue-600 mt-1">
-                      {getTourneePianos(tournee.id).length} pianos
+                      {getTourneePianosCount(tournee.id)} pianos
                     </p>
                   </div>
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -333,10 +359,12 @@ export default function VDI_TourneesManager({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleUpdateTournee(tournee.id, { status: 'planifiee' });
+                              if (confirm('Mettre cette tournée en pause (retour à l\'état planifiée) ?')) {
+                                handleUpdateTournee(tournee.id, { status: 'planifiee' });
+                              }
                             }}
                             className="flex-1 px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 text-xs"
-                            title="Mettre la tournée en pause (retour à planifiée)"
+                            title="Mettre la tournée en pause (retour à l'état planifiée)"
                           >
                             ⏸️ Pause
                           </button>

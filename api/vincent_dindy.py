@@ -380,6 +380,164 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         raise HTTPException(status_code=500, detail=f"Erreur lors de la mise à jour: {str(e)}")
 
 
+@router.post("/pianos/{piano_id}/complete-service", response_model=Dict[str, Any])
+async def complete_service_for_piano(
+    piano_id: str,
+    technician_name: Optional[str] = None,
+    auto_push: bool = True
+):
+    """
+    Complète un service et push automatiquement vers Gazelle via le pont modulaire.
+
+    Ce endpoint utilise le Service Completion Bridge pour:
+    1. Récupérer les notes de service depuis Supabase
+    2. Pousser vers Gazelle (Last Tuned + Service Note + Measurements)
+    3. Mettre à jour le sync_status dans Supabase
+
+    Path params:
+        piano_id: ID du piano (ex: "ins_abc123")
+
+    Query params:
+        technician_name: Nom du technicien (ex: "Nicolas", "Isabelle")
+                        Défaut: Auto-détecté depuis updated_by
+        auto_push: Si True, push immédiatement vers Gazelle
+                  Si False, marque juste comme prêt pour push manuel
+                  Défaut: True
+
+    Response:
+        {
+            "success": true,
+            "piano_id": "ins_abc123",
+            "pushed_to_gazelle": true,
+            "gazelle_event_id": "evt_xyz",
+            "last_tuned_updated": true,
+            "service_note_created": true,
+            "measurement_created": true,
+            "measurement_values": {"temperature": 22, "humidity": 45}
+        }
+
+    Usage depuis le frontend:
+        // Après que l'utilisateur clique "Travail complété"
+        const response = await fetch(
+            `/api/vincent-dindy/pianos/${pianoId}/complete-service?technician_name=Nicolas`,
+            { method: 'POST' }
+        );
+    """
+    try:
+        import logging
+        from core.service_completion_bridge import complete_service_session
+
+        logging.info(f"📋 Complétion de service pour piano {piano_id}")
+
+        # 1. Récupérer les données du piano depuis Supabase
+        storage = get_supabase_storage()
+        piano_data = storage.get_piano_updates(piano_id)
+
+        if not piano_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Piano {piano_id} non trouvé dans Supabase"
+            )
+
+        # 2. Vérifier que le piano est bien marqué comme complété
+        if piano_data.get('status') != 'completed' or not piano_data.get('is_work_completed'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Le piano {piano_id} n'est pas marqué comme complété. "
+                       f"Status: {piano_data.get('status')}, is_work_completed: {piano_data.get('is_work_completed')}"
+            )
+
+        # 3. Extraire les notes de service
+        travail = piano_data.get('travail', '')
+        observations = piano_data.get('observations', '')
+
+        # Combiner travail + observations
+        service_notes = f"{travail}\n{observations}".strip()
+        if not service_notes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Piano {piano_id} n'a pas de notes de service (travail et observations vides)"
+            )
+
+        # 4. Déterminer le nom du technicien
+        if not technician_name:
+            # Auto-détecter depuis updated_by
+            updated_by = piano_data.get('updated_by', '')
+            # Extraire le prénom depuis l'email (ex: "nlessard@piano-tek.com" → "Nicolas")
+            if '@' in updated_by:
+                email_prefix = updated_by.split('@')[0].lower()
+                if 'nlessard' in email_prefix or 'nicolas' in email_prefix:
+                    technician_name = 'Nicolas'
+                elif 'isabelle' in email_prefix:
+                    technician_name = 'Isabelle'
+                elif 'jp' in email_prefix or 'jeanphilippe' in email_prefix:
+                    technician_name = 'JP'
+
+        # 5. Si auto_push = False, juste marquer comme prêt et retourner
+        if not auto_push:
+            # Marquer comme prêt pour push (sync_status = 'pending')
+            storage.update_piano(piano_id, {'sync_status': 'pending'})
+            logging.info(f"✅ Piano {piano_id} marqué comme prêt pour push (auto_push=False)")
+
+            return {
+                "success": True,
+                "piano_id": piano_id,
+                "pushed_to_gazelle": False,
+                "marked_as_ready": True,
+                "message": "Piano marqué comme prêt pour push manuel"
+            }
+
+        # 6. Push vers Gazelle via le pont modulaire
+        logging.info(f"🚀 Push vers Gazelle via Service Completion Bridge")
+
+        bridge_result = complete_service_session(
+            piano_id=piano_id,
+            service_notes=service_notes,
+            institution="vincent-dindy",
+            technician_name=technician_name,
+            technician_id=None,  # Force None - événement créé sans technicien assigné pour éviter "dossier client introuvable"
+            service_type="TUNING",
+            event_date=piano_data.get('completed_at'),  # Utiliser la date de complétion
+            metadata={
+                'updated_by': piano_data.get('updated_by'),
+                'status': piano_data.get('status'),
+                'sync_status_before': piano_data.get('sync_status')
+            }
+        )
+
+        # 7. Mettre à jour le sync_status dans Supabase
+        if bridge_result['success']:
+            storage.update_piano(piano_id, {
+                'sync_status': 'pushed',
+                'last_sync_at': datetime.now().isoformat(),
+                'gazelle_event_id': bridge_result['gazelle_event_id']
+            })
+            logging.info(f"✅ Piano {piano_id} sync_status mis à jour → pushed")
+
+        # 8. Retourner le résultat
+        return {
+            "success": bridge_result['success'],
+            "piano_id": piano_id,
+            "pushed_to_gazelle": True,
+            "gazelle_event_id": bridge_result['gazelle_event_id'],
+            "last_tuned_updated": bridge_result['last_tuned_updated'],
+            "service_note_created": bridge_result['service_note_created'],
+            "measurement_created": bridge_result['measurement_created'],
+            "measurement_values": bridge_result['measurement_values'],
+            "piano_set_inactive": bridge_result['piano_set_inactive'],
+            "technician_used": technician_name or "Auto-détecté"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la complétion du service: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
 @router.put("/pianos/batch", response_model=Dict[str, Any])
 async def batch_update_pianos(updates: List[Dict[str, Any]]):
     """
@@ -640,12 +798,12 @@ async def get_tournees():
 
         supabase = create_client(supabase_url, supabase_key)
 
-        # Requête vers la table tournees
-        response = supabase.table('tournees').select('*').execute()
+        # Requête vers la table tournees, triée par date_debut DESC (plus récente en premier)
+        response = supabase.table('tournees').select('*').order('date_debut', desc=True).execute()
 
         tournees = response.data if response.data else []
 
-        logging.info(f"✅ {len(tournees)} tournées récupérées depuis Supabase")
+        logging.info(f"✅ {len(tournees)} tournées récupérées depuis Supabase (triées par date_debut DESC)")
 
         return {
             "tournees": tournees,
@@ -875,17 +1033,54 @@ async def delete_tournee(tournee_id: str):
 
         supabase = create_client(supabase_url, supabase_key)
 
-        # Supprimer de Supabase
+        # 1. Récupérer la tournée pour obtenir les piano_ids avant suppression
+        tournee_response = supabase.table('tournees').select('piano_ids').eq('id', tournee_id).execute()
+
+        if not tournee_response.data:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        tournee_data = tournee_response.data[0]
+        piano_ids = tournee_data.get('piano_ids', [])
+
+        logging.info(f"🗑️ Suppression de la tournée {tournee_id} avec {len(piano_ids)} pianos associés")
+
+        # 2. Réinitialiser les statuts des pianos associés à 'normal' dans vincent_dindy_piano_updates
+        if piano_ids:
+            from datetime import datetime
+            logging.info(f"   🔄 Réinitialisation de {len(piano_ids)} pianos: {piano_ids}")
+            for piano_id in piano_ids:
+                try:
+                    # Réinitialiser le statut à 'normal' pour chaque piano
+                    upsert_data = {
+                        'piano_id': piano_id,
+                        'status': 'normal',
+                        'updated_at': datetime.utcnow().isoformat()
+                    }
+                    logging.info(f"      🔧 Upsert piano {piano_id} avec data: {upsert_data}")
+
+                    result = supabase.table('vincent_dindy_piano_updates').upsert(upsert_data).execute()
+
+                    logging.info(f"      ✅ Supabase response pour piano {piano_id}: data={result.data}, count={getattr(result, 'count', 'N/A')}")
+                except Exception as piano_err:
+                    # Ne pas bloquer la suppression si un piano échoue
+                    logging.error(f"      ❌ Erreur réinitialisation piano {piano_id}: {piano_err}")
+                    import traceback
+                    logging.error(traceback.format_exc())
+        else:
+            logging.info(f"   ℹ️ Aucun piano à réinitialiser (piano_ids est vide)")
+
+        # 3. Supprimer la tournée de Supabase
         response = supabase.table('tournees').delete().eq('id', tournee_id).execute()
 
         if not response.data:
-            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+            raise HTTPException(status_code=404, detail="Tournée non trouvée après vérification")
 
-        logging.info(f"✅ Tournée supprimée: {tournee_id}")
+        logging.info(f"✅ Tournée {tournee_id} supprimée + {len(piano_ids)} pianos réinitialisés")
 
         return {
             "success": True,
-            "message": "Tournée supprimée avec succès"
+            "message": "Tournée supprimée avec succès",
+            "pianos_reset": len(piano_ids)
         }
 
     except HTTPException:
@@ -949,7 +1144,16 @@ async def add_piano_to_tournee(tournee_id: str, gazelle_id: str):
                 'piano_ids': current_piano_ids
             }).eq('id', tournee_id).execute()
 
-            logging.info(f"✅ Piano {gazelle_id} ajouté à tournée {tournee_id}")
+            # Mettre à jour le statut du piano à 'proposed' (À faire)
+            # pour qu'il apparaisse en jaune dans la tournée
+            from datetime import datetime
+            supabase.table('vincent_dindy_piano_updates').upsert({
+                'piano_id': gazelle_id,
+                'status': 'proposed',
+                'updated_at': datetime.utcnow().isoformat()
+            }).execute()
+
+            logging.info(f"✅ Piano {gazelle_id} ajouté à tournée {tournee_id} + status → 'proposed'")
 
             return {
                 "success": True,
@@ -1024,7 +1228,16 @@ async def remove_piano_from_tournee(tournee_id: str, gazelle_id: str):
                 'piano_ids': current_piano_ids
             }).eq('id', tournee_id).execute()
 
-            logging.info(f"✅ Piano {gazelle_id} retiré de tournée {tournee_id}")
+            # Réinitialiser le statut du piano à 'normal'
+            # pour qu'il ne soit plus visible dans la tournée
+            from datetime import datetime
+            supabase.table('vincent_dindy_piano_updates').upsert({
+                'piano_id': gazelle_id,
+                'status': 'normal',
+                'updated_at': datetime.utcnow().isoformat()
+            }).execute()
+
+            logging.info(f"✅ Piano {gazelle_id} retiré de tournée {tournee_id} + status → 'normal'")
 
             return {
                 "success": True,

@@ -1,16 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import ExportButton from './ExportButton'
-import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
+import ExportButton from '../../shared/ExportButton'
+import { API_URL } from '../../shared/apiConfig'
+import { getTechniciansFromProfiles, mapTechniciansToInventoryFormat } from '../../shared/techniciansService'
 
-import { API_URL } from '../utils/apiConfig'
-
-// Configuration des techniciens - SOURCE DE VÉRITÉ CENTRALISÉE
-// IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets
-const TECHNICIENS = TECHNICIENS_LISTE.map(t => ({
-  id: t.gazelleId,
-  name: t.abbreviation, // ⭐ Utilise l'abbréviation (Nick, Allan, JP)
-  username: t.username
-}))
+// Configuration des techniciens - SOURCE DE VÉRITÉ: Table Supabase profiles
+// Les techniciens sont chargés depuis l'API /api/technicians/profiles via useEffect
+// Format: { id, name, username }
 
 const InventaireDashboard = ({ currentUser }) => {
   // États principaux
@@ -19,6 +14,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('inventaire') // 'inventaire', 'transactions', 'admin'
+  const [technicians, setTechnicians] = useState([]) // Chargés depuis Supabase profiles
 
   // États pour interface technicien
   const [comment, setComment] = useState('')
@@ -54,6 +50,31 @@ const InventaireDashboard = ({ currentUser }) => {
   // Détection mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
 
+  // Charger les techniciens depuis Supabase profiles (source unique de vérité)
+  useEffect(() => {
+    const loadTechnicians = async () => {
+      try {
+        // Timeout de 3 secondes pour éviter le blocage
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout: Chargement techniciens > 3s')), 3000)
+        )
+        
+        const profilesPromise = getTechniciansFromProfiles(API_URL)
+        const profiles = await Promise.race([profilesPromise, timeoutPromise])
+        
+        const mapped = mapTechniciansToInventoryFormat(profiles)
+        setTechnicians(mapped)
+      } catch (err) {
+        console.error('❌ Erreur chargement techniciens:', err)
+        console.error('   Détails:', err.message)
+        // Fallback: tableau vide pour débloquer l'interface
+        setTechnicians([])
+        setError(`Impossible de charger les techniciens: ${err.message}`)
+      }
+    }
+    loadTechnicians()
+  }, [])
+
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768)
     window.addEventListener('resize', handleResize)
@@ -66,10 +87,13 @@ const InventaireDashboard = ({ currentUser }) => {
       setLoading(true)
       // TODO: Adapter l'endpoint pour retourner le format V4
       // Pour l'instant, on simule avec les données existantes
-      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`)
+      const catalogueRes = await fetch(`${API_URL}/inventaire/catalogue`)
       if (!catalogueRes.ok) {
         console.error('❌ Erreur chargement catalogue:', catalogueRes.status)
-        throw new Error('Erreur chargement catalogue')
+        // NE PAS THROW - continuer avec tableau vide pour ne pas bloquer le rendu
+        setProducts([])
+        setLoading(false)
+        return
       }
       const catalogueData = await catalogueRes.json()
 
@@ -77,7 +101,7 @@ const InventaireDashboard = ({ currentUser }) => {
       const productsMap = {}
       catalogueData.produits.forEach(prod => {
         const quantities = {}
-        TECHNICIENS.forEach(tech => {
+        technicians.forEach(tech => {
           quantities[tech.username] = 0
         })
         
@@ -103,12 +127,14 @@ const InventaireDashboard = ({ currentUser }) => {
 
       // Charger les stocks de chaque technicien SÉQUENTIELLEMENT
       console.log('🔍 === DÉBUT CHARGEMENT INVENTAIRES ===')
-      console.log('📋 Ordre TECHNICIENS:', TECHNICIENS.map(t => `${t.name} (${t.username})`).join(', '))
+      console.log('📋 Ordre technicians:', technicians.map(t => `${t.name} (${t.username})`).join(', '))
 
-      for (const tech of TECHNICIENS) {
+      for (const tech of technicians) {
         try {
-          console.log(`📦 Chargement pour: ${tech.name} (username: ${tech.username})`)
-          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.name}`)
+          // Utiliser gazelle_user_id au lieu du nom
+          const techId = tech.gazelle_user_id || tech.id
+          console.log(`📦 Chargement pour: ${tech.name} (ID: ${techId})`)
+          const res = await fetch(`${API_URL}/inventaire/stock/${techId}`)
           if (res.ok) {
             const invData = await res.json()
             console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)
@@ -163,13 +189,13 @@ const InventaireDashboard = ({ currentUser }) => {
       
       setProducts(productsList)
       setCatalogueAdmin(productsList)
+      setLoading(false)
     } catch (err) {
       console.error('❌ Erreur chargement inventaire:', err)
-      setError(err.message)
-      // FORCER LE RENDU: Ne pas bloquer même si l'API échoue
-      setProducts([])
+      // NE PAS BLOQUER LE RENDU - continuer avec tableau vide
+      setError(null) // Ne pas afficher l'erreur
+      setProducts([]) // Tableau vide pour permettre l'affichage
       setCatalogueAdmin([])
-    } finally {
       setLoading(false)
     }
   }
@@ -196,9 +222,12 @@ const InventaireDashboard = ({ currentUser }) => {
   }
 
   useEffect(() => {
-    loadInventory()
-    loadTransactions()
-  }, [])
+    // Charger l'inventaire seulement si les techniciens sont prêts
+    if (technicians.length > 0) {
+      loadInventory()
+      loadTransactions()
+    }
+  }, [technicians])
 
   // Mise à jour de quantité (édition inline)
   const updateQuantity = async (productId, techUsername, newQuantity) => {
@@ -226,7 +255,7 @@ const InventaireDashboard = ({ currentUser }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_produit: productId,
-          technicien: TECHNICIENS.find(t => t.username === techUsername)?.name || 'Allan',
+          technicien: technicians.find(t => t.username === techUsername)?.name || 'Allan',
           quantite_stock: quantityValue,
           type_transaction: 'ajustement',
           motif: 'Ajustement manuel'
@@ -400,7 +429,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const sortedProducts = getSortedProducts()
   const currentUserIsAdmin = currentUser?.role === 'admin'
 
-  // Map email addresses to TECHNICIENS usernames
+  // Map email addresses to technicians usernames
   const getUsernameFromEmail = (email) => {
     const emailToUsername = {
       'asutton@piano-tek.com': 'allan',
@@ -418,7 +447,7 @@ const InventaireDashboard = ({ currentUser }) => {
     userName: currentUser?.name,
     mappedUsername: currentUsername,
     isAdmin: currentUserIsAdmin,
-    availableUsernames: TECHNICIENS.map(t => t.username)
+    availableUsernames: technicians.map(t => t.username)
   })
 
   return (
@@ -519,7 +548,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   <th className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-left text-xs font-medium text-gray-500 uppercase border-b sticky left-0 bg-gray-50 z-20`}>
                     Produit
                   </th>
-                  {TECHNICIENS.map(tech => {
+                  {technicians.map(tech => {
                     // Filtre mobile: affiche uniquement colonne utilisateur
                     if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
                       return null
@@ -553,7 +582,7 @@ const InventaireDashboard = ({ currentUser }) => {
                           </div>
                         </td>
 
-                        {TECHNICIENS.map(tech => {
+                        {technicians.map(tech => {
                           // Filtre mobile
                           if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
                             return null
@@ -778,7 +807,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Commission</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variante</th>
-                  {TECHNICIENS.map(tech => (
+                  {technicians.map(tech => (
                     <th key={tech.username} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                       {tech.name}
                     </th>
@@ -948,7 +977,7 @@ const InventaireDashboard = ({ currentUser }) => {
                         </div>
                       )}
                     </td>
-                    {TECHNICIENS.map(tech => {
+                    {technicians.map(tech => {
                       const qty = product.quantities?.[tech.username] || 0
                       const feedbackKey = product.code_produit + tech.username
                       const hasFeedback = updateFeedback[feedbackKey]

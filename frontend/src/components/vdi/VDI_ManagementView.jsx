@@ -11,7 +11,7 @@
  * - Push vers Gazelle
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function VDI_ManagementView({
   // État pianos
@@ -80,8 +80,26 @@ export default function VDI_ManagementView({
   getSyncStatusIcon,
   isPianoInTournee,
   filterEtage,
-  setFilterEtage
+  setFilterEtage,
+  currentUser
 }) {
+  // Vérification des données en haut du rendu
+  if (pianos && !Array.isArray(pianos)) {
+    console.error('Pianos is not an array:', pianos);
+    return <div>Erreur: Format de données invalide</div>;
+  }
+
+  // État local pour l'édition du champ "Travail Effectué"
+  const [editingTravailId, setEditingTravailId] = useState(null);
+  const [travailInput, setTravailInput] = useState('');
+  const [isWorkCompletedMap, setIsWorkCompletedMap] = useState(new Map());
+
+  // Initialisation blindée: s'assurer que pianos est toujours un tableau
+  const allPianos = Array.isArray(pianos) ? pianos : [];
+  const allPianosFiltres = Array.isArray(pianosFiltres) ? pianosFiltres : [];
+
+  // Vérifier si une tournée est active (pour afficher les boutons de complétion)
+  const isTourneeActive = selectedTourneeId !== null;
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <span className="text-gray-300 ml-1">⇅</span>;
@@ -262,23 +280,22 @@ export default function VDI_ManagementView({
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sync</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Notes (Tech)</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Travail Effectué</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Statut
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {pianosFiltres.map((piano) => {
-              const mois = moisDepuisAccord(piano.dernierAccord);
+            {allPianosFiltres.map((piano) => {
+              const mois = moisDepuisAccord(piano?.dernierAccord);
 
               return (
                 <tr
                   key={piano.id}
-                  className={`${getRowClass(piano)} cursor-pointer hover:opacity-80`}
-                  onClick={() => toggleProposed(piano.id)}
+                  className={`${getRowClass(piano)} hover:opacity-80`}
                 >
-                  <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-2 py-3 text-center">
                     <input
                       type="checkbox"
                       checked={selectedIds.has(piano.id)}
@@ -291,7 +308,7 @@ export default function VDI_ManagementView({
                   <td className="px-3 py-3 text-sm text-gray-500 font-mono">{piano.serie}</td>
                   <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
                   <td className={`px-3 py-3 text-sm font-medium ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
-                    {formatDateRelative(piano.dernierAccord)}
+                    {piano?.dernierAccord ? formatDateRelative(piano.dernierAccord) : 'N/A'}
                   </td>
 
                   {/* Colonne Sync Status */}
@@ -313,7 +330,7 @@ export default function VDI_ManagementView({
                         onKeyDown={async (e) => {
                           if (e.key === 'Enter') {
                             // Mise à jour optimiste
-                            setPianos(pianos.map(p =>
+                            setPianos(allPianos.map(p =>
                               p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
                             ));
                             setEditingAFaireId(null);
@@ -324,7 +341,7 @@ export default function VDI_ManagementView({
                         }}
                         onBlur={async () => {
                           // Mise à jour optimiste
-                          setPianos(pianos.map(p =>
+                          setPianos(allPianos.map(p =>
                             p.id === piano.id ? { ...p, aFaire: aFaireInput } : p
                           ));
                           setEditingAFaireId(null);
@@ -347,56 +364,158 @@ export default function VDI_ManagementView({
                     )}
                   </td>
 
-                  {/* Colonne Notes (combinaison de Travail + Observations) */}
+                  {/* Colonne Travail Effectué */}
                   <td className="px-3 py-3 bg-blue-50" onClick={(e) => e.stopPropagation()}>
-                    {editingNotesId === piano.id ? (
-                      <textarea
-                        value={notesInput}
-                        onChange={(e) => setNotesInput(e.target.value)}
-                        onBlur={async () => {
-                          try {
-                            // Mapper notes vers observations (le backend attend observations, pas notes)
-                            const notesValue = notesInput.trim();
-                            setPianos(pianos.map(p =>
-                              p.id === piano.id ? {
-                                ...p,
-                                notes: notesValue,
-                                observations: notesValue // Synchroniser avec observations
-                              } : p
-                            ));
-                            setEditingNotesId(null);
-                            setNotesInput('');
-                            // Sauvegarder avec observations (le backend n'accepte pas "notes")
-                            await savePianoToAPI(piano.id, { observations: notesValue });
-                          } catch (err) {
-                            console.error('Erreur sauvegarde notes:', err);
-                            alert(`Erreur lors de la sauvegarde: ${err.message}`);
-                            // Restaurer l'état d'édition en cas d'erreur
-                            setEditingNotesId(piano.id);
-                            setNotesInput(notesInput);
-                          }
-                        }}
-                        className="border rounded px-2 py-1 text-xs w-full"
-                        placeholder="Notes du technicien (accord, humidité...)"
-                        rows="3"
-                        autoFocus
-                      />
+                    {editingTravailId === piano.id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={travailInput}
+                          onChange={(e) => setTravailInput(e.target.value)}
+                          onBlur={async () => {
+                            try {
+                              const travailValue = travailInput.trim();
+                              setPianos(allPianos.map(p =>
+                                p.id === piano.id ? { ...p, travail: travailValue } : p
+                              ));
+                              setEditingTravailId(null);
+                              setTravailInput('');
+                              await savePianoToAPI(piano.id, { travail: travailValue });
+                            } catch (err) {
+                              console.error('Erreur sauvegarde travail:', err);
+                              alert(`Erreur lors de la sauvegarde: ${err.message}`);
+                              setEditingTravailId(piano.id);
+                              setTravailInput(travailInput);
+                            }
+                          }}
+                          className="border rounded px-2 py-1 text-xs w-full"
+                          placeholder="Travail effectué (accord, réglages...)"
+                          rows="3"
+                          autoFocus
+                        />
+                        {isTourneeActive && (
+                          <div className="space-y-1">
+                            <label className="flex items-center gap-1 text-xs">
+                              <input
+                                type="checkbox"
+                                checked={isWorkCompletedMap.get(piano.id) || false}
+                                onChange={(e) => {
+                                  const newMap = new Map(isWorkCompletedMap);
+                                  newMap.set(piano.id, e.target.checked);
+                                  setIsWorkCompletedMap(newMap);
+                                }}
+                                className="rounded"
+                              />
+                              <span>Travail complété / Prêt pour Gazelle</span>
+                            </label>
+                            <button
+                              onClick={async () => {
+                                const isCompleted = isWorkCompletedMap.get(piano.id) || false;
+                                if (!isCompleted) {
+                                  alert('Veuillez cocher "Travail complété" avant de pousser vers Gazelle');
+                                  return;
+                                }
+                                try {
+                                  // Sauvegarder travail et is_work_completed
+                                  await savePianoToAPI(piano.id, {
+                                    travail: travailInput.trim(),
+                                    is_work_completed: true,
+                                    status: 'completed'
+                                  });
+                                  
+                                  // Mise à jour optimiste
+                                  setPianos(allPianos.map(p =>
+                                    p.id === piano.id ? {
+                                      ...p,
+                                      travail: travailInput.trim(),
+                                      is_work_completed: true,
+                                      status: 'completed'
+                                    } : p
+                                  ));
+                                  
+                                  // Push vers Gazelle
+                                  // Déterminer le nom du technicien depuis currentUser
+                                  let technicianName = 'Nicolas'; // Défaut
+                                  try {
+                                    if (currentUser) {
+                                      // Essayer de déterminer le nom depuis currentUser
+                                      if (currentUser.name) {
+                                        technicianName = currentUser.name;
+                                      } else if (currentUser.email) {
+                                        // Mapper email vers nom de technicien si nécessaire
+                                        const email = (currentUser.email || '').toLowerCase();
+                                        if (email.includes('nicolas') || email.includes('lessard')) {
+                                          technicianName = 'Nicolas';
+                                        } else if (email.includes('allan') || email.includes('sutton')) {
+                                          technicianName = 'Allan';
+                                        }
+                                      }
+                                    }
+                                  } catch (err) {
+                                    console.error('Erreur détermination nom technicien:', err);
+                                    technicianName = 'Nicolas'; // Fallback sûr
+                                  }
+                                  
+                                  const apiUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+                                  const response = await fetch(
+                                    `${apiUrl}/api/vincent-dindy/pianos/${piano.id}/complete-service?technician_name=${encodeURIComponent(technicianName)}&auto_push=true`,
+                                    { method: 'POST' }
+                                  );
+                                  
+                                  if (!response.ok) {
+                                    const error = await response.json();
+                                    throw new Error(error.detail || 'Erreur lors du push vers Gazelle');
+                                  }
+                                  
+                                  const result = await response.json();
+                                  // Fermer l'édition
+                                  setEditingTravailId(null);
+                                  setTravailInput('');
+                                  setIsWorkCompletedMap(prev => {
+                                    const newMap = new Map(prev);
+                                    newMap.delete(piano.id);
+                                    return newMap;
+                                  });
+                                  
+                                  // Recharger les données
+                                  await loadPianosFromAPI();
+                                  
+                                  alert('✅ Travail sauvegardé et poussé vers Gazelle!');
+                                } catch (err) {
+                                  console.error('❌ Erreur:', err);
+                                  alert(`Erreur: ${err.message}`);
+                                }
+                              }}
+                              className="w-full px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600"
+                            >
+                              Sauvegarder & Push
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <span
                         className="text-xs cursor-text block whitespace-pre-wrap"
                         onClick={() => {
-                          setEditingNotesId(piano.id);
-                          // Utiliser observations si disponible, sinon notes (pour compatibilité)
-                          setNotesInput(piano.observations || piano.notes || '');
+                          setEditingTravailId(piano.id);
+                          setTravailInput(piano.travail || '');
+                          setIsWorkCompletedMap(prev => {
+                            const newMap = new Map(prev);
+                            newMap.set(piano.id, piano.is_work_completed || false);
+                            return newMap;
+                          });
                         }}
                       >
-                        {piano.observations || piano.notes || <span className="text-gray-400">Cliquer...</span>}
+                        {piano.travail || <span className="text-gray-400">Cliquer...</span>}
                       </span>
                     )}
                   </td>
 
-                  {/* Colonne Statut */}
-                  <td className="px-3 py-3 text-sm">
+                  {/* Colonne Statut - Cliquer pour changer */}
+                  <td
+                    className="px-3 py-3 text-sm cursor-pointer"
+                    onClick={() => toggleProposed(piano.id)}
+                    title="Cliquer pour changer le statut (Normal → À faire → Complété → Normal)"
+                  >
                     {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
                     {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
                     {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
@@ -405,10 +524,10 @@ export default function VDI_ManagementView({
                 </tr>
               );
             })}
-          </tbody>
+        </tbody>
         </table>
 
-        {pianosFiltres.length === 0 && (
+        {allPianosFiltres.length === 0 && (
           <div className="p-8 text-center text-gray-500">Aucun piano.</div>
         )}
       </div>

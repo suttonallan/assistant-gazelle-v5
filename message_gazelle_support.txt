@@ -1,0 +1,47 @@
+Subject: Event created with isTuning:true but not appearing in piano service history
+
+Hello Gazelle Support Team,
+
+We are experiencing an issue with the GraphQL API where events created with 
+isTuning:true are not appearing in the piano's service history, even though 
+they are correctly associated with the piano.
+
+WHAT WORKS:
+✅ We can create an event using createEvent mutation with:
+   - type: APPOINTMENT
+   - pianos: [{"pianoId": "ins_xxx", "isTuning": true}]
+✅ The event is successfully created and associated with the piano
+✅ The "This is a tuning for this piano" checkbox is correctly checked in the UI
+✅ We can complete the event using completeEvent with resultType: COMPLETE
+✅ The event status becomes COMPLETE
+✅ The isTuning flag remains true throughout the process
+
+WHAT DOESN'T WORK:
+❌ The completed event does NOT appear in the piano's service history
+❌ Even though the event is:
+   - Type: APPOINTMENT
+   - Status: COMPLETE
+   - Associated with the piano (piano checkbox checked)
+   - Marked as tuning (isTuning: true checkbox checked)
+
+WHAT WE'VE TRIED:
+1. createEvent with pianos and isTuning: true
+2. updateEvent to ensure isTuning is set
+3. completeEvent with resultType: COMPLETE
+4. Various combinations of the above
+
+QUESTIONS:
+1. Is there a specific mutation or field required to make a COMPLETE APPOINTMENT 
+   event with isTuning:true appear in the piano's service history?
+2. Are there additional requirements beyond isTuning:true and status: COMPLETE?
+3. Is there a different mutation (like addServiceHistory) that should be used 
+   instead of createEvent for service history entries?
+4. Does the event need to be in a specific date range or have other specific 
+   properties to appear in service history?
+
+Example event ID for reference: evt_VA1oI96XldqVmipZ
+Piano ID: ins_1HdzW806WqxPo2Gh
+
+Thank you for your assistance.
+
+Best regards
