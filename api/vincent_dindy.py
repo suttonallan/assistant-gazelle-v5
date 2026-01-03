@@ -593,6 +593,30 @@ async def get_stats():
         raise HTTPException(status_code=500, detail=f"Erreur lors du calcul des stats: {str(e)}")
 
 
+class TourneeCreate(BaseModel):
+    """Modèle pour la création d'une tournée."""
+    nom: str
+    date_debut: str  # Format: YYYY-MM-DD
+    date_fin: str    # Format: YYYY-MM-DD
+    status: str = "planifiee"  # planifiee | en_cours | terminee
+    etablissement: str = "vincent-dindy"
+    technicien_responsable: str
+    piano_ids: Optional[List[str]] = []
+    notes: Optional[str] = None
+    created_by: str = "system"
+
+
+class TourneeUpdate(BaseModel):
+    """Modèle pour la mise à jour d'une tournée."""
+    nom: Optional[str] = None
+    date_debut: Optional[str] = None
+    date_fin: Optional[str] = None
+    status: Optional[str] = None
+    technicien_responsable: Optional[str] = None
+    piano_ids: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
 @router.get("/tournees", response_model=Dict[str, Any])
 async def get_tournees():
     """
@@ -634,6 +658,366 @@ async def get_tournees():
         logging.error(f"❌ {error_detail}")
         # Retourner liste vide plutôt qu'une erreur pour ne pas bloquer le frontend
         return {"tournees": [], "count": 0, "error": str(e)}
+
+
+@router.post("/tournees", response_model=Dict[str, Any])
+async def create_tournee(tournee: TourneeCreate):
+    """
+    Crée une nouvelle tournée dans Supabase.
+
+    Body:
+        {
+            "nom": "Tournée Orford - Janvier 2026",
+            "date_debut": "2026-01-15",
+            "date_fin": "2026-01-20",
+            "status": "planifiee",
+            "etablissement": "vincent-dindy",
+            "technicien_responsable": "Nicolas",
+            "piano_ids": [],
+            "notes": "Tournée de janvier",
+            "created_by": "nicolas@example.com"
+        }
+
+    Response:
+        {
+            "success": true,
+            "tournee_id": "tournee_123456789",
+            "message": "Tournée créée avec succès"
+        }
+    """
+    try:
+        import logging
+        from supabase import create_client
+        import time
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Générer un ID unique pour la tournée
+        tournee_id = f"tournee_{int(time.time() * 1000)}"
+
+        # Préparer les données
+        tournee_data = {
+            "id": tournee_id,
+            "nom": tournee.nom,
+            "date_debut": tournee.date_debut,
+            "date_fin": tournee.date_fin,
+            "status": tournee.status,
+            "etablissement": tournee.etablissement,
+            "technicien_responsable": tournee.technicien_responsable,
+            "piano_ids": tournee.piano_ids if tournee.piano_ids else [],  # Passer directement la liste, pas JSON string
+            "notes": tournee.notes,
+            "created_by": tournee.created_by
+        }
+
+        # Insérer dans Supabase
+        response = supabase.table('tournees').insert(tournee_data).execute()
+
+        logging.info(f"✅ Tournée créée: {tournee_id}")
+
+        return {
+            "success": True,
+            "tournee_id": tournee_id,
+            "message": "Tournée créée avec succès",
+            "data": response.data[0] if response.data else tournee_data
+        }
+
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la création de la tournée: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.patch("/tournees/{tournee_id}", response_model=Dict[str, Any])
+async def update_tournee(tournee_id: str, update: TourneeUpdate):
+    """
+    Met à jour une tournée existante dans Supabase.
+
+    Path params:
+        tournee_id: ID de la tournée à modifier
+
+    Body:
+        {
+            "nom": "Nouveau nom",
+            "status": "en_cours",
+            "piano_ids": ["ins_abc123", "ins_def456"]
+        }
+
+    Response:
+        {
+            "success": true,
+            "message": "Tournée mise à jour avec succès"
+        }
+    """
+    try:
+        import logging
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Préparer les données (exclure None)
+        update_data = {}
+        if update.nom is not None:
+            update_data["nom"] = update.nom
+        if update.date_debut is not None:
+            update_data["date_debut"] = update.date_debut
+        if update.date_fin is not None:
+            update_data["date_fin"] = update.date_fin
+        if update.status is not None:
+            update_data["status"] = update.status
+        if update.technicien_responsable is not None:
+            update_data["technicien_responsable"] = update.technicien_responsable
+        if update.piano_ids is not None:
+            update_data["piano_ids"] = update.piano_ids  # Passer directement la liste
+        if update.notes is not None:
+            update_data["notes"] = update.notes
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="Aucune donnée à mettre à jour")
+
+        # Mettre à jour dans Supabase
+        response = supabase.table('tournees').update(update_data).eq('id', tournee_id).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        logging.info(f"✅ Tournée mise à jour: {tournee_id}")
+
+        return {
+            "success": True,
+            "message": "Tournée mise à jour avec succès",
+            "data": response.data[0]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la mise à jour de la tournée: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.delete("/tournees/{tournee_id}", response_model=Dict[str, Any])
+async def delete_tournee(tournee_id: str):
+    """
+    Supprime une tournée de Supabase.
+
+    Path params:
+        tournee_id: ID de la tournée à supprimer
+
+    Response:
+        {
+            "success": true,
+            "message": "Tournée supprimée avec succès"
+        }
+    """
+    try:
+        import logging
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Supprimer de Supabase
+        response = supabase.table('tournees').delete().eq('id', tournee_id).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        logging.info(f"✅ Tournée supprimée: {tournee_id}")
+
+        return {
+            "success": True,
+            "message": "Tournée supprimée avec succès"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de la suppression de la tournée: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.post("/tournees/{tournee_id}/pianos/{gazelle_id}", response_model=Dict[str, Any])
+async def add_piano_to_tournee(tournee_id: str, gazelle_id: str):
+    """
+    Ajoute un piano à une tournée.
+
+    Path params:
+        tournee_id: ID de la tournée
+        gazelle_id: ID Gazelle du piano (ex: "ins_abc123")
+
+    Response:
+        {
+            "success": true,
+            "message": "Piano ajouté à la tournée",
+            "piano_ids": ["ins_abc123", ...]
+        }
+    """
+    try:
+        import logging
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Récupérer la tournée
+        response = supabase.table('tournees').select('piano_ids').eq('id', tournee_id).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        # Parser piano_ids (peut être JSON string ou liste)
+        current_piano_ids = response.data[0].get('piano_ids', [])
+        if isinstance(current_piano_ids, str):
+            current_piano_ids = json.loads(current_piano_ids)
+
+        # Ajouter le piano si pas déjà présent
+        if gazelle_id not in current_piano_ids:
+            current_piano_ids.append(gazelle_id)
+
+            # Mettre à jour (passer directement la liste)
+            update_response = supabase.table('tournees').update({
+                'piano_ids': current_piano_ids
+            }).eq('id', tournee_id).execute()
+
+            logging.info(f"✅ Piano {gazelle_id} ajouté à tournée {tournee_id}")
+
+            return {
+                "success": True,
+                "message": "Piano ajouté à la tournée",
+                "piano_ids": current_piano_ids
+            }
+        else:
+            return {
+                "success": True,
+                "message": "Piano déjà dans la tournée",
+                "piano_ids": current_piano_ids
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors de l'ajout du piano: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+
+@router.delete("/tournees/{tournee_id}/pianos/{gazelle_id}", response_model=Dict[str, Any])
+async def remove_piano_from_tournee(tournee_id: str, gazelle_id: str):
+    """
+    Retire un piano d'une tournée.
+
+    Path params:
+        tournee_id: ID de la tournée
+        gazelle_id: ID Gazelle du piano
+
+    Response:
+        {
+            "success": true,
+            "message": "Piano retiré de la tournée",
+            "piano_ids": [...]
+        }
+    """
+    try:
+        import logging
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Récupérer la tournée
+        response = supabase.table('tournees').select('piano_ids').eq('id', tournee_id).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        # Parser piano_ids
+        current_piano_ids = response.data[0].get('piano_ids', [])
+        if isinstance(current_piano_ids, str):
+            current_piano_ids = json.loads(current_piano_ids)
+
+        # Retirer le piano
+        if gazelle_id in current_piano_ids:
+            current_piano_ids.remove(gazelle_id)
+
+            # Mettre à jour (passer directement la liste)
+            update_response = supabase.table('tournees').update({
+                'piano_ids': current_piano_ids
+            }).eq('id', tournee_id).execute()
+
+            logging.info(f"✅ Piano {gazelle_id} retiré de tournée {tournee_id}")
+
+            return {
+                "success": True,
+                "message": "Piano retiré de la tournée",
+                "piano_ids": current_piano_ids
+            }
+        else:
+            return {
+                "success": True,
+                "message": "Piano pas dans la tournée",
+                "piano_ids": current_piano_ids
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import logging
+        error_detail = f"Erreur lors du retrait du piano: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 # ==========================================
@@ -758,4 +1142,11 @@ async def get_pianos_ready_for_push(
         import logging
         error_detail = f"Erreur lors de la récupération des pianos prêts: {str(e)}\n{traceback.format_exc()}"
         logging.error(f"❌ {error_detail}")
-        raise HTTPException(status_code=500, detail=error_detail)
+        # Retourner une liste vide plutôt que de faire échouer l'endpoint
+        # (la fonction RPC peut ne pas exister dans Supabase)
+        return {
+            "pianos": [],
+            "count": 0,
+            "ready_for_push": False,
+            "error": str(e)
+        }
