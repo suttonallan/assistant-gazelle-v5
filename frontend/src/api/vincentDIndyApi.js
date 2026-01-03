@@ -86,7 +86,7 @@ export const updatePiano = async (apiUrl, pianoId, updates) => {
 // ============ TOURNÉES API ============
 
 export const getTournees = async (apiUrl) => {
-  const response = await fetch(`${apiUrl}/api/vincent-dindy/tournees`);
+  const response = await fetch(`${apiUrl}/vincent-dindy/tournees`);
 
   if (!response.ok) {
     throw new Error(`Erreur ${response.status}`);

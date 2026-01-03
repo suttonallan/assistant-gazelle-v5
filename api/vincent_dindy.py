@@ -794,11 +794,36 @@ async def update_tournee(tournee_id: str, update: TourneeUpdate):
         if not update_data:
             raise HTTPException(status_code=400, detail="Aucune donnée à mettre à jour")
 
+        # Debug: vérifier si la tournée existe AVANT de faire l'update
+        check_response = supabase.table('tournees').select('id').eq('id', tournee_id).execute()
+
+        logging.info(f"🔍 Vérification tournée {tournee_id}: {check_response.data}")
+
+        if not check_response.data:
+            logging.error(f"❌ Tournée {tournee_id} non trouvée dans Supabase")
+            raise HTTPException(status_code=404, detail=f"Tournée non trouvée: {tournee_id}")
+
         # Mettre à jour dans Supabase
+        logging.info(f"🔄 Mise à jour tournée {tournee_id} avec données: {update_data}")
         response = supabase.table('tournees').update(update_data).eq('id', tournee_id).execute()
 
+        logging.info(f"📊 Réponse Supabase update: data={response.data}, count={getattr(response, 'count', None)}")
+
+        # IMPORTANT: Supabase peut retourner data=[] même si l'update réussit
+        # On vérifie donc si la tournée existe d'abord (fait ci-dessus)
         if not response.data:
-            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+            # Re-fetch pour confirmer que l'update a bien été appliqué
+            verify_response = supabase.table('tournees').select('*').eq('id', tournee_id).execute()
+            if verify_response.data:
+                logging.info(f"✅ Tournée mise à jour (confirmé par re-fetch): {tournee_id}")
+                return {
+                    "success": True,
+                    "message": "Tournée mise à jour avec succès",
+                    "data": verify_response.data[0]
+                }
+            else:
+                logging.error(f"❌ Tournée {tournee_id} disparue après update?")
+                raise HTTPException(status_code=500, detail="Erreur lors de la vérification de la mise à jour")
 
         logging.info(f"✅ Tournée mise à jour: {tournee_id}")
 
