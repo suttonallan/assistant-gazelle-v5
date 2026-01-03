@@ -1,7 +1,7 @@
 // LOG: Début du fichier VincentDIndyDashboard.jsx
 console.log('[VincentDIndyDashboard] Fichier chargé - ligne 1');
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { submitReport, getReports, getPianos, updatePiano, getTournees as getTourneesAPI, getActivity } from '../api/vincentDIndyApi';
 import VDI_Navigation from './vdi/VDI_Navigation';
 import VDI_TechnicianView from './vdi/VDI_TechnicianView';
@@ -35,6 +35,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const [sortConfig, setSortConfig] = useState({ key: 'local', direction: 'asc' });
   const [filterUsage, setFilterUsage] = useState('all');
   const [filterAccordDepuis, setFilterAccordDepuis] = useState(0);
+  const [filterEtage, setFilterEtage] = useState('all'); // Filtre par étage (1, 2, 3, etc. ou 'all')
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   // Ref pour la checkbox "sélectionner tous"
@@ -71,38 +72,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
-  // Charger les pianos depuis l'API au montage du composant
-  useEffect(() => {
-    console.log('[VincentDIndyDashboard] useEffect de chargement initial déclenché');
-    try {
-      loadPianosFromAPI();
-      loadTournees();
-    } catch (e) {
-      console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
-      alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
-    }
-  }, []);
-
-  // Charger le compteur de pianos prêts pour push
-  useEffect(() => {
-    const loadReadyCount = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
-        if (response.ok) {
-          const data = await response.json();
-          setReadyForPushCount(data.count || 0);
-        }
-      } catch (err) {
-        console.error('Erreur chargement pianos prêts:', err);
-      }
-    };
-
-    if (currentView === 'nicolas') {
-      loadReadyCount();
-    }
-  }, [pianos, currentView]);
-
-  const loadPianosFromAPI = async () => {
+  const loadPianosFromAPI = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -134,7 +104,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // Pas de dépendances - API_URL est constant
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -161,6 +131,29 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (isNaN(date.getTime())) return 999; // Date invalide
     const now = new Date();
     return Math.floor((now - date) / (1000 * 60 * 60 * 24 * 30));
+  };
+
+  // Format de date relatif compact (1j, 2j, 1s, 1m, etc.)
+  const formatDateRelative = (dateStr) => {
+    if (!dateStr || dateStr.trim() === '') return '-';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '-';
+    
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffWeeks = Math.floor(diffDays / 7);
+    const diffMonths = Math.floor(diffDays / 30);
+    
+    if (diffDays === 0) return 'Aujourd\'hui';
+    if (diffDays === 1) return '1j';
+    if (diffDays < 7) return `${diffDays}j`;
+    if (diffWeeks === 1) return '1s';
+    if (diffWeeks < 4) return `${diffWeeks}s`;
+    if (diffMonths === 1) return '1m';
+    if (diffMonths < 12) return `${diffMonths}m`;
+    const diffYears = Math.floor(diffMonths / 12);
+    return `${diffYears}a`;
   };
 
   // Obtenir les pianos associés à une tournée
@@ -252,6 +245,15 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
     if (filterAccordDepuis > 0) {
       result = result.filter(p => moisDepuisAccord(p.dernierAccord) >= filterAccordDepuis);
+    }
+    // Filtre par étage (premier chiffre du local: 112 = 1er étage, 302 = 3ème étage)
+    if (filterEtage !== 'all' && currentView === 'nicolas') {
+      const etageNum = parseInt(filterEtage);
+      result = result.filter(p => {
+        if (!p.local) return false;
+        const match = p.local.match(/^\d/); // Premier chiffre
+        return match && parseInt(match[0]) === etageNum;
+      });
     }
 
     result.sort((a, b) => {
@@ -428,7 +430,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } else {
       setExpandedPianoId(piano.id);
       setTravailInput(piano.travail || '');
-      setObservationsInput(piano.observations || '');
       setIsWorkCompleted(piano.is_work_completed || false);
     }
   };
@@ -457,7 +458,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       let newStatus = piano.status;
       if (isWorkCompleted) {
         newStatus = 'completed';
-      } else if (travailInput || observationsInput) {
+      } else if (travailInput) {
         newStatus = 'work_in_progress';
       }
 
@@ -466,7 +467,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         p.id === id ? { 
           ...p, 
           travail: travailInput, 
-          observations: observationsInput, 
           is_work_completed: isWorkCompleted,
           status: newStatus
         } : p
@@ -475,10 +475,32 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       // Sauvegarder le piano via API
       await savePianoToAPI(id, {
         travail: travailInput,
-        observations: observationsInput,
         isWorkCompleted: isWorkCompleted,
         status: newStatus
       });
+
+      // Si le travail est marqué comme complété, pousser automatiquement vers Gazelle
+      if (isWorkCompleted) {
+        try {
+          console.log(`🚀 Pushing piano ${id} to Gazelle (auto-push after completion)...`);
+          const response = await fetch(
+            `${API_URL}/api/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
+            { method: 'POST' }
+          );
+
+          if (!response.ok) {
+            const error = await response.json();
+            console.error('❌ Erreur lors du push vers Gazelle:', error);
+            // Ne pas bloquer l'UX - le push peut être fait manuellement plus tard
+          } else {
+            const result = await response.json();
+            console.log('✅ Piano pushé vers Gazelle:', result);
+          }
+        } catch (pushError) {
+          console.error('❌ Exception lors du push vers Gazelle:', pushError);
+          // Ne pas bloquer l'UX - le push peut être fait manuellement plus tard
+        }
+      }
 
       // Passer au suivant
       const currentIndex = pianosFiltres.findIndex(p => p.id === id);
@@ -497,7 +519,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   };
 
   // ============ GESTION DES TOURNÉES ============
-  const loadTournees = async () => {
+  const loadTournees = useCallback(async () => {
     try {
       // Utiliser le service API centralisé
       const tournees = await getTourneesAPI(`${API_URL}/api`);
@@ -507,16 +529,47 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       // Fallback: essayer localStorage si l'API échoue
       try {
         const saved = localStorage.getItem('tournees_accords');
-        if (saved) {
+      if (saved) {
           setTournees(JSON.parse(saved));
-        } else {
+      } else {
           setTournees([]);
         }
       } catch (localErr) {
         setTournees([]);
       }
     }
+  }, []); // Pas de dépendances - API_URL est constant
+
+  // Charger les pianos depuis l'API au montage du composant
+  useEffect(() => {
+    console.log('[VincentDIndyDashboard] useEffect de chargement initial déclenché');
+    try {
+      loadPianosFromAPI();
+      loadTournees();
+    } catch (e) {
+      console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
+      alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
+    }
+  }, [loadPianosFromAPI, loadTournees]); // Maintenant mémorisés avec useCallback
+
+  // Charger le compteur de pianos prêts pour push
+  useEffect(() => {
+    const loadReadyCount = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
+        if (response.ok) {
+          const data = await response.json();
+          setReadyForPushCount(data.count || 0);
+      }
+    } catch (err) {
+        console.error('Erreur chargement pianos prêts:', err);
+    }
   };
+
+    if (currentView === 'nicolas') {
+      loadReadyCount();
+    }
+  }, [pianos, currentView]);
 
   // Ajouter un piano à une tournée (utilise gazelleId si disponible)
   const addPianoToTournee = async (piano) => {
@@ -862,6 +915,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setIsWorkCompleted={setIsWorkCompleted}
           saveTravail={saveTravail}
           moisDepuisAccord={moisDepuisAccord}
+          formatDateRelative={formatDateRelative}
           getSyncStatusIcon={getSyncStatusIcon}
           pianosFiltres={pianosFiltres}
         />
@@ -881,9 +935,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         hideNickView={hideNickView}
       />
 
-      {/* Vue Gestion & Pianos */}
-      {currentView === 'nicolas' && (
-        <div className="flex gap-4">
+        {/* Vue Gestion & Pianos */}
+        {currentView === 'nicolas' && (
+          <div className="flex gap-4">
           {/* Sidebar Tournées */}
           <VDI_TourneesManager
             tournees={tournees}
@@ -949,11 +1003,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             handleSort={handleSort}
             getRowClass={getRowClass}
             moisDepuisAccord={moisDepuisAccord}
+            formatDateRelative={formatDateRelative}
             getSyncStatusIcon={getSyncStatusIcon}
             isPianoInTournee={isPianoInTournee}
+            filterEtage={filterEtage}
+            setFilterEtage={setFilterEtage}
           />
-        </div>
-      )}
+          </div>
+        )}
     </div>
   );
 };

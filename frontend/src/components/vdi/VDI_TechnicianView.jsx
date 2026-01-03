@@ -45,13 +45,11 @@ export default function VDI_TechnicianView({
       // Fermer
       setExpandedPianoId(null);
       setTravailInput('');
-      setObservationsInput('');
       setIsWorkCompleted(false);
     } else {
       // Ouvrir et charger les données
       setExpandedPianoId(piano.id);
       setTravailInput(piano.travail || '');
-      setObservationsInput(piano.observations || '');
       setIsWorkCompleted(piano.is_work_completed || false);
     }
   };
@@ -133,7 +131,7 @@ export default function VDI_TechnicianView({
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div><span className="text-gray-500">Série:</span> {piano.serie}</div>
                       <div><span className="text-gray-500">Type:</span> {piano.type === 'D' ? 'Droit' : 'Queue'}</div>
-                      <div><span className="text-gray-500">Dernier:</span> {piano.dernierAccord}</div>
+                      <div><span className="text-gray-500">Dernier:</span> {formatDateRelative(piano.dernierAccord)}</div>
                       <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
                     </div>
 
@@ -152,16 +150,6 @@ export default function VDI_TechnicianView({
                         onChange={(e) => setTravailInput(e.target.value)}
                         className="w-full border rounded p-2 text-sm h-20"
                         placeholder="Accord, réglages..."
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">📝 Observations</label>
-                      <textarea
-                        value={observationsInput}
-                        onChange={(e) => setObservationsInput(e.target.value)}
-                        className="w-full border rounded p-2 text-sm h-20"
-                        placeholder="Problèmes, recommandations..."
                       />
                     </div>
 

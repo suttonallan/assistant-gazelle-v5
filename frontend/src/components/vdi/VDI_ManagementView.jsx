@@ -76,8 +76,11 @@ export default function VDI_ManagementView({
   // Utilitaires
   getRowClass,
   moisDepuisAccord,
+  formatDateRelative,
   getSyncStatusIcon,
-  isPianoInTournee
+  isPianoInTournee,
+  filterEtage,
+  setFilterEtage
 }) {
 
   const SortIcon = ({ columnKey }) => {
@@ -186,6 +189,15 @@ export default function VDI_ManagementView({
             <option value={6}>6+ mois</option>
             <option value={12}>12+ mois</option>
           </select>
+
+          <select value={filterEtage} onChange={(e) => setFilterEtage(e.target.value)} className="border rounded px-2 py-1 text-sm">
+            <option value="all">Tous étages</option>
+            <option value="1">1er étage</option>
+            <option value="2">2e étage</option>
+            <option value="3">3e étage</option>
+            <option value="4">4e étage</option>
+            <option value="5">5e étage</option>
+          </select>
         </div>
 
         {/* Actions multiples */}
@@ -279,7 +291,7 @@ export default function VDI_ManagementView({
                   <td className="px-3 py-3 text-sm text-gray-500 font-mono">{piano.serie}</td>
                   <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
                   <td className={`px-3 py-3 text-sm font-medium ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
-                    {mois === 999 ? '-' : mois}
+                    {formatDateRelative(piano.dernierAccord)}
                   </td>
 
                   {/* Colonne Sync Status */}
