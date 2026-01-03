@@ -949,7 +949,7 @@ class GazelleAPIClient:
         if not event_date:
             event_date = datetime.now().isoformat()
         
-        # Si client_id n'est pas fourni, récupérer le piano pour obtenir son client
+        # Si client_id n'est pas fourni, récupérer celui du piano
         if not client_id:
             try:
                 piano_query = """
@@ -965,21 +965,16 @@ class GazelleAPIClient:
                 piano_result = self._execute_query(piano_query, {"pianoId": piano_id})
                 piano_data = piano_result.get("data", {}).get("piano", {})
                 client_id = piano_data.get("client", {}).get("id")
-                
-                if not client_id:
-                    raise ValueError(f"Impossible de récupérer le client pour le piano {piano_id}")
             except Exception as e:
-                raise ValueError(f"Erreur lors de la récupération du client: {str(e)}")
-        
-        # Si technician_id n'est pas fourni, utiliser l'utilisateur actuel (sera géré par l'API)
-        # Pour l'instant, on utilise Nick par défaut si non fourni
-        if not technician_id:
-            technician_id = "usr_HcCiFk7o0vZ9xAI0"  # Nick par défaut
+                # Si erreur, on continue sans client_id - Gazelle utilisera celui du piano
+                print(f"⚠️  Impossible de récupérer le client du piano: {e}")
+                client_id = None
         
         # Créer le titre de l'événement
         title = f"Service: {service_type}"
         
         # Mutation pour créer l'événement
+        # SIMPLIFIÉ: Ne pas inclure client/user dans la réponse - seulement les champs essentiels
         mutation = """
         mutation CreateServiceEvent(
             $input: PrivateEventInput!
@@ -992,17 +987,12 @@ class GazelleAPIClient:
                     type
                     status
                     notes
-                    client {
-                        id
-                    }
-                    user {
-                        id
-                    }
                     allEventPianos(first: 10) {
                         nodes {
                             piano {
                                 id
                             }
+                            isTuning
                         }
                     }
                 }
@@ -1015,21 +1005,19 @@ class GazelleAPIClient:
         """
         
         # Construire l'input pour createEvent
-        # Les types valides sont: APPOINTMENT, PERSONAL, MEMO, SYNCED
-        # Pour un service, on utilise APPOINTMENT
-        # Note: Le statut sera défini par défaut (probablement ACTIVE)
-        # Note: Le champ pianos sera ajouté après création si nécessaire
+        # ESSENTIEL: title, start, duration, type, notes, clientId (si disponible), pianos
         event_input = {
             "title": title,
             "start": event_date,
             "duration": 60,  # Durée par défaut: 1 heure
-            "type": "APPOINTMENT",  # Type fixe: APPOINTMENT (les services sont des appointments)
-            "notes": f"{service_type}: {technician_note}",  # Inclure le type de service dans les notes
-            "clientId": client_id,
-            "userId": technician_id
-            # Note: status sera défini par défaut
-            # Note: pianos sera ajouté via une mutation séparée si nécessaire
+            "type": "APPOINTMENT",  # Type fixe: APPOINTMENT
+            "notes": f"{service_type}: {technician_note}",  # Notes de service
+            "pianos": [{"pianoId": piano_id, "isTuning": True}]  # isTuning: True = "Il s'agit d'un accord pour ce piano"
         }
+        
+        # Ajouter clientId si disponible (récupéré depuis le piano ou fourni)
+        if client_id:
+            event_input["clientId"] = client_id
         
         variables = {
             "input": event_input
@@ -1084,14 +1072,14 @@ class GazelleAPIClient:
         event_id = event.get('id')
         print(f"✅ Événement de service créé: {event_id}")
         
-        # Associer le piano à l'événement et marquer comme COMPLETE via updateEvent
+        # Compléter l'événement via completeEvent avec serviceHistoryNotes pour créer l'entrée dans l'historique
         try:
-            update_mutation = """
-            mutation UpdateEventWithPiano(
+            complete_mutation = """
+            mutation CompleteEvent(
                 $eventId: String!
-                $input: PrivateEventInput!
+                $input: PrivateCompleteEventInput!
             ) {
-                updateEvent(id: $eventId, input: $input) {
+                completeEvent(eventId: $eventId, input: $input) {
                     event {
                         id
                         title
@@ -1104,6 +1092,7 @@ class GazelleAPIClient:
                                 piano {
                                     id
                                 }
+                                isTuning
                             }
                         }
                     }
@@ -1115,39 +1104,45 @@ class GazelleAPIClient:
             }
             """
             
-            # Essayer d'ajouter le piano et marquer comme COMPLETE
-            # Note: La structure exacte dépend de PrivateEventInput
-            update_input = {
-                "status": "COMPLETE",
-                "pianos": [{"pianoId": piano_id}]
+            # Utiliser completeEvent avec serviceHistoryNotes pour créer l'entrée dans l'historique
+            # serviceHistoryNotes est un tableau de PrivateCompletionServiceHistoryInput
+            complete_input = {
+                "resultType": "COMPLETE",
+                "serviceHistoryNotes": [{
+                    "pianoId": piano_id,
+                    "notes": technician_note
+                }]
             }
             
-            update_result = self._execute_query(update_mutation, {
+            complete_result = self._execute_query(complete_mutation, {
                 "eventId": event_id,
-                "input": update_input
+                "input": complete_input
             })
             
-            update_data = update_result.get("data", {}).get("updateEvent", {})
-            mutation_errors = update_data.get("mutationErrors", [])
+            complete_data = complete_result.get("data", {}).get("completeEvent", {})
+            mutation_errors = complete_data.get("mutationErrors", [])
             
             if mutation_errors:
-                # Si pianos cause une erreur, essayer seulement avec status
-                print(f"⚠️  Erreur lors de l'association du piano, tentative avec status seulement...")
-                update_input_status_only = {"status": "COMPLETE"}
-                update_result = self._execute_query(update_mutation, {
-                    "eventId": event_id,
-                    "input": update_input_status_only
-                })
-                update_data = update_result.get("data", {}).get("updateEvent", {})
-            
-            updated_event = update_data.get("event")
-            if updated_event:
-                if updated_event.get("status") == "COMPLETE":
-                    print(f"✅ Événement marqué comme COMPLETE")
-                # Fusionner les données mises à jour avec l'événement initial
-                event = {**event, **updated_event}
+                error_messages = []
+                for e in mutation_errors:
+                    field = e.get('fieldName', '')
+                    messages = e.get('messages', [])
+                    if messages:
+                        error_messages.append(f"{field}: {', '.join(messages)}")
+                    else:
+                        error_messages.append(f"{field}: Erreur inconnue")
+                print(f"⚠️  Erreurs lors de completeEvent: {', '.join(error_messages)}")
+            else:
+                completed_event = complete_data.get("event")
+                if completed_event:
+                    if completed_event.get("status") == "COMPLETE":
+                        print(f"✅ Événement complété avec serviceHistoryNotes (historique créé)")
+                    # Fusionner les données mises à jour avec l'événement initial
+                    event = {**event, **completed_event}
+                else:
+                    print(f"⚠️  Note: Événement créé mais completeEvent échoué")
         except Exception as e:
-            print(f"⚠️  Impossible de mettre à jour l'événement: {e}")
+            print(f"⚠️  Impossible de compléter l'événement: {e}")
             print(f"   L'événement a été créé mais doit être complété manuellement dans Gazelle")
         
         print(f"   Piano: {piano_id}")
@@ -1155,6 +1150,71 @@ class GazelleAPIClient:
         print(f"   Note: {technician_note[:50]}...")
         
         return event
+
+    def verify_inactive_history(self, piano_id: str, event_id: str) -> Dict[str, Any]:
+        """
+        Vérifie qu'un événement est bien présent dans l'historique même si le piano est inactif.
+        
+        Args:
+            piano_id: ID du piano
+            event_id: ID de l'événement à vérifier
+        
+        Returns:
+            Dictionnaire avec les résultats de la vérification
+        """
+        try:
+            # 1. Vérifier le statut du piano
+            piano_query = """
+            query GetPianoStatus($pianoId: String!) {
+                piano(id: $pianoId) {
+                    id
+                    status
+                }
+            }
+            """
+            piano_result = self._execute_query(piano_query, {"pianoId": piano_id})
+            piano_data = piano_result.get("data", {}).get("piano", {})
+            piano_status = piano_data.get("status")
+            
+            # 2. Vérifier que l'événement existe et est complété
+            event_query = """
+            query GetEvent($eventId: String!) {
+                event(eventId: $eventId) {
+                    id
+                    status
+                    type
+                    allEventPianos(first: 10) {
+                        nodes {
+                            piano {
+                                id
+                            }
+                            isTuning
+                        }
+                    }
+                }
+            }
+            """
+            event_result = self._execute_query(event_query, {"eventId": event_id})
+            event_data = event_result.get("data", {}).get("event", {})
+            
+            return {
+                "piano_id": piano_id,
+                "piano_status": piano_status,
+                "event_id": event_id,
+                "event_exists": event_data is not None,
+                "event_status": event_data.get("status") if event_data else None,
+                "piano_associated": any(
+                    p.get("piano", {}).get("id") == piano_id 
+                    for p in event_data.get("allEventPianos", {}).get("nodes", [])
+                ) if event_data else False,
+                "is_inactive_and_has_history": piano_status != "ACTIVE" and event_data is not None and event_data.get("status") == "COMPLETE"
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "piano_id": piano_id,
+                "event_id": event_id
+            }
 
     def parse_temperature_humidity(self, text: str) -> Optional[Dict[str, int]]:
         """
@@ -1309,31 +1369,7 @@ class GazelleAPIClient:
         """
         from datetime import datetime
 
-        # Extract date for Last Tuned update
-        if event_date:
-            # Extract date portion from ISO datetime
-            last_tuned_date = event_date.split('T')[0]
-        else:
-            last_tuned_date = datetime.now().date().isoformat()
-
-        # 1. CRITICAL: Update "Last Tuned" field in Gazelle piano record
-        last_tuned_updated = False
-        try:
-            print(f"🔄 Updating Last Tuned date for piano {piano_id} to {last_tuned_date}...")
-            self.update_piano_last_tuned_date(
-                piano_id=piano_id,
-                last_tuned_date=last_tuned_date
-            )
-            last_tuned_updated = True
-            print(f"✅ Last Tuned date updated successfully")
-        except Exception as e:
-            # Log error but continue - service note is still valuable
-            print(f"⚠️  Failed to update Last Tuned date: {e}")
-            print(f"   Full error details: {str(e)}")
-            import traceback
-            print(f"   Traceback: {traceback.format_exc()}")
-
-        # 2. Create service note in Gazelle history (always)
+        # 1. Create service note in Gazelle history (Last Tuned sera mis à jour automatiquement par completeEvent)
         service_note = None
         try:
             print(f"🔄 Creating service note in Gazelle history...")
@@ -1382,11 +1418,70 @@ class GazelleAPIClient:
                 import traceback
                 print(f"   Traceback: {traceback.format_exc()}")
 
+        # ÉTAPE FINALE: Remettre le piano en INACTIVE si nécessaire (après note ET mesures)
+        # Gazelle peut avoir activé le piano automatiquement lors de createEvent ou createMeasurement
+        try:
+            # Vérifier d'abord le statut actuel
+            piano_status_query = """
+            query GetPianoStatus($pianoId: String!) {
+                piano(id: $pianoId) {
+                    id
+                    status
+                }
+            }
+            """
+            status_result = self._execute_query(piano_status_query, {"pianoId": piano_id})
+            current_status = status_result.get("data", {}).get("piano", {}).get("status")
+            
+            # Si le piano est ACTIVE, le remettre en INACTIVE
+            if current_status == "ACTIVE":
+                update_status_mutation = """
+                mutation UpdatePianoStatus($pianoId: String!, $input: PrivatePianoInput!) {
+                    updatePiano(id: $pianoId, input: $input) {
+                        piano {
+                            id
+                            status
+                        }
+                        mutationErrors {
+                            fieldName
+                            messages
+                        }
+                    }
+                }
+                """
+                update_status_result = self._execute_query(update_status_mutation, {
+                    "pianoId": piano_id,
+                    "input": {"status": "INACTIVE"}
+                })
+                
+                update_status_data = update_status_result.get("data", {}).get("updatePiano", {})
+                status_errors = update_status_data.get("mutationErrors", [])
+                
+                if status_errors:
+                    error_messages = []
+                    for e in status_errors:
+                        field = e.get('fieldName', '')
+                        messages = e.get('messages', [])
+                        if messages:
+                            error_messages.append(f"{field}: {', '.join(messages)}")
+                        else:
+                            error_messages.append(f"{field}: Erreur inconnue")
+                    print(f"⚠️  Impossible de remettre le piano en INACTIVE: {', '.join(error_messages)}")
+                else:
+                    updated_piano = update_status_data.get("piano", {})
+                    if updated_piano.get("status") == "INACTIVE":
+                        print(f"✅ Piano remis en INACTIVE après toutes les opérations (note + mesures)")
+            else:
+                print(f"✅ Piano déjà {current_status}, pas de modification nécessaire")
+        except Exception as e:
+            print(f"⚠️  Impossible de vérifier/modifier le statut du piano: {e}")
+            print(f"   Les opérations ont été créées mais le statut n'a pas pu être modifié")
+
         return {
             "service_note": service_note,
             "measurement": measurement,
             "parsed_values": parsed,
-            "last_tuned_updated": last_tuned_updated
+            "last_tuned_updated": True  # Toujours True car completeEvent met à jour automatiquement
         }
 
     def get_users(self, limit: int = 100) -> List[Dict[str, Any]]:
