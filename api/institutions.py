@@ -1,43 +1,32 @@
 #!/usr/bin/env python3
 """
-Routes dynamiques pour TOUTES les institutions.
+Routes dynamiques pour TOUTES les institutions - Architecture professionnelle.
 
-Une seule route /{institution}/pianos gère Vincent d'Indy, Orford, et toutes les futures écoles.
-Configuration dans config/institutions.json - ajouter une école = ajouter 3 lignes JSON.
+Backend 100% agnostique:
+- Reçoit /api/{slug}/pianos
+- Charge config depuis Supabase institutions table
+- Exécute avec le bon client_id Gazelle
+- ZÉRO hardcoded credentials
+
+Ajouter une institution:
+1. INSERT INTO institutions (slug, name, gazelle_client_id) VALUES ('orford', 'Orford', 'cli_xxx');
+2. C'est tout! Routes disponibles immédiatement.
 """
 
-import json
-import os
 import ast
 import logging
-from pathlib import Path
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Path as PathParam
-from typing import Dict, Any
 from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(tags=["institutions"])
 
-# Charger la config des institutions
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "institutions.json"
-INSTITUTIONS = {}
-
-try:
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        INSTITUTIONS = json.load(f)
-    logging.info(f"✅ {len(INSTITUTIONS)} institutions chargées: {list(INSTITUTIONS.keys())}")
-except Exception as e:
-    logging.error(f"❌ Erreur chargement config institutions: {e}")
-    INSTITUTIONS = {
-        "vincent-dindy": {
-            "name": "Vincent d'Indy",
-            "client_id": "cli_9UMLkteep8EsISbG"
-        }
-    }
-
 # Singletons
 _supabase_storage = None
 _api_client = None
+_institutions_cache = {}
+_cache_timestamp = 0
 
 
 def get_supabase_storage() -> SupabaseStorage:
@@ -60,19 +49,104 @@ def get_api_client() -> GazelleAPIClient:
     return _api_client
 
 
+def get_institution_config(slug: str) -> Dict[str, Any]:
+    """
+    Charge la config d'une institution depuis Supabase.
+
+    Cache de 60 secondes pour éviter des requêtes DB à chaque appel.
+
+    Args:
+        slug: Identifiant de l'institution (vincent-dindy, orford, etc.)
+
+    Returns:
+        Dict avec: name, gazelle_client_id, options
+
+    Raises:
+        HTTPException 404: Institution non trouvée
+        HTTPException 500: Erreur DB
+    """
+    import time
+    global _institutions_cache, _cache_timestamp
+
+    # Cache de 60 secondes
+    current_time = time.time()
+    if current_time - _cache_timestamp > 60:
+        _institutions_cache = {}
+        _cache_timestamp = current_time
+
+    # Vérifier le cache
+    if slug in _institutions_cache:
+        return _institutions_cache[slug]
+
+    # Charger depuis Supabase
+    try:
+        from supabase import create_client
+        import os
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)"
+            )
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Query institutions table
+        response = supabase.table('institutions').select('*').eq('slug', slug).eq('active', True).execute()
+
+        if not response.data or len(response.data) == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Institution '{slug}' non trouvée. Vérifier la table institutions dans Supabase."
+            )
+
+        config = response.data[0]
+
+        # Valider que le client_id existe
+        if not config.get('gazelle_client_id'):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Institution '{slug}' n'a pas de gazelle_client_id configuré"
+            )
+
+        # Mettre en cache
+        _institutions_cache[slug] = config
+
+        logging.info(f"✅ Config chargée pour {slug}: {config['name']}")
+
+        return config
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Erreur chargement config {slug}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors du chargement de la configuration: {str(e)}"
+        )
+
+
 @router.get("/{institution}/pianos", response_model=Dict[str, Any])
 async def get_institution_pianos(
-    institution: str = PathParam(..., description="Institution key (ex: vincent-dindy, orford)"),
+    institution: str = PathParam(..., description="Institution slug (ex: vincent-dindy, orford)"),
     include_inactive: bool = Query(False, description="Inclure les pianos masqués")
 ) -> Dict[str, Any]:
     """
-    Route DYNAMIQUE pour charger les pianos de N'IMPORTE QUELLE institution.
+    Route DYNAMIQUE 100% agnostique pour charger les pianos.
 
-    Path params:
-        institution: Clé de l'institution (vincent-dindy, orford, etc.)
+    Backend agnostique:
+    1. Reçoit /{institution}/pianos
+    2. SELECT * FROM institutions WHERE slug = {institution}
+    3. Utilise le gazelle_client_id de la DB
+    4. Charge les pianos Gazelle
+    5. Fusionne avec Supabase overlays
 
-    Query params:
-        include_inactive: Si True, inclut les pianos avec tag "non"
+    Ajouter une institution (10 secondes):
+        INSERT INTO institutions (slug, name, gazelle_client_id)
+        VALUES ('orford', 'Orford', 'cli_xxxxx');
 
     Returns:
         {
@@ -80,25 +154,10 @@ async def get_institution_pianos(
             "count": 42,
             "institution": "Vincent d'Indy"
         }
-
-    Ajouter une nouvelle école:
-        1. Ouvrir config/institutions.json
-        2. Ajouter 3 lignes:
-           "nouvelle-ecole": {
-             "name": "Nouvelle École",
-             "client_id": "cli_xxxxx"
-           }
-        3. C'est tout! Pas besoin de toucher au code ni à Render.
     """
-    # Vérifier que l'institution existe
-    if institution not in INSTITUTIONS:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Institution '{institution}' inconnue. Institutions disponibles: {list(INSTITUTIONS.keys())}"
-        )
-
-    config = INSTITUTIONS[institution]
-    client_id = config["client_id"]
+    # Charger config depuis Supabase
+    config = get_institution_config(institution)
+    client_id = config['gazelle_client_id']
 
     try:
         api_client = get_api_client()
@@ -203,7 +262,7 @@ async def get_institution_pianos(
         return {
             "pianos": pianos,
             "count": len(pianos),
-            "institution": config["name"]
+            "institution": config['name']
         }
 
     except HTTPException:
@@ -215,12 +274,11 @@ async def get_institution_pianos(
 
 @router.get("/{institution}/activity", response_model=Dict[str, Any])
 async def get_institution_activity(
-    institution: str = PathParam(..., description="Institution key"),
+    institution: str = PathParam(..., description="Institution slug"),
     limit: int = Query(20, description="Nombre max d'activités")
 ) -> Dict[str, Any]:
-    """Route dynamique pour l'historique d'activité d'une institution."""
-    if institution not in INSTITUTIONS:
-        raise HTTPException(status_code=404, detail=f"Institution '{institution}' inconnue")
+    """Route dynamique pour l'historique d'activité."""
+    config = get_institution_config(institution)
 
     try:
         storage = get_supabase_storage()
@@ -243,7 +301,7 @@ async def get_institution_activity(
         return {
             "activities": activities[:limit],
             "total": len(activities),
-            "institution": INSTITUTIONS[institution]["name"]
+            "institution": config['name']
         }
 
     except Exception as e:
@@ -253,11 +311,10 @@ async def get_institution_activity(
 
 @router.get("/{institution}/stats", response_model=Dict[str, Any])
 async def get_institution_stats(
-    institution: str = PathParam(..., description="Institution key")
+    institution: str = PathParam(..., description="Institution slug")
 ) -> Dict[str, Any]:
-    """Route dynamique pour les statistiques d'une institution."""
-    if institution not in INSTITUTIONS:
-        raise HTTPException(status_code=404, detail=f"Institution '{institution}' inconnue")
+    """Route dynamique pour les statistiques."""
+    config = get_institution_config(institution)
 
     try:
         data = await get_institution_pianos(institution, include_inactive=True)
@@ -270,8 +327,57 @@ async def get_institution_stats(
             "total_pianos": len(all_pianos),
             "pianos_actifs": pianos_actifs,
             "pianos_masques": pianos_masques,
-            "institution": INSTITUTIONS[institution]["name"]
+            "institution": config['name']
         }
 
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/institutions/list", response_model=Dict[str, Any])
+async def list_institutions() -> Dict[str, Any]:
+    """
+    Liste toutes les institutions actives disponibles.
+
+    Utile pour générer dynamiquement les menus frontend.
+
+    Returns:
+        {
+            "institutions": [
+                {"slug": "vincent-dindy", "name": "Vincent d'Indy"},
+                {"slug": "orford", "name": "Orford"}
+            ],
+            "count": 2
+        }
+    """
+    try:
+        from supabase import create_client
+        import os
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="Configuration Supabase manquante")
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        response = supabase.table('institutions').select('slug, name, options').eq('active', True).execute()
+
+        institutions = [
+            {
+                "slug": inst['slug'],
+                "name": inst['name'],
+                "options": inst.get('options', {})
+            }
+            for inst in response.data
+        ]
+
+        return {
+            "institutions": institutions,
+            "count": len(institutions)
+        }
+
+    except Exception as e:
+        logging.error(f"❌ Erreur liste institutions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
