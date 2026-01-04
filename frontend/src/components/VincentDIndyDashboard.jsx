@@ -80,7 +80,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
       // Toujours charger TOUS les pianos (include_inactive=true)
       // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/api/vincent-dindy/pianos?include_inactive=true`;
+      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -484,7 +484,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         try {
           console.log(`🚀 Pushing piano ${id} to Gazelle (auto-push after completion)...`);
           const response = await fetch(
-            `${API_URL}/api/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
+            `${API_URL}/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
             { method: 'POST' }
           );
 
@@ -522,7 +522,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const loadTournees = useCallback(async () => {
     try {
       // Utiliser le service API centralisé
-      const tournees = await getTourneesAPI(`${API_URL}/api`);
+      const tournees = await getTourneesAPI(`${API_URL}`);
       setTournees(tournees);
     } catch (err) {
       console.error('Erreur chargement tournées:', err);
@@ -556,7 +556,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   useEffect(() => {
     const loadReadyCount = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
+        const response = await fetch(`${API_URL}/vincent-dindy/pianos-ready-for-push`);
         if (response.ok) {
           const data = await response.json();
           setReadyForPushCount(data.count || 0);
@@ -732,7 +732,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       const { updateTournee } = await import('../api/vincentDIndyApi');
 
       // Appel API REST pour persister dans Supabase
-      await updateTournee(`${API_URL}/api`, tourneeId, updates);
+      await updateTournee(`${API_URL}`, tourneeId, updates);
 
       console.log('✅ Tournée mise à jour dans Supabase');
 
@@ -827,7 +827,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     setPushInProgress(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/vincent-dindy/push-to-gazelle`, {
+      const response = await fetch(`${API_URL}/vincent-dindy/push-to-gazelle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

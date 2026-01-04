@@ -66,7 +66,7 @@ const InventaireDashboard = ({ currentUser }) => {
       setLoading(true)
       // TODO: Adapter l'endpoint pour retourner le format V4
       // Pour l'instant, on simule avec les données existantes
-      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`)
+      const catalogueRes = await fetch(`${API_URL}/inventaire/catalogue`)
       if (!catalogueRes.ok) throw new Error('Erreur chargement catalogue')
       const catalogueData = await catalogueRes.json()
 
@@ -105,7 +105,7 @@ const InventaireDashboard = ({ currentUser }) => {
       for (const tech of TECHNICIENS) {
         try {
           console.log(`📦 Chargement pour: ${tech.name} (username: ${tech.username})`)
-          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.name}`)
+          const res = await fetch(`${API_URL}/inventaire/stock/${tech.name}`)
           if (res.ok) {
             const invData = await res.json()
             console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)
@@ -170,7 +170,7 @@ const InventaireDashboard = ({ currentUser }) => {
   // Charger les transactions
   const loadTransactions = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/inventaire/transactions?limit=50`)
+      const response = await fetch(`${API_URL}/inventaire/transactions?limit=50`)
       if (!response.ok) throw new Error('Erreur chargement transactions')
       const data = await response.json()
       setTransactions(data.transactions || [])
@@ -205,7 +205,7 @@ const InventaireDashboard = ({ currentUser }) => {
     )
 
     try {
-      const response = await fetch(`${API_URL}/api/inventaire/stock`, {
+      const response = await fetch(`${API_URL}/inventaire/stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -247,7 +247,7 @@ const InventaireDashboard = ({ currentUser }) => {
 
     try {
       // TODO: Endpoint pour envoyer notification Slack
-      const response = await fetch(`${API_URL}/api/inventaire/comment`, {
+      const response = await fetch(`${API_URL}/inventaire/comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -332,7 +332,7 @@ const InventaireDashboard = ({ currentUser }) => {
   // Sauvegarder ordre (admin)
   const saveOrder = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/inventaire/catalogue/batch-order`, {
+      const response = await fetch(`${API_URL}/inventaire/catalogue/batch-order`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -670,7 +670,7 @@ const InventaireDashboard = ({ currentUser }) => {
                     }
 
                     try {
-                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/batch-type-commission`, {
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/batch-type-commission`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -969,7 +969,7 @@ const InventaireDashboard = ({ currentUser }) => {
                         <button
                           onClick={async () => {
                             try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/${product.code_produit}`, {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/${product.code_produit}`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -1006,7 +1006,7 @@ const InventaireDashboard = ({ currentUser }) => {
                             }
 
                             try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue`, {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -1092,7 +1092,7 @@ const InventaireDashboard = ({ currentUser }) => {
                     try {
                       setLoadingGazelle(true)
                       // Utiliser le endpoint optimisé qui ne synchronise que si nécessaire
-                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/sync-gazelle-smart?force=false&max_age_hours=24`, { method: 'POST' })
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/sync-gazelle-smart?force=false&max_age_hours=24`, { method: 'POST' })
                       if (!response.ok) {
                         const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
                         throw new Error(errorData.detail || `Erreur ${response.status}`)
@@ -1124,7 +1124,7 @@ const InventaireDashboard = ({ currentUser }) => {
                     }
                     try {
                       setLoadingGazelle(true)
-                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-all-msl`, { method: 'POST' })
+                      const response = await fetch(`${API_URL}/inventaire/catalogue/import-all-msl`, { method: 'POST' })
                       if (!response.ok) {
                         const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
                         throw new Error(errorData.detail || `Erreur ${response.status}`)
@@ -1153,7 +1153,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   onClick={async () => {
                     try {
                       setLoadingGazelle(true)
-                      const response = await fetch(`${API_URL}/api/inventaire/gazelle/find-duplicates?threshold=0.75`)
+                      const response = await fetch(`${API_URL}/inventaire/gazelle/find-duplicates?threshold=0.75`)
                       
                       if (!response.ok) {
                         const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
@@ -1223,7 +1223,7 @@ const InventaireDashboard = ({ currentUser }) => {
                             e.preventDefault()
                             if (draggedDuplicate && draggedDuplicate.gazelle_id) {
                               try {
-                                const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
+                                const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
                                   body: JSON.stringify({
@@ -1275,7 +1275,7 @@ const InventaireDashboard = ({ currentUser }) => {
                         <button
                           onClick={async () => {
                             try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/map-gazelle`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -1318,7 +1318,7 @@ const InventaireDashboard = ({ currentUser }) => {
                 onClick={async () => {
                   try {
                     setLoadingGazelle(true)
-                    const response = await fetch(`${API_URL}/api/inventaire/gazelle/products`)
+                    const response = await fetch(`${API_URL}/inventaire/gazelle/products`)
                     const data = await response.json()
                     setGazelleProducts(data.products || [])
                     alert(`${data.count} produits chargés`)
@@ -1417,7 +1417,7 @@ const InventaireDashboard = ({ currentUser }) => {
 
                           for (const gp of selectedProducts) {
                             try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-gazelle`, {
+                              const response = await fetch(`${API_URL}/inventaire/catalogue/import-gazelle`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -1664,7 +1664,7 @@ const InventaireDashboard = ({ currentUser }) => {
               <button
                 onClick={async () => {
                   try {
-                    const response = await fetch(`${API_URL}/api/inventaire/catalogue/${editingProduct.code_produit}`, {
+                    const response = await fetch(`${API_URL}/inventaire/catalogue/${editingProduct.code_produit}`, {
                       method: 'PUT',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({

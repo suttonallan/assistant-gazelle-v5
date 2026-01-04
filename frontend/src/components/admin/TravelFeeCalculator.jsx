@@ -36,7 +36,7 @@ export default function TravelFeeCalculator() {
     setSelectedClient(null)
     
     try {
-      const response = await fetch(`${API_URL}/api/admin/travel-fees/search-client?client_name=${encodeURIComponent(clientName)}`)
+      const response = await fetch(`${API_URL}/admin/travel-fees/search-client?client_name=${encodeURIComponent(clientName)}`)
       const data = await response.json()
       
       if (data.results && data.results.length > 0) {
@@ -78,7 +78,7 @@ export default function TravelFeeCalculator() {
     setResults(null)
 
     try {
-      const response = await fetch(`${API_URL}/api/admin/travel-fees/calculate`, {
+      const response = await fetch(`${API_URL}/admin/travel-fees/calculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

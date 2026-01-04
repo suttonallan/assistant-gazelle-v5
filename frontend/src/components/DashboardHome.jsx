@@ -16,9 +16,15 @@ export default function DashboardHome({ currentUser }) {
   const loadActivities = async () => {
     try {
       setLoading(true)
-      // Le proxy Vite retire /api automatiquement, donc on utilise directement l'endpoint
-      // En développement, API_URL est vide, donc l'appel est relatif et passe par le proxy
-      const response = await fetch(`${API_URL}/api/vincent-dindy/activity?limit=50`)
+      // En développement: API_URL vide → proxy Vite ajoute /api automatiquement
+      // En production: API_URL complet → appel direct sans /api
+      const response = await fetch(`${API_URL}/vincent-dindy/activity?limit=50`)
+
+      // Vérifier si la réponse est OK avant de parser le JSON
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
       const data = await response.json()
       setActivities(data.activities || [])
       setError(null)

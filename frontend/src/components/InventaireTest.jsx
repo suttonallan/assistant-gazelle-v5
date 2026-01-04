@@ -10,9 +10,9 @@ function InventaireTest() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('🔍 Fetching from:', `${API_URL}/api/inventaire/catalogue`)
+        console.log('🔍 Fetching from:', `${API_URL}/inventaire/catalogue`)
 
-        const response = await fetch(`${API_URL}/api/inventaire/catalogue`)
+        const response = await fetch(`${API_URL}/inventaire/catalogue`)
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)

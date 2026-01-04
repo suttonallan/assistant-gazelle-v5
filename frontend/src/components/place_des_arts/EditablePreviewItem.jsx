@@ -28,7 +28,7 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
     setSaving(true)
     try {
       // Enregistrer la correction pour apprentissage
-      await fetch(`${API_URL}/api/place-des-arts/learn`, {
+      await fetch(`${API_URL}/place-des-arts/learn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
