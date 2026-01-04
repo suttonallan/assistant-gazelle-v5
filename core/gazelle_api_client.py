@@ -40,9 +40,15 @@ class GazelleAPIClient:
             token_path = os.path.join(CONFIG_DIR, 'token.json')
         self.token_path = token_path
 
-        # Force credentials from DEPLOY_NOW.md
-        self.client_id = os.getenv('GAZELLE_CLIENT_ID') or 'yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE'
-        self.client_secret = os.getenv('GAZELLE_CLIENT_SECRET') or 'CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc'
+        # SÉCURITÉ: Utiliser uniquement les variables d'environnement (pas de fallback hardcodé)
+        self.client_id = os.getenv('GAZELLE_CLIENT_ID')
+        self.client_secret = os.getenv('GAZELLE_CLIENT_SECRET')
+
+        if not self.client_id or not self.client_secret:
+            raise ValueError(
+                "Variables d'environnement GAZELLE_CLIENT_ID et GAZELLE_CLIENT_SECRET requises. "
+                "Ajoutez-les dans .env ou dans la configuration de Render."
+            )
 
         # Try to load token, if fails create a new one
         try:

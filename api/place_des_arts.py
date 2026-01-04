@@ -29,7 +29,11 @@ from modules.place_des_arts.services.email_parser import parse_email_text  # noq
 router = APIRouter(prefix="/place-des-arts", tags=["place-des-arts"])
 
 # Client ID Place des Arts dans Gazelle
-PLACE_DES_ARTS_CLIENT_ID = os.getenv("GAZELLE_CLIENT_ID_PDA") or "cli_HbEwl9rN11pSuDEU"
+# SÉCURITÉ: Utiliser uniquement la variable d'environnement
+PLACE_DES_ARTS_CLIENT_ID = os.getenv("GAZELLE_CLIENT_ID_PDA")
+
+if not PLACE_DES_ARTS_CLIENT_ID:
+    print("⚠️ WARNING: GAZELLE_CLIENT_ID_PDA non défini - Place des Arts ne sera pas disponible")
 
 # Singletons
 _api_client = None
