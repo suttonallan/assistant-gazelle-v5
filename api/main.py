@@ -21,6 +21,7 @@ from typing import Dict, Any, Optional
 import requests
 
 # Import des routes des modules
+from api.institutions import router as institutions_router
 from api.vincent_dindy import router as vincent_dindy_router
 from api.alertes_rv import router as alertes_rv_router
 from api.inventaire import router as inventaire_router
@@ -136,6 +137,7 @@ app.add_middleware(
 # Solution: Enregistrer les routes AVEC et SANS préfixe /api
 
 # Routes SANS /api (pour développement avec proxy Vite)
+app.include_router(institutions_router)  # Route dynamique /{institution}/pianos
 app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
@@ -149,6 +151,7 @@ app.include_router(chat_router)
 app.include_router(scheduler_router)
 
 # Routes AVEC /api (pour production sans proxy)
+app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos
 app.include_router(vincent_dindy_router, prefix="/api")
 app.include_router(alertes_rv_router, prefix="/api")
 app.include_router(inventaire_router, prefix="/api")
