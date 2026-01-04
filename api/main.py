@@ -58,6 +58,19 @@ async def startup_event():
         print("✅ Singletons initialisés")
     except Exception as e:
         print(f"⚠️  Erreur lors de l'initialisation des singletons: {e}")
+    
+    # Discovery automatique des institutions depuis Gazelle
+    try:
+        from api.institutions import discover_and_sync_institutions
+        print("\n🔍 Discovery automatique des institutions...")
+        result = discover_and_sync_institutions()
+        if result.get("success"):
+            print(f"✅ {result.get('synced_count', 0)} institutions synchronisées: {', '.join(result.get('institutions', []))}")
+        else:
+            print(f"⚠️  Discovery échoué: {result.get('error', 'Erreur inconnue')}")
+    except Exception as e:
+        print(f"⚠️  Erreur lors du discovery des institutions: {e}")
+        # Ne pas bloquer le démarrage si le discovery échoue
 
     # Vérification des variables d'environnement critiques
     supabase_url = os.getenv('SUPABASE_URL')

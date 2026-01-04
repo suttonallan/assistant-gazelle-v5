@@ -36,12 +36,8 @@ import os
 from core.gazelle_api_client import GazelleAPIClient
 
 
-# Mapping institution → client_id Gazelle
-INSTITUTION_CLIENT_MAPPING = {
-    "vincent-dindy": "cli_3VDsY1hbbEqnMlN2",  # Vincent d'Indy
-    "place-des-arts": None,  # À définir
-    "orford": None,  # À définir
-}
+# NOTE: INSTITUTION_CLIENT_MAPPING supprimé - Utiliser get_institution_client_id() 
+# qui charge depuis la table Supabase institutions (découverte automatique depuis Gazelle)
 
 
 def get_technician_gazelle_id(technician_name: str) -> Optional[str]:
@@ -142,20 +138,22 @@ def complete_service_session(
     if not service_notes or not service_notes.strip():
         raise ValueError("service_notes est requis et ne peut pas être vide")
 
-    if institution not in INSTITUTION_CLIENT_MAPPING:
-        raise ValueError(
-            f"Institution '{institution}' non reconnue. "
-            f"Institutions supportées: {list(INSTITUTION_CLIENT_MAPPING.keys())}"
-        )
-
     # Résoudre client_id depuis l'institution si non fourni
-    # Par défaut: utiliser Vincent d'Indy si manquant
+    # Utiliser la table Supabase institutions (découverte automatique)
     if not client_id:
-        client_id = INSTITUTION_CLIENT_MAPPING.get(institution)
-        if not client_id:
-            # Fallback: utiliser Vincent d'Indy par défaut pour stabiliser
-            client_id = "cli_3VDsY1hbbEqnMlN2"
-            print(f"⚠️  Client ID non configuré pour '{institution}', utilisation du défaut Vincent d'Indy: {client_id}")
+        try:
+            from api.institutions import get_institution_config
+            config = get_institution_config(institution)
+            client_id = config.get('gazelle_client_id')
+            if client_id:
+                print(f"✅ Client ID chargé depuis Supabase pour '{institution}': {client_id}")
+            else:
+                raise ValueError(f"Institution '{institution}' n'a pas de gazelle_client_id configuré dans Supabase")
+        except Exception as e:
+            raise ValueError(
+                f"Institution '{institution}' non trouvée ou non configurée. "
+                f"Vérifiez la table Supabase institutions. Erreur: {str(e)}"
+            )
 
     # Résoudre technician_id depuis Supabase si non fourni
     # Fallback: utiliser le compte par défaut (Nick) si technicien non trouvé
@@ -268,33 +266,55 @@ def complete_service_session(
 
 def get_supported_institutions() -> list[str]:
     """Retourne la liste des institutions supportées."""
-    return list(INSTITUTION_CLIENT_MAPPING.keys())
+    # Charger depuis la table Supabase institutions
+    try:
+        from supabase import create_client
+        import os
+        import logging
+        
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            print("⚠️  Configuration Supabase manquante pour liste institutions")
+            return []
+        
+        supabase = create_client(supabase_url, supabase_key)
+        response = supabase.table('institutions').select('slug').eq('active', True).execute()
+        
+        return [inst['slug'] for inst in response.data]
+    except Exception as e:
+        print(f"⚠️  Erreur chargement liste institutions: {e}")
+        return []
 
 
 def get_supported_technicians() -> list[str]:
-    """Retourne la liste des techniciens supportés."""
-    return list(TECHNICIAN_USER_MAPPING.keys())
+    """
+    Retourne la liste des techniciens supportés.
+    
+    NOTE: Cette fonction retourne une liste vide car les techniciens
+    sont maintenant chargés dynamiquement depuis la table Supabase 'users'.
+    """
+    # TODO: Implémenter chargement depuis Supabase si nécessaire
+    return []
 
 
 def register_institution(institution_name: str, client_id: str) -> None:
     """
-    Enregistre une nouvelle institution dans le mapping.
-
-    Args:
-        institution_name: Nom de l'institution
-        client_id: ID Gazelle du client
+    DEPRECATED: Utiliser discover_and_sync_institutions() depuis api/institutions.py
+    
+    Les institutions sont maintenant découvertes automatiquement depuis Gazelle
+    et stockées dans la table Supabase 'institutions'.
     """
-    INSTITUTION_CLIENT_MAPPING[institution_name] = client_id
-    print(f"✅ Institution '{institution_name}' enregistrée avec client_id: {client_id}")
+    print(f"⚠️  register_institution() est deprecated. Utiliser discover_and_sync_institutions() depuis api/institutions.py")
+    # Ne rien faire - les institutions sont maintenant dans Supabase
 
 
 def register_technician(technician_name: str, user_id: str) -> None:
     """
-    Enregistre un nouveau technicien dans le mapping.
-
-    Args:
-        technician_name: Nom du technicien
-        user_id: ID Gazelle de l'utilisateur
+    DEPRECATED: Les techniciens sont maintenant chargés depuis la table Supabase 'users'.
+    
+    Utiliser get_technician_gazelle_id() pour récupérer l'ID d'un technicien.
     """
-    TECHNICIAN_USER_MAPPING[technician_name] = user_id
-    print(f"✅ Technicien '{technician_name}' enregistré avec user_id: {user_id}")
+    print(f"⚠️  register_technician() est deprecated. Les techniciens sont maintenant dans Supabase 'users'")
+    # Ne rien faire - les techniciens sont maintenant dans Supabase

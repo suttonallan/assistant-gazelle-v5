@@ -6,7 +6,8 @@ import { API_URL } from '../utils/apiConfig'
 // Configuration des techniciens - SOURCE DE VÉRITÉ CENTRALISÉE
 const TECHNICIENS = TECHNICIENS_LISTE.map(t => ({
   id: t.gazelleId,
-  name: t.abbreviation, // ⭐ Utilise l'abbréviation (Nick, Allan, JP)
+  name: t.abbreviation, // ⭐ Abbréviation pour l'affichage UI (Nick, Allan, JP)
+  prenom: t.prenom, // ⭐ Prénom complet pour requêtes API (Nicolas, Allan, Jean-Philippe)
   username: t.username
 }))
 

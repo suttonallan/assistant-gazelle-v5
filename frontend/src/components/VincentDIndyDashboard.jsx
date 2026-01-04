@@ -11,7 +11,7 @@ import VDI_ManagementView from './vdi/VDI_ManagementView';
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
-const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false }) => {
+const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, institution = 'vincent-dindy' }) => {
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
@@ -80,7 +80,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
       // Toujours charger TOUS les pianos (include_inactive=true)
       // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/api/vincent-dindy/pianos?include_inactive=true`;
+      const url = `${API_URL}/api/${institution}/pianos?include_inactive=true`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -104,7 +104,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } finally {
       setLoading(false);
     }
-  }, []); // Pas de dépendances - API_URL est constant
+  }, [institution]); // Recharger les pianos si l'institution change
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -115,8 +115,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         updated_by: currentUser?.email || currentUser?.name || 'Unknown'
       };
 
-      await updatePiano(API_URL, pianoId, updatesWithUser);
+      // Utiliser l'institution dynamique au lieu de vincent-dindy hardcodé
+      const response = await fetch(`${API_URL}/api/${institution}/pianos/${pianoId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatesWithUser),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+        throw new Error(error.detail || `Erreur ${response.status}`);
+      }
+
       console.log('✅ Piano sauvegardé par', currentUser?.name, ':', pianoId, updatesWithUser);
+      return response.json();
     } catch (err) {
       console.error('❌ Erreur lors de la sauvegarde:', err);
       alert(`Erreur lors de la sauvegarde: ${err.message}`);
@@ -215,9 +229,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const pianosFiltres = useMemo(() => {
     let result = [...pianos];
 
-    // Filtre d'inventaire : masquer les pianos avec isInCsv=false (sauf si "Tout voir" activé)
+    // Filtre d'inventaire : masquer les pianos avec is_hidden=true (sauf si "Tout voir" activé)
     if (!showAllPianos) {
-      result = result.filter(p => p.isInCsv !== false);
+      result = result.filter(p => !p.is_hidden);
     }
 
     if (currentView === 'nicolas') {
@@ -411,14 +425,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
 
     // Mise à jour optimiste
-    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, isInCsv: false } : p));
+    setPianos(pianos.map(p => selectedIds.has(p.id) ? { ...p, is_hidden: true } : p));
 
     // Désélectionner immédiatement
     setSelectedIds(new Set());
 
     // Sauvegarder chaque piano via API
     for (const id of idsToUpdate) {
-      await savePianoToAPI(id, { isInCsv: false });
+      await savePianoToAPI(id, { isHidden: true });
     }
   };
 
@@ -484,7 +498,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         try {
           console.log(`🚀 Pushing piano ${id} to Gazelle (auto-push after completion)...`);
           const response = await fetch(
-            `${API_URL}/api/vincent-dindy/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
+            `${API_URL}/api/${institution}/pianos/${id}/complete-service?technician_name=Nicolas&auto_push=true`,
             { method: 'POST' }
           );
 
@@ -521,9 +535,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ GESTION DES TOURNÉES ============
   const loadTournees = useCallback(async () => {
     try {
-      // Utiliser le service API centralisé
-      const tournees = await getTourneesAPI(`${API_URL}/api`);
-      setTournees(tournees);
+      // Charger les tournées spécifiques à l'institution
+      const response = await fetch(`${API_URL}/api/${institution}/tournees`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      setTournees(data.tournees || []);
     } catch (err) {
       console.error('Erreur chargement tournées:', err);
       // Fallback: essayer localStorage si l'API échoue
@@ -538,7 +556,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         setTournees([]);
       }
     }
-  }, []); // Pas de dépendances - API_URL est constant
+  }, [institution]); // Recharger si l'institution change
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
@@ -552,11 +570,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   }, [loadPianosFromAPI, loadTournees]); // Maintenant mémorisés avec useCallback
 
+  // Réinitialiser selectedTourneeId quand l'institution change
+  useEffect(() => {
+    console.log(`[VincentDIndyDashboard] Institution changée: ${institution}, réinitialisation selectedTourneeId`);
+    setSelectedTourneeId(null);
+  }, [institution]);
+
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
     const loadReadyCount = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/vincent-dindy/pianos-ready-for-push`);
+        const response = await fetch(`${API_URL}/api/${institution}/pianos-ready-for-push`);
         if (response.ok) {
           const data = await response.json();
           setReadyForPushCount(data.count || 0);
@@ -569,7 +593,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       loadReadyCount();
     }
-  }, [pianos, currentView]);
+  }, [pianos, currentView, institution]);
 
   // Ajouter un piano à une tournée (utilise gazelleId si disponible)
   const addPianoToTournee = async (piano) => {
@@ -669,14 +693,35 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]')
-      const updated = existing.filter(t => t.id !== tourneeId)
-      localStorage.setItem('tournees_accords', JSON.stringify(updated))
+      console.log(`🗑️ Suppression tournée ${tourneeId}`);
 
-      alert('✅ Tournée supprimée')
-      await loadTournees()
+      // Appeler l'API pour supprimer la tournée
+      const response = await fetch(`${API_URL}/api/${institution}/tournees/${tourneeId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+        throw new Error(error.detail || `Erreur ${response.status}`);
+      }
+
+      // Mettre à jour l'état local immédiatement (optimistic update)
+      setTournees(prev => prev.filter(t => t.id !== tourneeId));
+
+      // Si la tournée supprimée était sélectionnée, désélectionner
+      if (selectedTourneeId === tourneeId) {
+        setSelectedTourneeId(null);
+        setShowOnlySelected(false);
+        setSelectedIds(new Set());
+      }
+
+      alert('✅ Tournée supprimée');
+      console.log(`✅ Tournée ${tourneeId} supprimée avec succès`);
     } catch (err) {
-      alert('❌ Erreur: ' + err.message)
+      console.error('❌ Erreur suppression tournée:', err);
+      alert('❌ Erreur: ' + err.message);
+      // En cas d'erreur, recharger depuis le serveur pour resynchroniser
+      await loadTournees();
     }
   };
 
@@ -786,8 +831,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
     
     // Priorité 4: Travail en cours (bleu) - NOUVEAU
+    // IMPORTANT: Utiliser seulement 'travail' pour éviter confusion avec 'observations' Gazelle (donateur, etc.)
     if (piano.status === 'work_in_progress' ||
-        ((piano.travail || piano.observations) && !piano.is_work_completed)) {
+        (piano.travail && piano.travail.trim() !== '' && !piano.is_work_completed)) {
       return 'bg-blue-200';
     }
     
@@ -827,7 +873,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     setPushInProgress(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/vincent-dindy/push-to-gazelle`, {
+      const response = await fetch(`${API_URL}/api/${institution}/push-to-gazelle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

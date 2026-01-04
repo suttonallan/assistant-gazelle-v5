@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 
-export default function DashboardHome({ currentUser }) {
+export default function DashboardHome({ currentUser, selectedLocation }) {
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -11,9 +11,18 @@ export default function DashboardHome({ currentUser }) {
     // Recharger toutes les 30 secondes
     const interval = setInterval(loadActivities, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedLocation])
 
   const loadActivities = async () => {
+    // Ne charger les activités que pour vincent-dindy
+    // place-des-arts n'a pas d'endpoint /activity
+    const currentInstitution = selectedLocation || 'vincent-dindy'
+    if (currentInstitution !== 'vincent-dindy') {
+      setActivities([])
+      setLoading(false)
+      return
+    }
+
     try {
       setLoading(true)
       // Le proxy Vite retire /api automatiquement, donc on utilise directement l'endpoint

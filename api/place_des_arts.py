@@ -7,6 +7,7 @@ la logique V4 n'est pas portée.
 
 import sys
 import os
+import logging
 from pathlib import Path
 from typing import List, Literal, Optional, Dict, Any
 import requests
@@ -28,8 +29,7 @@ from modules.place_des_arts.services.email_parser import parse_email_text  # noq
 
 router = APIRouter(prefix="/place-des-arts", tags=["place-des-arts"])
 
-# Client ID Place des Arts dans Gazelle
-PLACE_DES_ARTS_CLIENT_ID = os.getenv("GAZELLE_CLIENT_ID_PDA") or "cli_HbEwl9rN11pSuDEU"
+# NOTE: PLACE_DES_ARTS_CLIENT_ID supprimé - Utiliser get_institution_config() depuis api/institutions.py
 
 # Singletons
 _api_client = None
@@ -198,7 +198,15 @@ async def get_pianos(include_inactive: bool = False):
     import ast
     
     try:
-        logging.info(f"🔍 Chargement des pianos Place des Arts depuis Gazelle (client: {PLACE_DES_ARTS_CLIENT_ID})")
+        # Charger client_id depuis Supabase institutions
+        from api.institutions import get_institution_config
+        try:
+            config = get_institution_config("place-des-arts")
+            client_id = config.get('gazelle_client_id')
+            logging.info(f"✅ Slug reçu: 'place-des-arts' | Config trouvée: Oui (client_id: {client_id})")
+        except Exception as e:
+            logging.error(f"❌ Slug reçu: 'place-des-arts' | Config trouvée: Non | Erreur: {e}")
+            raise HTTPException(status_code=500, detail=f"Configuration institution non trouvée: {str(e)}")
         
         # 1. Charger TOUS les pianos Place des Arts depuis Gazelle
         api_client = get_api_client()
@@ -227,7 +235,7 @@ async def get_pianos(include_inactive: bool = False):
         }
         """
         
-        variables = {"clientId": PLACE_DES_ARTS_CLIENT_ID}
+        variables = {"clientId": client_id}
         result = api_client._execute_query(query, variables)
         gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
         
@@ -312,7 +320,7 @@ async def get_pianos(include_inactive: bool = False):
             "pianos": pianos,
             "count": len(pianos),
             "source": "gazelle_api",
-            "client_id": PLACE_DES_ARTS_CLIENT_ID,
+            "client_id": client_id,
             "include_inactive": include_inactive
         }
         
@@ -437,8 +445,16 @@ async def get_gazelle_piano_id(request_id: str):
         # TODO: Implémenter la recherche dans pda_piano_mappings si la table existe
         
         # 2. Chercher dans les pianos Gazelle par location/room
+        from api.institutions import get_institution_config
+        try:
+            config = get_institution_config("place-des-arts")
+            client_id = config.get('gazelle_client_id')
+        except Exception as e:
+            logging.error(f"❌ Configuration place-des-arts non trouvée: {e}")
+            client_id = None
+        
         api_client = get_api_client()
-        if api_client:
+        if api_client and client_id:
             # Récupérer les pianos directement depuis Gazelle
             query = """
             query GetPlaceDesArtsPianos($clientId: String!) {
@@ -453,7 +469,7 @@ async def get_gazelle_piano_id(request_id: str):
               }
             }
             """
-            variables = {"clientId": PLACE_DES_ARTS_CLIENT_ID}
+            variables = {"clientId": client_id}
             result = api_client._execute_query(query, variables)
             gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
             

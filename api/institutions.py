@@ -8,17 +8,26 @@ Backend 100% agnostique:
 - Exécute avec le bon client_id Gazelle
 - ZÉRO hardcoded credentials
 
-Ajouter une institution:
-1. INSERT INTO institutions (slug, name, gazelle_client_id) VALUES ('orford', 'Orford', 'cli_xxx');
-2. C'est tout! Routes disponibles immédiatement.
+DISCOVERY AUTOMATIQUE:
+- Au démarrage, interroge l'API Gazelle pour découvrir les locations
+- Mappe automatiquement les noms vers les slugs connus
+- Met à jour la table Supabase institutions
+
+Institutions reconnues par nom:
+- "Vincent d'Indy" → slug "vincent-dindy"
+- "Orford" → slug "orford"
+- "Place des Arts" → slug "place-des-arts"
 """
 
 import ast
 import logging
-from typing import Dict, Any, Optional
+import os
+import re
+from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, Query, Path as PathParam
 from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
+from supabase import create_client
 
 router = APIRouter(tags=["institutions"])
 
@@ -49,6 +58,166 @@ def get_api_client() -> GazelleAPIClient:
     return _api_client
 
 
+# Mapping nom → slug pour la reconnaissance automatique
+INSTITUTION_NAME_MAPPING = {
+    # Vincent d'Indy - règles prioritaires (ordre important pour matching)
+    "École de musique Vincent-d'Indy": "vincent-dindy",  # Nom exact depuis Gazelle
+    "école de musique vincent-d'indy": "vincent-dindy",  # Version minuscule
+    "vincent d'indy": "vincent-dindy",
+    "vincent-dindy": "vincent-dindy",
+    # Autres institutions
+    "orford": "orford",
+    "centre d'arts orford": "orford",
+    "place des arts": "place-des-arts",
+    "place-des-arts": "place-des-arts",
+}
+
+
+def normalize_institution_name(name: str) -> str:
+    """
+    Normalise un nom d'institution pour la comparaison.
+    
+    Args:
+        name: Nom brut de l'institution
+        
+    Returns:
+        Nom normalisé (lowercase, accents normalisés, espaces normalisés)
+    """
+    if not name:
+        return ""
+    
+    # Convertir en minuscules
+    normalized = name.lower().strip()
+    
+    # Normaliser les espaces multiples
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    return normalized
+
+
+def match_institution_slug(company_name: str) -> Optional[str]:
+    """
+    Essaie de matcher un nom d'entreprise avec un slug d'institution connu.
+    
+    Args:
+        company_name: Nom de l'entreprise depuis Gazelle
+        
+    Returns:
+        Slug de l'institution si match trouvé, None sinon
+    """
+    normalized = normalize_institution_name(company_name)
+    
+    # Chercher un match exact ou partiel
+    for known_name, slug in INSTITUTION_NAME_MAPPING.items():
+        if known_name in normalized or normalized in known_name:
+            return slug
+    
+    return None
+
+
+def discover_and_sync_institutions() -> Dict[str, Any]:
+    """
+    Discovery automatique: Interroge l'API Gazelle pour récupérer les locations
+    et synchronise avec la table Supabase institutions.
+    
+    Cette fonction:
+    1. Récupère tous les clients depuis l'API Gazelle
+    2. Pour chaque client, essaie de matcher avec un slug connu
+    3. Met à jour ou insère dans la table Supabase institutions
+    
+    Returns:
+        Dict avec le résultat de la synchronisation
+    """
+    try:
+        # 1. Initialiser clients Supabase et Gazelle
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            logging.error("❌ Configuration Supabase manquante pour discovery")
+            return {"success": False, "error": "Configuration Supabase manquante"}
+        
+        supabase = create_client(supabase_url, supabase_key)
+        
+        api_client = get_api_client()
+        if not api_client:
+            logging.error("❌ Client API Gazelle non disponible pour discovery")
+            return {"success": False, "error": "Client API Gazelle non disponible"}
+        
+        logging.info("🔍 Discovery automatique des institutions depuis Gazelle...")
+        
+        # 2. Récupérer tous les clients depuis Gazelle
+        clients = api_client.get_clients(limit=1000)
+        logging.info(f"📋 {len(clients)} clients récupérés depuis Gazelle")
+        
+        # 3. Pour chaque client, essayer de matcher avec un slug connu
+        synced_count = 0
+        matched_clients = {}
+        
+        # Mapping forcé pour Vincent d'Indy (prioritaire)
+        FORCED_MAPPINGS = {
+            "vincent-dindy": {
+                "slug": "vincent-dindy",
+                "name": "École de musique Vincent-d'Indy",
+                "gazelle_client_id": "cli_9UMLkteep8EsISbG"
+            }
+        }
+        
+        for client in clients:
+            client_id = client.get('id')
+            company_name = client.get('companyName', '')
+            
+            if not client_id or not company_name:
+                continue
+            
+            # Essayer de matcher avec un slug connu
+            slug = match_institution_slug(company_name)
+            
+            if slug:
+                matched_clients[slug] = {
+                    "slug": slug,
+                    "name": company_name,
+                    "gazelle_client_id": client_id
+                }
+                logging.info(f"✅ Match trouvé: '{company_name}' → slug '{slug}' (ID: {client_id})")
+        
+        # Appliquer les mappings forcés (priorité sur les matches automatiques)
+        for slug, forced_data in FORCED_MAPPINGS.items():
+            matched_clients[slug] = forced_data
+            logging.info(f"✅ Mapping forcé: '{forced_data['name']}' → slug '{slug}' (ID: {forced_data['gazelle_client_id']})")
+        
+        # 4. Mettre à jour ou insérer dans Supabase
+        for slug, institution_data in matched_clients.items():
+            try:
+                # Upsert dans la table institutions
+                response = supabase.table('institutions').upsert({
+                    "slug": slug,
+                    "name": institution_data["name"],
+                    "gazelle_client_id": institution_data["gazelle_client_id"],
+                    "active": True
+                }, on_conflict="slug").execute()
+                
+                synced_count += 1
+                logging.info(f"✅ Institution '{slug}' synchronisée dans Supabase")
+                
+            except Exception as e:
+                logging.error(f"❌ Erreur synchronisation {slug}: {e}")
+        
+        logging.info(f"✅ Discovery terminée: {synced_count} institutions synchronisées")
+        
+        return {
+            "success": True,
+            "synced_count": synced_count,
+            "institutions": list(matched_clients.keys())
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ Erreur lors du discovery: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+
 def get_institution_config(slug: str) -> Dict[str, Any]:
     """
     Charge la config d'une institution depuis Supabase.
@@ -68,6 +237,15 @@ def get_institution_config(slug: str) -> Dict[str, Any]:
     import time
     global _institutions_cache, _cache_timestamp
 
+    # Normaliser le slug (strip + lowercase)
+    slug = slug.strip().lower()
+    
+    # Mapping spécial pour place-des-arts (sans espace)
+    if slug == "place des arts" or slug == "place-des-arts":
+        slug = "place-des-arts"
+
+    logging.info(f"🔍 get_institution_config appelé avec slug: '{slug}'")
+
     # Cache de 60 secondes
     current_time = time.time()
     if current_time - _cache_timestamp > 60:
@@ -76,6 +254,7 @@ def get_institution_config(slug: str) -> Dict[str, Any]:
 
     # Vérifier le cache
     if slug in _institutions_cache:
+        logging.info(f"✅ Config trouvée dans le cache pour '{slug}'")
         return _institutions_cache[slug]
 
     # Charger depuis Supabase
@@ -168,7 +347,7 @@ async def get_institution_pianos(
 
         # 1. Charger pianos depuis Gazelle
         query = """
-        query AllPianos($clientId: ID!) {
+        query AllPianos($clientId: String!) {
           allPianos(clientId: $clientId) {
             nodes {
               id
@@ -188,14 +367,14 @@ async def get_institution_pianos(
         }
         """
 
-        result = api_client._execute_query(query, {"clientId": client_id})
+        result = api_client._execute_query(query, {"clientId": str(client_id)})
         gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
 
         logging.info(f"📋 {len(gazelle_pianos)} pianos Gazelle pour {institution}")
 
-        # 2. Charger modifications Supabase
+        # 2. Charger modifications Supabase filtrées par institution
         storage = get_supabase_storage()
-        supabase_updates = storage.get_all_piano_updates()
+        supabase_updates = storage.get_all_piano_updates(institution_slug=institution)
 
         # 3. Fusion
         pianos = []
@@ -250,7 +429,7 @@ async def get_institution_pianos(
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,
                 "hasNonTag": has_non_tag,
-                "isInCsv": updates.get('is_in_csv', True),
+                "is_hidden": updates.get('is_hidden', False),
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),
                 "institution": institution
             }
@@ -269,6 +448,79 @@ async def get_institution_pianos(
         raise
     except Exception as e:
         logging.error(f"❌ Erreur chargement pianos {institution}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+@router.put("/{institution}/pianos/{piano_id}")
+async def update_institution_piano(
+    institution: str = PathParam(..., description="Institution slug"),
+    piano_id: str = PathParam(..., description="ID du piano"),
+    update: Dict[str, Any] = {}
+):
+    """
+    Met à jour un piano pour une institution donnée.
+
+    Stocke les modifications dans Supabase (overlays au-dessus de Gazelle).
+
+    Args:
+        institution: Slug de l'institution (vincent-dindy, orford, etc.)
+        piano_id: ID Gazelle du piano (ex: ins_xxx)
+        update: Dict avec les champs à mettre à jour
+
+    Returns:
+        {"success": true, "piano_id": "ins_xxx", "updates": {...}}
+    """
+    try:
+        # 1. Valider que l'institution existe
+        config = get_institution_config(institution)
+
+        # 2. Sauvegarder dans Supabase
+        storage = get_supabase_storage()
+
+        # Convertir camelCase vers snake_case si nécessaire
+        update_data = {}
+        for key, value in update.items():
+            if key == 'aFaire':
+                update_data['a_faire'] = value
+            elif key == 'dernierAccord':
+                update_data['dernier_accord'] = value
+            elif key == 'isWorkCompleted':
+                update_data['is_work_completed'] = value
+            elif key == 'isHidden':
+                update_data['is_hidden'] = value
+            elif key == 'updated_by':
+                update_data['updated_by'] = value
+            else:
+                update_data[key] = value
+
+        # Logique de transition d'état automatique
+        if ('travail' in update_data or 'observations' in update_data) and \
+           update_data.get('is_work_completed') == False and \
+           'status' not in update_data:
+            update_data['status'] = 'work_in_progress'
+
+        if update_data.get('is_work_completed') == True and 'status' not in update_data:
+            update_data['status'] = 'completed'
+            if 'completed_at' not in update_data:
+                from datetime import datetime
+                update_data['completed_at'] = datetime.now().isoformat()
+
+        success = storage.update_piano(piano_id, update_data, institution_slug=institution)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Échec sauvegarde Supabase")
+
+        return {
+            "success": True,
+            "message": "Piano mis à jour avec succès",
+            "piano_id": piano_id,
+            "updates": update_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Erreur update piano {piano_id} pour {institution}: {e}")
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
@@ -381,3 +633,225 @@ async def list_institutions() -> Dict[str, Any]:
     except Exception as e:
         logging.error(f"❌ Erreur liste institutions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{institution}/tournees")
+async def get_institution_tournees(
+    institution: str = PathParam(..., description="Slug de l'institution (vincent-dindy, orford, etc.)")
+):
+    """
+    Récupère toutes les tournées pour une institution depuis Supabase.
+
+    Filtre par le champ 'etablissement' dans la table tournees.
+
+    Args:
+        institution: Slug de l'institution (vincent-dindy, orford, place-des-arts)
+
+    Returns:
+        {
+            "tournees": [...],
+            "count": 10,
+            "institution": "Vincent d'Indy"
+        }
+    """
+    try:
+        # 1. Charger config institution (pour validation + nom)
+        config = get_institution_config(institution)
+        institution_name = config.get('name', institution)
+
+        # 2. Charger tournées depuis Supabase avec filtre etablissement
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="Configuration Supabase manquante")
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Filtre par etablissement
+        response = supabase.table('tournees').select('*').eq('etablissement', institution).execute()
+
+        tournees = response.data if response.data else []
+
+        logging.info(f"✅ {len(tournees)} tournées récupérées pour {institution}")
+
+        return {
+            "tournees": tournees,
+            "count": len(tournees),
+            "institution": institution_name
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Erreur chargement tournées {institution}: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"tournees": [], "count": 0, "error": str(e)}
+
+
+@router.delete("/{institution}/tournees/{tournee_id}")
+async def delete_institution_tournee(
+    institution: str = PathParam(..., description="Slug de l'institution"),
+    tournee_id: str = PathParam(..., description="ID de la tournée à supprimer")
+):
+    """
+    Supprime une tournée pour une institution donnée.
+
+    Args:
+        institution: Slug de l'institution (vincent-dindy, orford, etc.)
+        tournee_id: ID de la tournée à supprimer
+
+    Returns:
+        {
+            "success": true,
+            "message": "Tournée supprimée avec succès"
+        }
+    """
+    try:
+        # 1. Valider que l'institution existe
+        config = get_institution_config(institution)
+
+        # 2. Supprimer la tournée dans Supabase
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="Configuration Supabase manquante")
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        # Vérifier que la tournée appartient à l'institution
+        response = supabase.table('tournees').select('*').eq('id', tournee_id).execute()
+
+        if not response.data or len(response.data) == 0:
+            raise HTTPException(status_code=404, detail="Tournée non trouvée")
+
+        tournee = response.data[0]
+        if tournee.get('etablissement') != institution:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cette tournée appartient à {tournee.get('etablissement')}, pas à {institution}"
+            )
+
+        # Supprimer la tournée
+        delete_response = supabase.table('tournees').delete().eq('id', tournee_id).execute()
+
+        logging.info(f"✅ Tournée {tournee_id} supprimée pour {institution}")
+
+        return {
+            "success": True,
+            "message": "Tournée supprimée avec succès"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Erreur suppression tournée {tournee_id} pour {institution}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{institution}/pianos-ready-for-push")
+async def get_institution_pianos_ready_for_push(
+    institution: str = PathParam(..., description="Slug de l'institution"),
+    tournee_id: Optional[str] = Query(None, description="Filtrer par tournée"),
+    limit: int = Query(100, description="Nombre max de pianos")
+):
+    """
+    Récupère les pianos prêts à être pushés vers Gazelle pour une institution.
+
+    Critères:
+    - status = 'completed'
+    - is_work_completed = true
+    - sync_status IN ('pending', 'modified', 'error')
+    - travail OR observations non NULL
+    - institution_slug = {institution}
+
+    Args:
+        institution: Slug de l'institution
+        tournee_id: Filtrer par tournée spécifique (optionnel)
+        limit: Nombre maximum de pianos (défaut: 100)
+
+    Returns:
+        {
+            "pianos": [...],
+            "count": 5,
+            "ready_for_push": true
+        }
+    """
+    try:
+        # 1. Valider que l'institution existe
+        config = get_institution_config(institution)
+
+        # 2. Construire la requête SQL avec filtre institution
+        from supabase import create_client
+
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="Configuration Supabase manquante")
+
+        supabase = create_client(supabase_url, supabase_key)
+
+        logging.info(f"🔍 Recherche pianos prêts pour push - institution={institution}, tournee_id={tournee_id}, limit={limit}")
+
+        # Construire les filtres
+        query = supabase.table('vincent_dindy_piano_updates').select('*')
+
+        # Filtrer par institution
+        query = query.eq('institution_slug', institution)
+
+        # Filtrer par critères de push
+        query = query.eq('status', 'completed')
+        query = query.eq('is_work_completed', True)
+        query = query.in_('sync_status', ['pending', 'modified', 'error'])
+
+        # Filtrer par tournée si spécifiée
+        if tournee_id:
+            query = query.eq('completed_in_tournee_id', tournee_id)
+
+        # Limiter les résultats
+        query = query.limit(limit)
+
+        # Ordre: erreurs en premier, puis modifiés, puis pending
+        query = query.order('sync_status')
+        query = query.order('updated_at', desc=True)
+
+        response = query.execute()
+        pianos = response.data if response.data else []
+
+        # Filtrer pour garder seulement ceux avec travail OU observations
+        pianos = [
+            p for p in pianos
+            if (p.get('travail') and p.get('travail').strip()) or
+               (p.get('observations') and p.get('observations').strip())
+        ]
+
+        logging.info(f"✅ {len(pianos)} pianos prêts pour push pour {institution}")
+
+        return {
+            "pianos": pianos,
+            "count": len(pianos),
+            "ready_for_push": len(pianos) > 0
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Erreur récupération pianos prêts pour {institution}: {e}")
+        import traceback
+        traceback.print_exc()
+        # Retourner une liste vide plutôt que de faire échouer l'endpoint
+        return {
+            "pianos": [],
+            "count": 0,
+            "ready_for_push": False,
+            "error": str(e)
+        }

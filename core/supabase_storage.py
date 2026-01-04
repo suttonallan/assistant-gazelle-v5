@@ -75,17 +75,24 @@ class SupabaseStorage:
             print(f"⚠️ Erreur lors de la récupération du piano {piano_id}: {e}")
             return None
     
-    def get_all_piano_updates(self) -> Dict[str, Dict[str, Any]]:
+    def get_all_piano_updates(self, institution_slug: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Récupère toutes les modifications de pianos depuis Supabase.
-        
+
+        Args:
+            institution_slug: Si fourni, filtre par institution (ex: 'vincent-dindy', 'orford')
+
         Returns:
             Dictionnaire {piano_id: modifications}
         """
         try:
+            # Construire l'URL avec filtre optionnel
             url = f"{self.api_url}/{self.table}?select=*"
+            if institution_slug:
+                url += f"&institution_slug=eq.{institution_slug}"
+
             response = requests.get(url, headers=self._get_headers())
-            
+
             if response.status_code == 200:
                 data = response.json()
                 # Convertir en dictionnaire avec piano_id comme clé
@@ -95,7 +102,7 @@ class SupabaseStorage:
                     for item in data
                     if item.get('piano_id')  # Vérifier que piano_id existe
                 }
-            
+
             return {}
             
         except Exception as e:
@@ -104,7 +111,7 @@ class SupabaseStorage:
             print(f"Traceback: {traceback.format_exc()}")
             return {}
     
-    def update_piano(self, piano_id: str, updates: Dict[str, Any]) -> bool:
+    def update_piano(self, piano_id: str, updates: Dict[str, Any], institution_slug: str = 'vincent-dindy') -> bool:
         """
         Sauvegarde les modifications d'un piano dans Supabase en utilisant UPSERT.
         Une seule requête au lieu de 2 (GET + PATCH/POST).
@@ -112,6 +119,7 @@ class SupabaseStorage:
         Args:
             piano_id: ID du piano
             updates: Dictionnaire des champs à mettre à jour
+            institution_slug: Slug de l'institution (défaut: vincent-dindy pour compatibilité)
 
         Returns:
             True si mis à jour avec succès
@@ -119,6 +127,7 @@ class SupabaseStorage:
         try:
             data = {
                 "piano_id": piano_id,
+                "institution_slug": institution_slug,
                 **updates,
                 "updated_at": datetime.now().isoformat()
             }
@@ -132,7 +141,7 @@ class SupabaseStorage:
             response = requests.post(url, headers=headers, json=data)
 
             if response.status_code in [200, 201]:
-                print(f"✅ Piano {piano_id} sauvegardé dans Supabase (UPSERT)")
+                print(f"✅ Piano {piano_id} sauvegardé dans Supabase pour {institution_slug} (UPSERT)")
                 return True
             else:
                 print(f"❌ Erreur Supabase {response.status_code}: {response.text}")

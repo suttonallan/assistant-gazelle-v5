@@ -138,7 +138,7 @@ export default function VDI_ManagementView({
             }}
             className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && !showAllPianos ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
-            📦 Inventaire ({pianos.filter(p => p.isInCsv !== false).length})
+            📦 Inventaire ({pianos.filter(p => !p.is_hidden).length})
           </button>
           <button
             onClick={() => {
@@ -225,7 +225,6 @@ export default function VDI_ManagementView({
               <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
               <button onClick={() => batchSetStatus('top')} className="px-3 py-1 rounded text-sm bg-amber-400">→ Top</button>
               <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ À faire</button>
-              <button onClick={() => batchSetStatus('normal')} className="px-3 py-1 rounded text-sm bg-white border">→ Retirer</button>
               <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
                 <option value="">Usage...</option>
                 {usages.map(u => <option key={u} value={u}>{u}</option>)}
@@ -235,7 +234,7 @@ export default function VDI_ManagementView({
                 className="px-3 py-1 rounded text-sm bg-red-100 hover:bg-red-200 text-red-700 border border-red-300"
                 title="Masquer les pianos sélectionnés de l'inventaire"
               >
-                🚫 Masquer de l'inventaire
+                🚫 Masquer
               </button>
             </>
           )}

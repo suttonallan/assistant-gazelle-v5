@@ -8,7 +8,8 @@ import { API_URL } from '../utils/apiConfig'
 // IMPORTANT: L'ordre dans ce tableau détermine l'ordre d'affichage des colonnes dans tous les onglets
 const TECHNICIENS = TECHNICIENS_LISTE.map(t => ({
   id: t.gazelleId,
-  name: t.abbreviation, // ⭐ Utilise l'abbréviation (Nick, Allan, JP)
+  name: t.abbreviation, // ⭐ Abbréviation pour l'affichage UI (Nick, Allan, JP)
+  prenom: t.prenom, // ⭐ Prénom complet pour requêtes API (Nicolas, Allan, Jean-Philippe)
   username: t.username
 }))
 
@@ -73,11 +74,12 @@ const InventaireDashboard = ({ currentUser }) => {
       // Créer le map de produits d'abord
       const productsMap = {}
       catalogueData.produits.forEach(prod => {
+        // Créer un nouvel objet quantities pour CHAQUE produit (important!)
         const quantities = {}
         TECHNICIENS.forEach(tech => {
           quantities[tech.username] = 0
         })
-        
+
         productsMap[prod.code_produit] = {
           id: prod.code_produit,
           code_produit: prod.code_produit,
@@ -94,9 +96,12 @@ const InventaireDashboard = ({ currentUser }) => {
           type_produit: prod.type_produit,
           display_order: prod.display_order || 0,
           is_active: prod.is_active !== false,
-          quantities
+          quantities  // Référence au nouvel objet créé ci-dessus
         }
       })
+
+      console.log(`📦 Catalogue chargé: ${catalogueData.produits.length} produits`)
+      console.log(`🔑 Clés productsMap (premiers 5):`, Object.keys(productsMap).slice(0, 5))
 
       // Charger les stocks de chaque technicien SÉQUENTIELLEMENT
       console.log('🔍 === DÉBUT CHARGEMENT INVENTAIRES ===')
@@ -104,8 +109,8 @@ const InventaireDashboard = ({ currentUser }) => {
 
       for (const tech of TECHNICIENS) {
         try {
-          console.log(`📦 Chargement pour: ${tech.name} (username: ${tech.username})`)
-          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.name}`)
+          console.log(`📦 Chargement pour: ${tech.name} (prenom: ${tech.prenom}, username: ${tech.username})`)
+          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.prenom}`)
           if (res.ok) {
             const invData = await res.json()
             console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)
@@ -118,16 +123,26 @@ const InventaireDashboard = ({ currentUser }) => {
 
             // Assigner les quantités - TOUJOURS utiliser le username du technicien de la boucle
             // PAS celui retourné par l'API (pour éviter problèmes de casse/format)
+            let assignedCount = 0
+            let skippedCount = 0
             invData.inventaire?.forEach(item => {
               if (productsMap[item.code_produit]) {
                 productsMap[item.code_produit].quantities[tech.username] = item.quantite_stock || 0
+                assignedCount++
 
-                // Debug détaillé pour les premiers items
-                if (item.code_produit === 'PROD-4' || item.code_produit === 'PROD-33') {
+                // Debug détaillé pour les 3 premiers items
+                if (assignedCount <= 3) {
                   console.log(`   🔧 ASSIGNATION: ${item.code_produit} → quantities["${tech.username}"] = ${item.quantite_stock}`)
+                  console.log(`      Vérification immédiate: productsMap["${item.code_produit}"].quantities["${tech.username}"] = ${productsMap[item.code_produit].quantities[tech.username]}`)
+                }
+              } else {
+                skippedCount++
+                if (skippedCount === 1) {
+                  console.log(`   ⚠️  Produit non trouvé dans catalogue: ${item.code_produit}`)
                 }
               }
             })
+            console.log(`   📊 Résultat: ${assignedCount} assignés, ${skippedCount} ignorés (pas dans catalogue)`)
           }
         } catch (err) {
           console.error(`❌ Erreur chargement inventaire ${tech.name}:`, err)
@@ -136,16 +151,18 @@ const InventaireDashboard = ({ currentUser }) => {
 
       console.log('🏁 === FIN CHARGEMENT INVENTAIRES ===')
 
-      // Afficher un échantillon des quantités finales pour PROD-4 et PROD-33
+      // Afficher un échantillon des quantités finales pour vérifier
       console.log('📊 Vérification quantités finales:')
-      const testProducts = ['PROD-4', 'PROD-33']
+      const testProducts = ['PROD-4', 'PROD-33', 'PROD-41']
       testProducts.forEach(code => {
         const prod = productsMap[code]
         if (prod) {
           console.log(`   ${code}:`)
-          console.log(`     Allan (quantities.allan) = ${prod.quantities.allan}`)
-          console.log(`     Nick (quantities.nicolas) = ${prod.quantities.nicolas}`)
-          console.log(`     Jean-Philippe (quantities.jeanphilippe) = ${prod.quantities.jeanphilippe}`)
+          TECHNICIENS.forEach(tech => {
+            console.log(`     ${tech.name} (quantities.${tech.username}) = ${prod.quantities[tech.username]}`)
+          })
+        } else {
+          console.log(`   ⚠️  ${code} non trouvé dans productsMap`)
         }
       })
 

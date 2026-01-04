@@ -10,6 +10,7 @@ import json
 import os
 import csv
 import ast
+import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -19,8 +20,7 @@ from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(prefix="/vincent-dindy", tags=["vincent-dindy"])
 
-# Client ID Vincent d'Indy dans Gazelle
-VINCENT_DINDY_CLIENT_ID = "cli_9UMLkteep8EsISbG"
+# NOTE: VINCENT_DINDY_CLIENT_ID supprimé - Utiliser get_institution_config() depuis api/institutions.py
 
 # Initialiser le stockage Supabase
 _supabase_storage = None
@@ -103,8 +103,15 @@ async def get_pianos(include_inactive: bool = False):
     - Supabase = Modifications dynamiques (status, notes, etc.)
     """
     try:
-        import logging
-        logging.info(f"🔍 Chargement des pianos depuis Gazelle (client: {VINCENT_DINDY_CLIENT_ID})")
+        # Charger client_id depuis Supabase institutions
+        from api.institutions import get_institution_config
+        try:
+            config = get_institution_config("vincent-dindy")
+            client_id = config.get('gazelle_client_id')
+            logging.info(f"✅ Slug reçu: 'vincent-dindy' | Config trouvée: Oui (client_id: {client_id})")
+        except Exception as e:
+            logging.error(f"❌ Slug reçu: 'vincent-dindy' | Config trouvée: Non | Erreur: {e}")
+            raise HTTPException(status_code=500, detail=f"Configuration institution non trouvée: {str(e)}")
 
         # 1. Charger TOUS les pianos depuis Gazelle
         api_client = get_api_client()
@@ -133,17 +140,17 @@ async def get_pianos(include_inactive: bool = False):
         }
         """
 
-        variables = {"clientId": VINCENT_DINDY_CLIENT_ID}
+        variables = {"clientId": client_id}
         result = api_client._execute_query(query, variables)
         gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
 
         logging.info(f"📋 {len(gazelle_pianos)} pianos chargés depuis Gazelle")
 
-        # 2. Charger les modifications depuis Supabase (flags + overlays)
+        # 2. Charger les modifications depuis Supabase (flags + overlays) filtrées par vincent-dindy
         storage = get_supabase_storage()
-        supabase_updates = storage.get_all_piano_updates()
+        supabase_updates = storage.get_all_piano_updates(institution_slug='vincent-dindy')
 
-        logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées")
+        logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées pour vincent-dindy")
 
         # 3. FUSION: Transformer pianos Gazelle + appliquer overlays Supabase
         pianos = []
@@ -209,7 +216,7 @@ async def get_pianos(include_inactive: bool = False):
                 "sync_status": updates.get('sync_status', 'pending'),  # État de synchronisation avec Gazelle
                 "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
                 "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
-                "isInCsv": updates.get('is_in_csv', True),  # Flag inventaire CSV (True par défaut si non spécifié)
+                "is_hidden": updates.get('is_hidden', False),  # Masquer de l'inventaire (False par défaut)
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN')  # Status Gazelle
             }
 
@@ -221,7 +228,7 @@ async def get_pianos(include_inactive: bool = False):
             "pianos": pianos,
             "count": len(pianos),
             "source": "gazelle",
-            "clientId": VINCENT_DINDY_CLIENT_ID
+            "clientId": client_id
         }
 
     except Exception as e:
@@ -239,7 +246,6 @@ class PianoUpdate(BaseModel):
     aFaire: Optional[str] = None
     travail: Optional[str] = None
     observations: Optional[str] = None
-    isInCsv: Optional[bool] = None  # Flag d'inventaire
     isWorkCompleted: Optional[bool] = None  # Checkbox "Travail complété"
     isHidden: Optional[bool] = None  # Masquer complètement le piano
     updated_by: Optional[str] = None  # Email ou nom de l'utilisateur
@@ -323,8 +329,6 @@ async def update_piano(piano_id: str, update: PianoUpdate):
                 update_data['a_faire'] = value
             elif key == 'dernierAccord':
                 update_data['dernier_accord'] = value
-            elif key == 'isInCsv':
-                update_data['is_in_csv'] = value
             elif key == 'isWorkCompleted':
                 update_data['is_work_completed'] = value
             elif key == 'isHidden':
@@ -354,8 +358,8 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         # Si piano était pushed et on modifie travail/observations → sync_status = modified
         # (géré par trigger SQL auto_mark_sync_modified)
 
-        success = storage.update_piano(piano_id, update_data)
-        
+        success = storage.update_piano(piano_id, update_data, institution_slug='vincent-dindy')
+
         if not success:
             raise HTTPException(
                 status_code=500, 
@@ -413,6 +417,8 @@ async def batch_update_pianos(updates: List[Dict[str, Any]]):
                     snake_case_update["dernier_accord"] = value
                 elif key == "aFaire":
                     snake_case_update["a_faire"] = value
+                elif key == "isHidden":
+                    snake_case_update["is_hidden"] = value
                 else:
                     snake_case_update[key] = value
 
@@ -531,7 +537,7 @@ async def get_activity(limit: int = 20):
     """
     try:
         storage = get_supabase_storage()
-        all_updates = storage.get_all_piano_updates()
+        all_updates = storage.get_all_piano_updates(institution_slug='vincent-dindy')
 
         # Convertir en liste triée par date (plus récent en premier)
         activities = []

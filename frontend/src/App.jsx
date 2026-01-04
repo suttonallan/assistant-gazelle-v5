@@ -82,11 +82,45 @@ function App() {
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
+  const [institutions, setInstitutions] = useState([]) // Liste dynamique des institutions
+  const [selectedLocation, setSelectedLocation] = useState('vincent-dindy') // Institution sélectionnée (défaut: vincent-dindy)
   const [isFestiveTheme, setIsFestiveTheme] = useState(() => {
     const saved = localStorage.getItem('festiveTheme')
     if (saved !== null) return saved === 'true'
     return false // désactivé par défaut
   })
+
+  // Charger les institutions depuis l'API
+  useEffect(() => {
+    const loadInstitutions = async () => {
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || ''
+        const response = await fetch(`${API_URL}/api/institutions/list`)
+        if (response.ok) {
+          const data = await response.json()
+          setInstitutions(data.institutions || [])
+          console.log('[App.jsx] Institutions chargées:', data.institutions?.length || 0)
+        } else {
+          console.error('[App.jsx] Erreur chargement institutions:', response.status)
+          // Fallback: liste par défaut si l'API échoue
+          setInstitutions([
+            { slug: 'vincent-dindy', name: "Vincent d'Indy" },
+            { slug: 'place-des-arts', name: 'Place des Arts' },
+            { slug: 'orford', name: 'Orford Musique' }
+          ])
+        }
+      } catch (error) {
+        console.error('[App.jsx] Erreur chargement institutions:', error)
+        // Fallback: liste par défaut
+        setInstitutions([
+          { slug: 'vincent-dindy', name: "Vincent d'Indy" },
+          { slug: 'place-des-arts', name: 'Place des Arts' },
+          { slug: 'orford', name: 'Orford Musique' }
+        ])
+      }
+    }
+    loadInstitutions()
+  }, [])
 
   // Charger l'utilisateur depuis localStorage au démarrage
   useEffect(() => {
@@ -217,7 +251,13 @@ function App() {
         } else if (currentView === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         }
@@ -245,7 +285,13 @@ function App() {
         } else if (currentView === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         } else if (currentView === 'place-des-arts') {
@@ -347,14 +393,21 @@ function App() {
           // Vincent d'Indy Dashboard (version restaurée, sans iframe)
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          // Orford Dashboard (utilise le même composant que Vincent d'Indy mais avec institution="orford")
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         } else {
           // Fallback: Vincent d'Indy Dashboard
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
             </ErrorBoundary>
           )
         }
@@ -415,34 +468,43 @@ function App() {
                           className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[200px]"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setCurrentView('vincent-dindy-v7')
-                              setInstitutionsDropdownOpen(false)
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                              currentView === 'vincent-dindy-v7'
-                                ? 'bg-blue-50 text-blue-700 font-medium'
-                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
-                            }`}
-                          >
-                            🎹 Vincent d'Indy
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setCurrentView('place-des-arts')
-                              setInstitutionsDropdownOpen(false)
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                              currentView === 'place-des-arts'
-                                ? 'bg-blue-50 text-blue-700 font-medium'
-                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
-                            }`}
-                          >
-                            🎭 Place des Arts
-                          </button>
+                          {institutions.map((inst) => {
+                            // Mapping slug → currentView
+                            const viewMap = {
+                              'vincent-dindy': 'vincent-dindy-v7',
+                              'place-des-arts': 'place-des-arts',
+                              'orford': 'orford'
+                            }
+                            const viewValue = viewMap[inst.slug] || inst.slug
+                            const isSelected = currentView === viewValue
+                            
+                            // Emoji par défaut (peut être amélioré avec options)
+                            const emojiMap = {
+                              'vincent-dindy': '🎹',
+                              'place-des-arts': '🎭',
+                              'orford': '🏛️'
+                            }
+                            const emoji = emojiMap[inst.slug] || '🏛️'
+                            
+                            return (
+                              <button
+                                key={inst.slug}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setCurrentView(viewValue)
+                                  setSelectedLocation(inst.slug)
+                                  setInstitutionsDropdownOpen(false)
+                                }}
+                                className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                  isSelected
+                                    ? 'bg-blue-50 text-blue-700 font-medium'
+                                    : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                                }`}
+                              >
+                                {emoji} {inst.name}
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
                     </div>
@@ -567,34 +629,43 @@ function App() {
                             className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[200px]"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setCurrentView('vincent-dindy-v7')
-                                setInstitutionsDropdownOpen(false)
-                              }}
-                              className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                                currentView === 'vincent-dindy-v7'
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
-                              }`}
-                            >
-                              🎹 Vincent d'Indy
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setCurrentView('place-des-arts')
-                                setInstitutionsDropdownOpen(false)
-                              }}
-                              className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                                currentView === 'place-des-arts'
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
-                              }`}
-                            >
-                              🎭 Place des Arts
-                            </button>
+                            {institutions.map((inst) => {
+                              // Mapping slug → currentView
+                              const viewMap = {
+                                'vincent-dindy': 'vincent-dindy-v7',
+                                'place-des-arts': 'place-des-arts',
+                                'orford': 'orford'
+                              }
+                              const viewValue = viewMap[inst.slug] || inst.slug
+                              const isSelected = currentView === viewValue
+                              
+                              // Emoji par défaut (peut être amélioré avec options)
+                              const emojiMap = {
+                                'vincent-dindy': '🎹',
+                                'place-des-arts': '🎭',
+                                'orford': '🏛️'
+                              }
+                              const emoji = emojiMap[inst.slug] || '🏛️'
+                              
+                              return (
+                                <button
+                                  key={inst.slug}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setCurrentView(viewValue)
+                                    setSelectedLocation(inst.slug)
+                                    setInstitutionsDropdownOpen(false)
+                                  }}
+                                  className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                    isSelected
+                                      ? 'bg-blue-50 text-blue-700 font-medium'
+                                      : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                                  }`}
+                                >
+                                  {emoji} {inst.name}
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
                       </div>

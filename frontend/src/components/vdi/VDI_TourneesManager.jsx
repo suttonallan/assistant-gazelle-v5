@@ -185,10 +185,12 @@ export default function VDI_TourneesManager({
                       />
                     ) : (
                       <h4
-                        className="font-semibold text-sm cursor-text hover:bg-blue-100 rounded px-1"
+                        className={`font-semibold text-sm rounded px-1 ${
+                          selectedTourneeId === tournee.id ? 'cursor-text hover:bg-blue-100' : ''
+                        }`}
                         onClick={(e) => {
-                          e.stopPropagation();
                           if (selectedTourneeId === tournee.id) {
+                            e.stopPropagation();
                             startEditing(tournee.id, 'nom', tournee.nom);
                           }
                         }}
@@ -211,10 +213,12 @@ export default function VDI_TourneesManager({
                       />
                     ) : (
                       <p
-                        className="text-xs text-gray-600 mt-1 cursor-text hover:bg-blue-100 rounded px-1"
+                        className={`text-xs text-gray-600 mt-1 rounded px-1 ${
+                          selectedTourneeId === tournee.id ? 'cursor-text hover:bg-blue-100' : ''
+                        }`}
                         onClick={(e) => {
-                          e.stopPropagation();
                           if (selectedTourneeId === tournee.id) {
+                            e.stopPropagation();
                             startEditing(tournee.id, 'date_debut', tournee.date_debut);
                           }
                         }}
