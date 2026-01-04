@@ -26,7 +26,7 @@ const CatalogueManager = () => {
       setError(null)
 
       // Charger TOUS les items depuis l'API backend (comme l'onglet Admin)
-      const response = await fetch(`${API_URL}/api/inventaire/catalogue`)
+      const response = await fetch(`${API_URL}/inventaire/catalogue`)
       if (!response.ok) throw new Error('Erreur chargement catalogue')
 
       const data = await response.json()

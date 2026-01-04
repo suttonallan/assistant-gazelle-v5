@@ -66,7 +66,7 @@ const InventaireDashboard = ({ currentUser }) => {
       setLoading(true)
       // TODO: Adapter l'endpoint pour retourner le format V4
       // Pour l'instant, on simule avec les données existantes
-      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`)
+      const catalogueRes = await fetch(`${API_URL}/inventaire/catalogue`)
       if (!catalogueRes.ok) {
         console.error('❌ Erreur chargement catalogue:', catalogueRes.status)
         throw new Error('Erreur chargement catalogue')
@@ -108,7 +108,7 @@ const InventaireDashboard = ({ currentUser }) => {
       for (const tech of TECHNICIENS) {
         try {
           console.log(`📦 Chargement pour: ${tech.name} (username: ${tech.username})`)
-          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.name}`)
+          const res = await fetch(`${API_URL}/inventaire/stock/${tech.name}`)
           if (res.ok) {
             const invData = await res.json()
             console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)

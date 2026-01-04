@@ -54,7 +54,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
   const loadInventory = async () => {
     try {
       setLoading(true)
-      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`)
+      const catalogueRes = await fetch(`${API_URL}/inventaire/catalogue`)
       if (!catalogueRes.ok) throw new Error('Erreur chargement catalogue')
       const catalogueData = await catalogueRes.json()
 
@@ -93,7 +93,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
       }
 
       // Charger les quantités réelles
-      const inventaireRes = await fetch(`${API_URL}/api/inventaire/techniciens/all`)
+      const inventaireRes = await fetch(`${API_URL}/inventaire/techniciens/all`)
       if (inventaireRes.ok) {
         const inventaireData = await inventaireRes.json()
         inventaireData.inventory?.forEach(item => {
@@ -150,7 +150,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
 
     // Sauvegarder dans la DB
     try {
-      await fetch(`${API_URL}/api/inventaire/techniciens`, {
+      await fetch(`${API_URL}/inventaire/techniciens`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +171,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     if (!comment.trim()) return
 
     try {
-      await fetch(`${API_URL}/api/slack/notify`, {
+      await fetch(`${API_URL}/slack/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

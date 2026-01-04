@@ -38,7 +38,7 @@ export default function KilometersCalculator() {
     setResults(null)
 
     try {
-      const response = await fetch(`${API_URL}/api/admin/kilometers/calculate`, {
+      const response = await fetch(`${API_URL}/admin/kilometers/calculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
