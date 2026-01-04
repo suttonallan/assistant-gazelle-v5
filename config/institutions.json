@@ -2,5 +2,9 @@
   "vincent-dindy": {
     "name": "Vincent d'Indy",
     "client_id": "cli_9UMLkteep8EsISbG"
+  },
+  "place-des-arts": {
+    "name": "Place des Arts",
+    "client_id": "cli_HbEwl9rN11pSuDEU"
   }
 }
