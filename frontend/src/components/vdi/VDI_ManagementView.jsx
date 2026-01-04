@@ -164,9 +164,9 @@ export default function VDI_ManagementView({
               setShowAllPianos(true);
             }}
             className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && showAllPianos ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-            title="Afficher tous les pianos (même ceux masqués de l'inventaire)"
+            title="Mode Révision - Afficher tout le parc (y compris pianos masqués par tag Gazelle 'non' ou cachés dans l'Assistant)"
           >
-            📋 Tout voir ({stats.total})
+            🔍 Mode Révision ({stats.total})
           </button>
           <button
             onClick={() => {
@@ -279,6 +279,11 @@ export default function VDI_ManagementView({
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sync</th>
+              {showAllPianos && (
+                <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-purple-50">
+                  👁️ Visibilité
+                </th>
+              )}
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Travail Effectué</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -290,10 +295,14 @@ export default function VDI_ManagementView({
             {allPianosFiltres.map((piano) => {
               const mois = moisDepuisAccord(piano?.dernierAccord);
 
+              // Indicateur visuel pour pianos cachés en Mode Révision
+              const isHiddenPiano = piano.hasNonTag || piano.isHidden || piano.isInCsv === false;
+              const opacityClass = (showAllPianos && isHiddenPiano) ? 'opacity-50' : '';
+
               return (
                 <tr
                   key={piano.id}
-                  className={`${getRowClass(piano)} hover:opacity-80`}
+                  className={`${getRowClass(piano)} ${opacityClass} hover:opacity-80`}
                 >
                   <td className="px-2 py-3 text-center">
                     <input
@@ -319,6 +328,64 @@ export default function VDI_ManagementView({
                       </span>
                     )}
                   </td>
+
+                  {/* Colonne Visibilité (Mode Révision seulement) */}
+                  {showAllPianos && (
+                    <td className="px-3 py-3 text-center bg-purple-50">
+                      {(piano.hasNonTag || piano.isHidden || piano.isInCsv === false) ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                // Toggle isHidden
+                                const newIsHidden = !piano.isHidden;
+                                await savePianoToAPI(piano.id, { isHidden: newIsHidden });
+                                // Reload pour refléter le changement
+                                await loadPianosFromAPI();
+                              } catch (err) {
+                                alert(`Erreur: ${err.message}`);
+                              }
+                            }}
+                            className={`px-2 py-1 rounded text-xs font-medium ${
+                              piano.isHidden
+                                ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                            title={piano.isHidden ? 'Piano caché - Cliquer pour afficher' : 'Piano visible - Cliquer pour cacher'}
+                          >
+                            {piano.isHidden ? '👁️‍🗨️ Caché' : '👁️ Visible'}
+                          </button>
+                          {piano.hasNonTag && (
+                            <span className="text-xs text-gray-500" title="Tag Gazelle 'non'">
+                              🏷️ Tag: non
+                            </span>
+                          )}
+                          {piano.isInCsv === false && (
+                            <span className="text-xs text-gray-500" title="Pas dans inventaire CSV">
+                              📋 Hors CSV
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await savePianoToAPI(piano.id, { isHidden: true });
+                              await loadPianosFromAPI();
+                            } catch (err) {
+                              alert(`Erreur: ${err.message}`);
+                            }
+                          }}
+                          className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 font-medium"
+                          title="Cliquer pour cacher ce piano"
+                        >
+                          ✅ Actif
+                        </button>
+                      )}
+                    </td>
+                  )}
 
                   {/* Colonne "À faire" de Nick */}
                   <td className="px-3 py-3 bg-yellow-50" onClick={(e) => e.stopPropagation()}>

@@ -20,7 +20,7 @@ import VDI_ManagementView from './vdi/VDI_ManagementView';
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'https://assistant-gazelle-v5-api.onrender.com');
 
-const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false }) => {
+const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, initialLocation = 'vincent-dindy' }) => {
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
@@ -63,7 +63,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const [notesInput, setNotesInput] = useState('');
 
   // Pour sélection de l'établissement
-  const [selectedLocation, setSelectedLocation] = useState('vincent-dindy');
+  const [selectedLocation, setSelectedLocation] = useState(initialLocation);
 
   // Pour gestion des tournées
   const [tournees, setTournees] = useState([]);
@@ -84,11 +84,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Charger les pianos depuis l'API Gazelle + Supabase overlays
   const loadPianosFromAPI = useCallback(async () => {
     try {
-      console.log('🔍 Chargement des pianos depuis API...');
+      console.log(`🔍 Chargement des pianos depuis API (${selectedLocation})...`);
       setLoading(true);
       setError(null);
 
-      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true`;
+      const url = `${API_URL}/vincent-dindy/pianos?include_inactive=true&institution=${selectedLocation}`;
       console.log(`   URL: ${url}`);
 
       const response = await fetch(url);
@@ -114,7 +114,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } finally {
       setLoading(false);
     }
-  }, [API_URL]);
+  }, [API_URL, selectedLocation]);
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -244,9 +244,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const pianosFiltres = useMemo(() => {
     let result = [...pianos];
 
-    // Filtre d'inventaire : masquer les pianos avec isInCsv=false (sauf si "Tout voir" activé)
+    // FILTRE DE VISIBILITÉ COMBINÉ (sauf si Mode Révision activé)
+    // Un piano est masqué si: (Tag Gazelle == 'non') OU (Marqué caché dans Assistant/Supabase)
     if (!showAllPianos) {
-      result = result.filter(p => p.isInCsv !== false);
+      result = result.filter(p => {
+        const hiddenByTag = p.hasNonTag === true;  // Tag Gazelle 'non'
+        const hiddenInAssistant = p.isHidden === true;  // Caché dans Supabase
+        const notInInventory = p.isInCsv === false;  // Pas dans inventaire CSV (legacy)
+
+        // Garder le piano SI AUCUN des flags de masquage n'est actif
+        return !hiddenByTag && !hiddenInAssistant && !notInInventory;
+      });
     }
 
     if (currentView === 'nicolas') {
@@ -547,23 +555,40 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ GESTION DES TOURNÉES ============
   const loadTournees = useCallback(async () => {
     try {
-      console.log('📋 Chargement des tournées depuis API...');
-      // Utiliser le service API centralisé
-      const tournees = await getTourneesAPI(`${API_URL}`);
+      console.log(`📋 Chargement des tournées depuis API (institution: ${selectedLocation})...`);
+      // SÉCURITÉ: Passer l'institution pour l'étanchéité multi-institutionnelle
+      const tournees = await getTourneesAPI(`${API_URL}`, selectedLocation);
       console.log(`✅ ${tournees?.length || 0} tournées chargées`);
       setTournees(tournees);
     } catch (err) {
       console.error('❌ Erreur chargement tournées:', err);
       setTournees([]);
     }
-  }, [API_URL]);
+  }, [API_URL, selectedLocation]);
 
-  // Charger les pianos et tournées depuis l'API au montage du composant - UNE SEULE FOIS
+  // Charger les pianos et tournées depuis l'API au montage du composant
   useEffect(() => {
     console.log('🚀 Chargement initial Vincent d\'Indy...');
     loadPianosFromAPI();
     loadTournees();
-  }, []); // Pas de dépendances - s'exécute UNE SEULE FOIS au montage
+  }, []); // Initial load - s'exécute UNE SEULE FOIS au montage
+
+  // Recharger les pianos et tournées quand selectedLocation change
+  useEffect(() => {
+    console.log(`🔄 Changement d'établissement → ${selectedLocation}`);
+
+    // RESET: Désélectionner la tournée et nettoyer les sélections
+    setSelectedTourneeId(null);
+    setSelectedIds(new Set());
+    setShowOnlySelected(false);
+
+    // VIDER IMMÉDIATEMENT les tournées pour éviter affichage de données d'une autre institution
+    setTournees([]);
+
+    // Recharger les pianos et tournées de la nouvelle institution
+    loadPianosFromAPI();
+    loadTournees();
+  }, [selectedLocation, loadPianosFromAPI, loadTournees]);
 
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
@@ -813,28 +838,35 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const getRowClass = (piano) => {
     // Priorité 1: Sélection (mauve)
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
-    
-    // Priorité 2: Haute priorité (ambre)
+
+    // CONTEXTUALISATION: Les couleurs ne s'appliquent QUE si:
+    // 1. Une tournée est sélectionnée ET
+    // 2. Le piano appartient à cette tournée
+    const belongsToSelectedTournee = selectedTourneeId && isPianoInTournee(piano, selectedTourneeId);
+
+    // Si aucune tournée sélectionnée, ou piano pas dans la tournée → BLANC (neutre)
+    if (!belongsToSelectedTournee) {
+      return 'bg-white';
+    }
+
+    // À partir d'ici, le piano appartient à la tournée sélectionnée
+    // Appliquer les couleurs selon le statut du travail:
+
+    // Priorité 2: Haute priorité (ambre) - rare, mais possible
     if (piano.status === 'top') return 'bg-amber-200';
-    
+
     // Priorité 3: Travail complété (vert)
     if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
-    
-    // Priorité 4: Travail en cours (bleu) - NOUVEAU
+
+    // Priorité 4: Travail en cours (bleu)
     if (piano.status === 'work_in_progress' ||
         ((piano.travail || piano.observations) && !piano.is_work_completed)) {
       return 'bg-blue-200';
     }
-    
-    // Priorité 5: Proposé ou à faire (jaune)
-    if (
-      (selectedTourneeId && isPianoInTournee(piano, selectedTourneeId)) ||
-      piano.status === 'proposed' ||
-      (piano.aFaire && piano.aFaire.trim() !== '')
-    ) return 'bg-yellow-200';
-    
-    // Défaut: Blanc
-    return 'bg-white';
+
+    // Priorité 5: Proposé / dans la liste de la tournée (jaune)
+    // Si on arrive ici, c'est que le piano est dans la tournée mais pas encore commencé
+    return 'bg-yellow-200';
   };
 
   // Fonction helper pour icône sync status
@@ -933,6 +965,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setCurrentView={setCurrentView}
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
+          selectedLocation={selectedLocation}
+          setSelectedLocation={setSelectedLocation}
         />
         <VDI_TechnicianView
           pianos={pianos}
@@ -969,6 +1003,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         setCurrentView={setCurrentView}
         setSelectedIds={setSelectedIds}
         hideNickView={hideNickView}
+        selectedLocation={selectedLocation}
+        setSelectedLocation={setSelectedLocation}
       />
 
         {/* Vue Gestion & Pianos */}

@@ -19,7 +19,10 @@ from core.gazelle_api_client import GazelleAPIClient
 
 router = APIRouter(prefix="/vincent-dindy", tags=["vincent-dindy"])
 
-# Client ID Vincent d'Indy dans Gazelle
+# Mapping institution → client_id Gazelle (importé depuis le bridge)
+from core.service_completion_bridge import INSTITUTION_CLIENT_MAPPING
+
+# Client ID Vincent d'Indy dans Gazelle (legacy - à retirer progressivement)
 VINCENT_DINDY_CLIENT_ID = "cli_9UMLkteep8EsISbG"
 
 # Initialiser le stockage Supabase
@@ -89,12 +92,16 @@ def get_csv_path() -> str:
 
 
 @router.get("/pianos", response_model=Dict[str, Any])
-async def get_pianos(include_inactive: bool = False):
+async def get_pianos(
+    include_inactive: bool = False,
+    institution: str = "vincent-dindy"
+):
     """
     Récupère tous les pianos depuis Gazelle API.
 
     Args:
         include_inactive: Si True, inclut les pianos avec tag "non" (masqués par défaut)
+        institution: Institution à charger (vincent-dindy, orford, place-des-arts)
 
     Architecture V7:
     - Gazelle API = Source unique de vérité (tags inclus)
@@ -104,7 +111,16 @@ async def get_pianos(include_inactive: bool = False):
     """
     try:
         import logging
-        logging.info(f"🔍 Chargement des pianos depuis Gazelle (client: {VINCENT_DINDY_CLIENT_ID})")
+
+        # Récupérer le clientId depuis le mapping
+        client_id = INSTITUTION_CLIENT_MAPPING.get(institution)
+        if not client_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Institution '{institution}' non configurée ou clientId manquant"
+            )
+
+        logging.info(f"🔍 Chargement des pianos depuis Gazelle (institution: {institution}, client: {client_id})")
 
         # 1. Charger TOUS les pianos depuis Gazelle
         api_client = get_api_client()
@@ -133,7 +149,7 @@ async def get_pianos(include_inactive: bool = False):
         }
         """
 
-        variables = {"clientId": VINCENT_DINDY_CLIENT_ID}
+        variables = {"clientId": client_id}
         result = api_client._execute_query(query, variables)
         gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
 
@@ -179,9 +195,13 @@ async def get_pianos(include_inactive: bool = False):
             # Filtrage par tag: si le piano a le tag "non", le masquer par défaut
             has_non_tag = 'non' in [t.lower() for t in tags]
 
-            # Filtrage: Par défaut, masquer les pianos avec tag "non"
-            if not include_inactive and has_non_tag:
-                continue  # Ignorer les pianos marqués "non"
+            # Filtrage par flag Supabase is_hidden
+            is_hidden_in_assistant = updates.get('is_hidden', False)
+
+            # FILTRE DE VISIBILITÉ COMBINÉ (Mode Inventaire vs Mode Révision)
+            # Un piano est masqué si: (Tag Gazelle == 'non') OU (Marqué caché dans Assistant/Supabase)
+            if not include_inactive and (has_non_tag or is_hidden_in_assistant):
+                continue  # Ignorer les pianos masqués (sauf si Mode Révision activé)
 
             # Construire l'objet piano
             piano_type = gz_piano.get('type', 'UPRIGHT')
@@ -209,6 +229,7 @@ async def get_pianos(include_inactive: bool = False):
                 "sync_status": updates.get('sync_status', 'pending'),  # État de synchronisation avec Gazelle
                 "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
                 "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
+                "isHidden": is_hidden_in_assistant,  # Flag pour masquer le piano dans l'Assistant (Supabase)
                 "isInCsv": updates.get('is_in_csv', True),  # Flag inventaire CSV (True par défaut si non spécifié)
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN')  # Status Gazelle
             }
@@ -757,7 +778,7 @@ class TourneeCreate(BaseModel):
     date_debut: str  # Format: YYYY-MM-DD
     date_fin: str    # Format: YYYY-MM-DD
     status: str = "planifiee"  # planifiee | en_cours | terminee
-    etablissement: str = "vincent-dindy"
+    etablissement: str = "vincent-dindy"  # Institution (vincent-dindy, orford, etc.)
     technicien_responsable: str
     piano_ids: Optional[List[str]] = []
     notes: Optional[str] = None
@@ -777,13 +798,19 @@ class TourneeUpdate(BaseModel):
 
 
 @router.get("/tournees", response_model=Dict[str, Any])
-async def get_tournees():
+async def get_tournees(institution: Optional[str] = None):
     """
-    Récupère toutes les tournées depuis Supabase.
+    Récupère les tournées depuis Supabase filtrées par institution (client_id).
+
+    Query params:
+        institution: Nom de l'institution (ex: "vincent-dindy", "orford")
+                    OBLIGATOIRE pour l'étanchéité multi-institutionnelle
 
     Architecture V7:
     - Supabase = Source unique pour les tournées
     - Table: public.tournees
+    - Filtrage par etablissement pour étanchéité multi-institutionnelle
+    - SÉCURITÉ: Si institution absent, retourne liste vide pour éviter mélange
     """
     try:
         import logging
@@ -798,12 +825,26 @@ async def get_tournees():
 
         supabase = create_client(supabase_url, supabase_key)
 
-        # Requête vers la table tournees, triée par date_debut DESC (plus récente en premier)
-        response = supabase.table('tournees').select('*').order('date_debut', desc=True).execute()
+        # SÉCURITÉ: institution OBLIGATOIRE pour l'étanchéité
+        if not institution:
+            logging.warning("⚠️ Paramètre institution manquant - retour liste vide pour sécurité")
+            return {"tournees": [], "count": 0}
+
+        # VALIDATION: Vérifier que l'institution est valide
+        if institution not in INSTITUTION_CLIENT_MAPPING:
+            logging.warning(f"⚠️ Institution '{institution}' non reconnue - retour liste vide")
+            return {"tournees": [], "count": 0}
+
+        # FILTRAGE PAR INSTITUTION (étanchéité multi-institutionnelle)
+        query = supabase.table('tournees').select('*').eq('etablissement', institution)
+        logging.info(f"🔒 Filtrage tournées par institution: {institution}")
+        
+        # Trier par date_debut DESC (plus récente en premier)
+        response = query.order('date_debut', desc=True).execute()
 
         tournees = response.data if response.data else []
 
-        logging.info(f"✅ {len(tournees)} tournées récupérées depuis Supabase (triées par date_debut DESC)")
+        logging.info(f"✅ {len(tournees)} tournées récupérées depuis Supabase (institution: {institution})")
 
         return {
             "tournees": tournees,
@@ -863,19 +904,28 @@ async def create_tournee(tournee: TourneeCreate):
         # Générer un ID unique pour la tournée
         tournee_id = f"tournee_{int(time.time() * 1000)}"
 
-        # Préparer les données
+        # SÉCURITÉ: Valider que l'établissement est valide
+        if tournee.etablissement not in INSTITUTION_CLIENT_MAPPING:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Institution '{tournee.etablissement}' non reconnue. Institutions valides: {list(INSTITUTION_CLIENT_MAPPING.keys())}"
+            )
+
+        # Préparer les données (etablissement est utilisé pour le filtrage)
         tournee_data = {
             "id": tournee_id,
             "nom": tournee.nom,
             "date_debut": tournee.date_debut,
             "date_fin": tournee.date_fin,
             "status": tournee.status,
-            "etablissement": tournee.etablissement,
+            "etablissement": tournee.etablissement,  # Clé de filtrage pour étanchéité multi-institutionnelle
             "technicien_responsable": tournee.technicien_responsable,
             "piano_ids": tournee.piano_ids if tournee.piano_ids else [],  # Passer directement la liste, pas JSON string
             "notes": tournee.notes,
             "created_by": tournee.created_by
         }
+        
+        logging.info(f"🔒 Création tournée avec établissement: {tournee.etablissement} (client_id: {INSTITUTION_CLIENT_MAPPING.get(tournee.etablissement)})")
 
         # Insérer dans Supabase
         response = supabase.table('tournees').insert(tournee_data).execute()
@@ -933,6 +983,16 @@ async def update_tournee(tournee_id: str, update: TourneeUpdate):
 
         supabase = create_client(supabase_url, supabase_key)
 
+        # SÉCURITÉ: Vérifier que la tournée existe et récupérer son établissement
+        check_response = supabase.table('tournees').select('id, etablissement').eq('id', tournee_id).execute()
+
+        if not check_response.data:
+            logging.error(f"❌ Tournée {tournee_id} non trouvée dans Supabase")
+            raise HTTPException(status_code=404, detail=f"Tournée non trouvée: {tournee_id}")
+        
+        existing_etablissement = check_response.data[0].get('etablissement')
+        logging.info(f"🔍 Tournée {tournee_id} trouvée - établissement: {existing_etablissement}")
+
         # Préparer les données (exclure None)
         update_data = {}
         if update.nom is not None:
@@ -954,15 +1014,6 @@ async def update_tournee(tournee_id: str, update: TourneeUpdate):
 
         if not update_data:
             raise HTTPException(status_code=400, detail="Aucune donnée à mettre à jour")
-
-        # Debug: vérifier si la tournée existe AVANT de faire l'update
-        check_response = supabase.table('tournees').select('id').eq('id', tournee_id).execute()
-
-        logging.info(f"🔍 Vérification tournée {tournee_id}: {check_response.data}")
-
-        if not check_response.data:
-            logging.error(f"❌ Tournée {tournee_id} non trouvée dans Supabase")
-            raise HTTPException(status_code=404, detail=f"Tournée non trouvée: {tournee_id}")
 
         # Mettre à jour dans Supabase
         logging.info(f"🔄 Mise à jour tournée {tournee_id} avec données: {update_data}")
@@ -1033,11 +1084,14 @@ async def delete_tournee(tournee_id: str):
 
         supabase = create_client(supabase_url, supabase_key)
 
-        # 1. Récupérer la tournée pour obtenir les piano_ids avant suppression
-        tournee_response = supabase.table('tournees').select('piano_ids').eq('id', tournee_id).execute()
+        # 1. Récupérer la tournée pour obtenir les piano_ids et l'établissement avant suppression
+        tournee_response = supabase.table('tournees').select('piano_ids, etablissement').eq('id', tournee_id).execute()
 
         if not tournee_response.data:
             raise HTTPException(status_code=404, detail="Tournée non trouvée")
+        
+        tournee_etablissement = tournee_response.data[0].get('etablissement')
+        logging.info(f"🔒 Suppression tournée {tournee_id} - établissement: {tournee_etablissement}")
 
         tournee_data = tournee_response.data[0]
         piano_ids = tournee_data.get('piano_ids', [])

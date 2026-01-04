@@ -38,9 +38,9 @@ from core.gazelle_api_client import GazelleAPIClient
 
 # Mapping institution → client_id Gazelle
 INSTITUTION_CLIENT_MAPPING = {
-    "vincent-dindy": "cli_3VDsY1hbbEqnMlN2",  # Vincent d'Indy
+    "vincent-dindy": "cli_9UMLkteep8EsISbG",  # Vincent d'Indy
     "place-des-arts": None,  # À définir
-    "orford": None,  # À définir
+    "orford": "cli_PmqPUBTbPFeCMGmz",  # Centre d'Arts Orford
 }
 
 

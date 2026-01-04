@@ -85,8 +85,10 @@ export const updatePiano = async (apiUrl, pianoId, updates) => {
 
 // ============ TOURNÉES API ============
 
-export const getTournees = async (apiUrl) => {
-  const response = await fetch(`${apiUrl}/vincent-dindy/tournees`);
+export const getTournees = async (apiUrl, institution = 'vincent-dindy') => {
+  // SÉCURITÉ: institution est obligatoire pour l'étanchéité multi-institutionnelle
+  const url = `${apiUrl}/vincent-dindy/tournees?institution=${encodeURIComponent(institution)}`;
+  const response = await fetch(url);
 
   if (!response.ok) {
     throw new Error(`Erreur ${response.status}`);

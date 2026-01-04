@@ -207,7 +207,13 @@ function App() {
         } else if (currentView === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="orford" />
             </ErrorBoundary>
           )
         }
@@ -235,7 +241,13 @@ function App() {
         } else if (currentView === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="orford" />
             </ErrorBoundary>
           )
         } else if (currentView === 'place-des-arts') {
@@ -337,14 +349,20 @@ function App() {
           // Vincent d'Indy Dashboard (version restaurée, sans iframe)
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="vincent-dindy" />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'orford') {
+          return (
+            <ErrorBoundary componentName="Orford">
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="orford" />
             </ErrorBoundary>
           )
         } else {
           // Fallback: Vincent d'Indy Dashboard
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
-              <VincentDIndyDashboard currentUser={effectiveUser} />
+              <VincentDIndyDashboard currentUser={effectiveUser} initialLocation="vincent-dindy" />
             </ErrorBoundary>
           )
         }
@@ -390,18 +408,19 @@ function App() {
                           setInstitutionsDropdownOpen(!institutionsDropdownOpen)
                         }}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors flex items-center gap-1 ${
-                          currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts'
+                          currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts' || currentView === 'orford'
                             ? 'bg-blue-100 text-blue-700 font-medium'
                             : 'text-gray-600 hover:bg-gray-100'
                         }`}
                       >
                         {currentView === 'vincent-dindy-v7' ? '🎹 Vincent d\'Indy' :
+                         currentView === 'orford' ? '🏔️ Orford' :
                          currentView === 'place-des-arts' ? '🎭 Place des Arts' :
                          '🏛️ Institutions'}
                         <span className="text-xs">▼</span>
                       </button>
                       {institutionsDropdownOpen && (
-                        <div 
+                        <div
                           className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50 min-w-[200px]"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -418,6 +437,20 @@ function App() {
                             }`}
                           >
                             🎹 Vincent d'Indy
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setCurrentView('orford')
+                              setInstitutionsDropdownOpen(false)
+                            }}
+                            className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                              currentView === 'orford'
+                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                            }`}
+                          >
+                            🏔️ Orford
                           </button>
                           <button
                             onClick={(e) => {
@@ -542,12 +575,13 @@ function App() {
                             setInstitutionsDropdownOpen(!institutionsDropdownOpen)
                           }}
                           className={`px-4 py-2 text-sm rounded-lg transition-colors flex items-center gap-1 ${
-                            currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts'
+                            currentView === 'vincent-dindy-v7' || currentView === 'place-des-arts' || currentView === 'orford'
                               ? 'bg-blue-100 text-blue-700 font-medium'
                               : 'text-gray-600 hover:bg-gray-100'
                           }`}
                         >
                           {currentView === 'vincent-dindy-v7' ? '🎹 Vincent d\'Indy' :
+                           currentView === 'orford' ? '🏔️ Orford' :
                            currentView === 'place-des-arts' ? '🎭 Place des Arts' :
                            '🏛️ Institutions'}
                           <span className="text-xs">▼</span>
@@ -570,6 +604,20 @@ function App() {
                               }`}
                             >
                               🎹 Vincent d'Indy
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setCurrentView('orford')
+                                setInstitutionsDropdownOpen(false)
+                              }}
+                              className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                                currentView === 'orford'
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                              }`}
+                            >
+                              🏔️ Orford
                             </button>
                             <button
                               onClick={(e) => {
