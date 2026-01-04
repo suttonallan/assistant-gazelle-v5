@@ -821,6 +821,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // }, [tournees]);
 
   const getRowClass = (piano) => {
+    // CONTEXTUALISATION: Ne colorer QUE si une tournée est sélectionnée ET que le piano est dans cette tournée
+    if (!selectedTourneeId || !isPianoInTournee(piano, selectedTourneeId)) {
+      // Neutralité par défaut: Blanc si pas de tournée sélectionnée ou piano pas dans la tournée
+      return 'bg-white';
+    }
+
+    // Le piano est dans la tournée sélectionnée: appliquer les couleurs selon son statut
     // Priorité 1: Sélection (mauve)
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
     
@@ -830,7 +837,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 3: Travail complété (vert)
     if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
     
-    // Priorité 4: Travail en cours (bleu) - NOUVEAU
+    // Priorité 4: Travail en cours (bleu)
     // IMPORTANT: Utiliser seulement 'travail' pour éviter confusion avec 'observations' Gazelle (donateur, etc.)
     if (piano.status === 'work_in_progress' ||
         (piano.travail && piano.travail.trim() !== '' && !piano.is_work_completed)) {
@@ -838,13 +845,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
     
     // Priorité 5: Proposé ou à faire (jaune)
-    if (
-      (selectedTourneeId && isPianoInTournee(piano, selectedTourneeId)) ||
-      piano.status === 'proposed' ||
-      (piano.aFaire && piano.aFaire.trim() !== '')
-    ) return 'bg-yellow-200';
+    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
+      return 'bg-yellow-200';
+    }
     
-    // Défaut: Blanc
+    // Défaut: Blanc (piano dans la tournée mais sans statut spécifique)
     return 'bg-white';
   };
 
@@ -937,35 +942,40 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
     return (
-      <>
+      <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
           currentView={currentView}
           setCurrentView={setCurrentView}
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
-        <VDI_TechnicianView
-          pianos={pianos}
-          stats={stats}
-          showOnlyProposed={showOnlyProposed}
-          setShowOnlyProposed={setShowOnlyProposed}
-          searchLocal={searchLocal}
-          setSearchLocal={setSearchLocal}
-          expandedPianoId={expandedPianoId}
-          setExpandedPianoId={setExpandedPianoId}
-          travailInput={travailInput}
-          setTravailInput={setTravailInput}
-          observationsInput={observationsInput}
-          setObservationsInput={setObservationsInput}
-          isWorkCompleted={isWorkCompleted}
-          setIsWorkCompleted={setIsWorkCompleted}
-          saveTravail={saveTravail}
-          moisDepuisAccord={moisDepuisAccord}
-          formatDateRelative={formatDateRelative}
-          getSyncStatusIcon={getSyncStatusIcon}
-          pianosFiltres={pianosFiltres}
-        />
-      </>
+        {/* Container simulé téléphone portable - centré avec bordure et ombre */}
+        <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
+          <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+            <VDI_TechnicianView
+              pianos={pianos}
+              stats={stats}
+              showOnlyProposed={showOnlyProposed}
+              setShowOnlyProposed={setShowOnlyProposed}
+              searchLocal={searchLocal}
+              setSearchLocal={setSearchLocal}
+              expandedPianoId={expandedPianoId}
+              setExpandedPianoId={setExpandedPianoId}
+              travailInput={travailInput}
+              setTravailInput={setTravailInput}
+              observationsInput={observationsInput}
+              setObservationsInput={setObservationsInput}
+              isWorkCompleted={isWorkCompleted}
+              setIsWorkCompleted={setIsWorkCompleted}
+              saveTravail={saveTravail}
+              moisDepuisAccord={moisDepuisAccord}
+              formatDateRelative={formatDateRelative}
+              getSyncStatusIcon={getSyncStatusIcon}
+              pianosFiltres={pianosFiltres}
+            />
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1008,6 +1018,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             pianos={pianos}
             setPianos={setPianos}
             stats={stats}
+            institution={institution}
             tournees={tournees}
             selectedTourneeId={selectedTourneeId}
             setSelectedTourneeId={setSelectedTourneeId}
@@ -1035,6 +1046,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             batchHideFromInventory={batchHideFromInventory}
             handlePushToGazelle={handlePushToGazelle}
             savePianoToAPI={savePianoToAPI}
+            removePianoFromTournee={removePianoFromTournee}
             readyForPushCount={readyForPushCount}
             pushInProgress={pushInProgress}
             editingAFaireId={editingAFaireId}

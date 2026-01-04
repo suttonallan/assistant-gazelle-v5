@@ -20,6 +20,9 @@ export default function VDI_ManagementView({
   setPianos,
   stats,
 
+  // Institution
+  institution,
+
   // Tournées
   tournees,
   selectedTourneeId,
@@ -54,6 +57,7 @@ export default function VDI_ManagementView({
   batchHideFromInventory,
   handlePushToGazelle,
   savePianoToAPI,
+  removePianoFromTournee,
 
   // Push Gazelle
   readyForPushCount,
@@ -395,11 +399,29 @@ export default function VDI_ManagementView({
                   </td>
 
                   {/* Colonne Statut */}
-                  <td className="px-3 py-3 text-sm">
-                    {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
-                    {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
-                    {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
-                    {piano.status === 'normal' && <span className="text-gray-400">-</span>}
+                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2">
+                      <div>
+                        {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
+                        {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
+                        {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
+                        {piano.status === 'normal' && <span className="text-gray-400">-</span>}
+                      </div>
+                      {/* Bouton Retirer de la tournée - visible seulement si une tournée est sélectionnée */}
+                      {selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) && removePianoFromTournee && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await removePianoFromTournee(piano);
+                            await loadPianosFromAPI();
+                          }}
+                          className="px-2 py-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                          title="Retire le piano de cette liste de travail, mais le garde dans l'inventaire global"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

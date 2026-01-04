@@ -422,9 +422,11 @@ async def get_institution_pianos(
                 "dernierAccord": gz_piano.get('calculatedLastService', ''),
                 "prochainAccord": gz_piano.get('calculatedNextService', ''),
                 "status": updates.get('status', 'normal'),
-                "aFaire": updates.get('a_faire', ''),
+                # Pour Orford: ne pas inclure les notes Gazelle dans aFaire et observations
+                # Seulement afficher les notes créées dans l'Assistant (Supabase)
+                "aFaire": updates.get('a_faire', '') if institution != 'orford' else (updates.get('a_faire', '') if updates.get('a_faire') else ''),
                 "travail": updates.get('travail', ''),
-                "observations": updates.get('observations', gz_piano.get('notes', '')),
+                "observations": updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else ''),
                 "is_work_completed": updates.get('is_work_completed', False),
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,

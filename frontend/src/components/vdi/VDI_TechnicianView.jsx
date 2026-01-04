@@ -55,9 +55,9 @@ export default function VDI_TechnicianView({
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
+    <div className="bg-gray-50">
       {/* Filtres compacts pour la vue technicien */}
-      <div className="bg-white rounded-lg shadow p-3 mb-4">
+      <div className="bg-white p-3 mb-4 border-b border-gray-200">
         <div className="flex gap-2 mb-2">
           <button
             onClick={() => setShowOnlyProposed(false)}

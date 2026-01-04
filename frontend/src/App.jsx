@@ -260,6 +260,17 @@ function App() {
               <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
+        } else if (currentView === 'calculateur-frais') {
+          return (
+            <ErrorBoundary componentName="Calculateur Frais">
+              <div className="space-y-8">
+                <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <KilometersCalculator />
+                </div>
+              </div>
+            </ErrorBoundary>
+          )
         }
         // Par défaut: Inventaire
         return <NickDashboard currentUser={effectiveUser} />
@@ -324,6 +335,17 @@ function App() {
                 hideNickView={true}
                 hideLocationSelector={true}
               />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'calculateur-frais') {
+          return (
+            <ErrorBoundary componentName="Calculateur Frais">
+              <div className="space-y-8">
+                <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <KilometersCalculator />
+                </div>
+              </div>
             </ErrorBoundary>
           )
         }
@@ -534,6 +556,18 @@ function App() {
                     >
                       🗺️ Tournées
                     </button>
+
+                    {/* Calculateur - Jean-Philippe */}
+                    <button
+                      onClick={() => setCurrentView('calculateur-frais')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'calculateur-frais'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      💰 Calculateur
+                    </button>
                   </>
                 ) : (
                   <>
@@ -591,8 +625,8 @@ function App() {
                       📦 Inventaire
                     </button>
 
-                    {/* Calculateur - admin, louise et nick */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'nick') && (
+                    {/* Calculateur - admin, louise, nick et jeanphilippe */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'nick' || effectiveRole === 'jeanphilippe') && (
                       <button
                         onClick={() => setCurrentView('calculateur-frais')}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors ${
