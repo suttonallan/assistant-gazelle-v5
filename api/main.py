@@ -125,6 +125,17 @@ app.add_middleware(
 )
 
 # Enregistrer les routes des modules
+# IMPORTANT: Les routes sont enregistrées 2 fois pour supporter dev ET prod
+#
+# Développement (avec Vite proxy):
+#   Frontend → /api/vincent-dindy/... → Vite proxy retire /api → Backend /vincent-dindy/...
+#
+# Production (GitHub Pages → Render direct):
+#   Frontend → https://.../api/vincent-dindy/... → Backend /api/vincent-dindy/...
+#
+# Solution: Enregistrer les routes AVEC et SANS préfixe /api
+
+# Routes SANS /api (pour développement avec proxy Vite)
 app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
@@ -136,6 +147,19 @@ app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
 app.include_router(scheduler_router)
+
+# Routes AVEC /api (pour production sans proxy)
+app.include_router(vincent_dindy_router, prefix="/api")
+app.include_router(alertes_rv_router, prefix="/api")
+app.include_router(inventaire_router, prefix="/api")
+app.include_router(catalogue_router, prefix="/api")
+app.include_router(tournees_router, prefix="/api")
+app.include_router(assistant_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(place_des_arts_router, prefix="/api")
+app.include_router(reports_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
+app.include_router(scheduler_router, prefix="/api")
 
 
 @app.get("/")

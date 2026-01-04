@@ -53,7 +53,7 @@ const MSLMatchingTool = () => {
       setLoading(true)
 
       // Charger le catalogue
-      const response = await fetch(`${API_URL}/inventaire/catalogue`)
+      const response = await fetch(`${API_URL}/api/inventaire/catalogue`)
       const data = await response.json()
       const items = data.produits || []
 

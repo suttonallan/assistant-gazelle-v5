@@ -21,17 +21,17 @@ export default function AlertesRV({ currentUser }) {
       setLoading(true)
 
       // Charger les RV non confirmés
-      const unconfirmedRes = await fetch(`${API_URL}/alertes-rv/check`)
+      const unconfirmedRes = await fetch(`${API_URL}/api/alertes-rv/check`)
       const unconfirmedData = await unconfirmedRes.json()
       setUnconfirmedAppointments(unconfirmedData.unconfirmed || [])
 
       // Charger les alertes envoyées
-      const alertsRes = await fetch(`${API_URL}/alertes-rv/alerts`)
+      const alertsRes = await fetch(`${API_URL}/api/alertes-rv/alerts`)
       const alertsData = await alertsRes.json()
       setAlerts(alertsData.alerts || [])
 
       // Charger les stats
-      const statsRes = await fetch(`${API_URL}/alertes-rv/stats`)
+      const statsRes = await fetch(`${API_URL}/api/alertes-rv/stats`)
       const statsData = await statsRes.json()
       setStats(statsData)
 
@@ -49,7 +49,7 @@ export default function AlertesRV({ currentUser }) {
 
     setSendingAlert(appointment.id)
     try {
-      const response = await fetch(`${API_URL}/alertes-rv/send/${appointment.id}`, {
+      const response = await fetch(`${API_URL}/api/alertes-rv/send/${appointment.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

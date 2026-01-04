@@ -26,7 +26,7 @@ const SchedulerJournal = ({ currentUser }) => {
 
   const loadLogs = async () => {
     try {
-      const response = await fetch(`${API_URL}/scheduler/logs?limit=20`)
+      const response = await fetch(`${API_URL}/api/scheduler/logs?limit=20`)
       if (!response.ok) throw new Error('Erreur chargement logs')
       const data = await response.json()
       setLogs(data)
@@ -46,7 +46,7 @@ const SchedulerJournal = ({ currentUser }) => {
     try {
       setRunningTasks(prev => new Set([...prev, taskName]))
 
-      const response = await fetch(`${API_URL}/scheduler/run/${taskName}`, {
+      const response = await fetch(`${API_URL}/api/scheduler/run/${taskName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,7 +179,7 @@ const SchedulerJournal = ({ currentUser }) => {
     try {
       setRunningTasks(prev => new Set([...prev, `import_${importName}`]))
 
-      const response = await fetch(`${API_URL}/scheduler/run/import/${importName}`, {
+      const response = await fetch(`${API_URL}/api/scheduler/run/import/${importName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

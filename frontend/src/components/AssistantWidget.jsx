@@ -92,7 +92,7 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     setIsLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/assistant/chat`, {
+      const response = await fetch(`${API_URL}/api/assistant/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

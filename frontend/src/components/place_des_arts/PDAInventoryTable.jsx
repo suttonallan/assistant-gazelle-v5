@@ -133,7 +133,7 @@ export default function PDAInventoryTable() {
     try {
       setLoading(true)
       setError(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/pianos?include_inactive=true`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/pianos?include_inactive=true`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       
@@ -235,7 +235,7 @@ export default function PDAInventoryTable() {
       ))
 
       // Update via API backend
-      const resp = await fetch(`${API_URL}/vincent-dindy/pianos/${piano.gazelleId}`, {
+      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/${piano.gazelleId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -267,7 +267,7 @@ export default function PDAInventoryTable() {
         isHidden: false
       }))
 
-      const resp = await fetch(`${API_URL}/vincent-dindy/pianos/batch`, {
+      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/batch`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
@@ -305,7 +305,7 @@ export default function PDAInventoryTable() {
         isHidden: true
       }))
 
-      const resp = await fetch(`${API_URL}/vincent-dindy/pianos/batch`, {
+      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/batch`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)

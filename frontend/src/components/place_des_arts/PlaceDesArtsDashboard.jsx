@@ -55,7 +55,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     try {
       setLoading(true)
       setError(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/requests?limit=200`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests?limit=200`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setItems(data || [])
@@ -68,7 +68,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_URL}/place-des-arts/stats`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/stats`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setStats(data || { imported: 0, to_bill: 0, this_month: 0 })
@@ -269,7 +269,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           if (!item) continue
 
           // Appeler l'API de validation
-          const resp = await fetch(`${API_URL}/place-des-arts/validate-gazelle-rv`, {
+          const resp = await fetch(`${API_URL}/api/place-des-arts/validate-gazelle-rv`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -310,7 +310,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         }
 
         // Procéder avec le changement de statut
-        await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
+        await callAction(`${API_URL}/api/place-des-arts/requests/update-status-batch`, {
           request_ids: ids,
           status: newStatus
         })
@@ -326,7 +326,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
 
     // Pour les autres statuts, changement direct
-    await callAction(`${API_URL}/place-des-arts/requests/update-status-batch`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/update-status-batch`, {
       request_ids: ids,
       status: newStatus
     })
@@ -334,7 +334,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const handleBill = async () => {
     if (selectedIds.length === 0) return
-    await callAction(`${API_URL}/place-des-arts/requests/bill`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/bill`, {
       request_ids: selectedIds,
       status: 'BILLED'
     })
@@ -342,7 +342,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const handleDelete = async () => {
     if (selectedIds.length === 0) return
-    await callAction(`${API_URL}/place-des-arts/requests/delete`, {
+    await callAction(`${API_URL}/api/place-des-arts/requests/delete`, {
       request_ids: selectedIds
     })
   }
@@ -353,7 +353,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setInfoMessage(null)
 
       // 1. Récupérer la liste des doublons
-      const resp = await fetch(`${API_URL}/place-des-arts/requests/find-duplicates`)
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/find-duplicates`)
       if (!resp.ok) {
         throw new Error(`Erreur lors de la recherche de doublons: ${resp.status}`)
       }
@@ -379,7 +379,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       }
 
       // 3. Supprimer seulement si confirmé
-      await callAction(`${API_URL}/place-des-arts/requests/delete-duplicates`, {})
+      await callAction(`${API_URL}/api/place-des-arts/requests/delete-duplicates`, {})
 
     } catch (err) {
       setError(err.message || 'Erreur lors de la suppression des doublons')
@@ -398,7 +398,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setInfoMessage('🔄 Synchronisation en cours...')
 
       // Envoyer seulement les IDs sélectionnés
-      const resp = await fetch(`${API_URL}/place-des-arts/sync-manual`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_ids: selectedIds })
@@ -435,7 +435,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleExport = () => {
-    window.open(`${API_URL}/place-des-arts/export`, '_blank')
+    window.open(`${API_URL}/api/place-des-arts/export`, '_blank')
   }
 
   const updateCellRaw = async (id, field, value, retries = 2) => {
@@ -447,7 +447,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       const timeoutId = setTimeout(() => controller.abort(), 30000)
 
       try {
-        const resp = await fetch(`${API_URL}/place-des-arts/requests/update-cell`, {
+        const resp = await fetch(`${API_URL}/api/place-des-arts/requests/update-cell`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ request_id: id, field, value }),
@@ -490,7 +490,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         return null // Pas de push si données manquantes
       }
 
-      const resp = await fetch(`${API_URL}/place-des-arts/requests/push-to-gazelle`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/push-to-gazelle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -538,7 +538,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         if (field === 'notes' && value && item.technician_id) {
           try {
             // Récupérer le piano_id Gazelle depuis l'API
-            const pianoIdResp = await fetch(`${API_URL}/place-des-arts/requests/${targetId}/gazelle-piano-id`)
+            const pianoIdResp = await fetch(`${API_URL}/api/place-des-arts/requests/${targetId}/gazelle-piano-id`)
             if (pianoIdResp.ok) {
               const pianoIdData = await pianoIdResp.json()
               const pianoGazelleId = pianoIdData.piano_id
@@ -615,7 +615,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     try {
       setPreviewLoading(true)
       setInfoMessage(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/preview`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_text: rawText, source: 'email' })
@@ -639,7 +639,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setImportLoading(true)
       setError(null)
       setInfoMessage(null)
-      const resp = await fetch(`${API_URL}/place-des-arts/import`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_text: rawText, source: 'email' })
@@ -842,7 +842,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 try {
                   setError(null)
                   setInfoMessage(null)
-                  const resp = await fetch(`${API_URL}/place-des-arts/requests/create`, {
+                  const resp = await fetch(`${API_URL}/api/place-des-arts/requests/create`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(createForm)

@@ -33,7 +33,7 @@ export default function NotificationsPanel({ currentUser }) {
   const loadDeductionLogs = async () => {
     try {
       setDeductionsLoading(true)
-      const response = await fetch(`${API_URL}/inventaire/deduction-logs?limit=100`)
+      const response = await fetch(`${API_URL}/api/inventaire/deduction-logs?limit=100`)
       const data = await response.json()
       setDeductionLogs(data.logs || [])
       setError(null)
@@ -51,8 +51,8 @@ export default function NotificationsPanel({ currentUser }) {
 
       // Charger les alertes en attente ET l'historique
       const [pendingRes, historyRes] = await Promise.all([
-        fetch(`${API_URL}/alertes-rv/pending`),
-        fetch(`${API_URL}/alertes-rv/history?limit=50`)
+        fetch(`${API_URL}/api/alertes-rv/pending`),
+        fetch(`${API_URL}/api/alertes-rv/history?limit=50`)
       ])
 
       const pendingData = await pendingRes.json()
@@ -72,7 +72,7 @@ export default function NotificationsPanel({ currentUser }) {
   const loadImportSummary = async () => {
     try {
       setImportsLoading(true)
-      const response = await fetch(`${API_URL}/inventaire/deduction-summary?days=30`)
+      const response = await fetch(`${API_URL}/api/inventaire/deduction-summary?days=30`)
       const data = await response.json()
       setImportSummary(data.summary || [])
       setError(null)
@@ -114,7 +114,7 @@ export default function NotificationsPanel({ currentUser }) {
 
   const resolveAlert = async (alertId) => {
     try {
-      const response = await fetch(`${API_URL}/alertes-rv/resolve/${alertId}`, {
+      const response = await fetch(`${API_URL}/api/alertes-rv/resolve/${alertId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
