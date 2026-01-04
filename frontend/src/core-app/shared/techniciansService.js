@@ -8,8 +8,10 @@
 export const getTechniciansFromProfiles = async (apiUrl) => {
   try {
     // Appeler l'endpoint backend qui récupère depuis Supabase profiles
-    // Assurer que l'URL pointe vers le backend (port 8000)
-    const backendUrl = apiUrl || 'http://localhost:8000'
+    // Utilise la config centralisée pour déterminer l'URL du backend
+    const backendUrl = apiUrl || (import.meta.env.PROD
+      ? (import.meta.env.VITE_API_URL || 'https://assistant-gazelle-v5-api.onrender.com')
+      : 'http://localhost:8000')
     const response = await fetch(`${backendUrl}/api/technicians/profiles`)
     
     if (!response.ok) {
