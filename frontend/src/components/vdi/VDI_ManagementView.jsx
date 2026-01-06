@@ -169,7 +169,7 @@ export default function VDI_ManagementView({
             className={`px-4 py-2 rounded text-sm font-medium ${showOnlySelected ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
             {selectedTourneeId ? (
-              <>🎯 Pianos de cette tournée ({getTourneePianos(selectedTourneeId).length})</>
+              <>🎯 Pianos de cette tournée ({pianos.filter(p => isPianoInTournee(p, selectedTourneeId) && (!p.is_hidden || showAllPianos)).length})</>
             ) : (
               <>🎯 Projet de tournée ({stats.proposed + stats.completed})</>
             )}
@@ -446,12 +446,16 @@ export default function VDI_ManagementView({
                     <div className="flex items-center gap-2">
                       <div>
                         {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
-                        {/* Protection visuelle: Ne pas afficher "À faire" si le piano n'est pas dans la tournée sélectionnée */}
-                        {piano.status === 'proposed' && selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) && (
+                        {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
+                        {piano.status === 'work_in_progress' && <span className="px-2 py-1 bg-blue-400 rounded text-xs">En cours</span>}
+                        {/* ⭐ RÈGLE DE COHÉRENCE VISUELLE: Tout piano dans la tournée sélectionnée = badge "À faire" jaune */}
+                        {selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) &&
+                         piano.status !== 'top' && piano.status !== 'completed' && piano.status !== 'work_in_progress' && (
                           <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>
                         )}
-                        {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
-                        {(piano.status === 'normal' || (piano.status === 'proposed' && (!selectedTourneeId || !isPianoInTournee(piano, selectedTourneeId)))) && (
+                        {/* Si pas de tournée OU piano pas dans la tournée OU statut déjà affiché ci-dessus */}
+                        {(!selectedTourneeId || !isPianoInTournee(piano, selectedTourneeId)) &&
+                         piano.status !== 'top' && piano.status !== 'completed' && piano.status !== 'work_in_progress' && (
                           <span className="text-gray-400">-</span>
                         )}
                       </div>

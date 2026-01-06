@@ -33,6 +33,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [editingProduct, setEditingProduct] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showInactiveProducts, setShowInactiveProducts] = useState(false) // Masquer inactifs par défaut
 
   // États pour onglet Types
   const [selectedProducts, setSelectedProducts] = useState(new Set())
@@ -381,14 +382,26 @@ const InventaireDashboard = ({ currentUser }) => {
   }
 
   // Filtrer produits (admin)
-  const filteredProducts = searchQuery
-    ? catalogueAdmin.filter(p =>
+  const filteredProducts = (() => {
+    let filtered = catalogueAdmin
+
+    // Filtre 1: Masquer les inactifs si demandé
+    if (!showInactiveProducts) {
+      filtered = filtered.filter(p => p.is_active !== false)
+    }
+
+    // Filtre 2: Recherche textuelle
+    if (searchQuery) {
+      filtered = filtered.filter(p =>
         p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.code_produit?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.variant_group?.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : catalogueAdmin
+    }
+
+    return filtered
+  })()
 
   if (loading) {
     return (
@@ -734,15 +747,111 @@ const InventaireDashboard = ({ currentUser }) => {
 
           {/* Toolbar */}
           <div className="mb-4 flex justify-between items-center flex-wrap gap-4">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Rechercher: nom, code, catégorie, variante..."
-              className="border rounded px-3 py-2 text-sm w-80"
-            />
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Rechercher: nom, code, catégorie, variante..."
+                className="border rounded px-3 py-2 text-sm w-80"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showInactive"
+                  checked={showInactiveProducts}
+                  onChange={(e) => setShowInactiveProducts(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="showInactive" className="text-sm text-gray-600">
+                  Afficher les produits inactifs ({catalogueAdmin.filter(p => p.is_active === false).length})
+                </label>
+              </div>
+            </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap items-center">
+              {selectedProducts.size > 0 && (
+                <>
+                  <button
+                    onClick={() => {
+                      // Déplacer les produits sélectionnés vers le haut
+                      const selectedCodes = Array.from(selectedProducts)
+                      const newCatalogue = [...catalogueAdmin]
+
+                      // Trouver les indices des produits sélectionnés
+                      const selectedIndices = selectedCodes
+                        .map(code => newCatalogue.findIndex(p => p.code_produit === code))
+                        .filter(idx => idx !== -1)
+                        .sort((a, b) => a - b) // Trier par ordre croissant
+
+                      // Si le premier est déjà en position 0, on ne peut pas monter
+                      if (selectedIndices[0] === 0) {
+                        alert('Les produits sélectionnés sont déjà en haut')
+                        return
+                      }
+
+                      // Déplacer chaque produit sélectionné d'une position vers le haut
+                      selectedIndices.forEach(idx => {
+                        if (idx > 0 && !selectedCodes.includes(newCatalogue[idx - 1].code_produit)) {
+                          // Échanger avec le produit au-dessus (seulement s'il n'est pas sélectionné)
+                          [newCatalogue[idx], newCatalogue[idx - 1]] = [newCatalogue[idx - 1], newCatalogue[idx]]
+                        }
+                      })
+
+                      // Recalculer display_order
+                      newCatalogue.forEach((p, idx) => {
+                        p.display_order = idx + 1
+                      })
+
+                      setCatalogueAdmin(newCatalogue)
+                      setHasChanges(true)
+                    }}
+                    className="px-3 py-2 bg-gray-600 text-white rounded font-medium hover:bg-gray-700 text-sm"
+                    title="Déplacer la sélection vers le haut"
+                  >
+                    ⬆️ Monter ({selectedProducts.size})
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Déplacer les produits sélectionnés vers le bas
+                      const selectedCodes = Array.from(selectedProducts)
+                      const newCatalogue = [...catalogueAdmin]
+
+                      // Trouver les indices des produits sélectionnés
+                      const selectedIndices = selectedCodes
+                        .map(code => newCatalogue.findIndex(p => p.code_produit === code))
+                        .filter(idx => idx !== -1)
+                        .sort((a, b) => b - a) // Trier par ordre décroissant pour descendre
+
+                      // Si le dernier est déjà en dernière position, on ne peut pas descendre
+                      if (selectedIndices[0] === newCatalogue.length - 1) {
+                        alert('Les produits sélectionnés sont déjà en bas')
+                        return
+                      }
+
+                      // Déplacer chaque produit sélectionné d'une position vers le bas
+                      selectedIndices.forEach(idx => {
+                        if (idx < newCatalogue.length - 1 && !selectedCodes.includes(newCatalogue[idx + 1].code_produit)) {
+                          // Échanger avec le produit en dessous (seulement s'il n'est pas sélectionné)
+                          [newCatalogue[idx], newCatalogue[idx + 1]] = [newCatalogue[idx + 1], newCatalogue[idx]]
+                        }
+                      })
+
+                      // Recalculer display_order
+                      newCatalogue.forEach((p, idx) => {
+                        p.display_order = idx + 1
+                      })
+
+                      setCatalogueAdmin(newCatalogue)
+                      setHasChanges(true)
+                    }}
+                    className="px-3 py-2 bg-gray-600 text-white rounded font-medium hover:bg-gray-700 text-sm"
+                    title="Déplacer la sélection vers le bas"
+                  >
+                    ⬇️ Descendre ({selectedProducts.size})
+                  </button>
+                </>
+              )}
               <ExportButton
                 data={catalogueAdmin}
                 filename="catalogue_admin"

@@ -624,6 +624,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoUniqueId = getPianoUniqueId(piano);
 
     try {
+      // 1. Ajouter le piano à la tournée
       const response = await fetch(`${API_URL}/api/${institution}/tournees/${selectedTourneeId}/pianos/${pianoUniqueId}`, {
         method: 'POST',
         headers: {
@@ -635,6 +636,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
         throw new Error(error.detail || `Erreur ${response.status}`);
       }
+
+      // 2. Forcer is_hidden: false pour que le piano soit visible
+      if (piano.is_hidden) {
+        await savePianoToAPI(piano.id, { is_hidden: false });
+      }
+
+      // 3. Mise à jour optimiste locale
+      setPianos(pianos.map(p =>
+        p.id === piano.id ? { ...p, is_hidden: false } : p
+      ));
 
       await loadTournees();
     } catch (err) {
@@ -856,27 +867,24 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Le piano est dans la tournée sélectionnée: appliquer les couleurs selon son statut
     // Priorité 1: Sélection (mauve)
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
-    
+
     // Priorité 2: Haute priorité (ambre)
     if (piano.status === 'top') return 'bg-amber-200';
-    
+
     // Priorité 3: Travail complété (vert)
     if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
-    
+
     // Priorité 4: Travail en cours (bleu)
     // IMPORTANT: Utiliser seulement 'travail' pour éviter confusion avec 'observations' Gazelle (donateur, etc.)
     if (piano.status === 'work_in_progress' ||
         (piano.travail && piano.travail.trim() !== '' && !piano.is_work_completed)) {
       return 'bg-blue-200';
     }
-    
-    // Priorité 5: Proposé ou à faire (jaune)
-    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
-      return 'bg-yellow-200';
-    }
-    
-    // Défaut: Blanc (piano dans la tournée mais sans statut spécifique)
-    return 'bg-white';
+
+    // ⭐ RÈGLE DE COHÉRENCE VISUELLE: Tout piano dans une tournée est jaune par défaut
+    // (Priorité 5: Proposé, à faire, ou simplement dans la tournée = jaune)
+    // Cela assure que tous les pianos de la tournée ont la même couleur partout
+    return 'bg-yellow-200';
   };
 
   // Fonction helper pour icône sync status
