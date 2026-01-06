@@ -130,11 +130,16 @@ async def get_catalogue(
         if is_active is not None:
             filters["is_active"] = is_active
 
-        # Récupérer les produits
+        # Récupérer les produits (SANS filtre WHERE - tous les produits)
         produits = storage.get_data("produits_catalogue", filters=filters)
         
-        # Trier par display_order (les produits sans display_order à la fin)
-        produits.sort(key=lambda p: (p.get("display_order") is None, p.get("display_order") or 0))
+        # Trier par display_order (source de vérité admin) avec COALESCE pour gérer les NULL
+        # ORDER BY COALESCE(display_order, 999), nom
+        # Les produits avec display_order NULL sont traités comme 999 (mis à la fin)
+        produits.sort(key=lambda p: (
+            p.get("display_order") if p.get("display_order") is not None else 999,  # COALESCE(display_order, 999)
+            (p.get("nom", "") or "").lower()  # Tri secondaire par nom
+        ))
 
         return {
             "produits": produits,

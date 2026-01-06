@@ -235,7 +235,7 @@ export default function PDAInventoryTable() {
       ))
 
       // Update via API backend
-      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/${piano.gazelleId}`, {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/pianos/${piano.gazelleId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -259,35 +259,35 @@ export default function PDAInventoryTable() {
 
   const handleBatchShow = async () => {
     if (selectedCount === 0) return
-    
+
     setBatchLoading(true)
     try {
-      const updates = Array.from(selectedIds).map(pianoId => ({
-        pianoId: pianoId,
-        isHidden: false
-      }))
-
-      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/batch`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      })
-
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({ detail: 'Erreur HTTP ' + resp.status }))
-        throw new Error(errorData.detail || 'Erreur batch show')
-      }
-      
-      // Update local state
+      // Update local state optimistically
       setPianos(prev => prev.map(p =>
         selectedIds.has(p.gazelleId) ? { ...p, isHidden: false } : p
       ))
-      
+
+      // Update each piano individually via API (no batch route yet)
+      for (const pianoId of Array.from(selectedIds)) {
+        const resp = await fetch(`${API_URL}/api/place-des-arts/pianos/${pianoId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isHidden: false })
+        })
+
+        if (!resp.ok) {
+          const errorData = await resp.json().catch(() => ({ detail: 'Erreur HTTP ' + resp.status }))
+          throw new Error(errorData.detail || 'Erreur batch show')
+        }
+      }
+
       clearAll()
       await loadPianos()
     } catch (err) {
       console.error('Error batch show:', err)
       alert('Erreur lors de l\'affichage groupé')
+      // Rollback on error
+      await loadPianos()
     } finally {
       setBatchLoading(false)
     }
@@ -295,37 +295,37 @@ export default function PDAInventoryTable() {
 
   const handleBatchHide = async () => {
     if (selectedCount === 0) return
-    
+
     if (!confirm(`Masquer ${selectedCount} piano(s) de l'inventaire?`)) return
-    
+
     setBatchLoading(true)
     try {
-      const updates = Array.from(selectedIds).map(pianoId => ({
-        pianoId: pianoId,
-        isHidden: true
-      }))
-
-      const resp = await fetch(`${API_URL}/api/vincent-dindy/pianos/batch`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
-      })
-
-      if (!resp.ok) {
-        const errorData = await resp.json().catch(() => ({ detail: 'Erreur HTTP ' + resp.status }))
-        throw new Error(errorData.detail || 'Erreur batch hide')
-      }
-      
-      // Update local state
+      // Update local state optimistically
       setPianos(prev => prev.map(p =>
         selectedIds.has(p.gazelleId) ? { ...p, isHidden: true } : p
       ))
-      
+
+      // Update each piano individually via API (no batch route yet)
+      for (const pianoId of Array.from(selectedIds)) {
+        const resp = await fetch(`${API_URL}/api/place-des-arts/pianos/${pianoId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isHidden: true })
+        })
+
+        if (!resp.ok) {
+          const errorData = await resp.json().catch(() => ({ detail: 'Erreur HTTP ' + resp.status }))
+          throw new Error(errorData.detail || 'Erreur batch hide')
+        }
+      }
+
       clearAll()
       await loadPianos()
     } catch (err) {
       console.error('Error batch hide:', err)
       alert('Erreur lors du masquage groupé')
+      // Rollback on error
+      await loadPianos()
     } finally {
       setBatchLoading(false)
     }

@@ -166,12 +166,17 @@ const InventaireDashboard = ({ currentUser }) => {
         }
       })
 
-      // Convertir en liste et trier UNIQUEMENT par display_order (pas de tri alphabétique)
+      // Convertir en liste et trier par display_order (source de vérité admin)
+      // ORDER BY COALESCE(display_order, 999), nom (cohérent avec le backend)
       const productsList = Object.values(productsMap)
       productsList.sort((a, b) => {
-        const orderA = Number(a.display_order) || 999999
-        const orderB = Number(b.display_order) || 999999
-        return orderA - orderB
+        const orderA = a.display_order !== null && a.display_order !== undefined ? Number(a.display_order) : 999
+        const orderB = b.display_order !== null && b.display_order !== undefined ? Number(b.display_order) : 999
+        if (orderA !== orderB) {
+          return orderA - orderB
+        }
+        // Tri secondaire par nom (cohérent avec le backend)
+        return (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' })
       })
       
       
@@ -283,15 +288,20 @@ const InventaireDashboard = ({ currentUser }) => {
   }
 
   // Grouper produits par catégorie (exclut les services de l'inventaire technicien)
-  // Liste plate triée par display_order uniquement (pas de groupement par catégorie)
+  // Liste plate triée par display_order (source de vérité admin)
+  // ORDER BY COALESCE(display_order, 999), nom (cohérent avec le backend)
   const getSortedProducts = () => {
     return products
       .filter(p => p.is_active !== false)
       .filter(p => p.type_produit !== 'service') // Exclure les services
       .sort((a, b) => {
-        const orderA = Number(a.display_order) || 999999
-        const orderB = Number(b.display_order) || 999999
-        return orderA - orderB
+        const orderA = a.display_order !== null && a.display_order !== undefined ? Number(a.display_order) : 999
+        const orderB = b.display_order !== null && b.display_order !== undefined ? Number(b.display_order) : 999
+        if (orderA !== orderB) {
+          return orderA - orderB
+        }
+        // Tri secondaire par nom (cohérent avec le backend)
+        return (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' })
       })
   }
 

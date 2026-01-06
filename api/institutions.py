@@ -538,12 +538,35 @@ async def get_institution_activity(
         storage = get_supabase_storage()
         all_updates = storage.get_all_piano_updates()
 
+        # Récupérer les profils utilisateurs pour mapper updated_by (email) vers prenom
+        users_map = {}
+        try:
+            from supabase import create_client
+            supabase_url = os.getenv("SUPABASE_URL")
+            supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            if supabase_url and supabase_key:
+                supabase = create_client(supabase_url, supabase_key)
+                users_response = supabase.table('users').select('email,first_name,prenom').execute()
+            if users_response.data:
+                for user in users_response.data:
+                    email = user.get('email', '').lower()
+                    # Utiliser prenom si disponible, sinon first_name
+                    name = user.get('prenom') or user.get('first_name') or ''
+                    if email and name:
+                        users_map[email] = name
+        except Exception as e:
+            logging.warning(f"⚠️ Impossible de charger les profils utilisateurs: {e}")
+        
         activities = []
         for piano_id, update_data in all_updates.items():
             if update_data.get('updated_by') and update_data.get('updated_at'):
+                updated_by_email = update_data.get('updated_by', '').lower()
+                # Mapper email vers prenom si disponible
+                technician_name = users_map.get(updated_by_email, updated_by_email)
+                
                 activities.append({
                     "piano_id": piano_id,
-                    "updated_by": update_data.get('updated_by'),
+                    "updated_by": technician_name,  # Utiliser prenom au lieu de email
                     "updated_at": update_data.get('updated_at'),
                     "status": update_data.get('status'),
                     "observations": update_data.get('observations', ''),
@@ -692,6 +715,110 @@ async def get_institution_tournees(
         import traceback
         traceback.print_exc()
         return {"tournees": [], "count": 0, "error": str(e)}
+
+
+@router.post("/{institution}/clean-orphan-statuses")
+async def clean_orphan_statuses(
+    institution: str = PathParam(..., description="Slug de l'institution (orford uniquement pour l'instant)")
+):
+    """
+    Nettoie les statuts 'proposed' orphelins pour une institution.
+    
+    Un piano avec status='proposed' est considéré orphelin s'il n'est dans AUCUNE tournée
+    (peu importe le statut de la tournée: en_cours, planifiee, terminee, etc.)
+    
+    Pour Orford, cela garantit qu'un piano ne peut avoir le statut 'À faire' que s'il est
+    effectivement rattaché à une tournée.
+    
+    Args:
+        institution: Slug de l'institution (ex: 'orford')
+        
+    Returns:
+        {
+            "success": True,
+            "cleaned_count": 5,
+            "message": "5 statuts orphelins nettoyés"
+        }
+    """
+    try:
+        storage = get_supabase_storage()
+        from supabase import create_client
+        import os
+        
+        # Charger config
+        config = get_institution_config(institution)
+        
+        # Pour l'instant, on ne nettoie que Orford
+        if institution != 'orford':
+            return {
+                "success": False,
+                "message": f"Nettoyage des statuts orphelins non implémenté pour {institution}"
+            }
+        
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            raise HTTPException(status_code=500, detail="Configuration Supabase manquante")
+        
+        supabase = create_client(supabase_url, supabase_key)
+        
+        # 1. Récupérer toutes les tournées de l'institution
+        tournees_response = supabase.table('tournees').select('id,piano_ids').eq('etablissement', institution).execute()
+        tournees = tournees_response.data if tournees_response.data else []
+        
+        # 2. Créer un set de tous les piano_ids présents dans les tournées
+        piano_ids_in_tournees = set()
+        for tournee in tournees:
+            piano_ids = tournee.get('piano_ids', [])
+            if piano_ids:
+                if isinstance(piano_ids, str):
+                    import json
+                    piano_ids = json.loads(piano_ids)
+                piano_ids_in_tournees.update(piano_ids)
+        
+        logging.info(f"📊 {len(piano_ids_in_tournees)} pianos trouvés dans les tournées de {institution}")
+        
+        # 3. Récupérer tous les piano_updates pour Orford avec status='proposed'
+        supabase_updates = storage.get_all_piano_updates(institution_slug=institution)
+        
+        # 4. Identifier les orphelins (status=proposed mais pas dans une tournée)
+        orphan_piano_ids = []
+        for piano_id, update_data in supabase_updates.items():
+            if update_data.get('status') == 'proposed':
+                # Vérifier si le piano est dans une tournée
+                if piano_id not in piano_ids_in_tournees:
+                    orphan_piano_ids.append(piano_id)
+        
+        logging.info(f"🔍 {len(orphan_piano_ids)} pianos orphelins identifiés pour {institution}")
+        
+        # 5. Nettoyer les statuts orphelins (mettre à 'normal')
+        cleaned_count = 0
+        for piano_id in orphan_piano_ids:
+            try:
+                success = storage.update_piano(
+                    piano_id,
+                    {'status': 'normal'},
+                    institution_slug=institution
+                )
+                if success:
+                    cleaned_count += 1
+                    logging.info(f"✅ Statut nettoyé pour piano {piano_id}")
+            except Exception as e:
+                logging.error(f"❌ Erreur nettoyage piano {piano_id}: {e}")
+        
+        return {
+            "success": True,
+            "cleaned_count": cleaned_count,
+            "orphan_count": len(orphan_piano_ids),
+            "message": f"{cleaned_count} statuts orphelins nettoyés pour {institution}"
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ Erreur nettoyage statuts orphelins: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur lors du nettoyage: {str(e)}")
 
 
 @router.delete("/{institution}/tournees/{tournee_id}")

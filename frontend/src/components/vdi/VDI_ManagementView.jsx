@@ -12,6 +12,7 @@
  */
 
 import React from 'react';
+import { getUserRole } from '../../config/roles';
 
 export default function VDI_ManagementView({
   // État pianos
@@ -22,6 +23,9 @@ export default function VDI_ManagementView({
 
   // Institution
   institution,
+
+  // Utilisateur
+  currentUser,
 
   // Tournées
   tournees,
@@ -144,16 +148,19 @@ export default function VDI_ManagementView({
           >
             📦 Inventaire ({pianos.filter(p => !p.is_hidden).length})
           </button>
-          <button
-            onClick={() => {
-              setShowOnlySelected(false);
-              setShowAllPianos(true);
-            }}
-            className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && showAllPianos ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-            title="Afficher tous les pianos (même ceux masqués de l'inventaire)"
-          >
-            📋 Tout voir ({stats.total})
-          </button>
+          {/* Mode Gestion de Parc (Tout voir) - Réservé Admin/Nicolas seulement */}
+          {(getUserRole(currentUser?.email) === 'admin' || getUserRole(currentUser?.email) === 'nick') && (
+            <button
+              onClick={() => {
+                setShowOnlySelected(false);
+                setShowAllPianos(true);
+              }}
+              className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && showAllPianos ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
+              title="Afficher tous les pianos (même ceux masqués de l'inventaire)"
+            >
+              📋 Tout voir ({stats.total})
+            </button>
+          )}
           <button
             onClick={() => {
               setShowOnlySelected(true);
@@ -227,18 +234,51 @@ export default function VDI_ManagementView({
           {selectedIds.size > 0 && (
             <>
               <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
-              <button onClick={() => batchSetStatus('top')} className="px-3 py-1 rounded text-sm bg-amber-400">→ Top</button>
-              <button onClick={() => batchSetStatus('proposed')} className="px-3 py-1 rounded text-sm bg-yellow-400">→ À faire</button>
+              <button 
+                onClick={() => batchSetStatus('top')} 
+                className="px-3 py-1 rounded text-sm bg-amber-400 hover:bg-amber-500"
+                title="Marquer les pianos sélectionnés comme priorité élevée"
+              >
+                → Top
+              </button>
+              <button 
+                onClick={() => batchSetStatus('proposed')} 
+                className="px-3 py-1 rounded text-sm bg-yellow-400 hover:bg-yellow-500"
+                title="Marquer les pianos sélectionnés comme à faire"
+              >
+                → À faire
+              </button>
               <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
                 <option value="">Usage...</option>
                 {usages.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
+              {/* Mode Gestion de Parc (is_hidden) - Réservé Admin/Nicolas seulement */}
+              {(getUserRole(currentUser?.email) === 'admin' || getUserRole(currentUser?.email) === 'nick') && (
+                <button
+                  onClick={batchHideFromInventory}
+                  className="px-3 py-1 rounded text-sm bg-red-100 hover:bg-red-200 text-red-700 border border-red-300"
+                  title="Masquer les pianos sélectionnés de l'inventaire"
+                >
+                  🚫 Masquer sel.
+                </button>
+              )}
               <button
-                onClick={batchHideFromInventory}
-                className="px-3 py-1 rounded text-sm bg-red-100 hover:bg-red-200 text-red-700 border border-red-300"
-                title="Masquer les pianos sélectionnés de l'inventaire"
+                onClick={async () => {
+                  if (selectedIds.size === 0) return;
+                  // Batch show selected pianos
+                  for (const pianoId of Array.from(selectedIds)) {
+                    const piano = pianos.find(p => p.id === pianoId);
+                    if (piano && piano.is_hidden) {
+                      await savePianoToAPI(pianoId, { isHidden: false });
+                    }
+                  }
+                  await loadPianosFromAPI();
+                  deselectAll();
+                }}
+                className="px-3 py-1 rounded text-sm bg-green-100 hover:bg-green-200 text-green-700 border border-green-300"
+                title="Afficher les pianos sélectionnés dans l'inventaire"
               >
-                🚫 Masquer
+                👁️ Afficher sel.
               </button>
             </>
           )}
@@ -268,6 +308,9 @@ export default function VDI_ManagementView({
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Notes (Tech)</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Statut
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                Visible
               </th>
             </tr>
           </thead>
@@ -403,9 +446,14 @@ export default function VDI_ManagementView({
                     <div className="flex items-center gap-2">
                       <div>
                         {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
-                        {piano.status === 'proposed' && <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>}
+                        {/* Protection visuelle: Ne pas afficher "À faire" si le piano n'est pas dans la tournée sélectionnée */}
+                        {piano.status === 'proposed' && selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) && (
+                          <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>
+                        )}
                         {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
-                        {piano.status === 'normal' && <span className="text-gray-400">-</span>}
+                        {(piano.status === 'normal' || (piano.status === 'proposed' && (!selectedTourneeId || !isPianoInTournee(piano, selectedTourneeId)))) && (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </div>
                       {/* Bouton Retirer de la tournée - visible seulement si une tournée est sélectionnée */}
                       {selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) && removePianoFromTournee && (
@@ -422,6 +470,28 @@ export default function VDI_ManagementView({
                         </button>
                       )}
                     </div>
+                  </td>
+                  {/* Colonne Visibilité - Toggle individuel */}
+                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={async () => {
+                        const newIsHidden = !piano.is_hidden;
+                        // Mise à jour optimiste
+                        setPianos(pianos.map(p =>
+                          p.id === piano.id ? { ...p, is_hidden: newIsHidden } : p
+                        ));
+                        // Sauvegarder via API
+                        await savePianoToAPI(piano.id, { isHidden: newIsHidden });
+                      }}
+                      className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+                        piano.is_hidden
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                          : 'bg-green-100 text-green-700 hover:bg-green-200'
+                      }`}
+                      title={piano.is_hidden ? 'Piano masqué - cliquer pour afficher' : 'Piano visible - cliquer pour masquer'}
+                    >
+                      {piano.is_hidden ? '🚫 Masqué' : '👁️ Visible'}
+                    </button>
                   </td>
                 </tr>
               );
