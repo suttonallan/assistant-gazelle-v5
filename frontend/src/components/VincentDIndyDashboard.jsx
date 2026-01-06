@@ -234,12 +234,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       result = result.filter(p => !p.is_hidden);
     }
 
-    if (currentView === 'nicolas') {
-      // Si une tournée est sélectionnée, filtrer sur les pianos de cette tournée
-      if (selectedTourneeId && showOnlySelected) {
+    // ⭐ PRIORITÉ 1 : Si "Pianos de cette tournée" est actif, IGNORER tous les autres filtres
+    const isTourneeFilterActive = currentView === 'nicolas' && selectedTourneeId && showOnlySelected;
+    
+    if (isTourneeFilterActive) {
+      // Filtrer UNIQUEMENT sur les pianos de la tournée (ignorer usage, étage, accord)
         result = result.filter(p => isPianoInTournee(p, selectedTourneeId));
-      }
-      // Sinon : tous les pianos (pas de filtre)
+    } else {
+      // Logique normale : appliquer les filtres selon la vue
+      if (currentView === 'nicolas') {
+        // Vue Nicolas : pas de filtre par défaut (tous les pianos)
+        // Les pianos 'Top' ou 'À faire' sans tournée restent visibles
     } else if (currentView === 'technicien') {
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
       if (showOnlyProposed) {
@@ -254,20 +259,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     }
 
+      // Appliquer les filtres usage, accord, étage UNIQUEMENT si le filtre tournée n'est pas actif
     if (filterUsage !== 'all') {
       result = result.filter(p => filterUsage === '' ? !p.usage : p.usage === filterUsage);
     }
     if (filterAccordDepuis > 0) {
       result = result.filter(p => moisDepuisAccord(p.dernierAccord) >= filterAccordDepuis);
-    }
-    // Filtre par étage (premier chiffre du local: 112 = 1er étage, 302 = 3ème étage)
-    if (filterEtage !== 'all' && currentView === 'nicolas') {
-      const etageNum = parseInt(filterEtage);
-      result = result.filter(p => {
-        if (!p.local) return false;
-        const match = p.local.match(/^\d/); // Premier chiffre
-        return match && parseInt(match[0]) === etageNum;
-      });
+      }
+      // Filtre par étage (premier chiffre du local: 112 = 1er étage, 302 = 3ème étage)
+      if (filterEtage !== 'all' && currentView === 'nicolas') {
+        const etageNum = parseInt(filterEtage);
+        result = result.filter(p => {
+          if (!p.local) return false;
+          const match = p.local.match(/^\d/); // Premier chiffre
+          return match && parseInt(match[0]) === etageNum;
+        });
+      }
     }
 
     result.sort((a, b) => {
@@ -296,7 +303,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     });
 
     return result;
-  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, currentView, showOnlySelected, showOnlyProposed, searchLocal, selectedTourneeId, tournees, showAllPianos]);
+  }, [pianos, sortConfig, filterUsage, filterAccordDepuis, filterEtage, currentView, showOnlySelected, showOnlyProposed, searchLocal, selectedTourneeId, tournees, showAllPianos, isPianoInTournee, moisDepuisAccord]);
 
   // Gérer l'état indeterminate de la checkbox "sélectionner tous"
   useEffect(() => {
@@ -321,6 +328,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       newStatus = 'completed'; // Jaune → Vert
     } else if (piano.status === 'completed') {
       newStatus = 'normal'; // Vert → Blanc
+    }
+
+    // Si une tournée est sélectionnée et le piano n'est pas dedans, l'ajouter automatiquement
+    if (selectedTourneeId && newStatus !== 'normal' && !isPianoInTournee(piano, selectedTourneeId)) {
+      await addPianoToTournee(piano);
     }
 
     // Mise à jour optimiste
@@ -380,6 +392,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const batchSetStatus = async (status) => {
     // Sauvegarder les IDs sélectionnés avant de vider
     const idsToUpdate = Array.from(selectedIds);
+
+    // Si une tournée est sélectionnée, ajouter automatiquement les pianos à la tournée
+    if (selectedTourneeId && status !== 'normal') {
+      for (const id of idsToUpdate) {
+        const piano = pianos.find(p => p.id === id);
+        if (piano && !isPianoInTournee(piano, selectedTourneeId)) {
+          await addPianoToTournee(piano);
+        }
+      }
+    }
 
     // Mise à jour optimiste
     const updatedPianos = pianos.map(p => selectedIds.has(p.id) ? { ...p, status } : p);
@@ -602,17 +624,18 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoUniqueId = getPianoUniqueId(piano);
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-      const updated = existing.map(t => {
-        if (t.id === selectedTourneeId) {
-          const currentPianos = t.piano_ids || [];
-          if (!currentPianos.includes(pianoUniqueId)) {
-            return { ...t, piano_ids: [...currentPianos, pianoUniqueId] };
-          }
-        }
-        return t;
+      const response = await fetch(`${API_URL}/api/${institution}/tournees/${selectedTourneeId}/pianos/${pianoUniqueId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      localStorage.setItem('tournees_accords', JSON.stringify(updated));
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+        throw new Error(error.detail || `Erreur ${response.status}`);
+      }
+
       await loadTournees();
     } catch (err) {
       console.error('Erreur ajout piano à tournée:', err);
@@ -626,15 +649,18 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoUniqueId = getPianoUniqueId(piano);
 
     try {
-      const existing = JSON.parse(localStorage.getItem('tournees_accords') || '[]');
-      const updated = existing.map(t => {
-        if (t.id === selectedTourneeId) {
-          const currentPianos = t.piano_ids || [];
-          return { ...t, piano_ids: currentPianos.filter(id => id !== pianoUniqueId) };
-        }
-        return t;
+      const response = await fetch(`${API_URL}/api/${institution}/tournees/${selectedTourneeId}/pianos/${pianoUniqueId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      localStorage.setItem('tournees_accords', JSON.stringify(updated));
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Erreur inconnue' }));
+        throw new Error(error.detail || `Erreur ${response.status}`);
+      }
+
       await loadTournees();
     } catch (err) {
       console.error('Erreur retrait piano de tournée:', err);
@@ -972,8 +998,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               formatDateRelative={formatDateRelative}
               getSyncStatusIcon={getSyncStatusIcon}
               pianosFiltres={pianosFiltres}
-            />
-          </div>
+                        />
+                      </div>
         </div>
       </div>
     );
@@ -1019,6 +1045,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             setPianos={setPianos}
             stats={stats}
             institution={institution}
+            currentUser={currentUser}
             tournees={tournees}
             selectedTourneeId={selectedTourneeId}
             setSelectedTourneeId={setSelectedTourneeId}
