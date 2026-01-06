@@ -90,3 +90,46 @@ export function getAvailableDashboards(userEmail) {
 
   return roleConfig?.dashboards || ['inventaire']
 }
+
+/**
+ * Retourne les permissions détaillées pour l'utilisateur
+ * Permet de gérer l'affichage conditionnel des boutons Admin, etc.
+ *
+ * IMPORTANT pour l'impersonation:
+ * - Si l'utilisateur RÉEL est Allan (admin), il garde toujours accès au sélecteur de rôle
+ * - Le rôle simulé (currentUser.role) affecte uniquement les permissions d'interface
+ *
+ * @param {Object} currentUser - Objet utilisateur avec { email, role? }
+ * @returns {Object} Permissions détaillées: { canAccessAdmin, canEditAll, role, isRealAdmin, ... }
+ */
+export function getUserPermissions(currentUser) {
+  if (!currentUser) {
+    return {
+      canAccessAdmin: false,
+      canEditAll: false,
+      canViewAll: false,
+      role: null,
+      isRealAdmin: false
+    }
+  }
+
+  // Déterminer le rôle réel (basé sur email) vs rôle simulé
+  const realRole = getUserRole(currentUser.email)
+  const effectiveRole = currentUser.role || realRole
+  const roleConfig = ROLES[effectiveRole]
+
+  // Permissions générales basées sur le rôle EFFECTIF (simulé ou réel)
+  const hasWildcard = roleConfig?.permissions?.includes('*')
+
+  return {
+    role: effectiveRole,
+    realRole,
+    isRealAdmin: realRole === 'admin', // ⭐ Toujours vrai pour Allan, même s'il impersonne Louise
+    canAccessAdmin: hasWildcard || effectiveRole === 'admin',
+    canEditAll: hasWildcard || roleConfig?.permissions?.includes('edit_inventory'),
+    canViewAll: hasWildcard || roleConfig?.permissions?.includes('view_inventory'),
+    canManageTours: hasWildcard || roleConfig?.permissions?.includes('create_tours') || roleConfig?.permissions?.includes('view_tours'),
+    canUseAssistant: hasWildcard || roleConfig?.permissions?.includes('use_assistant'),
+    permissions: roleConfig?.permissions || []
+  }
+}

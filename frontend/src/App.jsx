@@ -218,11 +218,13 @@ function App() {
   }, [effectiveRole, currentView])
 
   // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
+  // IMPORTANT: Préserver gazelleId même lors de l'impersonation (nécessaire pour Chat Technicien)
   const effectiveUser = simulatedRole ? {
     ...currentUser,
     email: ROLES[simulatedRole]?.email || currentUser?.email,
     name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
-    role: simulatedRole
+    role: simulatedRole,
+    gazelleId: currentUser?.gazelleId // ⭐ Préserver l'ID Gazelle du vrai utilisateur
   } : currentUser
 
   const handleLogin = (user) => {
@@ -323,7 +325,12 @@ function App() {
         if (currentView === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
-              <InventaireDashboard currentUser={effectiveUser} />
+              {/* Container style téléphone portable pour Jean-Philippe */}
+              <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
+                <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+                  <InventaireDashboard currentUser={effectiveUser} />
+                </div>
+              </div>
             </ErrorBoundary>
           )
         } else if (currentView === 'tournees') {
@@ -340,10 +347,15 @@ function App() {
         } else if (currentView === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
-              <div className="space-y-8">
-                <TravelFeeCalculator />
-                <div className="border-t border-gray-200 pt-8">
-                  <KilometersCalculator />
+              {/* Container style téléphone portable pour Jean-Philippe */}
+              <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
+                <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden p-4">
+                  <div className="space-y-8">
+                    <TravelFeeCalculator />
+                    <div className="border-t border-gray-200 pt-8">
+                      <KilometersCalculator />
+                    </div>
+                  </div>
                 </div>
               </div>
             </ErrorBoundary>
@@ -352,7 +364,12 @@ function App() {
         // Par défaut: Inventaire
         return (
           <ErrorBoundary componentName="Inventaire Dashboard">
-            <InventaireDashboard currentUser={effectiveUser} />
+            {/* Container style téléphone portable pour Jean-Philippe */}
+            <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
+              <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
+                <InventaireDashboard currentUser={effectiveUser} />
+              </div>
+            </div>
           </ErrorBoundary>
         )
       case 'admin':
@@ -623,6 +640,18 @@ function App() {
                       }`}
                     >
                       📦 Inventaire
+                    </button>
+
+                    {/* Chat Technicien - Ma Journée */}
+                    <button
+                      onClick={() => setCurrentView('chat')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'chat'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🎵 Ma Journée
                     </button>
 
                     {/* Calculateur - admin, louise, nick et jeanphilippe */}

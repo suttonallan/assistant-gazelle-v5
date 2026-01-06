@@ -109,6 +109,10 @@ class ComfortInfo(BaseModel):
     # Préférences techniques
     preferred_tuning_hz: Optional[int] = Field(None, description="Préférence accordage", example=442)
     climate_sensitive: bool = Field(default=False, description="Piano sensible climat")
+    
+    # Préférences client (Notes Client)
+    preferred_language: Optional[str] = Field(None, description="Langue préférée (Français/Anglais/Bilingue)")
+    temperament: Optional[str] = Field(None, description="Tempérament du client (Sympathique/Exigeant/Réservé)")
 
 
 class BillingInfo(BaseModel):

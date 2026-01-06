@@ -26,10 +26,10 @@ from dotenv import load_dotenv
 # Supabase credentials (à configurer dans le .env du PC)
 load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://beblgzvmjqkcillmcavk.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 if not SUPABASE_KEY:
-    print("❌ SUPABASE_KEY manquante. Ajoutez-la dans le fichier .env (SUPABASE_KEY=YOUR_SUPABASE_KEY).")
+    print("❌ SUPABASE_KEY ou SUPABASE_SERVICE_ROLE_KEY manquante. Ajoutez-la dans le fichier .env.")
     sys.exit(1)
 
 # Gazelle API (utilise les tokens du PC)
@@ -179,6 +179,11 @@ class GazelleAPIClient:
                         client { id }
                         piano { id }
                         appointmentDate
+                        startTime
+                        endTime
+                        allDay
+                        duration
+                        assignedTo { id }
                         title
                         description
                         status
@@ -267,14 +272,44 @@ def transform_piano_for_supabase(piano: Dict) -> Dict:
 
 def transform_appointment_for_supabase(appt: Dict) -> Dict:
     """Transforme un appointment Gazelle pour Supabase"""
+    from datetime import datetime
+    import pytz
+
     client_obj = appt.get('client') or {}
     piano_obj = appt.get('piano') or {}
+    assigned_to = appt.get('assignedTo') or {}
+
+    # Extraire l'heure depuis startTime (format ISO: "2026-01-06T14:00:00.000Z")
+    # Gazelle stocke en UTC, on doit convertir en heure locale (Eastern Time)
+    appointment_time = None
+    duration_minutes = None
+
+    if appt.get('startTime'):
+        try:
+            # Parse ISO timestamp
+            dt_utc = datetime.fromisoformat(appt['startTime'].replace('Z', '+00:00'))
+            # Convertir en Eastern Time
+            eastern = pytz.timezone('America/Toronto')
+            dt_eastern = dt_utc.astimezone(eastern)
+            # Extraire juste l'heure (format TIME pour PostgreSQL)
+            appointment_time = dt_eastern.strftime('%H:%M:%S')
+        except Exception as e:
+            print(f"  ⚠️ Erreur parsing startTime pour {appt.get('id')}: {e}")
+
+    if appt.get('duration'):
+        try:
+            duration_minutes = int(appt['duration'])
+        except:
+            pass
 
     return {
         'external_id': appt['id'],
         'client_external_id': client_obj.get('id'),
-        'piano_external_id': piano_obj.get('id'),
         'appointment_date': appt.get('appointmentDate'),
+        'appointment_time': appointment_time,
+        'duration_minutes': duration_minutes,
+        'all_day': appt.get('allDay', False),
+        'technicien': assigned_to.get('id'),  # ID Gazelle du technicien assigné
         'title': appt.get('title'),
         'description': appt.get('description'),
         'status': appt.get('status'),

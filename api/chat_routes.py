@@ -13,7 +13,7 @@ from typing import Optional
 
 from api.chat import ChatService, ChatRequest, ChatResponse
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"])
 
 # Instance du service (singleton)
 chat_service = ChatService(data_source="v5")
@@ -33,7 +33,11 @@ async def process_chat_query(request: ChatRequest):
         response = chat_service.process_query(request)
         return response
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        import logging
+        error_detail = f"Erreur lors du traitement de la requête: {str(e)}\n{traceback.format_exc()}"
+        logging.error(f"❌ Chat query error: {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
 @router.get("/day/{date}")

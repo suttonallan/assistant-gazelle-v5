@@ -360,7 +360,10 @@ class V5DataProvider:
         for apt_raw in appointments_raw:
             # Filtrer événements selon type
             client = apt_raw.get("client")
-            is_personal_event = client is None  # Pas de client = événement personnel
+            client_id = apt_raw.get("client_external_id")
+
+            # Si client_external_id existe → c'est un RDV client (même si JOIN échoue)
+            is_personal_event = client_id is None
 
             # Si c'est un rendez-vous client → toujours afficher
             if not is_personal_event:
@@ -733,9 +736,14 @@ class V5DataProvider:
         client = apt_raw.get("client") or {}
         piano = apt_raw.get("piano") or {}
 
-        # Time slot - IMPORTANT: Convertir UTC → Montréal
+        # Time slot - Les données sont maintenant stockées en Eastern Time (pas UTC)
         time_raw = apt_raw.get("appointment_time")
-        time_slot = self._convert_utc_to_montreal(time_raw)
+        if time_raw:
+            # Extraire juste HH:MM
+            hour, minute = time_raw.split(":")[:2]
+            time_slot = f"{hour}:{minute}"
+        else:
+            time_slot = "Non spécifié"
 
         # Client info (ou titre si événement personnel)
         title = apt_raw.get("title") or ""
@@ -827,27 +835,77 @@ class V5DataProvider:
     def _map_to_comfort_info(self, apt_raw: Dict[str, Any]) -> ComfortInfo:
         """
         Extrait informations "confort" depuis les notes et métadata.
+
+        Parsing intelligent pour:
+        - Animaux (chien, chat)
+        - Codes d'accès
+        - Stationnement
+        - Étage
+        - Langue du client
+        - Préférences accordage
+        - Choses à surveiller
         """
         client = apt_raw.get("client") or {}
         notes = apt_raw.get("notes") or ""
+        notes_lower = notes.lower()
 
-        # Filtrer les notes inutiles
-        useful_notes = notes if self._is_useful_note(notes) else None
+        # === ANIMAUX ===
+        dog_name = self._extract_dog_name(notes)
+        dog_breed = self._extract_dog_breed(notes)
+        cat_name = self._extract_cat_name(notes)
 
-        # Parser les notes pour extraire infos confort
-        # TODO: Améliorer avec NLP ou structure dédiée
+        # === CODE D'ACCÈS ===
+        access_code = self._extract_access_code(notes)
+
+        # === INSTRUCTIONS D'ACCÈS DÉTAILLÉES ===
+        access_instructions = self._extract_access_instructions(notes)
+
+        # === STATIONNEMENT ===
+        parking_info = self._extract_parking_info(notes)
+
+        # === ÉTAGE ===
+        floor_number = self._extract_floor_number(notes)
+
+        # === TÉLÉPHONE ===
+        contact_phone = client.get("phone")
+
+        # === EMAIL ===
+        contact_email = client.get("email")
+
+        # === PRÉFÉRENCES ACCORDAGE ===
+        preferred_tuning_hz = self._extract_tuning_preference(notes)
+
+        # === PIANO SENSIBLE CLIMAT ===
+        climate_sensitive = any(kw in notes_lower for kw in [
+            "sensible", "humidité", "température", "dampp", "pls", "piano life saver"
+        ])
+
+        # === NOTES SPÉCIALES (Choses à surveiller) ===
+        # Filtrer et extraire seulement les infos importantes
+        special_notes = self._extract_special_notes(notes)
+        
+        # === PRÉFÉRENCE LINGUISTIQUE ===
+        preferred_language = self._extract_language_preference(notes)
+        
+        # === TEMPÉRAMENT ===
+        temperament = self._extract_temperament(notes)
 
         return ComfortInfo(
-            access_code=None,  # TODO: Parser notes
-            parking_info=None,
-            floor_number=None,
-            dog_name=None,  # TODO: Parser notes (regex pour "chien: X")
-            cat_name=None,
-            special_notes=useful_notes,  # Afficher seulement si utile, SANS tronquer
-            preferred_tuning_hz=None,
-            climate_sensitive=False,
-            contact_phone=None,  # TODO: Ajouter depuis client
-            contact_email=None
+            contact_name=client.get("first_name") or client.get("company_name"),
+            contact_phone=contact_phone,
+            contact_email=contact_email,
+            access_code=access_code,
+            access_instructions=access_instructions,
+            parking_info=parking_info,
+            floor_number=floor_number,
+            dog_name=dog_name,
+            dog_breed=dog_breed,
+            cat_name=cat_name,
+            special_notes=special_notes,
+            preferred_tuning_hz=preferred_tuning_hz,
+            climate_sensitive=climate_sensitive,
+            preferred_language=preferred_language,
+            temperament=temperament
         )
 
     def _map_to_timeline_entry(self, entry_raw: Dict[str, Any]) -> TimelineEntry:
@@ -1195,3 +1253,190 @@ class V5DataProvider:
             f"⚠️ Note: Estimation basée sur le nombre de quartiers. "
             f"Pour une distance précise, utiliser Google Maps."
         )
+
+    # ============================================================
+    # PARSING INFOS CONFORT (Extraction intelligente des notes)
+    # ============================================================
+
+    def _extract_dog_name(self, notes: str) -> Optional[str]:
+        """Extrait le nom du chien depuis les notes."""
+        import re
+        patterns = [
+            r'chien[:\s]+([A-Z][a-zéèêàâ]+)',
+            r'dog[:\s]+([A-Z][a-z]+)',
+            r'🐕[:\s]*([A-Z][a-zéèêàâ]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.IGNORECASE)
+            if match:
+                return match.group(1).capitalize()
+        return None
+
+    def _extract_dog_breed(self, notes: str) -> Optional[str]:
+        """Extrait la race du chien."""
+        import re
+        # Pattern: "(Labrador)", "(Golden Retriever)"
+        match = re.search(r'chien[:\s]+[A-Z][a-zéèêàâ]+\s*\(([^)]+)\)', notes, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
+
+    def _extract_cat_name(self, notes: str) -> Optional[str]:
+        """Extrait le nom du chat."""
+        import re
+        patterns = [
+            r'chat[:\s]+([A-Z][a-zéèêàâ]+)',
+            r'cat[:\s]+([A-Z][a-z]+)',
+            r'🐱[:\s]*([A-Z][a-zéèêàâ]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.IGNORECASE)
+            if match:
+                return match.group(1).capitalize()
+        return None
+
+    def _extract_access_code(self, notes: str) -> Optional[str]:
+        """Extrait le code d'accès (porte, interphone)."""
+        import re
+        patterns = [
+            r'code[:\s]+([0-9#*]+)',
+            r'interphone[:\s]+([0-9#*]+)',
+            r'porte[:\s]+([0-9#*]+)',
+            r'accès[:\s]+([0-9#*]+)',
+            r'#([0-9]{3,6})',  # Code seul (ex: #1234)
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
+
+    def _extract_access_instructions(self, notes: str) -> Optional[str]:
+        """Extrait instructions d'accès détaillées."""
+        import re
+        # Chercher lignes avec "accès", "entrer", "porte", etc.
+        lines = notes.split('\n')
+        instructions = []
+        keywords = ['accès', 'entrer', 'porte', 'escalier', 'ascenseur', 'sonner', 'code']
+
+        for line in lines:
+            if any(kw in line.lower() for kw in keywords) and len(line.strip()) > 15:
+                clean = line.strip('- ').strip()
+                if clean not in instructions:
+                    instructions.append(clean)
+
+        return ' '.join(instructions[:3]) if instructions else None  # Max 3 lignes
+
+    def _extract_parking_info(self, notes: str) -> Optional[str]:
+        """Extrait infos de stationnement."""
+        import re
+        # Chercher lignes avec "parking", "stationner", "garer"
+        lines = notes.split('\n')
+        for line in lines:
+            if any(kw in line.lower() for kw in ['parking', 'stationner', 'garer', 'stationnement']):
+                return line.strip('- ').strip()
+        return None
+
+    def _extract_floor_number(self, notes: str) -> Optional[str]:
+        """Extrait le numéro d'étage."""
+        import re
+        patterns = [
+            r'étage[:\s]+([0-9]+)',
+            r'([0-9]+)e?\s+étage',
+            r'floor[:\s]+([0-9]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
+
+    def _extract_tuning_preference(self, notes: str) -> Optional[int]:
+        """Extrait préférence d'accordage (Hz)."""
+        import re
+        patterns = [
+            r'accord[:\s]+([0-9]{3})\s*hz',
+            r'([0-9]{3})\s*hz',
+            r'préf[éeè]rence[:\s]+([0-9]{3})',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, notes, re.IGNORECASE)
+            if match:
+                hz = int(match.group(1))
+                if 435 <= hz <= 445:  # Validation range
+                    return hz
+        return None
+
+    def _extract_special_notes(self, notes: str) -> Optional[str]:
+        """
+        Extrait notes spéciales (choses à surveiller).
+
+        Filtre pour garder seulement:
+        - Alertes (attention, fragile, problème)
+        - Instructions techniques importantes
+        - Préférences spéciales du client
+        """
+        import re
+        # Filtrer d'abord si note utile
+        if not self._is_useful_note(notes):
+            return None
+
+        # Chercher lignes avec keywords importants
+        lines = notes.split('\n')
+        important_lines = []
+        keywords = [
+            'attention', 'fragile', 'problème', 'surveiller', 'important',
+            'préférence', 'langue', 'anglais', 'français', 'sensible'
+        ]
+
+        for line in lines:
+            line_clean = line.strip('- ').strip()
+            if len(line_clean) < 10:  # Trop court
+                continue
+
+            if any(kw in line.lower() for kw in keywords):
+                important_lines.append(line_clean)
+
+        # Si aucune ligne importante, retourner toute la note (déjà filtrée)
+        if not important_lines:
+            return notes if len(notes) < 200 else notes[:200] + "..."
+
+        # Sinon retourner les lignes importantes
+        result = ' | '.join(important_lines[:3])  # Max 3 lignes
+        return result if len(result) < 250 else result[:250] + "..."
+
+    def _extract_language_preference(self, notes: str) -> Optional[str]:
+        """Extrait la langue préférée du client."""
+        import re
+        notes_lower = notes.lower()
+
+        # Patterns explicites
+        if re.search(r'anglais\s+(seulement|uniquement|only)', notes_lower):
+            return "Anglais"
+        if re.search(r'fran[cç]ais\s+(seulement|uniquement|only)', notes_lower):
+            return "Français"
+        if 'bilingue' in notes_lower:
+            return "Bilingue"
+
+        # Patterns implicites
+        if 'english' in notes_lower or 'speaks english' in notes_lower:
+            return "Anglais"
+        if 'parle français' in notes_lower or 'francophone' in notes_lower:
+            return "Français"
+
+        return None
+
+    def _extract_temperament(self, notes: str) -> Optional[str]:
+        """Extrait le tempérament du client depuis les notes."""
+        import re
+        notes_lower = notes.lower()
+
+        # Patterns pour différents tempéraments
+        if any(kw in notes_lower for kw in ['sympathique', 'gentil', 'agréable', 'chaleureux']):
+            return "Sympathique"
+        if any(kw in notes_lower for kw in ['exigeant', 'difficile', 'pointilleux', 'perfectionniste']):
+            return "Exigeant"
+        if any(kw in notes_lower for kw in ['réservé', 'discret', 'calme', 'timide']):
+            return "Réservé"
+
+        return None
