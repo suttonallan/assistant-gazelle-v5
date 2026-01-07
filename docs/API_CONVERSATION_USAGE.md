@@ -1,7 +1,7 @@
 # API Assistant Conversationnel - Guide d'utilisation
 
 **Date:** 2026-01-06
-**Version:** Phase 1 (Core Handlers)
+**Version:** Phase 1 + 2 (Core + Advanced Queries)
 
 ---
 
@@ -14,9 +14,13 @@ L'API Conversationnelle permet de poser des questions en langage naturel et rece
 POST /api/conversation/query
 ```
 
+**Handlers implémentés:**
+- ✅ **Phase 1** (4 handlers core): client_search, client_summary, my_appointments, piano_search
+- ✅ **Phase 2** (4 advanced queries): client_history, search_notes, humidity_readings, unpaid_invoices
+
 ---
 
-## 🎯 HANDLERS DISPONIBLES (Phase 1)
+## 🎯 PHASE 1: CORE HANDLERS
 
 ### 1. Recherche de Client (`client_search`)
 
