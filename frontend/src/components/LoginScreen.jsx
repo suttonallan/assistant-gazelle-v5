@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ROLES } from '../config/roles'
 
-// Utiliser les vrais emails depuis la configuration des rôles
+// Base de données des utilisateurs avec leurs PINs
 // IMPORTANT: gazelleId est l'ID Gazelle du technicien (source de vérité)
 // Voir docs/REGLE_IDS_GAZELLE.md
 const USERS = [
@@ -40,109 +40,162 @@ const USERS = [
 ]
 
 export default function LoginScreen({ onLogin }) {
-  const [selectedUser, setSelectedUser] = useState(null)
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
 
-  const handleLogin = (e) => {
-    e.preventDefault()
-
-    if (!selectedUser) {
-      setError('Veuillez sélectionner un utilisateur')
-      return
+  // Écouter les touches du clavier
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Touches numériques (0-9)
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault()
+        handlePinInput(e.key)
+      }
+      // Backspace ou Delete
+      else if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault()
+        handleBackspace()
+      }
+      // Enter (valider si 4 chiffres)
+      else if (e.key === 'Enter' && pin.length === 4) {
+        e.preventDefault()
+        authenticateWithPin(pin)
+      }
     }
 
-    if (pin === selectedUser.pin) {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [pin]) // Dépendance: pin pour avoir la valeur à jour
+
+  const handlePinInput = (digit) => {
+    if (pin.length < 4) {
+      const newPin = pin + digit
+      setPin(newPin)
+      setError('')
+
+      // Auto-login dès que 4 chiffres sont entrés
+      if (newPin.length === 4) {
+        setTimeout(() => {
+          authenticateWithPin(newPin)
+        }, 100)
+      }
+    }
+  }
+
+  const handleBackspace = () => {
+    setPin(pin.slice(0, -1))
+    setError('')
+  }
+
+  const authenticateWithPin = (pinCode) => {
+    const user = USERS.find(u => u.pin === pinCode)
+
+    if (user) {
       // Sauvegarder dans localStorage
-      localStorage.setItem('currentUser', JSON.stringify(selectedUser))
-      onLogin(selectedUser)
+      localStorage.setItem('currentUser', JSON.stringify(user))
+      onLogin(user)
     } else {
       setError('PIN incorrect')
-      setPin('')
+      // Réinitialiser après 1 seconde
+      setTimeout(() => {
+        setPin('')
+        setError('')
+      }, 1000)
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
-        <div className="p-8 md:p-10">
-            <div className="text-center mb-8">
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                Vincent-d'Indy
-              </h1>
-              <p className="text-gray-600">Dashboard Techniciens</p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
+        <div className="p-8">
+          {/* Titre épuré */}
+          <div className="text-center mb-8">
+            <div className="text-4xl mb-4">🔒</div>
+            <h1 className="text-2xl font-bold text-gray-800">
+              Entrez votre PIN
+            </h1>
+          </div>
 
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Qui êtes-vous ?
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {USERS.map((user) => (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedUser(user)
-                        setError('')
-                      }}
-                      className={`p-4 rounded-lg border-2 transition-all ${
-                        selectedUser?.id === user.id
-                          ? 'border-blue-500 bg-blue-50 shadow-md'
-                          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="text-2xl mb-1">👤</div>
-                      <div className="text-sm font-medium text-gray-800">
-                        {user.name}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {user.role === 'admin' ? 'Admin' : 'Tech'}
-                      </div>
-                    </button>
-                  ))}
+          {/* Affichage du PIN (points) */}
+          <div className="mb-8">
+            <div className="flex justify-center gap-3">
+              {[0, 1, 2, 3].map((index) => (
+                <div
+                  key={index}
+                  className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${
+                    pin.length > index
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 bg-white'
+                  }`}
+                >
+                  {pin.length > index && (
+                    <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                  )}
                 </div>
-              </div>
-
-              {selectedUser && (
-                <div>
-                  <label htmlFor="pin" className="block text-sm font-medium text-gray-700 mb-2">
-                    Entrez votre PIN
-                  </label>
-                  <input
-                    type="password"
-                    id="pin"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl tracking-widest"
-                    placeholder="••••"
-                    maxLength={4}
-                    autoFocus
-                  />
-                </div>
-              )}
-
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                  {error}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={!selectedUser || pin.length !== 4}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                Se connecter
-              </button>
-            </form>
-
-            <div className="mt-6 text-center text-xs text-gray-500">
-              <p>Sélectionnez votre nom et entrez votre PIN à 4 chiffres</p>
+              ))}
             </div>
           </div>
+
+          {/* Message d'erreur */}
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm text-center animate-shake">
+              {error}
+            </div>
+          )}
+
+          {/* Pavé numérique */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+              <button
+                key={digit}
+                onClick={() => handlePinInput(digit.toString())}
+                className="h-16 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 font-semibold text-xl text-gray-800 transition-colors touch-manipulation"
+                disabled={pin.length >= 4}
+              >
+                {digit}
+              </button>
+            ))}
+
+            {/* Ligne du bas: vide, 0, backspace */}
+            <div></div>
+            <button
+              onClick={() => handlePinInput('0')}
+              className="h-16 rounded-xl bg-gray-100 hover:bg-gray-200 active:bg-gray-300 font-semibold text-xl text-gray-800 transition-colors touch-manipulation"
+              disabled={pin.length >= 4}
+            >
+              0
+            </button>
+            <button
+              onClick={handleBackspace}
+              className="h-16 rounded-xl bg-red-50 hover:bg-red-100 active:bg-red-200 font-semibold text-xl text-red-600 transition-colors touch-manipulation flex items-center justify-center"
+              disabled={pin.length === 0}
+            >
+              ⌫
+            </button>
+          </div>
+
+          {/* Texte d'aide */}
+          <div className="text-center text-xs text-gray-400 mt-6">
+            <div>Code PIN à 4 chiffres</div>
+            <div className="mt-1 text-gray-500">💻 Clavier ou pavé tactile</div>
+          </div>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-8px); }
+          75% { transform: translateX(8px); }
+        }
+        .animate-shake {
+          animation: shake 0.3s ease-in-out;
+        }
+        .touch-manipulation {
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+        }
+      `}</style>
     </div>
   )
 }

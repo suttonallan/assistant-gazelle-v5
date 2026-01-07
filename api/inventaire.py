@@ -782,6 +782,137 @@ async def batch_update_type_commission(update: BatchTypeCommissionUpdate):
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
 
 
+class ProductMergeRequest(BaseModel):
+    """Modèle pour fusionner deux produits."""
+    keep_code: str  # Code du produit à conserver
+    merge_code: str  # Code du produit à supprimer (quantités transférées vers keep_code)
+
+
+@router.post("/catalogue/merge", response_model=Dict[str, Any])
+async def merge_products(request: ProductMergeRequest):
+    """
+    Fusionne deux produits en transférant les quantités.
+
+    Processus:
+    1. Récupère les stocks des deux produits pour tous les techniciens
+    2. Additionne les quantités (keep_code += merge_code)
+    3. Met à jour les stocks du produit conservé
+    4. Archive le produit fusionné (is_active = false)
+
+    Body:
+        - keep_code: Code du produit à conserver
+        - merge_code: Code du produit à supprimer
+
+    Returns:
+        - success: bool
+        - message: Message de confirmation
+        - technicians_updated: Nombre de techniciens mis à jour
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Validation
+        if request.keep_code == request.merge_code:
+            raise HTTPException(
+                status_code=400,
+                detail="Les deux produits doivent être différents"
+            )
+
+        # Vérifier que les deux produits existent
+        keep_product = storage.get_data(
+            "produits_catalogue",
+            filters={"code_produit": request.keep_code}
+        )
+        merge_product = storage.get_data(
+            "produits_catalogue",
+            filters={"code_produit": request.merge_code}
+        )
+
+        if not keep_product:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Produit conservé introuvable: {request.keep_code}"
+            )
+        if not merge_product:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Produit à fusionner introuvable: {request.merge_code}"
+            )
+
+        # Récupérer les stocks pour tous les techniciens
+        keep_stocks = storage.get_data(
+            "inventaire_techniciens",
+            filters={"code_produit": request.keep_code}
+        )
+        merge_stocks = storage.get_data(
+            "inventaire_techniciens",
+            filters={"code_produit": request.merge_code}
+        )
+
+        # Créer un mapping technicien -> quantités
+        keep_map = {stock['technicien']: stock for stock in keep_stocks}
+        merge_map = {stock['technicien']: stock for stock in merge_stocks}
+
+        # Fusionner les quantités
+        technicians_updated = 0
+        all_technicians = set(list(keep_map.keys()) + list(merge_map.keys()))
+
+        for tech in all_technicians:
+            keep_qty = keep_map.get(tech, {}).get('quantite_stock', 0) or 0
+            merge_qty = merge_map.get(tech, {}).get('quantite_stock', 0) or 0
+            new_qty = keep_qty + merge_qty
+
+            # Mettre à jour ou créer le stock pour le produit conservé
+            stock_data = {
+                'code_produit': request.keep_code,
+                'technicien': tech,
+                'quantite_stock': new_qty
+            }
+
+            success = storage.update_data(
+                "inventaire_techniciens",
+                stock_data,
+                id_field="code_produit,technicien",
+                upsert=True,
+                auto_timestamp=True
+            )
+
+            if success:
+                technicians_updated += 1
+
+        # Supprimer les stocks du produit fusionné
+        for tech in merge_map.keys():
+            storage.client.table("inventaire_techniciens").delete().eq(
+                "code_produit", request.merge_code
+            ).eq("technicien", tech).execute()
+
+        # Archiver le produit fusionné (is_active = false)
+        merge_product_data = merge_product[0]
+        merge_product_data['is_active'] = False
+        storage.update_data(
+            "produits_catalogue",
+            merge_product_data,
+            id_field="code_produit",
+            upsert=True,
+            auto_timestamp=True
+        )
+
+        return {
+            "success": True,
+            "message": f"Produits fusionnés: {request.merge_code} → {request.keep_code}",
+            "technicians_updated": technicians_updated,
+            "keep_product": keep_product[0]['nom'],
+            "merged_product": merge_product[0]['nom']
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur fusion: {str(e)}")
+
+
 # ============================================================
 # Routes pour Synchronisation Gazelle
 # ============================================================
@@ -901,6 +1032,11 @@ async def find_duplicate_products(threshold: float = 0.80):
         # Comparer avec Gazelle si disponible
         if gazelle_available and gazelle_products:
             for local in local_products:
+                # ✅ EXCLUSION AUTOMATIQUE: Ignorer les produits déjà associés à Gazelle
+                # Supporter les deux noms de colonne (legacy + nouveau)
+                if local.get('gazelle_product_id') or local.get('gazelle_item_id'):
+                    continue
+
                 local_name = local.get('nom', '')
                 if not local_name:
                     continue
@@ -1086,6 +1222,18 @@ async def map_to_gazelle_product(mapping: GazelleMapping):
             raise HTTPException(status_code=404, detail=f"Produit {mapping.code_produit} introuvable")
 
         local_product = local_product[0]
+
+        # ✅ VALIDATION: Vérifier si le produit est déjà associé à un autre produit Gazelle
+        existing_gazelle_id = local_product.get('gazelle_product_id') or local_product.get('gazelle_item_id')
+        if existing_gazelle_id:
+            if existing_gazelle_id == mapping.gazelle_product_id:
+                # Déjà associé au même produit Gazelle, juste mettre à jour les prix
+                pass
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"⚠️ Produit {mapping.code_produit} est déjà associé à Gazelle ID {existing_gazelle_id}. Dissociez-le d'abord avant de le réassocier."
+                )
 
         # Récupérer les données Gazelle
         gazelle_products = gazelle.get_products(limit=1000)
