@@ -1,11 +1,17 @@
 """
-Routes FastAPI pour l'Assistant Conversationnel Intelligent (Phase 1: Core Handlers).
+Routes FastAPI pour l'Assistant Conversationnel Intelligent (Phase 1 + 2).
 
-Gère les questions avancées:
+Phase 1 - Core Handlers:
 - Recherche de clients
 - Résumés complets de clients
 - Mes rendez-vous
 - Recherche de pianos
+
+Phase 2 - Advanced Queries:
+- Historique d'interventions
+- Recherche dans notes
+- Mesures d'humidité
+- Factures impayées
 
 Usage:
     POST /api/conversation/query
@@ -101,5 +107,9 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "conversation_handler",
-        "handlers": ["client_search", "client_summary", "my_appointments", "piano_search"]
+        "phase": "1 + 2",
+        "handlers": {
+            "phase_1": ["client_search", "client_summary", "my_appointments", "piano_search"],
+            "phase_2": ["client_history", "search_notes", "humidity_readings", "unpaid_invoices"]
+        }
     }

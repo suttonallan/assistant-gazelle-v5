@@ -57,10 +57,16 @@ class ConversationHandler:
 
         # 2. Router vers le bon handler
         handlers = {
+            # Phase 1: Core
             'client_search': self.handle_client_search,
             'client_summary': self.handle_client_summary,
             'my_appointments': self.handle_my_appointments,
             'piano_search': self.handle_piano_search,
+            # Phase 2: Advanced
+            'client_history': self.handle_client_history,
+            'search_notes': self.handle_search_notes,
+            'humidity_readings': self.handle_humidity_readings,
+            'unpaid_invoices': self.handle_unpaid_invoices,
         }
 
         handler = handlers.get(intent['type'], self.handle_generic)
@@ -90,20 +96,29 @@ class ConversationHandler:
 
 Détecte l'intention et extrais les entités.
 
-Types d'intention possibles:
+Types d'intention possibles (Phase 1 + 2):
+
+Phase 1 - Core:
 - client_search: Recherche d'un client par nom (ex: "client Daniel Markwell", "qui est Anne-Marie")
 - client_summary: Résumé complet d'un client (ex: "résumé pour Vincent-d'Indy", "donne-moi tout sur ce client")
 - my_appointments: Rendez-vous du technicien actuel (ex: "mes rendez-vous aujourd'hui", "qu'est-ce que j'ai demain")
 - piano_search: Recherche de piano par numéro de série (ex: "piano 1234567", "info sur série 7654321")
 
+Phase 2 - Advanced:
+- client_history: Historique d'interventions (ex: "interventions 2024 pour Vincent-d'Indy", "historique récent")
+- search_notes: Recherche dans notes (ex: "trouve 'faux battements'", "recherche 'pédale'")
+- humidity_readings: Mesures d'humidité (ex: "taux d'humidité de ce piano", "mesures humidité 2024")
+- unpaid_invoices: Factures impayées (ex: "factures non payées", "créances en souffrance")
+
 Retourne un JSON avec:
 {
-    "type": "client_search" | "client_summary" | "my_appointments" | "piano_search",
+    "type": "client_search" | "client_summary" | "my_appointments" | "piano_search" | "client_history" | "search_notes" | "humidity_readings" | "unpaid_invoices",
     "entities": {
         "client_name": "nom du client si mentionné",
         "date_range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} si dates mentionnées,
         "piano_serial": "numéro de série si mentionné",
-        "technician_name": "nom du technicien si mentionné"
+        "technician_name": "nom du technicien si mentionné",
+        "search_term": "terme de recherche pour search_notes (entre guillemets)"
     },
     "confidence": 0.0-1.0
 }
@@ -678,5 +693,534 @@ Prochain RDV:
                 user = entry.get('user', {})
                 user_name = user.get('full_name', 'N/A') if user else 'N/A'
                 lines.append(f"  - {date}: {title} ({user_name})")
+
+        return "\n".join(lines)
+
+    # ============================================================================
+    # PHASE 2: ADVANCED QUERIES
+    # ============================================================================
+
+    async def handle_client_history(
+        self,
+        query: str,
+        intent: Dict[str, Any],
+        user_id: str,
+        user_role: str
+    ) -> Dict[str, Any]:
+        """
+        Récupère l'historique des interventions d'un client avec filtres.
+
+        Supporte filtres par:
+        - Année (ex: "interventions 2024")
+        - Type d'intervention
+        - Technicien
+        """
+        client_name = intent['entities'].get('client_name', '')
+        date_range = intent['entities'].get('date_range', {})
+
+        if not client_name:
+            return {
+                "type": "error",
+                "message": "Aucun nom de client détecté"
+            }
+
+        # 1. Trouver le client
+        client_result = self.supabase.table('gazelle_clients')\
+            .select('id, company_name, pianos:gazelle_pianos(id)')\
+            .ilike('company_name', f'%{client_name}%')\
+            .limit(1)\
+            .execute()
+
+        if not client_result.data:
+            return {
+                "type": "not_found",
+                "message": f"Client '{client_name}' non trouvé"
+            }
+
+        client = client_result.data[0]
+        piano_ids = [p['id'] for p in client.get('pianos', [])]
+
+        if not piano_ids:
+            return {
+                "type": "not_found",
+                "message": f"Aucun piano trouvé pour ce client"
+            }
+
+        # 2. Récupérer timeline avec filtres
+        query_builder = self.supabase.table('gazelle_timeline_entries')\
+            .select('''
+                occurred_at,
+                entry_type,
+                title,
+                description,
+                piano:gazelle_pianos(make, model, serial_number, location),
+                user:users(full_name)
+            ''')\
+            .in_('piano_id', piano_ids)\
+            .order('occurred_at', desc=True)
+
+        # Filtre par date si spécifié
+        if date_range.get('start'):
+            query_builder = query_builder.gte('occurred_at', date_range['start'])
+        if date_range.get('end'):
+            query_builder = query_builder.lte('occurred_at', date_range['end'])
+
+        timeline_result = query_builder.limit(200).execute()
+        timeline = timeline_result.data if timeline_result.data else []
+
+        # Formater la réponse
+        formatted = await self._format_client_history(client, timeline, date_range)
+
+        return {
+            "type": "client_history",
+            "query": query,
+            "client": client,
+            "timeline": timeline,
+            "formatted_response": formatted
+        }
+
+    async def handle_search_notes(
+        self,
+        query: str,
+        intent: Dict[str, Any],
+        user_id: str,
+        user_role: str
+    ) -> Dict[str, Any]:
+        """
+        Recherche dans les notes / timeline entries par mot-clé.
+
+        Exemples: "trouve 'faux battements'", "recherche 'pédale'"
+        """
+        search_term = intent['entities'].get('search_term', '')
+        client_name = intent['entities'].get('client_name', '')
+
+        if not search_term:
+            return {
+                "type": "error",
+                "message": "Aucun terme de recherche détecté"
+            }
+
+        # Construire la query
+        query_builder = self.supabase.table('gazelle_timeline_entries')\
+            .select('''
+                occurred_at,
+                entry_type,
+                title,
+                description,
+                piano:gazelle_pianos(make, model, serial_number, location, client:gazelle_clients(company_name)),
+                user:users(full_name)
+            ''')
+
+        # Filtre par client si spécifié
+        if client_name:
+            # Trouver le client d'abord
+            client_result = self.supabase.table('gazelle_clients')\
+                .select('id, pianos:gazelle_pianos(id)')\
+                .ilike('company_name', f'%{client_name}%')\
+                .limit(1)\
+                .execute()
+
+            if client_result.data:
+                piano_ids = [p['id'] for p in client_result.data[0].get('pianos', [])]
+                if piano_ids:
+                    query_builder = query_builder.in_('piano_id', piano_ids)
+
+        # Full-text search dans title et description
+        query_builder = query_builder.or_(
+            f'title.ilike.%{search_term}%,description.ilike.%{search_term}%'
+        )
+
+        results = query_builder.order('occurred_at', desc=True).limit(50).execute()
+        entries = results.data if results.data else []
+
+        # Formater la réponse
+        formatted = await self._format_search_notes_results(search_term, entries, client_name)
+
+        return {
+            "type": "search_notes",
+            "query": query,
+            "search_term": search_term,
+            "results_count": len(entries),
+            "entries": entries,
+            "formatted_response": formatted
+        }
+
+    async def handle_humidity_readings(
+        self,
+        query: str,
+        intent: Dict[str, Any],
+        user_id: str,
+        user_role: str
+    ) -> Dict[str, Any]:
+        """
+        Récupère les mesures d'humidité pour un piano ou client.
+
+        Parse les mesures depuis description (format: "22°C, 37% humidité")
+        """
+        piano_serial = intent['entities'].get('piano_serial', '')
+        client_name = intent['entities'].get('client_name', '')
+
+        # Déterminer les piano_ids à chercher
+        piano_ids = []
+
+        if piano_serial:
+            # Chercher par numéro de série
+            piano_result = self.supabase.table('gazelle_pianos')\
+                .select('id')\
+                .ilike('serial_number', f'%{piano_serial}%')\
+                .limit(1)\
+                .execute()
+
+            if piano_result.data:
+                piano_ids = [piano_result.data[0]['id']]
+
+        elif client_name:
+            # Chercher par client
+            client_result = self.supabase.table('gazelle_clients')\
+                .select('pianos:gazelle_pianos(id)')\
+                .ilike('company_name', f'%{client_name}%')\
+                .limit(1)\
+                .execute()
+
+            if client_result.data:
+                piano_ids = [p['id'] for p in client_result.data[0].get('pianos', [])]
+
+        if not piano_ids:
+            return {
+                "type": "not_found",
+                "message": "Aucun piano trouvé pour la recherche d'humidité"
+            }
+
+        # Récupérer les mesures (entry_type = PIANO_MEASUREMENT)
+        measurements_result = self.supabase.table('gazelle_timeline_entries')\
+            .select('''
+                occurred_at,
+                description,
+                piano:gazelle_pianos(make, model, serial_number, location),
+                user:users(full_name)
+            ''')\
+            .in_('piano_id', piano_ids)\
+            .eq('entry_type', 'PIANO_MEASUREMENT')\
+            .order('occurred_at', desc=True)\
+            .limit(20)\
+            .execute()
+
+        measurements = measurements_result.data if measurements_result.data else []
+
+        # Parser les mesures
+        parsed_measurements = self._parse_humidity_measurements(measurements)
+
+        # Formater la réponse
+        formatted = await self._format_humidity_readings(parsed_measurements)
+
+        return {
+            "type": "humidity_readings",
+            "query": query,
+            "measurements": parsed_measurements,
+            "formatted_response": formatted
+        }
+
+    async def handle_unpaid_invoices(
+        self,
+        query: str,
+        intent: Dict[str, Any],
+        user_id: str,
+        user_role: str
+    ) -> Dict[str, Any]:
+        """
+        Récupère les factures impayées.
+
+        Peut filtrer par client si spécifié.
+        """
+        client_name = intent['entities'].get('client_name', '')
+
+        # Construire la query
+        query_builder = self.supabase.table('gazelle_invoices')\
+            .select('''
+                *,
+                client:gazelle_clients(company_name, phone)
+            ''')
+
+        # Filtre par client si spécifié
+        if client_name:
+            client_result = self.supabase.table('gazelle_clients')\
+                .select('id')\
+                .ilike('company_name', f'%{client_name}%')\
+                .limit(1)\
+                .execute()
+
+            if client_result.data:
+                query_builder = query_builder.eq('client_id', client_result.data[0]['id'])
+
+        # Filtrer les impayées
+        invoices_result = query_builder\
+            .eq('payment_status', 'UNPAID')\
+            .order('issued_at')\
+            .execute()
+
+        invoices = invoices_result.data if invoices_result.data else []
+
+        # Calculer total impayé
+        total_unpaid = sum(inv.get('amount', 0) for inv in invoices)
+
+        # Formater la réponse
+        formatted = await self._format_unpaid_invoices(invoices, total_unpaid, client_name)
+
+        return {
+            "type": "unpaid_invoices",
+            "query": query,
+            "invoices": invoices,
+            "total_unpaid": total_unpaid,
+            "formatted_response": formatted
+        }
+
+    # ============================================================================
+    # FORMATTERS PHASE 2
+    # ============================================================================
+
+    async def _format_client_history(
+        self,
+        client: Dict,
+        timeline: List[Dict],
+        date_range: Dict
+    ) -> str:
+        """
+        Formate l'historique des interventions.
+        """
+        lines = []
+
+        # Header
+        client_name = client.get('company_name', 'N/A')
+        count = len(timeline)
+
+        if date_range.get('start') or date_range.get('end'):
+            start = date_range.get('start', '...')
+            end = date_range.get('end', '...')
+            lines.append(f"📅 Interventions pour {client_name} ({start} → {end}):")
+        else:
+            lines.append(f"📅 Interventions pour {client_name} ({count} entrées):")
+
+        lines.append("")
+
+        # Grouper par piano pour meilleure lisibilité
+        piano_groups = {}
+        for entry in timeline:
+            piano = entry.get('piano', {})
+            piano_key = f"{piano.get('make', 'N/A')} {piano.get('model', 'N/A')} (#{piano.get('serial_number', 'N/A')})"
+
+            if piano_key not in piano_groups:
+                piano_groups[piano_key] = []
+            piano_groups[piano_key].append(entry)
+
+        # Afficher par piano
+        for piano_name, entries in list(piano_groups.items())[:10]:  # Max 10 pianos
+            lines.append(f"🎹 {piano_name}")
+
+            for entry in entries[:5]:  # Max 5 entrées par piano
+                date = entry.get('occurred_at', 'N/A')[:10]
+                title = entry.get('title', 'N/A')
+                user = entry.get('user', {})
+                user_name = user.get('full_name', 'N/A') if user else 'N/A'
+
+                lines.append(f"  • {date}: {title} ({user_name})")
+
+            lines.append("")
+
+        return "\n".join(lines)
+
+    async def _format_search_notes_results(
+        self,
+        search_term: str,
+        entries: List[Dict],
+        client_name: str
+    ) -> str:
+        """
+        Formate les résultats de recherche dans les notes.
+        """
+        if not entries:
+            return f"Aucun résultat trouvé pour '{search_term}'"
+
+        lines = []
+
+        # Header
+        header = f"🔍 Résultats pour '{search_term}'"
+        if client_name:
+            header += f" (client: {client_name})"
+        header += f" ({len(entries)} résultat{'s' if len(entries) > 1 else ''}):\n"
+        lines.append(header)
+
+        # Résultats (max 10)
+        for entry in entries[:10]:
+            date = entry.get('occurred_at', 'N/A')[:10]
+            title = entry.get('title', 'N/A')
+            description = entry.get('description', '')
+
+            piano = entry.get('piano', {})
+            piano_str = f"{piano.get('make', 'N/A')} {piano.get('model', 'N/A')}"
+
+            client = piano.get('client', {}) if piano else {}
+            client_name_str = client.get('company_name', 'N/A') if client else 'N/A'
+
+            user = entry.get('user', {})
+            user_name = user.get('full_name', 'N/A') if user else 'N/A'
+
+            lines.append(f"📌 {date} | {client_name_str}")
+            lines.append(f"   🎹 {piano_str}")
+            lines.append(f"   💬 {title}")
+
+            # Afficher extrait de description si match
+            if description and search_term.lower() in description.lower():
+                # Trouver contexte autour du match
+                idx = description.lower().find(search_term.lower())
+                start = max(0, idx - 50)
+                end = min(len(description), idx + len(search_term) + 50)
+                excerpt = description[start:end]
+                if start > 0:
+                    excerpt = "..." + excerpt
+                if end < len(description):
+                    excerpt = excerpt + "..."
+                lines.append(f"   📝 {excerpt}")
+
+            lines.append(f"   👤 {user_name}\n")
+
+        if len(entries) > 10:
+            lines.append(f"... et {len(entries) - 10} autres résultats")
+
+        return "\n".join(lines)
+
+    def _parse_humidity_measurements(self, measurements: List[Dict]) -> List[Dict]:
+        """
+        Parse les mesures d'humidité depuis description.
+
+        Format attendu: "22°C, 37% humidité" ou similaire
+        """
+        import re
+
+        parsed = []
+
+        for m in measurements:
+            description = m.get('description', '')
+
+            # Regex pour trouver température et humidité
+            temp_match = re.search(r'(\d+)\s*°C', description)
+            humidity_match = re.search(r'(\d+)\s*%', description)
+
+            temperature = int(temp_match.group(1)) if temp_match else None
+            humidity = int(humidity_match.group(1)) if humidity_match else None
+
+            if temperature or humidity:
+                parsed.append({
+                    'date': m.get('occurred_at', 'N/A')[:10],
+                    'temperature': temperature,
+                    'humidity': humidity,
+                    'piano': m.get('piano', {}),
+                    'technician': m.get('user', {}).get('full_name', 'N/A')
+                })
+
+        return parsed
+
+    async def _format_humidity_readings(self, measurements: List[Dict]) -> str:
+        """
+        Formate les mesures d'humidité.
+        """
+        if not measurements:
+            return "Aucune mesure d'humidité trouvée"
+
+        lines = []
+
+        # Grouper par piano
+        piano_groups = {}
+        for m in measurements:
+            piano = m.get('piano', {})
+            piano_key = f"{piano.get('make', 'N/A')} {piano.get('model', 'N/A')} (#{piano.get('serial_number', 'N/A')})"
+
+            if piano_key not in piano_groups:
+                piano_groups[piano_key] = []
+            piano_groups[piano_key].append(m)
+
+        # Afficher par piano
+        for piano_name, piano_measurements in piano_groups.items():
+            lines.append(f"💧 Mesures d'humidité - {piano_name}:\n")
+
+            for m in piano_measurements[:10]:  # Max 10 mesures
+                date = m['date']
+                temp = m['temperature']
+                humidity = m['humidity']
+                tech = m['technician']
+
+                # Évaluation
+                status = "✅ Normal"
+                if humidity:
+                    if humidity < 35:
+                        status = "⚠️ Trop sec"
+                    elif humidity > 55:
+                        status = "⚠️ Trop humide"
+
+                temp_str = f"🌡️ {temp}°C" if temp else ""
+                humidity_str = f"💧 {humidity}%" if humidity else ""
+
+                lines.append(f"📅 {date} ({tech})")
+                lines.append(f"  {temp_str} | {humidity_str} | {status}\n")
+
+            # Tendance
+            if len(piano_measurements) >= 3:
+                recent_humidities = [m['humidity'] for m in piano_measurements[:3] if m['humidity']]
+                if recent_humidities:
+                    avg = sum(recent_humidities) / len(recent_humidities)
+                    lines.append(f"Tendance récente: {avg:.0f}% (moyenne 3 dernières)\n")
+
+        return "\n".join(lines)
+
+    async def _format_unpaid_invoices(
+        self,
+        invoices: List[Dict],
+        total_unpaid: float,
+        client_name: str
+    ) -> str:
+        """
+        Formate la liste des factures impayées.
+        """
+        if not invoices:
+            msg = "✅ Aucune facture impayée"
+            if client_name:
+                msg += f" pour {client_name}"
+            return msg
+
+        lines = []
+
+        # Header
+        header = f"💰 Factures impayées"
+        if client_name:
+            header += f" - {client_name}"
+        header += f" ({len(invoices)} facture{'s' if len(invoices) > 1 else ''}):\n"
+        lines.append(header)
+
+        # Factures (max 20)
+        for inv in invoices[:20]:
+            invoice_number = inv.get('invoice_number', 'N/A')
+            amount = inv.get('amount', 0)
+            issued_date = inv.get('issued_at', 'N/A')[:10] if inv.get('issued_at') else 'N/A'
+            client = inv.get('client', {})
+            client_name_str = client.get('company_name', 'N/A') if client else 'N/A'
+
+            # Calculer jours en retard
+            if inv.get('due_date'):
+                from datetime import datetime
+                due_date = datetime.fromisoformat(inv['due_date'][:10])
+                today = datetime.now()
+                days_overdue = (today - due_date).days
+
+                if days_overdue > 0:
+                    overdue_str = f" ⚠️ {days_overdue} jours de retard"
+                else:
+                    overdue_str = ""
+            else:
+                overdue_str = ""
+
+            lines.append(f"📄 #{invoice_number} - {amount}$ - {issued_date}")
+            lines.append(f"   🏢 {client_name_str}{overdue_str}\n")
+
+        # Total
+        lines.append(f"💵 Total impayé: {total_unpaid}$")
 
         return "\n".join(lines)
