@@ -47,6 +47,18 @@ export const ROLES = {
       'use_assistant' // Jean-Philippe peut utiliser l'assistant
     ],
     dashboards: ['inventaire', 'tournees']
+  },
+
+  margot: {
+    name: 'Margot (Assistante)',
+    email: 'margot@piano-tek.com',
+    permissions: [
+      'view_inventory',
+      'edit_inventory', // Peut modifier les quantités
+      'view_tours', // Peut voir les tournées
+      'use_assistant' // Margot peut utiliser l'assistant
+    ],
+    dashboards: ['inventaire', 'tournees']
   }
 }
 

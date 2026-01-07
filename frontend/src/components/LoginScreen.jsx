@@ -37,6 +37,14 @@ const USERS = [
     pin: '6345',
     gazelleId: 'usr_ReUSmIJmBF86ilY1'  // ID Gazelle technicien JP
   },
+  {
+    id: 5,
+    name: 'Margot',
+    email: ROLES.margot.email,
+    role: 'assistant',
+    pin: '6341',
+    gazelleId: null  // Margot n'est pas technicienne
+  },
 ]
 
 export default function LoginScreen({ onLogin }) {
