@@ -254,7 +254,8 @@ function App() {
         // Par défaut: Inventaire
         return <NickDashboard currentUser={effectiveUser} />
       case 'louise':
-        // Louise: Navigation par currentView (comme admin)
+      case 'margot':
+        // Louise & Margot: Navigation par currentView (comme admin)
         if (currentView === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
@@ -445,7 +446,7 @@ function App() {
             </div>
 
             {/* Navigation conditionnelle par rôle */}
-            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'jeanphilippe') && (
+            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe') && (
               <nav className="flex gap-2">
                 {effectiveRole === 'nick' ? (
                   <>
@@ -631,8 +632,8 @@ function App() {
                       🎵 Ma Journée
                     </button>
 
-                    {/* Calculateur - admin, louise, nick et jeanphilippe */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'nick' || effectiveRole === 'jeanphilippe') && (
+                    {/* Calculateur - admin, louise, margot, nick et jeanphilippe */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'nick' || effectiveRole === 'jeanphilippe') && (
                       <button
                         onClick={() => setCurrentView('calculateur-frais')}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -645,8 +646,8 @@ function App() {
                       </button>
                     )}
 
-                    {/* Institutions - Admin et Louise - Dropdown */}
-                    {(effectiveRole === 'admin' || effectiveRole === 'louise') && (
+                    {/* Institutions - Admin, Louise et Margot - Dropdown */}
+                    {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'margot') && (
                       <div className="relative" data-dropdown="institutions">
                         <button
                           onClick={(e) => {
@@ -733,6 +734,7 @@ function App() {
                 <option value="admin">Admin</option>
                 <option value="nick">Nick</option>
                 <option value="louise">Louise</option>
+                <option value="margot">Margot</option>
                 <option value="jeanphilippe">Jean-Philippe</option>
               </select>
             )}
