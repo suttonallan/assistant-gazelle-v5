@@ -66,10 +66,23 @@ const InventaireDashboard = ({ currentUser }) => {
   const loadInventory = async () => {
     try {
       setLoading(true)
+      setError(null) // Réinitialiser les erreurs
+      
+      // ⚠️ TIMEOUT DE SÉCURITÉ : 15 secondes maximum (backend peut prendre du temps au démarrage)
+      const timeoutController = new AbortController()
+      const timeoutId = setTimeout(() => timeoutController.abort(), 15000)
+      
       // TODO: Adapter l'endpoint pour retourner le format V4
       // Pour l'instant, on simule avec les données existantes
-      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`)
-      if (!catalogueRes.ok) throw new Error('Erreur chargement catalogue')
+      const catalogueRes = await fetch(`${API_URL}/api/inventaire/catalogue`, {
+        signal: timeoutController.signal
+      })
+      clearTimeout(timeoutId)
+      
+      if (!catalogueRes.ok) {
+        const errorText = await catalogueRes.text().catch(() => 'Détails non disponibles')
+        throw new Error(`Erreur HTTP ${catalogueRes.status}: ${errorText.substring(0, 200)}`)
+      }
       const catalogueData = await catalogueRes.json()
 
       // Créer le map de produits d'abord
@@ -111,7 +124,15 @@ const InventaireDashboard = ({ currentUser }) => {
       for (const tech of TECHNICIENS) {
         try {
           console.log(`📦 Chargement pour: ${tech.name} (prenom: ${tech.prenom}, username: ${tech.username})`)
-          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.prenom}`)
+          // Timeout de sécurité pour chaque requête de stock
+          const stockTimeoutController = new AbortController()
+          const stockTimeoutId = setTimeout(() => stockTimeoutController.abort(), 10000)
+          
+          const res = await fetch(`${API_URL}/api/inventaire/stock/${tech.prenom}`, {
+            signal: stockTimeoutController.signal
+          })
+          clearTimeout(stockTimeoutId)
+          
           if (res.ok) {
             const invData = await res.json()
             console.log(`✅ Réponse API: technicien="${invData.technicien}", ${invData.inventaire?.length || 0} items`)
@@ -146,7 +167,11 @@ const InventaireDashboard = ({ currentUser }) => {
             console.log(`   📊 Résultat: ${assignedCount} assignés, ${skippedCount} ignorés (pas dans catalogue)`)
           }
         } catch (err) {
-          console.error(`❌ Erreur chargement inventaire ${tech.name}:`, err)
+        if (err.name === 'AbortError') {
+          console.error(`⏱️  Timeout chargement inventaire ${tech.name} (10s)`)
+          } else {
+            console.error(`❌ Erreur chargement inventaire ${tech.name}:`, err)
+          }
         }
       }
 
@@ -183,8 +208,21 @@ const InventaireDashboard = ({ currentUser }) => {
       
       setProducts(productsList)
       setCatalogueAdmin(productsList)
+      setError(null) // Succès : effacer les erreurs
     } catch (err) {
-      setError(err.message)
+      if (err.name === 'AbortError') {
+        setError('⏱️  Timeout: Le backend ne répond pas (délai de 15 secondes dépassé). Le serveur Python est peut-être encore en train de démarrer. Attendez quelques secondes et rechargez la page.')
+      } else if (err.message && err.message.includes('500')) {
+        setError('❌ Erreur serveur 500: Le backend Python a une erreur interne. Vérifiez les logs du terminal Python pour voir l\'erreur exacte.')
+      } else if (err.message) {
+        setError(`❌ Erreur: ${err.message}`)
+      } else {
+        setError('❌ Erreur inconnue lors du chargement de l\'inventaire')
+      }
+      console.error('❌ Erreur loadInventory:', err)
+      // En cas d'erreur, initialiser avec des listes vides pour éviter les erreurs de rendu
+      setProducts([])
+      setCatalogueAdmin([])
     } finally {
       setLoading(false)
     }

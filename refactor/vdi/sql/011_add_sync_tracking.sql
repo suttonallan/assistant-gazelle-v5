@@ -1,3 +1,4 @@
+ccepté une mise à jour de cursor
 -- ==========================================
 -- Migration 011: Sync Tracking & Work Completion
 -- Date: 2026-01-02

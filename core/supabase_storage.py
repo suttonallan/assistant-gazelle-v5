@@ -37,6 +37,17 @@ class SupabaseStorage:
 
         self.api_url = f"{self.supabase_url}/rest/v1"
         self.table = "vincent_dindy_piano_updates"
+        
+        # Créer un client Supabase pour compatibilité avec ConversationHandler
+        try:
+            from supabase import create_client
+            self.client = create_client(self.supabase_url, self.supabase_key)
+        except ImportError:
+            # Si le package supabase n'est pas installé, créer un client None
+            self.client = None
+            if not silent:
+                print("⚠️  Package 'supabase' non installé, self.client sera None")
+        
         if not silent:
             print(f"✅ SupabaseStorage initialisé: {self.supabase_url}")
     
@@ -334,11 +345,21 @@ class SupabaseStorage:
             if response.status_code == 200:
                 return response.json()
             else:
-                print(f"❌ Erreur Supabase {response.status_code}: {response.text}")
+                error_msg = f"❌ Erreur Supabase {response.status_code}: {response.text}"
+                print(error_msg)
+                # Si c'est une erreur critique (table n'existe pas, permissions, etc.), lever une exception
+                if response.status_code in [404, 403, 401]:
+                    raise ValueError(f"Erreur Supabase {response.status_code}: {response.text}")
                 return []
 
         except Exception as e:
-            print(f"⚠️ Erreur lors de la récupération depuis {table_name}: {e}")
+            error_msg = f"⚠️ Erreur lors de la récupération depuis {table_name}: {e}"
+            print(error_msg)
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            # Si c'est une erreur de connexion ou critique, lever l'exception
+            if isinstance(e, (ConnectionError, ValueError)):
+                raise
             return []
 
     def delete_data(

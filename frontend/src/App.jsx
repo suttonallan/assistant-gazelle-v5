@@ -78,7 +78,7 @@ function FestiveDecor({ show }) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire', 'tournees'
+  const [currentView, setCurrentView] = useState('inventaire') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire', 'tournees' - DÉFAUT: inventaire
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
@@ -187,35 +187,12 @@ function App() {
     setInstitutionsDropdownOpen(false)
   }, [effectiveRole])
 
-  // Initialiser la vue par défaut selon le rôle
-  // PROTECTION: Éviter les boucles de redirection
-  useEffect(() => {
-    console.log('[App.jsx] useEffect initialisation vue - effectiveRole:', effectiveRole, 'currentView:', currentView);
-    try {
-      if (effectiveRole === 'nick') {
-        // Nick démarre sur Inventaire (pas Dashboard)
-        if (currentView === 'dashboard') {
-          console.log('[App.jsx] Redirection Nick: dashboard -> inventaire');
-          setCurrentView('inventaire')
-        }
-      } else if (effectiveRole === 'louise') {
-        // Louise démarre sur Inventaire
-        if (currentView === 'dashboard' || !currentView) {
-          console.log('[App.jsx] Redirection Louise: dashboard/null -> inventaire');
-          setCurrentView('inventaire')
-        }
-      } else if (effectiveRole === 'jeanphilippe') {
-        // Jean-Philippe démarre sur Inventaire
-        if (currentView === 'dashboard' || !currentView) {
-          console.log('[App.jsx] Redirection Jean-Philippe: dashboard/null -> inventaire');
-          setCurrentView('inventaire')
-        }
-      }
-    } catch (e) {
-      console.error('[App.jsx] Erreur dans useEffect initialisation vue:', e);
-      alert(`Erreur dans initialisation vue: ${e.message}\n\nStack: ${e.stack}`);
-    }
-  }, [effectiveRole, currentView])
+  // DÉSACTIVÉ: Initialisation vue par défaut - causait des boucles de redirection
+  // La vue par défaut est maintenant 'inventaire' dans useState ci-dessus
+  // Les utilisateurs peuvent naviguer librement sans redirections automatiques
+  // useEffect(() => {
+  //   // DÉSACTIVÉ pour éviter les boucles de redirection
+  // }, [effectiveRole, currentView])
 
   // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
   // IMPORTANT: Préserver gazelleId même lors de l'impersonation (nécessaire pour Chat Technicien)

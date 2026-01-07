@@ -34,11 +34,13 @@ class ConversationHandler:
         self.storage = supabase_storage or SupabaseStorage()
         self.supabase: Client = self.storage.client
 
-        # OpenAI client
+        # OpenAI client (optionnel - le backend peut démarrer sans)
         api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment")
-        self.openai = OpenAI(api_key=api_key)
+        if api_key:
+            self.openai = OpenAI(api_key=api_key)
+        else:
+            self.openai = None
+            print("⚠️  OPENAI_API_KEY non trouvée - les fonctionnalités de chat IA seront désactivées")
 
     async def process_query(self, query: str, user_id: str, user_role: str = "technician") -> Dict[str, Any]:
         """

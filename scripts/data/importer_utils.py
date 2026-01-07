@@ -25,6 +25,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from dotenv import load_dotenv
 from core.supabase_storage import SupabaseStorage
+from modules.sync_gazelle.data_transformers import (
+    clean_price,
+    normalize_technician_name,
+    clean_client_name,
+    parse_flexible_date
+)
 
 load_dotenv()
 
@@ -176,16 +182,23 @@ class GazelleImporter:
                 if supabase_col.endswith('_id') and value:
                     # Garder les IDs comme string
                     mapped_row[supabase_col] = str(value)
+                elif ('nom' in supabase_col.lower() or 'name' in supabase_col.lower()) and entity_type == 'clients' and value:
+                    # Nettoyer les noms de clients (supprime ", son historique", etc.)
+                    mapped_row[supabase_col] = clean_client_name(value) or value
                 elif 'date' in supabase_col.lower() and value:
-                    # Parser les dates si besoin
-                    try:
-                        # Format attendu: ISO 8601 ou 'YYYY-MM-DD HH:MM:SS'
-                        if 'T' in value or ' ' in value:
+                    # Parser les dates de manière flexible (français/anglais, avec/sans année)
+                    parsed_date = parse_flexible_date(value)
+                    if parsed_date:
+                        mapped_row[supabase_col] = parsed_date
+                    else:
+                        # Fallback: essayer format ISO ou format simple
+                        try:
+                            if 'T' in value or ' ' in value:
+                                mapped_row[supabase_col] = value
+                            else:
+                                mapped_row[supabase_col] = f"{value}T00:00:00"
+                        except:
                             mapped_row[supabase_col] = value
-                        else:
-                            mapped_row[supabase_col] = f"{value}T00:00:00"
-                    except:
-                        mapped_row[supabase_col] = value
                 elif 'annee' in supabase_col and value:
                     # Années en integer
                     try:
@@ -193,11 +206,9 @@ class GazelleImporter:
                     except:
                         mapped_row[supabase_col] = None
                 elif 'montant' in supabase_col and value:
-                    # Montants en float
-                    try:
-                        mapped_row[supabase_col] = float(str(value).replace(',', '.'))
-                    except:
-                        mapped_row[supabase_col] = 0.0
+                    # Montants en float - utiliser clean_price pour sanitisation robuste
+                    cleaned_price = clean_price(value)
+                    mapped_row[supabase_col] = cleaned_price if cleaned_price is not None else 0.0
                 else:
                     mapped_row[supabase_col] = value
 

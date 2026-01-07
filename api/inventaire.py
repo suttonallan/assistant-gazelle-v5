@@ -133,6 +133,10 @@ async def get_catalogue(
         # Récupérer les produits (SANS filtre WHERE - tous les produits)
         produits = storage.get_data("produits_catalogue", filters=filters)
         
+        # Vérifier que produits est une liste (get_data peut retourner [] en cas d'erreur silencieuse)
+        if not isinstance(produits, list):
+            raise ValueError(f"get_data a retourné un type inattendu: {type(produits)}")
+        
         # Trier par display_order (source de vérité admin) avec COALESCE pour gérer les NULL
         # ORDER BY COALESCE(display_order, 999), nom
         # Les produits avec display_order NULL sont traités comme 999 (mis à la fin)
@@ -145,8 +149,21 @@ async def get_catalogue(
             "produits": produits,
             "count": len(produits)
         }
+    except HTTPException:
+        # Re-propager les HTTPException telles quelles
+        raise
+    except ValueError as e:
+        # Erreurs de validation (variables d'environnement, etc.)
+        import traceback
+        error_detail = f"Erreur de validation: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        print(f"❌ Erreur dans get_catalogue (ValueError): {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+        # Toutes les autres exceptions
+        import traceback
+        error_detail = f"Erreur inattendue: {str(e)}\n\nType: {type(e).__name__}\nTraceback:\n{traceback.format_exc()}"
+        print(f"❌ Erreur dans get_catalogue: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.post("/catalogue", response_model=Dict[str, Any])
