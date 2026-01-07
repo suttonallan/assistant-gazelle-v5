@@ -32,6 +32,7 @@ from api.admin import router as admin_router
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
 from api.chat_routes import router as chat_router
+from api.conversation_routes import router as conversation_router  # Nouvel assistant conversationnel
 from api.scheduler_routes import router as scheduler_router
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
 
@@ -161,6 +162,7 @@ app.include_router(admin_router)
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
+app.include_router(conversation_router)  # Assistant conversationnel intelligent
 app.include_router(scheduler_router)
 
 # Routes AVEC /api (pour production sans proxy)
@@ -175,6 +177,7 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(conversation_router, prefix="/api")  # Assistant conversationnel intelligent
 app.include_router(scheduler_router, prefix="/api")
 
 

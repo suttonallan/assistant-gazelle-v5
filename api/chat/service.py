@@ -8,8 +8,10 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, time
 import re
 import pytz
+import asyncio
 
 from core.supabase_storage import SupabaseStorage
+from modules.assistant import ConversationHandler
 from .schemas import (
     ChatRequest,
     ChatResponse,
@@ -43,6 +45,9 @@ class ChatService:
         else:
             # TODO V6: Implémenter V6DataProvider avec Reconciler
             raise NotImplementedError("V6 data provider not yet implemented")
+
+        # Conversation Handler pour questions avancées (Phase 1: Core handlers)
+        self.conversation_handler = ConversationHandler(supabase_storage=self.storage)
 
     def process_query(self, request: ChatRequest) -> ChatResponse:
         """
