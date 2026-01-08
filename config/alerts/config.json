@@ -1,0 +1,76 @@
+{
+  "_comment": "Configuration alertes humidité - Adapté du PC Windows vers Mac",
+  "_source": "c:\\Allan Python projets\\humidity_alerts\\config.json",
+  "_last_updated": "2026-01-07",
+
+  "monitoring": {
+    "days_back": 1,
+    "clients_filter": [],
+    "comment": "Si vide, scanne tous les clients. Sinon liste de noms de clients à surveiller."
+  },
+
+  "alert_keywords": {
+    "housse": [
+      "housse enlevée",
+      "housse retirée",
+      "housse enlevee",
+      "housse retiree",
+      "cover removed",
+      "cover off",
+      "sans housse",
+      "no cover",
+      "housse manquante",
+      "missing cover"
+    ],
+    "alimentation": [
+      "prise débranchée",
+      "prise debranchee",
+      "débranché",
+      "debranché",
+      "unplugged",
+      "power unplugged",
+      "pls débranché",
+      "pls debranché",
+      "pl débranché",
+      "pl debranché",
+      "player débranché",
+      "player debranché",
+      "déconnecté",
+      "deconnecte",
+      "disconnected",
+      "pas branché",
+      "pas branche",
+      "not plugged"
+    ]
+  },
+
+  "resolution_keywords": {
+    "housse": [
+      "replacée",
+      "replacee",
+      "remise",
+      "replaced",
+      "put back",
+      "repositionnée",
+      "repositionnee",
+      "repositioned",
+      "installée",
+      "installee",
+      "installed"
+    ],
+    "alimentation": [
+      "rebranché",
+      "rebranche",
+      "reconnecté",
+      "reconnecte",
+      "reconnected",
+      "plugged back",
+      "plugged in",
+      "replugé",
+      "repluge",
+      "a été branché",
+      "est branché maintenant",
+      "branché à nouveau"
+    ]
+  }
+}

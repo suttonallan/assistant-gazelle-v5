@@ -1,0 +1,74 @@
+name: 🌡️ Scan Alertes Humidité
+
+on:
+  schedule:
+    # 4 fois par jour: 8h, 12h, 16h, 20h (heure Montréal = UTC-5)
+    # UTC: 13h, 17h, 21h, 01h
+    - cron: '0 13 * * *'  # 8h AM Montréal
+    - cron: '0 17 * * *'  # 12h PM Montréal
+    - cron: '0 21 * * *'  # 4h PM Montréal
+    - cron: '0 1 * * *'   # 8h PM Montréal
+
+  workflow_dispatch:  # Permet de lancer manuellement
+
+jobs:
+  scan-humidity-alerts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install requests python-dotenv
+
+      - name: 🔍 Scan alertes humidité
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python3 -c "
+          from modules.alerts import HumidityScanner
+          import sys
+
+          print('🌡️ SCAN ALERTES HUMIDITÉ')
+          print('=' * 70)
+
+          try:
+              scanner = HumidityScanner()
+              # Scanner 200 entries (suffisant pour 6h de services)
+              stats = scanner.scan_timeline_entries(limit=200)
+
+              print('\n📊 RÉSULTATS:')
+              print(f'  Scannées: {stats[\"scanned\"]}')
+              print(f'  Skipped: {stats[\"skipped\"]}')
+              print(f'  Alertes: {stats[\"alerts_found\"]}')
+              print(f'  Notifications: {stats[\"notifications_sent\"]}')
+              print(f'  Erreurs: {stats[\"errors\"]}')
+
+              if stats['errors'] > 0:
+                  print(f'\n⚠️ {stats[\"errors\"]} erreur(s) détectée(s)')
+                  sys.exit(1)
+
+              print('\n✅ Scan terminé avec succès!')
+
+          except Exception as e:
+              print(f'\n❌ ERREUR: {e}')
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          "
+
+      - name: 📧 Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Le scan d'alertes humidité a échoué"
+          echo "Vérifier les logs GitHub Actions"
