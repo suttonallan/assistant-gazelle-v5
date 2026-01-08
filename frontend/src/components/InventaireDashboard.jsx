@@ -19,7 +19,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('inventaire') // 'inventaire', 'transactions', 'admin'
+  const [activeTab, setActiveTab] = useState('inventaire') // 'inventaire', 'transactions', 'configuration'
 
   // États pour interface technicien
   const [comment, setComment] = useState('')
@@ -44,7 +44,7 @@ const InventaireDashboard = ({ currentUser }) => {
   // États pour onglet Sync Gazelle
   const [gazelleProducts, setGazelleProducts] = useState([])
   const [duplicates, setDuplicates] = useState([])
-  const [syncTab, setSyncTab] = useState('duplicates') // 'duplicates', 'import', 'manage'
+  const [syncTab, setSyncTab] = useState('catalogue') // 'catalogue', 'duplicates', 'import', 'sync-logs'
   const [draggedDuplicate, setDraggedDuplicate] = useState(null)
   const [loadingGazelle, setLoadingGazelle] = useState(false)
   const [selectedGazelleIds, setSelectedGazelleIds] = useState(new Set())
@@ -52,6 +52,11 @@ const InventaireDashboard = ({ currentUser }) => {
   const [batchGazelleType, setBatchGazelleType] = useState('service')
   const [batchHasCommission, setBatchHasCommission] = useState(false)
   const [batchCommissionRate, setBatchCommissionRate] = useState(0)
+
+  // États pour Sync Logs
+  const [syncLogs, setSyncLogs] = useState([])
+  const [syncStats, setSyncStats] = useState(null)
+  const [loadingSyncLogs, setLoadingSyncLogs] = useState(false)
 
   // Détection mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -237,6 +242,31 @@ const InventaireDashboard = ({ currentUser }) => {
       setTransactions(data.transactions || [])
     } catch (err) {
       console.error('Erreur transactions:', err)
+    }
+  }
+
+  // Charger les logs de synchronisation
+  const loadSyncLogs = async () => {
+    try {
+      setLoadingSyncLogs(true)
+      const [logsRes, statsRes] = await Promise.all([
+        fetch(`${API_URL}/api/sync-logs/recent?limit=20`),
+        fetch(`${API_URL}/api/sync-logs/stats`)
+      ])
+
+      if (logsRes.ok) {
+        const logsData = await logsRes.json()
+        setSyncLogs(logsData.logs || [])
+      }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        setSyncStats(statsData)
+      }
+    } catch (err) {
+      console.error('Erreur chargement sync logs:', err)
+    } finally {
+      setLoadingSyncLogs(false)
     }
   }
 
@@ -518,30 +548,16 @@ const InventaireDashboard = ({ currentUser }) => {
             </button>
             <button
               onClick={() => {
-                setActiveTab('sync')
-              }}
-              className={`px-4 py-2 font-medium ${
-                activeTab === 'sync'
-                  ? 'border-b-2 border-blue-500 text-blue-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              🔄 Sync Gazelle
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('admin')
+                setActiveTab('configuration')
                 setCatalogueAdmin([...products])
-                setSelectedProducts(new Set())
-                setLastSelectedIndex(null)
               }}
               className={`px-4 py-2 font-medium ${
-                activeTab === 'admin'
+                activeTab === 'configuration'
                   ? 'border-b-2 border-blue-500 text-blue-600'
                   : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              Admin
+              ⚙️ Configuration
             </button>
           </>
         )}
@@ -701,8 +717,623 @@ const InventaireDashboard = ({ currentUser }) => {
 
 
       {/* ONGLET ADMIN (UI Admin V4) - Fusionné avec Types */}
-      {activeTab === 'admin' && currentUserIsAdmin && (
+
+      {/* ONGLET SYNC GAZELLE (Mapping et fusion) */}
+      {activeTab === 'configuration' && currentUserIsAdmin && (
         <div>
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">⚙️ Configuration Inventaire</h2>
+            <p className="text-sm text-gray-600">
+              Gestion du catalogue, synchronisation Gazelle et configuration des produits
+            </p>
+          </div>
+
+          {/* Sub-tabs */}
+          <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setSyncTab('catalogue')}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'catalogue'
+                  ? 'border-b-2 border-green-500 text-green-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📋 Catalogue
+            </button>
+            <button
+              onClick={() => setSyncTab('duplicates')}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'duplicates'
+                  ? 'border-b-2 border-purple-500 text-purple-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              🔍 Doublons Gazelle
+            </button>
+            <button
+              onClick={() => setSyncTab('import')}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'import'
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              📥 Import Gazelle
+            </button>
+            <button
+              onClick={() => {
+                setSyncTab('sync-logs')
+                loadSyncLogs()
+              }}
+              className={`px-4 py-2 font-medium ${
+                syncTab === 'sync-logs'
+                  ? 'border-b-2 border-orange-500 text-orange-600'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              🔄 Logs Sync
+            </button>
+          </div>
+
+          {/* Sub-tab: Doublons suggérés avec drag & drop */}
+          {syncTab === 'duplicates' && (
+            <div>
+              <div className="mb-4 flex gap-3 flex-wrap">
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoadingGazelle(true)
+                      // Utiliser le endpoint optimisé qui ne synchronise que si nécessaire
+                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/sync-gazelle-smart?force=false&max_age_hours=24`, { method: 'POST' })
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
+                      const data = await response.json()
+                      alert(
+                        `🔄 Synchronisation intelligente terminée!\n\n` +
+                        `✅ ${data.updated} produits mis à jour\n` +
+                        `⏭️ ${data.skipped || 0} produits déjà à jour (synchronisation non nécessaire)\n` +
+                        `📦 ${data.total} produits associés à Gazelle\n` +
+                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
+                      )
+                      await loadInventory()
+                    } catch (err) {
+                      alert('❌ Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-semibold shadow-md"
+                >
+                  {loadingGazelle ? '⏳ Synchronisation...' : '🔄 Sync auto (produits déjà associés)'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm('⚠️ Importer TOUS les items du Master Service List (MSL) ?\n\nCela va créer/mettre à jour tous les produits dans le catalogue local.\nNécessaire pour le calcul des commissions et la mise à jour automatique.')) {
+                      return
+                    }
+                    try {
+                      setLoadingGazelle(true)
+                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-all-msl`, { method: 'POST' })
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
+                      const data = await response.json()
+                      alert(
+                        `📥 Import MSL terminé!\n\n` +
+                        `✨ ${data.created} nouveaux produits créés\n` +
+                        `🔄 ${data.updated} produits mis à jour\n` +
+                        `📦 ${data.total_msl} items dans le MSL\n` +
+                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
+                      )
+                      await loadInventory()
+                    } catch (err) {
+                      alert('❌ Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold shadow-md"
+                >
+                  {loadingGazelle ? '⏳ Import...' : '📥 Importer tous les items MSL'}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setLoadingGazelle(true)
+                      const response = await fetch(`${API_URL}/api/inventaire/gazelle/find-duplicates?threshold=0.75`)
+                      
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || `Erreur ${response.status}`)
+                      }
+                      
+                      const data = await response.json()
+                      const duplicatesList = data.duplicates || []
+                      const count = data.count !== undefined ? data.count : duplicatesList.length
+                      const gazelleAvailable = data.gazelle_available || false
+                      
+                      setDuplicates(duplicatesList)
+                      
+                      let message = ''
+                      if (count > 0) {
+                        message = `✅ ${count} doublon${count > 1 ? 's' : ''} potentiel${count > 1 ? 's' : ''} détecté${count > 1 ? 's' : ''}`
+                        if (!gazelleAvailable) {
+                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
+                        }
+                      } else {
+                        message = 'ℹ️ Aucun doublon détecté avec un seuil de similarité de 75%'
+                        if (!gazelleAvailable) {
+                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
+                        }
+                      }
+                      alert(message)
+                    } catch (err) {
+                      alert('Erreur: ' + err.message)
+                    } finally {
+                      setLoadingGazelle(false)
+                    }
+                  }}
+                  disabled={loadingGazelle}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {loadingGazelle ? '⏳ Analyse...' : '🔍 Détecter nouveaux doublons'}
+                </button>
+                <span className="text-sm text-gray-600 self-center">
+                  {duplicates.length > 0 && `${duplicates.length} doublons trouvés`}
+                </span>
+              </div>
+
+              {duplicates.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Cliquez sur "Détecter les doublons" pour trouver les produits similaires entre votre catalogue et Gazelle
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-blue-800">
+                      💡 <strong>Glissez-déposez</strong> un produit Gazelle (violet) sur un produit local (bleu) pour les fusionner
+                    </p>
+                  </div>
+
+                  {duplicates.map((dup, idx) => {
+                    // Vérifier que c'est bien un doublon Gazelle (pas local-local)
+                    if (!dup.gazelle_id) return null
+
+                    return (
+                    <div key={idx} className="border border-gray-300 rounded-lg p-4 bg-white">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Produit LOCAL (drop zone) */}
+                        <div
+                          className="border-2 border-blue-300 bg-blue-50 rounded p-3 relative"
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={async (e) => {
+                            e.preventDefault()
+                            if (draggedDuplicate && draggedDuplicate.gazelle_id) {
+                              try {
+                                const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    code_produit: dup.local_code,
+                                    gazelle_product_id: draggedDuplicate.gazelle_id,
+                                    update_prices: true
+                                  })
+                                })
+                                if (!response.ok) throw new Error('Erreur association')
+
+                                // Pas d'alert, juste supprimer de la liste
+                                setDuplicates(duplicates.filter((_, i) => i !== idx))
+                                await loadInventory()
+                              } catch (err) {
+                                alert('❌ Erreur: ' + err.message)
+                              }
+                              setDraggedDuplicate(null)
+                            }
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded">LOCAL</span>
+                            <span className="font-mono text-xs text-gray-600">{dup.local_code}</span>
+                          </div>
+                          <p className="font-semibold text-gray-800 mb-1">{dup.local_nom}</p>
+                          <p className="text-xs text-gray-600">Prix: {(dup.local_price || 0).toFixed(2)}$</p>
+                        </div>
+
+                        {/* Produit GAZELLE (draggable) */}
+                        <div
+                          draggable
+                          onDragStart={() => setDraggedDuplicate(dup)}
+                          onDragEnd={() => setDraggedDuplicate(null)}
+                          className="border-2 border-purple-300 bg-purple-50 rounded p-3 cursor-move hover:shadow-lg transition-shadow"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded">GAZELLE</span>
+                              <span className="text-xs font-bold text-green-600">{(dup.similarity || 0).toFixed(1)}%</span>
+                            </div>
+                          </div>
+                          <p className="font-semibold text-gray-800 mb-1">{dup.gazelle_nom || 'N/A'}</p>
+                          <p className="text-xs text-gray-600">Prix: {(dup.gazelle_price || 0).toFixed(2)}$</p>
+                          <p className="text-xs text-gray-600">Diff: {(dup.price_diff || 0).toFixed(2)}$</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  code_produit: dup.local_code,
+                                  gazelle_product_id: dup.gazelle_id,
+                                  update_prices: true
+                                })
+                              })
+                              if (!response.ok) throw new Error('Erreur')
+                              // Pas d'alert, juste supprimer de la liste
+                              setDuplicates(duplicates.filter((_, i) => i !== idx))
+                              await loadInventory()
+                            } catch (err) {
+                              alert('❌ Erreur: ' + err.message)
+                            }
+                          }}
+                          className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          ✓ Associer
+                        </button>
+                        <button
+                          onClick={() => setDuplicates(duplicates.filter((_, i) => i !== idx))}
+                          className="px-3 py-1 text-sm bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+                        >
+                          ✕ Ignorer
+                        </button>
+                      </div>
+                    </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sub-tab: Importer depuis Gazelle */}
+          {syncTab === 'import' && (
+            <div>
+              <button
+                onClick={async () => {
+                  try {
+                    setLoadingGazelle(true)
+                    const response = await fetch(`${API_URL}/api/inventaire/gazelle/products`)
+                    const data = await response.json()
+                    setGazelleProducts(data.products || [])
+                    alert(`${data.count} produits chargés`)
+                  } catch (err) {
+                    alert('Erreur: ' + err.message)
+                  } finally {
+                    setLoadingGazelle(false)
+                  }
+                }}
+                disabled={loadingGazelle}
+                className="mb-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+              >
+                {loadingGazelle ? '⏳ Chargement...' : '📥 Charger Master Service Items'}
+              </button>
+
+              {gazelleProducts.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Chargez les Master Service Items pour voir tous les produits Gazelle
+                </div>
+              ) : (
+                <div>
+                  <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-sm text-blue-800">
+                    💡 <strong>Import automatique</strong> : L'ID Gazelle sera utilisé comme code produit (masqué dans l'interface)
+                  </div>
+
+                  {/* Configuration batch */}
+                  <div className="bg-gray-50 border border-gray-300 rounded p-4 mb-4">
+                    <div className="flex items-center gap-4 mb-3">
+                      <span className="font-semibold text-sm">Configuration batch ({selectedGazelleIds.size} sélectionnés)</span>
+                      <button
+                        onClick={() => {
+                          if (selectedGazelleIds.size === gazelleProducts.length) {
+                            setSelectedGazelleIds(new Set())
+                          } else {
+                            setSelectedGazelleIds(new Set(gazelleProducts.map(gp => gp.id)))
+                          }
+                        }}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        {selectedGazelleIds.size === gazelleProducts.length ? '❌ Tout désélectionner' : '✅ Tout sélectionner'}
+                      </button>
+                    </div>
+
+                    <div className="flex gap-3 flex-wrap items-center">
+                      <select
+                        value={batchCategorie}
+                        onChange={(e) => setBatchCategorie(e.target.value)}
+                        className="px-3 py-2 border rounded"
+                      >
+                        <option value="Services">Services</option>
+                        <option value="Pièces">Pièces</option>
+                        <option value="Fournitures">Fournitures</option>
+                        <option value="Accessoires">Accessoires</option>
+                      </select>
+
+                      <select
+                        value={batchGazelleType}
+                        onChange={(e) => setBatchGazelleType(e.target.value)}
+                        className="px-3 py-2 border rounded"
+                      >
+                        <option value="service">Service (pas d'inventaire)</option>
+                        <option value="produit">Produit (avec inventaire)</option>
+                        <option value="fourniture">Fourniture (inventaire, pas commission)</option>
+                      </select>
+
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={batchHasCommission}
+                          onChange={(e) => setBatchHasCommission(e.target.checked)}
+                        />
+                        <span className="text-sm">Commission</span>
+                      </label>
+
+                      <input
+                        type="number"
+                        value={batchCommissionRate}
+                        onChange={(e) => setBatchCommissionRate(parseFloat(e.target.value) || 0)}
+                        placeholder="Taux %"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        className="w-24 px-3 py-2 border rounded"
+                      />
+
+                      <button
+                        onClick={async () => {
+                          if (selectedGazelleIds.size === 0) {
+                            alert('⚠️ Aucun produit sélectionné')
+                            return
+                          }
+
+                          const selectedProducts = gazelleProducts.filter(gp => selectedGazelleIds.has(gp.id))
+                          let imported = 0
+                          let errors = []
+
+                          for (const gp of selectedProducts) {
+                            try {
+                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-gazelle`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  gazelle_product_id: gp.id,
+                                  has_commission: batchHasCommission,
+                                  commission_rate: batchCommissionRate,
+                                  categorie: batchCategorie,
+                                  type_produit: batchGazelleType
+                                })
+                              })
+
+                              if (response.ok) {
+                                imported++
+                              } else {
+                                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                                errors.push(`${gp.name_fr}: ${errorData.detail}`)
+                              }
+                            } catch (err) {
+                              errors.push(`${gp.name_fr}: ${err.message}`)
+                            }
+                          }
+
+                          // Retirer les produits importés de la liste
+                          setGazelleProducts(gazelleProducts.filter(gp => !selectedGazelleIds.has(gp.id)))
+                          setSelectedGazelleIds(new Set())
+
+                          alert(
+                            `✅ Import terminé!\n\n` +
+                            `${imported} produits importés\n` +
+                            (errors.length > 0 ? `\n⚠️ ${errors.length} erreurs:\n${errors.slice(0, 5).join('\n')}` : '')
+                          )
+
+                          await loadInventory()
+                        }}
+                        disabled={selectedGazelleIds.size === 0}
+                        className="ml-auto px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-semibold disabled:opacity-50"
+                      >
+                        ➕ Importer sélection ({selectedGazelleIds.size})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Liste des produits */}
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                    {gazelleProducts.map((gp, idx) => (
+                      <div
+                        key={idx}
+                        className={`border rounded p-3 ${selectedGazelleIds.has(gp.id) ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedGazelleIds.has(gp.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedGazelleIds)
+                              if (e.target.checked) {
+                                newSet.add(gp.id)
+                              } else {
+                                newSet.delete(gp.id)
+                              }
+                              setSelectedGazelleIds(newSet)
+                            }}
+                            className="mt-1"
+                          />
+
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900">{gp.name_fr}</p>
+                            {gp.description_fr && <p className="text-sm text-gray-600 mt-1">{gp.description_fr}</p>}
+                            <div className="flex gap-3 mt-2 text-xs">
+                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded">Prix: {(parseFloat(gp.amount || 0) / 100).toFixed(2)}$</span>
+                              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded">Groupe: {gp.group_name_fr || 'N/A'}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setGazelleProducts(gazelleProducts.filter((_, i) => i !== idx))
+                              const newSet = new Set(selectedGazelleIds)
+                              newSet.delete(gp.id)
+                              setSelectedGazelleIds(newSet)
+                            }}
+                            className="px-2 py-1 text-gray-400 hover:text-red-600 text-lg"
+                            title="Masquer de la liste"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sub-tab: Logs de synchronisation */}
+          {syncTab === 'sync-logs' && (
+            <div>
+              <div className="mb-4 flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-800">📊 Logs de synchronisation GitHub Actions</h3>
+                <button
+                  onClick={loadSyncLogs}
+                  disabled={loadingSyncLogs}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loadingSyncLogs ? '⏳ Chargement...' : '🔄 Rafraîchir'}
+                </button>
+              </div>
+
+              {/* Statistiques dernières 24h */}
+              {syncStats && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <div className="text-sm text-gray-600 mb-1">Total synchronisations</div>
+                    <div className="text-2xl font-bold text-gray-900">{syncStats.total_syncs}</div>
+                    <div className="text-xs text-gray-500 mt-1">{syncStats.period_hours}h</div>
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="text-sm text-green-700 mb-1">✅ Succès</div>
+                    <div className="text-2xl font-bold text-green-900">{syncStats.success_count}</div>
+                    <div className="text-xs text-green-600 mt-1">
+                      {syncStats.total_syncs > 0 ? Math.round((syncStats.success_count / syncStats.total_syncs) * 100) : 0}%
+                    </div>
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="text-sm text-red-700 mb-1">❌ Erreurs</div>
+                    <div className="text-2xl font-bold text-red-900">{syncStats.error_count}</div>
+                    <div className="text-xs text-red-600 mt-1">
+                      {syncStats.total_syncs > 0 ? Math.round((syncStats.error_count / syncStats.total_syncs) * 100) : 0}%
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="text-sm text-blue-700 mb-1">⏱️ Temps moyen</div>
+                    <div className="text-2xl font-bold text-blue-900">{syncStats.avg_execution_time}s</div>
+                    <div className="text-xs text-blue-600 mt-1">par exécution</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tableau des logs */}
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Script</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durée</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Erreur</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {syncLogs.map((log) => {
+                      const tablesUpdated = log.tables_updated ? (typeof log.tables_updated === 'string' ? JSON.parse(log.tables_updated) : log.tables_updated) : {}
+
+                      return (
+                        <tr key={log.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {new Date(log.created_at).toLocaleString('fr-CA', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{log.script_name}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              log.status === 'success' ? 'bg-green-100 text-green-700' :
+                              log.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {log.status === 'success' ? '✅ Succès' :
+                               log.status === 'warning' ? '⚠️ Avertissement' :
+                               '❌ Erreur'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {Object.keys(tablesUpdated).length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {Object.entries(tablesUpdated).map(([table, count]) => (
+                                  <span key={table} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                                    {table}: {count}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {log.execution_time_seconds ? `${log.execution_time_seconds}s` : '-'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {log.error_message || '-'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {syncLogs.length === 0 && (
+                  <div className="p-8 text-center text-gray-500">
+                    {loadingSyncLogs ? 'Chargement...' : 'Aucun log de synchronisation disponible'}
+                  </div>
+                )}
+              </div>
+
+              {/* Info box */}
+              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  💡 <strong>Info:</strong> Ces logs sont générés automatiquement par les workflows GitHub Actions
+                  qui synchronisent les données de Gazelle vers Supabase. Chaque exécution est enregistrée avec son statut,
+                  les tables mises à jour, et le temps d'exécution.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Sub-tab: Catalogue (ancien Admin) */}
+          {syncTab === 'catalogue' && (
+            <div>
           {/* Barre d'actions batch (Types et Commissions) */}
           {selectedProducts.size > 0 && (
             <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
@@ -778,6 +1409,82 @@ const InventaireDashboard = ({ currentUser }) => {
                   }`}
                 >
                   Appliquer à {selectedProducts.size} produit{selectedProducts.size > 1 ? 's' : ''}
+                </button>
+
+                {/* Bouton Fusionner (exactement 2 produits) */}
+                <button
+                  onClick={async () => {
+                    if (selectedProducts.size !== 2) {
+                      alert('⚠️ Vous devez sélectionner exactement 2 produits à fusionner')
+                      return
+                    }
+
+                    const selectedCodes = Array.from(selectedProducts)
+                    const product1 = catalogueAdmin.find(p => p.code_produit === selectedCodes[0])
+                    const product2 = catalogueAdmin.find(p => p.code_produit === selectedCodes[1])
+
+                    if (!product1 || !product2) {
+                      alert('❌ Erreur: Produits non trouvés')
+                      return
+                    }
+
+                    // Demander quel produit garder
+                    const choice = window.confirm(
+                      `🔀 Fusionner les produits:\n\n` +
+                      `[1] ${product1.name} (${product1.code_produit})\n` +
+                      `[2] ${product2.name} (${product2.code_produit})\n\n` +
+                      `Cliquez OK pour GARDER le produit [1] et transférer les quantités de [2]\n` +
+                      `Cliquez Annuler pour GARDER le produit [2] et transférer les quantités de [1]`
+                    )
+
+                    const keepCode = choice ? product1.code_produit : product2.code_produit
+                    const mergeCode = choice ? product2.code_produit : product1.code_produit
+
+                    if (!window.confirm(
+                      `⚠️ CONFIRMATION FINALE:\n\n` +
+                      `Produit conservé: ${catalogueAdmin.find(p => p.code_produit === keepCode)?.name}\n` +
+                      `Produit supprimé: ${catalogueAdmin.find(p => p.code_produit === mergeCode)?.name}\n\n` +
+                      `Les quantités de tous les techniciens seront transférées.\n` +
+                      `Cette action est IRRÉVERSIBLE.\n\n` +
+                      `Continuer?`
+                    )) {
+                      return
+                    }
+
+                    try {
+                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/merge`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          keep_code: keepCode,
+                          merge_code: mergeCode
+                        })
+                      })
+
+                      if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+                        throw new Error(errorData.detail || 'Erreur fusion')
+                      }
+
+                      const result = await response.json()
+                      alert(`✅ ${result.message}\n\nQuantités transférées pour ${result.technicians_updated || 0} technicien(s)`)
+
+                      await loadInventory()
+                      setSelectedProducts(new Set())
+                      setLastSelectedIndex(null)
+                    } catch (err) {
+                      alert('❌ Erreur: ' + err.message)
+                    }
+                  }}
+                  disabled={selectedProducts.size !== 2}
+                  className={`px-4 py-2 rounded font-medium ${
+                    selectedProducts.size === 2
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  title="Fusionner 2 produits (transférer quantités et supprimer un produit)"
+                >
+                  🔀 Fusionner {selectedProducts.size === 2 ? '(2 sélectionnés)' : `(${selectedProducts.size}/2)`}
                 </button>
               </div>
             </div>
@@ -1221,470 +1928,6 @@ const InventaireDashboard = ({ currentUser }) => {
             )}
           </div>
         </div>
-      )}
-
-      {/* ONGLET SYNC GAZELLE (Mapping et fusion) */}
-      {activeTab === 'sync' && currentUserIsAdmin && (
-        <div>
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">🔄 Synchronisation Gazelle</h2>
-            <p className="text-sm text-gray-600">
-              Associez vos produits locaux avec Gazelle Master Service Items et synchronisez les prix
-            </p>
-          </div>
-
-          {/* Sub-tabs */}
-          <div className="flex gap-2 mb-6 border-b border-gray-200">
-            <button
-              onClick={() => setSyncTab('duplicates')}
-              className={`px-4 py-2 font-medium ${
-                syncTab === 'duplicates'
-                  ? 'border-b-2 border-purple-500 text-purple-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              🔍 Doublons suggérés
-            </button>
-            <button
-              onClick={() => setSyncTab('import')}
-              className={`px-4 py-2 font-medium ${
-                syncTab === 'import'
-                  ? 'border-b-2 border-purple-500 text-purple-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              📥 Catalogue Gazelle
-            </button>
-          </div>
-
-          {/* Sub-tab: Doublons suggérés avec drag & drop */}
-          {syncTab === 'duplicates' && (
-            <div>
-              <div className="mb-4 flex gap-3 flex-wrap">
-                <button
-                  onClick={async () => {
-                    try {
-                      setLoadingGazelle(true)
-                      // Utiliser le endpoint optimisé qui ne synchronise que si nécessaire
-                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/sync-gazelle-smart?force=false&max_age_hours=24`, { method: 'POST' })
-                      if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
-                        throw new Error(errorData.detail || `Erreur ${response.status}`)
-                      }
-                      const data = await response.json()
-                      alert(
-                        `🔄 Synchronisation intelligente terminée!\n\n` +
-                        `✅ ${data.updated} produits mis à jour\n` +
-                        `⏭️ ${data.skipped || 0} produits déjà à jour (synchronisation non nécessaire)\n` +
-                        `📦 ${data.total} produits associés à Gazelle\n` +
-                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
-                      )
-                      await loadInventory()
-                    } catch (err) {
-                      alert('❌ Erreur: ' + err.message)
-                    } finally {
-                      setLoadingGazelle(false)
-                    }
-                  }}
-                  disabled={loadingGazelle}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-semibold shadow-md"
-                >
-                  {loadingGazelle ? '⏳ Synchronisation...' : '🔄 Sync auto (produits déjà associés)'}
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!confirm('⚠️ Importer TOUS les items du Master Service List (MSL) ?\n\nCela va créer/mettre à jour tous les produits dans le catalogue local.\nNécessaire pour le calcul des commissions et la mise à jour automatique.')) {
-                      return
-                    }
-                    try {
-                      setLoadingGazelle(true)
-                      const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-all-msl`, { method: 'POST' })
-                      if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
-                        throw new Error(errorData.detail || `Erreur ${response.status}`)
-                      }
-                      const data = await response.json()
-                      alert(
-                        `📥 Import MSL terminé!\n\n` +
-                        `✨ ${data.created} nouveaux produits créés\n` +
-                        `🔄 ${data.updated} produits mis à jour\n` +
-                        `📦 ${data.total_msl} items dans le MSL\n` +
-                        (data.errors ? `\n⚠️ ${data.errors.length} erreurs` : '')
-                      )
-                      await loadInventory()
-                    } catch (err) {
-                      alert('❌ Erreur: ' + err.message)
-                    } finally {
-                      setLoadingGazelle(false)
-                    }
-                  }}
-                  disabled={loadingGazelle}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold shadow-md"
-                >
-                  {loadingGazelle ? '⏳ Import...' : '📥 Importer tous les items MSL'}
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      setLoadingGazelle(true)
-                      const response = await fetch(`${API_URL}/api/inventaire/gazelle/find-duplicates?threshold=0.75`)
-                      
-                      if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
-                        throw new Error(errorData.detail || `Erreur ${response.status}`)
-                      }
-                      
-                      const data = await response.json()
-                      const duplicatesList = data.duplicates || []
-                      const count = data.count !== undefined ? data.count : duplicatesList.length
-                      const gazelleAvailable = data.gazelle_available || false
-                      
-                      setDuplicates(duplicatesList)
-                      
-                      let message = ''
-                      if (count > 0) {
-                        message = `✅ ${count} doublon${count > 1 ? 's' : ''} potentiel${count > 1 ? 's' : ''} détecté${count > 1 ? 's' : ''}`
-                        if (!gazelleAvailable) {
-                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
-                        }
-                      } else {
-                        message = 'ℹ️ Aucun doublon détecté avec un seuil de similarité de 75%'
-                        if (!gazelleAvailable) {
-                          message += '\n(Comparaison uniquement dans le catalogue local - Gazelle non configuré)'
-                        }
-                      }
-                      alert(message)
-                    } catch (err) {
-                      alert('Erreur: ' + err.message)
-                    } finally {
-                      setLoadingGazelle(false)
-                    }
-                  }}
-                  disabled={loadingGazelle}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                >
-                  {loadingGazelle ? '⏳ Analyse...' : '🔍 Détecter nouveaux doublons'}
-                </button>
-                <span className="text-sm text-gray-600 self-center">
-                  {duplicates.length > 0 && `${duplicates.length} doublons trouvés`}
-                </span>
-              </div>
-
-              {duplicates.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  Cliquez sur "Détecter les doublons" pour trouver les produits similaires entre votre catalogue et Gazelle
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                    <p className="text-sm text-blue-800">
-                      💡 <strong>Glissez-déposez</strong> un produit Gazelle (violet) sur un produit local (bleu) pour les fusionner
-                    </p>
-                  </div>
-
-                  {duplicates.map((dup, idx) => {
-                    // Vérifier que c'est bien un doublon Gazelle (pas local-local)
-                    if (!dup.gazelle_id) return null
-
-                    return (
-                    <div key={idx} className="border border-gray-300 rounded-lg p-4 bg-white">
-                      <div className="grid grid-cols-2 gap-4">
-                        {/* Produit LOCAL (drop zone) */}
-                        <div
-                          className="border-2 border-blue-300 bg-blue-50 rounded p-3 relative"
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={async (e) => {
-                            e.preventDefault()
-                            if (draggedDuplicate && draggedDuplicate.gazelle_id) {
-                              try {
-                                const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    code_produit: dup.local_code,
-                                    gazelle_product_id: draggedDuplicate.gazelle_id,
-                                    update_prices: true
-                                  })
-                                })
-                                if (!response.ok) throw new Error('Erreur association')
-
-                                // Pas d'alert, juste supprimer de la liste
-                                setDuplicates(duplicates.filter((_, i) => i !== idx))
-                                await loadInventory()
-                              } catch (err) {
-                                alert('❌ Erreur: ' + err.message)
-                              }
-                              setDraggedDuplicate(null)
-                            }
-                          }}
-                        >
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="px-2 py-1 bg-blue-600 text-white text-xs font-bold rounded">LOCAL</span>
-                            <span className="font-mono text-xs text-gray-600">{dup.local_code}</span>
-                          </div>
-                          <p className="font-semibold text-gray-800 mb-1">{dup.local_nom}</p>
-                          <p className="text-xs text-gray-600">Prix: {(dup.local_price || 0).toFixed(2)}$</p>
-                        </div>
-
-                        {/* Produit GAZELLE (draggable) */}
-                        <div
-                          draggable
-                          onDragStart={() => setDraggedDuplicate(dup)}
-                          onDragEnd={() => setDraggedDuplicate(null)}
-                          className="border-2 border-purple-300 bg-purple-50 rounded p-3 cursor-move hover:shadow-lg transition-shadow"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="px-2 py-1 bg-purple-600 text-white text-xs font-bold rounded">GAZELLE</span>
-                              <span className="text-xs font-bold text-green-600">{(dup.similarity || 0).toFixed(1)}%</span>
-                            </div>
-                          </div>
-                          <p className="font-semibold text-gray-800 mb-1">{dup.gazelle_nom || 'N/A'}</p>
-                          <p className="text-xs text-gray-600">Prix: {(dup.gazelle_price || 0).toFixed(2)}$</p>
-                          <p className="text-xs text-gray-600">Diff: {(dup.price_diff || 0).toFixed(2)}$</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={async () => {
-                            try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/map-gazelle`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  code_produit: dup.local_code,
-                                  gazelle_product_id: dup.gazelle_id,
-                                  update_prices: true
-                                })
-                              })
-                              if (!response.ok) throw new Error('Erreur')
-                              // Pas d'alert, juste supprimer de la liste
-                              setDuplicates(duplicates.filter((_, i) => i !== idx))
-                              await loadInventory()
-                            } catch (err) {
-                              alert('❌ Erreur: ' + err.message)
-                            }
-                          }}
-                          className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-                        >
-                          ✓ Associer
-                        </button>
-                        <button
-                          onClick={() => setDuplicates(duplicates.filter((_, i) => i !== idx))}
-                          className="px-3 py-1 text-sm bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
-                        >
-                          ✕ Ignorer
-                        </button>
-                      </div>
-                    </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Sub-tab: Importer depuis Gazelle */}
-          {syncTab === 'import' && (
-            <div>
-              <button
-                onClick={async () => {
-                  try {
-                    setLoadingGazelle(true)
-                    const response = await fetch(`${API_URL}/api/inventaire/gazelle/products`)
-                    const data = await response.json()
-                    setGazelleProducts(data.products || [])
-                    alert(`${data.count} produits chargés`)
-                  } catch (err) {
-                    alert('Erreur: ' + err.message)
-                  } finally {
-                    setLoadingGazelle(false)
-                  }
-                }}
-                disabled={loadingGazelle}
-                className="mb-4 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
-              >
-                {loadingGazelle ? '⏳ Chargement...' : '📥 Charger Master Service Items'}
-              </button>
-
-              {gazelleProducts.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  Chargez les Master Service Items pour voir tous les produits Gazelle
-                </div>
-              ) : (
-                <div>
-                  <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-sm text-blue-800">
-                    💡 <strong>Import automatique</strong> : L'ID Gazelle sera utilisé comme code produit (masqué dans l'interface)
-                  </div>
-
-                  {/* Configuration batch */}
-                  <div className="bg-gray-50 border border-gray-300 rounded p-4 mb-4">
-                    <div className="flex items-center gap-4 mb-3">
-                      <span className="font-semibold text-sm">Configuration batch ({selectedGazelleIds.size} sélectionnés)</span>
-                      <button
-                        onClick={() => {
-                          if (selectedGazelleIds.size === gazelleProducts.length) {
-                            setSelectedGazelleIds(new Set())
-                          } else {
-                            setSelectedGazelleIds(new Set(gazelleProducts.map(gp => gp.id)))
-                          }
-                        }}
-                        className="text-sm text-blue-600 hover:underline"
-                      >
-                        {selectedGazelleIds.size === gazelleProducts.length ? '❌ Tout désélectionner' : '✅ Tout sélectionner'}
-                      </button>
-                    </div>
-
-                    <div className="flex gap-3 flex-wrap items-center">
-                      <select
-                        value={batchCategorie}
-                        onChange={(e) => setBatchCategorie(e.target.value)}
-                        className="px-3 py-2 border rounded"
-                      >
-                        <option value="Services">Services</option>
-                        <option value="Pièces">Pièces</option>
-                        <option value="Fournitures">Fournitures</option>
-                        <option value="Accessoires">Accessoires</option>
-                      </select>
-
-                      <select
-                        value={batchGazelleType}
-                        onChange={(e) => setBatchGazelleType(e.target.value)}
-                        className="px-3 py-2 border rounded"
-                      >
-                        <option value="service">Service (pas d'inventaire)</option>
-                        <option value="produit">Produit (avec inventaire)</option>
-                        <option value="fourniture">Fourniture (inventaire, pas commission)</option>
-                      </select>
-
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={batchHasCommission}
-                          onChange={(e) => setBatchHasCommission(e.target.checked)}
-                        />
-                        <span className="text-sm">Commission</span>
-                      </label>
-
-                      <input
-                        type="number"
-                        value={batchCommissionRate}
-                        onChange={(e) => setBatchCommissionRate(parseFloat(e.target.value) || 0)}
-                        placeholder="Taux %"
-                        min="0"
-                        max="100"
-                        step="0.1"
-                        className="w-24 px-3 py-2 border rounded"
-                      />
-
-                      <button
-                        onClick={async () => {
-                          if (selectedGazelleIds.size === 0) {
-                            alert('⚠️ Aucun produit sélectionné')
-                            return
-                          }
-
-                          const selectedProducts = gazelleProducts.filter(gp => selectedGazelleIds.has(gp.id))
-                          let imported = 0
-                          let errors = []
-
-                          for (const gp of selectedProducts) {
-                            try {
-                              const response = await fetch(`${API_URL}/api/inventaire/catalogue/import-gazelle`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                  gazelle_product_id: gp.id,
-                                  has_commission: batchHasCommission,
-                                  commission_rate: batchCommissionRate,
-                                  categorie: batchCategorie,
-                                  type_produit: batchGazelleType
-                                })
-                              })
-
-                              if (response.ok) {
-                                imported++
-                              } else {
-                                const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
-                                errors.push(`${gp.name_fr}: ${errorData.detail}`)
-                              }
-                            } catch (err) {
-                              errors.push(`${gp.name_fr}: ${err.message}`)
-                            }
-                          }
-
-                          // Retirer les produits importés de la liste
-                          setGazelleProducts(gazelleProducts.filter(gp => !selectedGazelleIds.has(gp.id)))
-                          setSelectedGazelleIds(new Set())
-
-                          alert(
-                            `✅ Import terminé!\n\n` +
-                            `${imported} produits importés\n` +
-                            (errors.length > 0 ? `\n⚠️ ${errors.length} erreurs:\n${errors.slice(0, 5).join('\n')}` : '')
-                          )
-
-                          await loadInventory()
-                        }}
-                        disabled={selectedGazelleIds.size === 0}
-                        className="ml-auto px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-semibold disabled:opacity-50"
-                      >
-                        ➕ Importer sélection ({selectedGazelleIds.size})
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Liste des produits */}
-                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                    {gazelleProducts.map((gp, idx) => (
-                      <div
-                        key={idx}
-                        className={`border rounded p-3 ${selectedGazelleIds.has(gp.id) ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedGazelleIds.has(gp.id)}
-                            onChange={(e) => {
-                              const newSet = new Set(selectedGazelleIds)
-                              if (e.target.checked) {
-                                newSet.add(gp.id)
-                              } else {
-                                newSet.delete(gp.id)
-                              }
-                              setSelectedGazelleIds(newSet)
-                            }}
-                            className="mt-1"
-                          />
-
-                          <div className="flex-1">
-                            <p className="font-semibold text-gray-900">{gp.name_fr}</p>
-                            {gp.description_fr && <p className="text-sm text-gray-600 mt-1">{gp.description_fr}</p>}
-                            <div className="flex gap-3 mt-2 text-xs">
-                              <span className="bg-green-100 text-green-800 px-2 py-1 rounded">Prix: {(parseFloat(gp.amount || 0) / 100).toFixed(2)}$</span>
-                              <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded">Groupe: {gp.group_name_fr || 'N/A'}</span>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              setGazelleProducts(gazelleProducts.filter((_, i) => i !== idx))
-                              const newSet = new Set(selectedGazelleIds)
-                              newSet.delete(gp.id)
-                              setSelectedGazelleIds(newSet)
-                            }}
-                            className="px-2 py-1 text-gray-400 hover:text-red-600 text-lg"
-                            title="Masquer de la liste"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           )}
         </div>
       )}
