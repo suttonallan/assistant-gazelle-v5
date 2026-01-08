@@ -20,6 +20,7 @@ build/
 token.json
 *credentials*.json
 SECRETS*.md
+config/TECHNICIAN_IDS.json
 
 # macOS
 .DS_Store
