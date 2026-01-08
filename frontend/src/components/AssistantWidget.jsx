@@ -16,8 +16,9 @@ import { API_URL } from '../utils/apiConfig'
  * - compact: Mode compact (false par défaut)
  * - onBackToDashboard: Callback pour revenir au dashboard (mobile)
  * - useChatIntelligent: Si true, utilise Chat Intelligent V6 au lieu de Assistant V4
+ * - onOpenMaJournee: Callback pour ouvrir "Ma Journée" au lieu du widget
  */
-export default function AssistantWidget({ currentUser, role = 'admin', compact = false, onBackToDashboard, useChatIntelligent = false }) {
+export default function AssistantWidget({ currentUser, role = 'admin', compact = false, onBackToDashboard, useChatIntelligent = false, onOpenMaJournee }) {
   // Détection mobile pour affichage plein écran
   const [isMobile, setIsMobile] = useState(false)
   
@@ -150,6 +151,12 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     return (
       <button
         onClick={() => {
+          // Si onOpenMaJournee est fourni, ouvrir "Ma Journée" au lieu du widget
+          if (onOpenMaJournee) {
+            onOpenMaJournee()
+            return
+          }
+          // Sinon, comportement par défaut: ouvrir le widget
           setIsOpen(true)
           if (messages.length === 0) {
             setMessages([{
@@ -159,7 +166,7 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
           }
         }}
         className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-4 shadow-lg transition-all hover:scale-110 z-50"
-        title="Ouvrir l'assistant"
+        title={onOpenMaJournee ? "Ouvrir Ma Journée" : "Ouvrir l'assistant"}
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />

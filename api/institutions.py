@@ -538,7 +538,7 @@ async def get_institution_activity(
         storage = get_supabase_storage()
         all_updates = storage.get_all_piano_updates()
 
-        # Récupérer les profils utilisateurs pour mapper updated_by (email) vers prenom
+        # Récupérer les profils utilisateurs pour mapper updated_by (email) vers first_name
         users_map = {}
         try:
             from supabase import create_client
@@ -546,23 +546,26 @@ async def get_institution_activity(
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             if supabase_url and supabase_key:
                 supabase = create_client(supabase_url, supabase_key)
-                users_response = supabase.table('users').select('email,first_name,prenom').execute()
-            if users_response.data:
-                for user in users_response.data:
-                    email = user.get('email', '').lower()
-                    # Utiliser prenom si disponible, sinon first_name
-                    name = user.get('prenom') or user.get('first_name') or ''
-                    if email and name:
-                        users_map[email] = name
+                users_response = supabase.table('users').select('email,first_name').execute()
+                if users_response.data:
+                    for user in users_response.data:
+                        email_raw = user.get('email')
+                        if email_raw:
+                            email = email_raw.lower()
+                            # Utiliser first_name
+                            name = user.get('first_name') or ''
+                            if email and name:
+                                users_map[email] = name
         except Exception as e:
             logging.warning(f"⚠️ Impossible de charger les profils utilisateurs: {e}")
         
         activities = []
         for piano_id, update_data in all_updates.items():
             if update_data.get('updated_by') and update_data.get('updated_at'):
-                updated_by_email = update_data.get('updated_by', '').lower()
-                # Mapper email vers prenom si disponible
-                technician_name = users_map.get(updated_by_email, updated_by_email)
+                updated_by_raw = update_data.get('updated_by', '')
+                updated_by_email = updated_by_raw.lower() if updated_by_raw else ''
+                # Mapper email vers first_name si disponible
+                technician_name = users_map.get(updated_by_email, updated_by_email) if updated_by_email else updated_by_raw
                 
                 activities.append({
                     "piano_id": piano_id,

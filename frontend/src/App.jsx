@@ -777,6 +777,7 @@ function App() {
         role={effectiveRole}
         onBackToDashboard={currentView === 'assistant' ? () => setCurrentView('dashboard') : undefined}
         useChatIntelligent={true} // NOUVEAU: Utiliser Chat Intelligent au lieu de v4
+        onOpenMaJournee={() => setCurrentView('chat')} // Ouvrir "Ma Journée" au clic sur le bouton bleu
       />
     </>
   )
