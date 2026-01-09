@@ -19,7 +19,7 @@ const InventaireDashboard = ({ currentUser }) => {
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('inventaire') // 'inventaire', 'transactions', 'configuration'
+  const [activeTab, setActiveTab] = useState('inventaire') // 'alertes', 'inventaire', 'transactions', 'configuration'
 
   // États pour interface technicien
   const [comment, setComment] = useState('')
@@ -44,7 +44,7 @@ const InventaireDashboard = ({ currentUser }) => {
   // États pour onglet Sync Gazelle
   const [gazelleProducts, setGazelleProducts] = useState([])
   const [duplicates, setDuplicates] = useState([])
-  const [syncTab, setSyncTab] = useState('catalogue') // 'catalogue', 'duplicates', 'import', 'sync-logs'
+  const [syncTab, setSyncTab] = useState('catalogue') // 'catalogue', 'duplicates', 'import'
   const [draggedDuplicate, setDraggedDuplicate] = useState(null)
   const [loadingGazelle, setLoadingGazelle] = useState(false)
   const [selectedGazelleIds, setSelectedGazelleIds] = useState(new Set())
@@ -52,11 +52,6 @@ const InventaireDashboard = ({ currentUser }) => {
   const [batchGazelleType, setBatchGazelleType] = useState('service')
   const [batchHasCommission, setBatchHasCommission] = useState(false)
   const [batchCommissionRate, setBatchCommissionRate] = useState(0)
-
-  // États pour Sync Logs
-  const [syncLogs, setSyncLogs] = useState([])
-  const [syncStats, setSyncStats] = useState(null)
-  const [loadingSyncLogs, setLoadingSyncLogs] = useState(false)
 
   // Détection mobile
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -245,31 +240,6 @@ const InventaireDashboard = ({ currentUser }) => {
     }
   }
 
-  // Charger les logs de synchronisation
-  const loadSyncLogs = async () => {
-    try {
-      setLoadingSyncLogs(true)
-      const [logsRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/sync-logs/recent?limit=20`),
-        fetch(`${API_URL}/api/sync-logs/stats`)
-      ])
-
-      if (logsRes.ok) {
-        const logsData = await logsRes.json()
-        setSyncLogs(logsData.logs || [])
-      }
-
-      if (statsRes.ok) {
-        const statsData = await statsRes.json()
-        setSyncStats(statsData)
-      }
-    } catch (err) {
-      console.error('Erreur chargement sync logs:', err)
-    } finally {
-      setLoadingSyncLogs(false)
-    }
-  }
-
   useEffect(() => {
     loadInventory()
     loadTransactions()
@@ -387,10 +357,28 @@ const InventaireDashboard = ({ currentUser }) => {
     })
   }
 
-  // Drag & Drop (admin)
+  // Drag & Drop (admin) - Support BATCH sélection multiple
   const handleDragStart = (e, product) => {
     setDraggedItem(product)
     e.dataTransfer.effectAllowed = 'move'
+
+    // Si le produit glissé est sélectionné, on glisse TOUS les produits sélectionnés
+    if (selectedProducts.has(product.code_produit) && selectedProducts.size > 1) {
+      // Créer une image de preview pour montrer le nombre d'items
+      const dragPreview = document.createElement('div')
+      dragPreview.style.position = 'absolute'
+      dragPreview.style.top = '-1000px'
+      dragPreview.style.padding = '8px 12px'
+      dragPreview.style.backgroundColor = '#3B82F6'
+      dragPreview.style.color = 'white'
+      dragPreview.style.borderRadius = '8px'
+      dragPreview.style.fontWeight = 'bold'
+      dragPreview.style.fontSize = '14px'
+      dragPreview.textContent = `📦 ${selectedProducts.size} produits`
+      document.body.appendChild(dragPreview)
+      e.dataTransfer.setDragImage(dragPreview, 0, 0)
+      setTimeout(() => document.body.removeChild(dragPreview), 0)
+    }
   }
 
   const handleDragOver = (e) => {
@@ -400,23 +388,47 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const handleDrop = (e, targetProduct) => {
     e.preventDefault()
-    if (!draggedItem || draggedItem.code_produit === targetProduct.code_produit) return
+    if (!draggedItem) return
 
-    const draggedIdx = catalogueAdmin.findIndex(p => p.code_produit === draggedItem.code_produit)
-    const targetIdx = catalogueAdmin.findIndex(p => p.code_produit === targetProduct.code_produit)
+    // Déterminer quels produits on déplace
+    const productsToMove = selectedProducts.has(draggedItem.code_produit) && selectedProducts.size > 1
+      ? Array.from(selectedProducts) // Batch: tous les sélectionnés
+      : [draggedItem.code_produit]    // Single: juste celui glissé
 
-    if (draggedIdx === -1 || targetIdx === -1) return
+    // Si on drop sur un produit sélectionné, ne rien faire
+    if (productsToMove.includes(targetProduct.code_produit)) {
+      setDraggedItem(null)
+      return
+    }
 
     const newCatalogue = [...catalogueAdmin]
-    const [removed] = newCatalogue.splice(draggedIdx, 1)
-    newCatalogue.splice(targetIdx, 0, removed)
+    const targetIdx = newCatalogue.findIndex(p => p.code_produit === targetProduct.code_produit)
+
+    if (targetIdx === -1) {
+      setDraggedItem(null)
+      return
+    }
+
+    // Extraire les produits à déplacer (en gardant leur ordre relatif)
+    const itemsToMove = newCatalogue.filter(p => productsToMove.includes(p.code_produit))
+    const remainingItems = newCatalogue.filter(p => !productsToMove.includes(p.code_produit))
+
+    // Trouver la nouvelle position de target dans remainingItems
+    const newTargetIdx = remainingItems.findIndex(p => p.code_produit === targetProduct.code_produit)
+
+    // Insérer les items déplacés à la position du target
+    const finalCatalogue = [
+      ...remainingItems.slice(0, newTargetIdx),
+      ...itemsToMove,
+      ...remainingItems.slice(newTargetIdx)
+    ]
 
     // Recalculer display_order
-    newCatalogue.forEach((p, idx) => {
+    finalCatalogue.forEach((p, idx) => {
       p.display_order = idx + 1
     })
 
-    setCatalogueAdmin(newCatalogue)
+    setCatalogueAdmin(finalCatalogue)
     setHasChanges(true)
     setDraggedItem(null)
   }
@@ -504,13 +516,30 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const currentUsername = getUsernameFromEmail(currentUser?.email)
 
+  // Réorganiser les techniciens pour mettre le technicien connecté en premier (mobile-first)
+  const getOrderedTechnicians = () => {
+    if (!currentUsername) return TECHNICIENS
+
+    const currentTech = TECHNICIENS.find(t => t.username === currentUsername)
+    if (!currentTech) return TECHNICIENS
+
+    // Mettre le technicien connecté en premier, puis les autres dans l'ordre original
+    return [
+      currentTech,
+      ...TECHNICIENS.filter(t => t.username !== currentUsername)
+    ]
+  }
+
+  const orderedTechnicians = getOrderedTechnicians()
+
   // Debug: afficher le mapping
   console.log('🟢 DEBUG InventaireDashboard - Colonne Verte:', {
     userEmail: currentUser?.email,
     userName: currentUser?.name,
     mappedUsername: currentUsername,
     isAdmin: currentUserIsAdmin,
-    availableUsernames: TECHNICIENS.map(t => t.username)
+    availableUsernames: TECHNICIENS.map(t => t.username),
+    orderedTechnicians: orderedTechnicians.map(t => t.name)
   })
 
   return (
@@ -597,7 +626,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   <th className={`${isMobile ? 'px-2 py-2' : 'px-4 py-3'} text-left text-xs font-medium text-gray-500 uppercase border-b sticky left-0 bg-gray-50 z-20`}>
                     Produit
                   </th>
-                  {TECHNICIENS.map(tech => {
+                  {orderedTechnicians.map(tech => {
                     // Filtre mobile: affiche uniquement colonne utilisateur
                     if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
                       return null
@@ -631,7 +660,7 @@ const InventaireDashboard = ({ currentUser }) => {
                           </div>
                         </td>
 
-                        {TECHNICIENS.map(tech => {
+                        {orderedTechnicians.map(tech => {
                           // Filtre mobile
                           if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
                             return null
@@ -685,12 +714,22 @@ const InventaireDashboard = ({ currentUser }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {transactions.map((tx) => (
+              {transactions.map((tx) => {
+                // Trouver le nom du produit depuis la liste products
+                const product = products.find(p => p.code_produit === tx.code_produit)
+                const productName = product?.name || tx.code_produit
+
+                return (
                 <tr key={tx.id}>
                   <td className="px-4 py-3 text-sm text-gray-700">
                     {new Date(tx.created_at).toLocaleDateString('fr-CA')}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{tx.code_produit}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                    {productName}
+                    {product && (
+                      <div className="text-xs text-gray-500 mt-0.5">{tx.code_produit}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-700">{tx.technicien}</td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`px-2 py-1 rounded text-xs ${
@@ -706,7 +745,8 @@ const InventaireDashboard = ({ currentUser }) => {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">{tx.motif || '-'}</td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
           {transactions.length === 0 && (
@@ -759,19 +799,6 @@ const InventaireDashboard = ({ currentUser }) => {
               }`}
             >
               📥 Import Gazelle
-            </button>
-            <button
-              onClick={() => {
-                setSyncTab('sync-logs')
-                loadSyncLogs()
-              }}
-              className={`px-4 py-2 font-medium ${
-                syncTab === 'sync-logs'
-                  ? 'border-b-2 border-orange-500 text-orange-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              🔄 Logs Sync
             </button>
           </div>
 
@@ -1205,138 +1232,34 @@ const InventaireDashboard = ({ currentUser }) => {
             </div>
           )}
 
-          {/* Sub-tab: Logs de synchronisation */}
-          {syncTab === 'sync-logs' && (
-            <div>
-              <div className="mb-4 flex justify-between items-center">
-                <h3 className="text-lg font-semibold text-gray-800">📊 Logs de synchronisation GitHub Actions</h3>
-                <button
-                  onClick={loadSyncLogs}
-                  disabled={loadingSyncLogs}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loadingSyncLogs ? '⏳ Chargement...' : '🔄 Rafraîchir'}
-                </button>
-              </div>
-
-              {/* Statistiques dernières 24h */}
-              {syncStats && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-white border border-gray-200 rounded-lg p-4">
-                    <div className="text-sm text-gray-600 mb-1">Total synchronisations</div>
-                    <div className="text-2xl font-bold text-gray-900">{syncStats.total_syncs}</div>
-                    <div className="text-xs text-gray-500 mt-1">{syncStats.period_hours}h</div>
-                  </div>
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="text-sm text-green-700 mb-1">✅ Succès</div>
-                    <div className="text-2xl font-bold text-green-900">{syncStats.success_count}</div>
-                    <div className="text-xs text-green-600 mt-1">
-                      {syncStats.total_syncs > 0 ? Math.round((syncStats.success_count / syncStats.total_syncs) * 100) : 0}%
-                    </div>
-                  </div>
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="text-sm text-red-700 mb-1">❌ Erreurs</div>
-                    <div className="text-2xl font-bold text-red-900">{syncStats.error_count}</div>
-                    <div className="text-xs text-red-600 mt-1">
-                      {syncStats.total_syncs > 0 ? Math.round((syncStats.error_count / syncStats.total_syncs) * 100) : 0}%
-                    </div>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <div className="text-sm text-blue-700 mb-1">⏱️ Temps moyen</div>
-                    <div className="text-2xl font-bold text-blue-900">{syncStats.avg_execution_time}s</div>
-                    <div className="text-xs text-blue-600 mt-1">par exécution</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tableau des logs */}
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Script</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durée</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Erreur</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {syncLogs.map((log) => {
-                      const tablesUpdated = log.tables_updated ? (typeof log.tables_updated === 'string' ? JSON.parse(log.tables_updated) : log.tables_updated) : {}
-
-                      return (
-                        <tr key={log.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            {new Date(log.created_at).toLocaleString('fr-CA', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{log.script_name}</td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              log.status === 'success' ? 'bg-green-100 text-green-700' :
-                              log.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
-                            }`}>
-                              {log.status === 'success' ? '✅ Succès' :
-                               log.status === 'warning' ? '⚠️ Avertissement' :
-                               '❌ Erreur'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            {Object.keys(tablesUpdated).length > 0 ? (
-                              <div className="flex flex-wrap gap-2">
-                                {Object.entries(tablesUpdated).map(([table, count]) => (
-                                  <span key={table} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                                    {table}: {count}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            {log.execution_time_seconds ? `${log.execution_time_seconds}s` : '-'}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-700">
-                            {log.error_message || '-'}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                {syncLogs.length === 0 && (
-                  <div className="p-8 text-center text-gray-500">
-                    {loadingSyncLogs ? 'Chargement...' : 'Aucun log de synchronisation disponible'}
-                  </div>
-                )}
-              </div>
-
-              {/* Info box */}
-              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
-                  💡 <strong>Info:</strong> Ces logs sont générés automatiquement par les workflows GitHub Actions
-                  qui synchronisent les données de Gazelle vers Supabase. Chaque exécution est enregistrée avec son statut,
-                  les tables mises à jour, et le temps d'exécution.
-                </p>
-              </div>
-            </div>
-          )}
-
           {/* Sub-tab: Catalogue (ancien Admin) */}
           {syncTab === 'catalogue' && (
             <div>
           {/* Barre d'actions batch (Types et Commissions) */}
           {selectedProducts.size > 0 && (
-            <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div className="mb-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg shadow-md">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 bg-blue-600 text-white rounded-full font-bold text-sm">
+                    {selectedProducts.size}
+                  </span>
+                  <span className="text-blue-900 font-medium">
+                    produit{selectedProducts.size > 1 ? 's' : ''} sélectionné{selectedProducts.size > 1 ? 's' : ''}
+                  </span>
+                  <span className="text-blue-700 text-sm">
+                    • Glissez-déposez pour réorganiser en batch
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedProducts(new Set())
+                    setLastSelectedIndex(null)
+                  }}
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  ✕ Désélectionner tout
+                </button>
+              </div>
               <div className="flex gap-4 items-center flex-wrap">
                 <div className="flex items-center gap-2">
                   <label className="text-sm font-medium text-gray-700">Type:</label>
@@ -1668,9 +1591,11 @@ const InventaireDashboard = ({ currentUser }) => {
                     onDragOver={handleDragOver}
                     onDrop={(e) => handleDrop(e, product)}
                     onDragEnd={handleDragEnd}
-                    className={`hover:bg-gray-50 cursor-move ${
-                      draggedItem?.code_produit === product.code_produit ? 'opacity-50' : ''
-                    } ${!product.is_active ? 'bg-gray-100 line-through text-gray-400' : ''} ${isSelected ? 'bg-blue-50' : ''}`}
+                    className={`hover:bg-gray-50 cursor-move transition-all ${
+                      draggedItem?.code_produit === product.code_produit ? 'opacity-30 bg-blue-100' : ''
+                    } ${!product.is_active ? 'bg-gray-100 line-through text-gray-400' : ''} ${
+                      isSelected && !draggedItem ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                    } ${isSelected && draggedItem ? 'opacity-60 bg-blue-200' : ''}`}
                   >
                     <td className="px-4 py-3 text-center">
                       <input
