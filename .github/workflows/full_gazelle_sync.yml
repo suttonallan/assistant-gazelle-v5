@@ -1,0 +1,59 @@
+name: Full Gazelle Sync (Nightly)
+
+on:
+  schedule:
+    # Exécuter tous les jours à 2h00 UTC (22h00 heure de Montréal la veille en hiver)
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Permet d'exécuter manuellement depuis GitHub
+
+jobs:
+  sync-all-gazelle-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # Timeout de 30 minutes pour la sync complète
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run full Gazelle sync
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+        GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+      run: |
+        echo "🔄 Démarrage de la synchronisation complète Gazelle → Supabase"
+        echo "📅 $(date)"
+        echo ""
+        python3 modules/sync_gazelle/sync_to_supabase.py
+
+    - name: Report results
+      if: always()
+      run: |
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📊 Synchronisation complète terminée"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ Données synchronisées:"
+        echo "   • Users/Techniciens"
+        echo "   • Clients"
+        echo "   • Contacts"
+        echo "   • Pianos"
+        echo "   • Rendez-vous (Appointments)"
+        echo "   • Timeline Entries"
+        echo ""
+        echo "📈 Consultez les logs dans le Dashboard:"
+        echo "   Notifications → Tâches & Imports → Logs de synchronisation"
+        echo ""
+        echo "⏰ Prochaine sync automatique: demain à 2h00 UTC (22h Montréal)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

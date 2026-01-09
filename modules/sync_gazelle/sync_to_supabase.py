@@ -30,6 +30,7 @@ load_dotenv()
 
 from core.gazelle_api_client import GazelleAPIClient
 from core.supabase_storage import SupabaseStorage
+from scripts.sync_logger import SyncLogger
 
 
 class GazelleToSupabaseSync:
@@ -105,10 +106,9 @@ class GazelleToSupabaseSync:
                         self.stats['clients']['errors'] += 1
                         continue
 
-                    # Email, téléphone, adresse du contact
+                    # Email, téléphone, ville/code postal du contact
                     email = None
                     phone = None
-                    address = None
                     city = None
                     postal_code = None
 
@@ -123,16 +123,6 @@ class GazelleToSupabaseSync:
 
                         default_location = default_contact.get('defaultLocation', {})
                         if default_location:
-                            # Construire l'adresse complète depuis street1/street2
-                            street1 = default_location.get('street1', '')
-                            street2 = default_location.get('street2', '')
-                            if street1 and street2:
-                                address = f"{street1}, {street2}"
-                            elif street1:
-                                address = street1
-                            elif street2:
-                                address = street2
-
                             city = default_location.get('municipality')
                             postal_code = default_location.get('postalCode')
 
@@ -144,15 +134,15 @@ class GazelleToSupabaseSync:
                         'tags': tags,
                         'email': email,
                         'phone': phone,
-                        'address': address,
+                        # Note: 'address' n'existe pas dans gazelle_clients, seulement city et postal_code
                         'city': city,
                         'postal_code': postal_code,
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
 
-                    # UPSERT dans Supabase (via REST API)
-                    url = f"{self.storage.api_url}/gazelle_clients"
+                    # UPSERT dans Supabase (via REST API avec on_conflict)
+                    url = f"{self.storage.api_url}/gazelle_clients?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -166,6 +156,7 @@ class GazelleToSupabaseSync:
                         self.stats['clients']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT client {external_id}: {response.status_code}")
+                        print(f"   Response: {response.text[:300]}")
                         self.stats['clients']['errors'] += 1
 
                 except Exception as e:
@@ -247,8 +238,8 @@ class GazelleToSupabaseSync:
                         'updated_at': contact_data.get('updatedAt')
                     }
 
-                    # UPSERT dans Supabase via REST API
-                    url = f"{self.storage.api_url}/gazelle_contacts"
+                    # UPSERT dans Supabase via REST API avec on_conflict
+                    url = f"{self.storage.api_url}/gazelle_contacts?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers['Prefer'] = 'resolution=merge-duplicates'
 
@@ -327,8 +318,8 @@ class GazelleToSupabaseSync:
                         'updated_at': datetime.now().isoformat()
                     }
 
-                    # UPSERT
-                    url = f"{self.storage.api_url}/gazelle_pianos"
+                    # UPSERT avec on_conflict
+                    url = f"{self.storage.api_url}/gazelle_pianos?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -504,8 +495,8 @@ class GazelleToSupabaseSync:
                         'updated_at': datetime.now().isoformat()
                     }
 
-                    # UPSERT
-                    url = f"{self.storage.api_url}/gazelle_appointments"
+                    # UPSERT avec on_conflict
+                    url = f"{self.storage.api_url}/gazelle_appointments?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -531,7 +522,7 @@ class GazelleToSupabaseSync:
             if not start_date_override and (force_historical or not historical_done):
                 try:
                     print("\n💾 Marquage de l'import historique comme terminé...")
-                    url = f"{self.storage.api_url}/system_settings"
+                    url = f"{self.storage.api_url}/system_settings?on_conflict=key"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -661,8 +652,8 @@ class GazelleToSupabaseSync:
                         # Note: createdAt/updatedAt n'existent pas dans PrivateTimelineEntry
                     }
 
-                    # UPSERT
-                    url = f"{self.storage.api_url}/gazelle_timeline_entries"
+                    # UPSERT avec on_conflict
+                    url = f"{self.storage.api_url}/gazelle_timeline_entries?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -677,8 +668,7 @@ class GazelleToSupabaseSync:
                         self.stats['timeline']['synced'] += 1
                         synced_count += 1
                     elif response.status_code == 409:
-                        # 409 peut être un succès (merge) OU une erreur - vérifier la réponse
-                        print(f"⚠️  409 Conflict pour {external_id}: {response.text[:200]}")
+                        # 409 = Déjà existant, mise à jour réussie avec UPSERT
                         self.stats['timeline']['synced'] += 1
                         synced_count += 1
                     else:
@@ -742,8 +732,8 @@ class GazelleToSupabaseSync:
                         'updated_at': datetime.now().isoformat()
                     }
 
-                    # UPSERT via REST API
-                    url = f"{self.storage.api_url}/users"
+                    # UPSERT via REST API avec on_conflict
+                    url = f"{self.storage.api_url}/users?on_conflict=gazelle_user_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
@@ -837,15 +827,68 @@ class GazelleToSupabaseSync:
 
 def main():
     """Point d'entrée principal du script."""
+    import time
+    start_time = time.time()
+    logger = SyncLogger()
+
     try:
         sync_manager = GazelleToSupabaseSync()
         result = sync_manager.sync_all()
+
+        # Logger le résultat dans sync_logs
+        execution_time = time.time() - start_time
+
+        if result['success']:
+            # Construire le dictionnaire des tables mises à jour
+            tables_updated = {
+                'users': result['stats'].get('users', {}).get('synced', 0),
+                'clients': result['stats']['clients']['synced'],
+                'contacts': result['stats']['contacts']['synced'],
+                'pianos': result['stats']['pianos']['synced'],
+                'appointments': result['stats']['appointments']['synced'],
+                'timeline': result['stats']['timeline']['synced']
+            }
+
+            # Vérifier s'il y a des erreurs
+            total_errors = sum(
+                result['stats'][key]['errors']
+                for key in ['clients', 'contacts', 'pianos', 'appointments', 'timeline']
+                if key in result['stats']
+            )
+
+            status = 'success' if total_errors == 0 else 'warning'
+            error_msg = f"{total_errors} erreurs" if total_errors > 0 else None
+
+            logger.log_sync(
+                script_name='GitHub_Full_Sync',
+                status=status,
+                tables_updated=tables_updated,
+                error_message=error_msg,
+                execution_time_seconds=round(execution_time, 2)
+            )
+        else:
+            # Erreur complète
+            logger.log_sync(
+                script_name='GitHub_Full_Sync',
+                status='error',
+                error_message=result.get('error', 'Erreur inconnue'),
+                execution_time_seconds=round(execution_time, 2)
+            )
 
         # Exit code selon succès
         exit_code = 0 if result['success'] else 1
         sys.exit(exit_code)
 
     except Exception as e:
+        # Logger l'exception
+        execution_time = time.time() - start_time
+        logger.log_sync(
+            script_name='GitHub_Full_Sync',
+            status='error',
+            error_message=str(e),
+            execution_time_seconds=round(execution_time, 2)
+        )
+
         print(f"\n❌ Erreur fatale: {e}")
         import traceback
         traceback.print_exc()
