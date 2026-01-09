@@ -164,14 +164,14 @@ class HumidityScanner:
 Détermine s'il y a un problème d'entretien lié à l'humidité ET s'il a été résolu.
 
 Problèmes recherchés:
-- housse: housse enlevée, retirée, manquante, etc.
-- alimentation: PLS débranché, déconnecté, prise débranchée, etc.
-- reservoir: réservoir vide, tank empty, etc.
+- housse: housse enlevée, retirée, manquante, cover removed, etc.
+- alimentation: PLS débranché, déconnecté, prise débranchée, unplugged, etc.
+- reservoir: réservoir vide, tank empty, réservoir manquant, missing reservoir, etc.
 
 Résolutions possibles:
-- housse: replacée, remise, repositionnée, installée, etc.
-- alimentation: rebranché, reconnecté, plugged back, etc.
-- reservoir: rempli, refilled, etc.
+- housse: replacée, remise, repositionnée, installée, replaced, etc.
+- alimentation: rebranché, reconnecté, plugged back, reconnected, etc.
+- reservoir: rempli, refilled, tank filled, réservoir remis, etc.
 
 NOTE DU TECHNICIEN:
 "{description}"
@@ -220,19 +220,62 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
             print(f"⚠️ Erreur analyse IA: {e}")
             return None
 
+    def _get_institutional_client_ids(self) -> set:
+        """
+        Récupère les IDs externes des clients institutionnels à surveiller.
+        
+        Returns:
+            Set des client_external_id pour Vincent d'Indy, Place des Arts et Orford
+        """
+        import requests
+        
+        INSTITUTIONAL_CLIENTS = [
+            "Vincent d'Indy",
+            "Place des Arts",
+            "Orford"
+        ]
+        
+        try:
+            # Récupérer tous les clients
+            url = f"{self.storage.api_url}/gazelle_clients"
+            params = {"select": "external_id,company_name"}
+            response = requests.get(url, headers=self.storage._get_headers(), params=params)
+            
+            if response.status_code != 200:
+                print(f"⚠️ Impossible de récupérer les clients pour filtre institutionnel: {response.status_code}")
+                return set()
+            
+            clients = response.json()
+            institutional_ids = set()
+            
+            for client in clients:
+                company_name = client.get('company_name', '').strip()
+                if company_name in INSTITUTIONAL_CLIENTS:
+                    external_id = client.get('external_id')
+                    if external_id:
+                        institutional_ids.add(external_id)
+            
+            print(f"🏛️ {len(institutional_ids)} clients institutionnels identifiés: {', '.join(INSTITUTIONAL_CLIENTS)}")
+            return institutional_ids
+            
+        except Exception as e:
+            print(f"⚠️ Erreur récupération clients institutionnels: {e}")
+            return set()
+
     def scan_timeline_entries(self, limit: int = 100) -> Dict[str, Any]:
         """
         Scanne les timeline entries pour détecter alertes.
 
         Workflow (adapté du PC):
         1. Charger historique des entries déjà scannées
-        2. Récupérer entries récentes
-        3. Pour chaque entry NON scannée:
+        2. Récupérer IDs clients institutionnels (Vincent, PDA, Orford)
+        3. Récupérer entries récentes
+        4. Pour chaque entry NON scannée ET pour client institutionnel:
            a. detect_issue() (pattern matching)
            b. analyze_with_ai() si aucun match
            c. Enregistrer alerte si détectée
            d. Marquer entry comme scannée
-        4. Envoyer notifications Slack (seulement non résolues)
+        5. Envoyer notifications Slack (seulement non résolues)
 
         Args:
             limit: Nombre max d'entries à scanner
@@ -264,7 +307,13 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
                 scanned_ids = {item['timeline_entry_id'] for item in history_response.json()}
                 print(f"📚 {len(scanned_ids)} entries déjà scannées dans l'historique")
 
-            # 2. Récupérer timeline entries récentes
+            # 2. Récupérer IDs clients institutionnels
+            institutional_client_ids = self._get_institutional_client_ids()
+            if not institutional_client_ids:
+                print("⚠️ Aucun client institutionnel trouvé, scan annulé")
+                return stats
+
+            # 3. Récupérer timeline entries récentes
             url = f"{self.storage.api_url}/gazelle_timeline_entries"
             params = {
                 "select": "external_id,description,occurred_at,client_external_id,piano_id",
@@ -281,13 +330,19 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
             entries = response.json()
             print(f"📥 {len(entries)} timeline entries récupérées")
 
-            # 3. Scanner chaque entry (skip si déjà scannée)
+            # 4. Scanner chaque entry (skip si déjà scannée OU si pas client institutionnel)
             for entry in entries:
                 try:
                     entry_id = entry.get('external_id')
+                    client_id = entry.get('client_external_id')
 
                     # Skip si déjà scannée
                     if entry_id in scanned_ids:
+                        stats['skipped'] += 1
+                        continue
+
+                    # FILTRE INSTITUTIONNEL: Skip si pas un client institutionnel
+                    if client_id not in institutional_client_ids:
                         stats['skipped'] += 1
                         continue
 
@@ -451,9 +506,11 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
         Envoie notification Slack (Louise + Nicolas).
 
         Seulement pour alertes NON RÉSOLUES.
+        Mention "Provenant du Mac" ajoutée.
         """
         message = (
-            f"🚨 *ALERTE HUMIDITÉ DÉTECTÉE* (Mac)\n\n"
+            f"🚨 *ALERTE HUMIDITÉ DÉTECTÉE*\n"
+            f"*Provenant du Mac*\n\n"
             f"Type: {alert_type.upper()}\n"
             f"Description: {description}\n"
             f"Client: {entry.get('client_external_id', 'N/A')}\n"

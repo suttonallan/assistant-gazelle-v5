@@ -41,6 +41,18 @@
       "pas branché",
       "pas branche",
       "not plugged"
+    ],
+    "reservoir": [
+      "réservoir vide",
+      "reservoir vide",
+      "tank empty",
+      "empty tank",
+      "réservoir manquant",
+      "reservoir manquant",
+      "missing reservoir",
+      "pas de réservoir",
+      "pas de reservoir",
+      "no reservoir"
     ]
   },
 
@@ -71,6 +83,16 @@
       "a été branché",
       "est branché maintenant",
       "branché à nouveau"
+    ],
+    "reservoir": [
+      "réservoir rempli",
+      "reservoir rempli",
+      "tank filled",
+      "filled tank",
+      "réservoir rempli à nouveau",
+      "reservoir rempli a nouveau",
+      "reservoir remis",
+      "reservoir reinstalled"
     ]
   }
 }

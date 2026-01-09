@@ -15,6 +15,7 @@ import AssistantWidget from './components/AssistantWidget'
 import ChatIntelligent from './components/ChatIntelligent'
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
+import MaintenanceAlertsCard from './components/MaintenanceAlertsCard'
 import ErrorBoundary from './components/ErrorBoundary'
 import { getUserRole, ROLES } from './config/roles'
 
@@ -371,6 +372,15 @@ function App() {
               <AlertesRV currentUser={effectiveUser} />
             </ErrorBoundary>
           )
+        } else if (currentView === 'configuration') {
+          return (
+            <ErrorBoundary componentName="Configuration">
+              <div className="max-w-7xl mx-auto px-4 py-6">
+                <h1 className="text-2xl font-bold text-gray-800 mb-6">⚙️ Configuration</h1>
+                <MaintenanceAlertsCard />
+              </div>
+            </ErrorBoundary>
+          )
         } else if (currentView === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
@@ -605,6 +615,20 @@ function App() {
                         }`}
                       >
                         🔔 Alertes RV
+                      </button>
+                    )}
+
+                    {/* Configuration - admin seulement */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('configuration')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'configuration'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        ⚙️ Configuration
                       </button>
                     )}
 
