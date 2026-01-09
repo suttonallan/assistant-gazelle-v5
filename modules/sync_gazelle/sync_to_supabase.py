@@ -382,20 +382,18 @@ class GazelleToSupabaseSync:
             except Exception as e:
                 print(f"⚠️  Impossible de vérifier le marqueur d'import: {e}")
 
-        # Déterminer la date de début
+        # SÉCURITÉ: Toujours mode incrémental par défaut (7 jours)
+        # L'import historique complet doit être lancé MANUELLEMENT avec force_historical=True
         if start_date_override:
             # Override manuel
             effective_start_date = start_date_override
             print(f"🎯 Mode manuel: import depuis {effective_start_date}")
-        elif force_historical or not historical_done:
-            # Premier import: tout depuis 2017
-            effective_start_date = '2017-01-01'
-            print(f"🏛️  IMPORT HISTORIQUE COMPLET depuis {effective_start_date}")
-            print("   (Cette opération peut prendre plusieurs minutes...)")
         else:
-            # Sync incrémental: seulement les 7 derniers jours
+            # TOUJOURS mode incrémental: 7 derniers jours (ignore le marqueur historical_done)
             effective_start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-            print(f"🔄 Sync incrémental: derniers 7 jours (depuis {effective_start_date})")
+            print(f"🔄 Sync incrémental SÉCURISÉE: derniers 7 jours (depuis {effective_start_date})")
+            print(f"   ℹ️  Import historique désactivé pour workflow automatique")
+            print(f"   ℹ️  Pour import complet 2017-maintenant: lancer manuellement avec force_historical=True")
 
         try:
             api_appointments = self.api_client.get_appointments(
