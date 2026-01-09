@@ -1,0 +1,51 @@
+name: Timeline Incremental Sync
+
+on:
+  schedule:
+    # Exécuter tous les jours à 2h00 UTC (22h00 heure de Montréal la veille en hiver, 21h00 en été)
+    # Note: GitHub Actions utilise UTC, ajustez selon votre fuseau horaire
+    - cron: '0 2 * * *'
+  workflow_dispatch:  # Permet d'exécuter manuellement depuis GitHub
+
+jobs:
+  sync-timeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Configure environment variables
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+        GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+      run: |
+        echo "✅ Variables d'environnement configurées"
+    
+    - name: Run incremental timeline sync
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+        GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+      run: |
+        python3 scripts/test_timeline_incremental.py --limit 50
+    
+    - name: Report results
+      if: always()
+      run: |
+        echo "📊 Résultats de la synchronisation Timeline"
+        echo "Checkez les logs ci-dessus pour les détails"
+
