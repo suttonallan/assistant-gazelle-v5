@@ -173,7 +173,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                         size
                         type
                         serialNumber
-                        manufactureYear
+                        year
                         status
                         createdAt
                         updatedAt
@@ -281,10 +281,10 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
         else:
             min_date = datetime.now() - timedelta(days=7)
 
-        # Convertir en UTC ISO-8601 pour filtre Gazelle
-        start_date_utc = format_for_gazelle_filter(min_date)
+        # Convertir en date seule (YYYY-MM-DD) pour filtre Gazelle CoreDate
+        start_date_filter = min_date.strftime('%Y-%m-%d')
 
-        print(f"📅 Mode incrémental: RV depuis {min_date.strftime('%Y-%m-%d')} (UTC: {start_date_utc})")
+        print(f"📅 Mode incrémental: RV depuis {start_date_filter}")
 
         query = """
         query GetAppointmentsIncremental($first: Int, $after: String, $filters: PrivateAllEventsFilter, $sortBy: [EventSort!]) {
@@ -338,7 +338,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
             variables = {
                 "first": 100,
                 "filters": {
-                    "startGte": start_date_utc  # Filtre par date de début >= min_date
+                    "dateGet": start_date_filter  # Filtre par date >= min_date (CoreDate format)
                 },
                 "sortBy": ["START_DESC"]  # Plus récents d'abord (EventSort enum)
             }
