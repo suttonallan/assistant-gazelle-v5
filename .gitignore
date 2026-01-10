@@ -21,6 +21,7 @@ token.json
 *credentials*.json
 SECRETS*.md
 config/TECHNICIAN_IDS.json
+scripts/setup_github_secrets.sh
 
 # macOS
 .DS_Store
