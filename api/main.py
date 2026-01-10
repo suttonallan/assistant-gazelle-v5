@@ -35,6 +35,7 @@ from api.chat_routes import router as chat_router
 from api.conversation_routes import router as conversation_router  # Nouvel assistant conversationnel
 from api.scheduler_routes import router as scheduler_router
 from api.sync_logs_routes import router as sync_logs_router
+from api.humidity_alerts_routes import router as humidity_alerts_router
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
 
 app = FastAPI(
@@ -152,7 +153,8 @@ app.add_middleware(
 # Solution: Enregistrer les routes AVEC et SANS préfixe /api
 
 # Routes SANS /api (pour développement avec proxy Vite)
-app.include_router(institutions_router)  # Route dynamique /{institution}/pianos
+# IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
+app.include_router(humidity_alerts_router)
 app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
@@ -166,9 +168,11 @@ app.include_router(chat_router)
 app.include_router(conversation_router)  # Assistant conversationnel intelligent
 app.include_router(scheduler_router)
 app.include_router(sync_logs_router)
+app.include_router(institutions_router)  # Route dynamique /{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 # Routes AVEC /api (pour production sans proxy)
-app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos
+# IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
+app.include_router(humidity_alerts_router, prefix="/api")
 app.include_router(vincent_dindy_router, prefix="/api")
 app.include_router(alertes_rv_router, prefix="/api")
 app.include_router(inventaire_router, prefix="/api")
@@ -182,6 +186,7 @@ app.include_router(chat_router, prefix="/api")
 app.include_router(conversation_router, prefix="/api")  # Assistant conversationnel intelligent
 app.include_router(scheduler_router, prefix="/api")
 app.include_router(sync_logs_router, prefix="/api")
+app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 
 @app.get("/")
@@ -347,8 +352,8 @@ async def gazelle_check_appointments():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur API Gazelle: {e}")
 
-    from datetime import datetime, timedelta
-    today = datetime.utcnow().date()
+    from datetime import datetime, timedelta, timezone
+    today = datetime.now(timezone.utc).date()
     target_date = today + timedelta(days=14)
     cutoff = today - timedelta(days=120)
 

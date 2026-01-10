@@ -10,7 +10,7 @@ export default function NotificationsPanel({ currentUser }) {
   const [deductionLogs, setDeductionLogs] = useState([])
   const [deductionsLoading, setDeductionsLoading] = useState(true)
 
-  // Alertes RV
+  // Alertes de rendez-vous
   const [pendingAlerts, setPendingAlerts] = useState([])
   const [alertsHistory, setAlertsHistory] = useState([])
   const [alertsLoading, setAlertsLoading] = useState(true)
@@ -18,6 +18,11 @@ export default function NotificationsPanel({ currentUser }) {
   // Statistiques d'import
   const [importSummary, setImportSummary] = useState([])
   const [importsLoading, setImportsLoading] = useState(true)
+
+  // Logs de synchronisation GitHub
+  const [syncLogs, setSyncLogs] = useState([])
+  const [syncStats, setSyncStats] = useState(null)
+  const [loadingSyncLogs, setLoadingSyncLogs] = useState(false)
 
   const [error, setError] = useState(null)
 
@@ -84,6 +89,28 @@ export default function NotificationsPanel({ currentUser }) {
     }
   }
 
+  const loadSyncLogs = async () => {
+    try {
+      setLoadingSyncLogs(true)
+      const [logsResponse, statsResponse] = await Promise.all([
+        fetch(`${API_URL}/api/sync-logs/recent?limit=20`),
+        fetch(`${API_URL}/api/sync-logs/stats`)
+      ])
+
+      const logsData = await logsResponse.json()
+      const statsData = await statsResponse.json()
+
+      setSyncLogs(logsData.logs || [])
+      setSyncStats(statsData)
+      setError(null)
+    } catch (err) {
+      console.error('Erreur chargement sync logs:', err)
+      setError(err.message)
+    } finally {
+      setLoadingSyncLogs(false)
+    }
+  }
+
   const formatDate = (isoString) => {
     if (!isoString) return 'Date inconnue'
     const date = new Date(isoString)
@@ -139,7 +166,7 @@ export default function NotificationsPanel({ currentUser }) {
           📊 Notifications & Logs
         </h2>
         <p className="text-gray-600">
-          Suivi des déductions d'inventaire, alertes RV et importations
+          Suivi des déductions d'inventaire, alertes de rendez-vous et importations
         </p>
       </div>
 
@@ -164,7 +191,7 @@ export default function NotificationsPanel({ currentUser }) {
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            🔔 Alertes RV
+            🔔 Alertes de rendez-vous
             {pendingAlerts.length > 0 && (
               <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
                 {pendingAlerts.length}
@@ -303,7 +330,7 @@ export default function NotificationsPanel({ currentUser }) {
                         </div>
 
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{alert.appointment_count}</span> RV non confirmé(s)
+                          <span className="font-medium">{alert.appointment_count}</span> rendez-vous non confirmé(s)
                         </div>
 
                         <div className="text-xs text-gray-500 mt-1">
@@ -366,7 +393,7 @@ export default function NotificationsPanel({ currentUser }) {
                         </div>
 
                         <div className="text-sm text-gray-700">
-                          <span className="font-medium">{alert.appointment_count}</span> RV non confirmé(s)
+                          <span className="font-medium">{alert.appointment_count}</span> rendez-vous non confirmé(s)
                         </div>
 
                         <div className="text-xs text-gray-500 mt-1">
@@ -387,7 +414,133 @@ export default function NotificationsPanel({ currentUser }) {
 
       {/* Contenu - Tâches & Imports */}
       {activeTab === 'tasks' && (
-        <SchedulerJournal currentUser={currentUser} />
+        <div className="space-y-6">
+          <SchedulerJournal currentUser={currentUser} />
+
+          {/* Section Logs de synchronisation GitHub */}
+          <div>
+            <div className="mb-4 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-800">📊 Logs de synchronisation GitHub Actions</h3>
+              <button
+                onClick={loadSyncLogs}
+                disabled={loadingSyncLogs}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loadingSyncLogs ? '⏳ Chargement...' : '🔄 Rafraîchir'}
+              </button>
+            </div>
+
+            {/* Statistiques dernières 24h */}
+            {syncStats && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <div className="text-sm text-gray-600 mb-1">Total synchronisations</div>
+                  <div className="text-2xl font-bold text-gray-900">{syncStats.total_syncs}</div>
+                  <div className="text-xs text-gray-500 mt-1">{syncStats.period_hours}h</div>
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="text-sm text-green-700 mb-1">✅ Succès</div>
+                  <div className="text-2xl font-bold text-green-900">{syncStats.success_count}</div>
+                  <div className="text-xs text-green-600 mt-1">
+                    {syncStats.total_syncs > 0 ? Math.round((syncStats.success_count / syncStats.total_syncs) * 100) : 0}%
+                  </div>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="text-sm text-red-700 mb-1">❌ Erreurs</div>
+                  <div className="text-2xl font-bold text-red-900">{syncStats.error_count}</div>
+                  <div className="text-xs text-red-600 mt-1">
+                    {syncStats.total_syncs > 0 ? Math.round((syncStats.error_count / syncStats.total_syncs) * 100) : 0}%
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="text-sm text-blue-700 mb-1">⏱️ Temps moyen</div>
+                  <div className="text-2xl font-bold text-blue-900">{syncStats.avg_execution_time}s</div>
+                  <div className="text-xs text-blue-600 mt-1">par exécution</div>
+                </div>
+              </div>
+            )}
+
+            {/* Tableau des logs */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Script</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tables</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durée</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Erreur</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {syncLogs.map((log) => {
+                    const tablesUpdated = log.tables_updated ? (typeof log.tables_updated === 'string' ? JSON.parse(log.tables_updated) : log.tables_updated) : {}
+
+                    return (
+                      <tr key={log.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {new Date(log.created_at).toLocaleString('fr-CA', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{log.script_name}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            log.status === 'success' ? 'bg-green-100 text-green-700' :
+                            log.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            {log.status === 'success' ? '✅ Succès' :
+                             log.status === 'warning' ? '⚠️ Avertissement' :
+                             '❌ Erreur'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {Object.keys(tablesUpdated).length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(tablesUpdated).map(([table, count]) => (
+                                <span key={table} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                                  {table}: {count}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {log.execution_time_seconds ? `${log.execution_time_seconds}s` : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {log.error_message || '-'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {syncLogs.length === 0 && (
+                <div className="p-8 text-center text-gray-500">
+                  {loadingSyncLogs ? 'Chargement...' : 'Aucun log de synchronisation disponible'}
+                </div>
+              )}
+            </div>
+
+            {/* Info box */}
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                💡 <strong>Info:</strong> Ces logs sont générés automatiquement par les workflows GitHub Actions
+                qui synchronisent les données de Gazelle vers Supabase. Chaque exécution est enregistrée avec son statut,
+                les tables mises à jour, et le temps d'exécution.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

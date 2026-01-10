@@ -430,7 +430,7 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
             data = {
                 'timeline_entry_id': entry_id,
                 'found_issues': found_issue,
-                'scanned_at': datetime.utcnow().isoformat()
+                'scanned_at': datetime.now(timezone.utc).isoformat()
             }
 
             response = requests.post(
@@ -474,7 +474,7 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
                 'alert_type': alert_type,
                 'description': description,
                 'is_resolved': is_resolved,
-                'observed_at': observed_at or datetime.utcnow().isoformat()
+                'observed_at': observed_at or datetime.now(timezone.utc).isoformat()
             }
 
             response = requests.post(

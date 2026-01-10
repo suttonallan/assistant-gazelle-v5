@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from modules.travel_fees.calculator import TravelFeeCalculator, TravelFeeResult
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 # ============================================================
@@ -276,7 +276,7 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                         apt_date_obj = apt_date
 
                     appointment_datetime = datetime.combine(apt_date_obj, datetime.min.time())
-                    appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Toronto'))
+                    appointment_datetime = appointment_datetime.replace(tzinfo=ZoneInfo('America/Montreal'))
 
                     # Parser l'heure du rendez-vous
                     appointment_time = apt.get('appointment_time', '09:00')

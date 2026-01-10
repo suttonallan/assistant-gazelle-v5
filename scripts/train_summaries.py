@@ -904,8 +904,8 @@ class SummaryTrainer:
 
         date_choice = input("\nChoix: ").strip()
 
-        toronto_tz = ZoneInfo('America/Toronto')
-        today = datetime.now(toronto_tz)
+        montreal_tz = ZoneInfo('America/Montreal')
+        today = datetime.now(montreal_tz)
 
         if date_choice == '1':
             date = today
@@ -914,7 +914,7 @@ class SummaryTrainer:
         elif date_choice == '3':
             date_str = input("Date (YYYY-MM-DD): ").strip()
             try:
-                date = datetime.fromisoformat(date_str).replace(tzinfo=toronto_tz)
+                date = datetime.fromisoformat(date_str).replace(tzinfo=montreal_tz)
             except ValueError:
                 print("❌ Date invalide")
                 return
@@ -1112,8 +1112,8 @@ class SummaryTrainer:
 
         if choice == '1':
             # Date
-            toronto_tz = ZoneInfo('America/Toronto')
-            date = datetime.now(toronto_tz)
+            montreal_tz = ZoneInfo('America/Montreal')
+            date = datetime.now(montreal_tz)
 
             print("\n⏳ Génération des 3 formats...")
 

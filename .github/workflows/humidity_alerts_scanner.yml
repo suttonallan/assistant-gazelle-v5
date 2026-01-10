@@ -2,12 +2,9 @@ name: 🌡️ Scan Alertes Humidité
 
 on:
   schedule:
-    # 4 fois par jour: 8h, 12h, 16h, 20h (heure Montréal = UTC-5)
-    # UTC: 13h, 17h, 21h, 01h
-    - cron: '0 13 * * *'  # 8h AM Montréal
-    - cron: '0 17 * * *'  # 12h PM Montréal
-    - cron: '0 21 * * *'  # 4h PM Montréal
-    - cron: '0 1 * * *'   # 8h PM Montréal
+    # 1 fois par jour: 9h AM (heure Montréal = UTC-5)
+    # UTC: 14h (heure d'hiver EST)
+    - cron: '0 14 * * *'  # 9h AM Montréal (tous les jours)
 
   workflow_dispatch:  # Permet de lancer manuellement
 
@@ -32,7 +29,7 @@ jobs:
       - name: 🔍 Scan alertes humidité
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           python3 -c "

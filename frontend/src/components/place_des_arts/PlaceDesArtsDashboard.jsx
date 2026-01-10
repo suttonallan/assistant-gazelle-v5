@@ -5,8 +5,8 @@ import PDAInventoryTable from './PDAInventoryTable'
 import { API_URL } from '../../utils/apiConfig'
 
 export default function PlaceDesArtsDashboard({ currentUser }) {
-  // Onglets: 'inventaire-pianos' ou 'demandes' (Inventaire en premier comme VDI)
-  const [currentView, setCurrentView] = useState('inventaire-pianos')
+  // Onglets: 'demandes' ou 'inventaire-pianos' (Demandes en premier)
+  const [currentView, setCurrentView] = useState('demandes')
   
   const isRestrictedUser = currentUser?.role === 'nick' // Louise a accès complet aux demandes
   const [items, setItems] = useState([])
@@ -387,21 +387,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleSyncGazelle = async () => {
-    // Vérifier qu'au moins une ligne est cochée
-    if (selectedIds.length === 0) {
-      setError('⚠️ Veuillez cocher au moins une demande à synchroniser')
-      return
-    }
-
+    // Synchroniser TOUTES les demandes (pas de sélection)
     try {
       setError(null)
-      setInfoMessage('🔄 Synchronisation en cours...')
+      setInfoMessage('🔄 Synchronisation de toutes les demandes en cours...')
 
-      // Envoyer seulement les IDs sélectionnés
+      // Envoyer TOUS les IDs (filteredItems)
+      const allIds = filteredItems.map(item => item.id)
+
       const resp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_ids: selectedIds })
+        body: JSON.stringify({ request_ids: allIds })
       })
 
       if (!resp.ok) {
@@ -417,17 +414,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       if (data.has_warnings && data.warnings && data.warnings.length > 0) {
         // Construire le message d'alerte pour les RV non trouvés
         const warningList = data.warnings.map(w =>
-          `${w.date} - ${w.room} - ${w.for_who || '(sans nom)'}`
-        ).join('\n')
+          `⚠️ ${w.error_code || 'RV_NOT_FOUND'}\n   ${w.date} - ${w.room} - ${w.for_who || '(sans nom)'}`
+        ).join('\n\n')
 
-        const errorMsg = `⚠️ ${data.updated} demande(s) mise(s) à jour.\n\n❌ ALERTE: ${data.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}`
+        const errorMsg = `✅ ${data.updated} demande(s) passée(s) à "Créé Gazelle"\n\n❌ ${data.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nCes demandes restent en statut "Assigné". Vérifiez qu'elles ont bien été créées dans Gazelle.`
         setError(errorMsg)
       } else {
-        setInfoMessage(`✅ ${data.message}`)
+        setInfoMessage(`✅ ${data.message} - Toutes les demandes assignées ont un RV dans Gazelle!`)
       }
-
-      // Désélectionner après sync
-      setSelectedIds([])
 
     } catch (err) {
       setError(err.message || 'Erreur lors de la synchronisation')
@@ -983,9 +977,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         {!isRestrictedUser && (
           <button
             onClick={handleSyncGazelle}
-            className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
           >
-            🔄 Sync Gazelle
+            🔄 Synchroniser tout
           </button>
         )}
 

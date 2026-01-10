@@ -1566,7 +1566,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Commission</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variante</th>
-                  {TECHNICIENS.map(tech => (
+                  {orderedTechnicians.map(tech => (
                     <th key={tech.username} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                       {tech.name}
                     </th>

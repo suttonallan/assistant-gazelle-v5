@@ -134,9 +134,9 @@ def get_appointments_tomorrow():
             # Convertir en timezone de Montréal (America/Toronto = America/Montreal)
             start_datetime = row[1]
             try:
-                # Si le datetime est offset-aware, convertir en America/Toronto
+                # Si le datetime est offset-aware, convertir en America/Montreal
                 if start_datetime.tzinfo is not None:
-                    montreal_tz = pytz.timezone('America/Toronto')
+                    montreal_tz = pytz.timezone('America/Montreal')
                     start_datetime_local = start_datetime.astimezone(montreal_tz)
                 else:
                     # Si offset-naive, on assume que c'est déjà en heure locale

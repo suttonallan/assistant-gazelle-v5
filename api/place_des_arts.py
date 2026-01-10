@@ -696,7 +696,7 @@ async def import_email(payload: ImportRequest):
 
     rows = []
     duplicates = []
-    today_iso = datetime.utcnow().date().isoformat()
+    today_iso = datetime.now(timezone.utc).date().isoformat()
     for idx, item in enumerate(parsed, start=1):
         appointment_date = item.get("date")
         if isinstance(appointment_date, datetime):
@@ -705,7 +705,7 @@ async def import_email(payload: ImportRequest):
             continue  # saute si pas de date
 
         row = {
-            "id": f"pda_email_{idx:04d}_{int(datetime.utcnow().timestamp())}",
+            "id": f"pda_email_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
             "request_date": today_iso,
             "appointment_date": appointment_date,
             "room": item.get("room") or "",
@@ -767,9 +767,9 @@ async def sync_manual(payload: Optional[SyncManualRequest] = None):
         validator = PlaceDesArtsValidator()
         storage = get_storage()
 
-        # Si des IDs spécifiques sont fournis, les récupérer
+        # Récupérer les demandes à vérifier
         if payload and payload.request_ids:
-            # Récupérer seulement les demandes spécifiques
+            # IDs spécifiques fournis - récupérer ces demandes (tous statuts)
             url = f"{storage.api_url}/place_des_arts_requests"
             url += f"?id=in.({','.join(payload.request_ids)})"
             url += "&select=*"
@@ -778,9 +778,12 @@ async def sync_manual(payload: Optional[SyncManualRequest] = None):
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail="Erreur récupération demandes")
 
-            requests_to_check = resp.json()
+            all_requests = resp.json()
+
+            # Filtrer seulement les demandes avec statut ASSIGN_OK (ignorer celles déjà créées)
+            requests_to_check = [r for r in all_requests if r.get('status') == 'ASSIGN_OK']
         else:
-            # Récupérer toutes les demandes assignées mais pas encore marquées "Créé Gazelle"
+            # Aucun ID spécifié - récupérer toutes les demandes assignées
             params = [
                 "select=*",
                 "status=eq.ASSIGN_OK",
@@ -801,12 +804,14 @@ async def sync_manual(payload: Optional[SyncManualRequest] = None):
             req_id = req.get('id')
             room = req.get('room', '')
             appt_date = req.get('appointment_date', '')
+            appt_time = req.get('time', '')  # Ex: "avant 8h", "13h30"
             for_who = req.get('for_who', '')
 
-            # Chercher le RV dans Gazelle
+            # Chercher le RV dans Gazelle (avec heure pour précision ±2h)
             gazelle_appt = validator.find_gazelle_appointment_for_pda(
                 appointment_date=appt_date,
                 room=room,
+                appointment_time=appt_time,
                 debug=False
             )
 
@@ -825,12 +830,13 @@ async def sync_manual(payload: Optional[SyncManualRequest] = None):
                 if update_resp.status_code in (200, 204):
                     updated_count += 1
             else:
-                # RV non trouvé - ajouter un warning
+                # RV non trouvé - ajouter un warning avec code d'erreur
                 not_found_warnings.append({
                     "id": req_id,
                     "date": appt_date,
                     "room": room,
-                    "for_who": for_who
+                    "for_who": for_who,
+                    "error_code": "⚠️ RV_NOT_FOUND_IN_GAZELLE"
                 })
 
         return {
@@ -856,6 +862,7 @@ async def validate_gazelle_rv(payload: Dict[str, Any]):
         request_id = payload.get("request_id")
         appointment_date = payload.get("appointment_date")
         room = payload.get("room")
+        appointment_time = payload.get("time")  # Optional: "avant 8h", "13h30"
 
         if not appointment_date or not room:
             return {"found": False, "error": "Date ou salle manquante"}
@@ -866,10 +873,11 @@ async def validate_gazelle_rv(payload: Dict[str, Any]):
 
         validator = PlaceDesArtsValidator()
 
-        # Chercher le RV dans Gazelle
+        # Chercher le RV dans Gazelle (avec heure pour précision ±2h)
         gazelle_appt = validator.find_gazelle_appointment_for_pda(
             appointment_date=appointment_date,
             room=room,
+            appointment_time=appointment_time,
             debug=False
         )
 

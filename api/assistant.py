@@ -721,8 +721,8 @@ def _format_time(time_str: str, date_str: str = '') -> str:
     if not time_str or time_str == 'N/A':
         return 'N/A'
     
-    # Fuseau horaire de Toronto
-    toronto_tz = ZoneInfo('America/Toronto')
+    # Fuseau horaire de Montréal
+    montreal_tz = ZoneInfo('America/Montreal')
     utc_tz = timezone.utc
     
     # Log pour déboguer (à retirer après vérification)
@@ -750,9 +750,9 @@ def _format_time(time_str: str, date_str: str = '') -> str:
                 dt = datetime.fromisoformat(clean_str_no_tz)
                 dt = dt.replace(tzinfo=utc_tz)
             
-            # Convertir en heure de Toronto
-            dt_toronto = dt.astimezone(toronto_tz)
-            return dt_toronto.strftime('%H:%M')
+            # Convertir en heure de Montréal
+            dt_montreal = dt.astimezone(montreal_tz)
+            return dt_montreal.strftime('%H:%M')
         
         # Si c'est juste une heure au format HH:MM ou HH:MM:SS (sans date)
         # Les heures sont DÉJÀ converties en heure de Toronto dans queries.py

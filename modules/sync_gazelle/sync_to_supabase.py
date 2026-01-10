@@ -29,20 +29,37 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from core.gazelle_api_client import GazelleAPIClient
+from core.gazelle_api_client_incremental import GazelleAPIClientIncremental
 from core.supabase_storage import SupabaseStorage
+from core.timezone_utils import (
+    format_for_gazelle_filter,
+    parse_gazelle_datetime,
+    format_for_supabase,
+    extract_date_time
+)
 from scripts.sync_logger import SyncLogger
 
 
 class GazelleToSupabaseSync:
     """Synchronise les données Gazelle vers Supabase."""
 
-    def __init__(self):
-        """Initialise le gestionnaire de synchronisation."""
+    def __init__(self, incremental_mode: bool = True):
+        """Initialise le gestionnaire de synchronisation.
+
+        Args:
+            incremental_mode: Si True, utilise le mode incrémental rapide (<50 items/jour).
+                             Si False, sync complète (5000+ items).
+        """
         print("🔧 Initialisation du service de synchronisation...")
+        self.incremental_mode = incremental_mode
 
         try:
-            self.api_client = GazelleAPIClient()
-            print("✅ Client API Gazelle initialisé")
+            if incremental_mode:
+                self.api_client = GazelleAPIClientIncremental()
+                print("✅ Client API Gazelle initialisé (MODE INCRÉMENTAL RAPIDE)")
+            else:
+                self.api_client = GazelleAPIClient()
+                print("✅ Client API Gazelle initialisé (mode complet)")
         except Exception as e:
             print(f"❌ Erreur d'initialisation API Gazelle: {e}")
             raise
@@ -62,9 +79,70 @@ class GazelleToSupabaseSync:
             'timeline': {'synced': 0, 'errors': 0}
         }
 
+        # Timestamp dernière sync (pour mode incrémental)
+        self.last_sync_date = None
+        if incremental_mode:
+            self.last_sync_date = self._get_last_sync_date()
+
+    def _get_last_sync_date(self) -> Optional[datetime]:
+        """
+        Récupère la date de dernière sync depuis Supabase (table system_settings).
+
+        Returns:
+            datetime de dernière sync, ou None si première sync
+        """
+        try:
+            url = f"{self.storage.api_url}/system_settings?key=eq.last_sync_date&select=value"
+            response = requests.get(url, headers=self.storage._get_headers())
+
+            if response.status_code == 200:
+                results = response.json()
+                if results and len(results) > 0:
+                    last_sync_str = results[0].get('value')
+                    if last_sync_str:
+                        last_sync = datetime.fromisoformat(last_sync_str.replace('Z', '+00:00'))
+                        print(f"📅 Dernière sync: {last_sync.strftime('%Y-%m-%d %H:%M:%S')}")
+                        return last_sync
+
+            print("📅 Première sync (aucune date enregistrée)")
+            return None
+
+        except Exception as e:
+            print(f"⚠️ Erreur récupération last_sync_date: {e}")
+            return None
+
+    def _save_last_sync_date(self, sync_date: datetime):
+        """
+        Enregistre la date de dernière sync dans Supabase.
+
+        Args:
+            sync_date: datetime à enregistrer
+        """
+        try:
+            url = f"{self.storage.api_url}/system_settings?key=eq.last_sync_date"
+            headers = self.storage._get_headers()
+            headers["Prefer"] = "resolution=merge-duplicates"
+
+            data = {
+                "key": "last_sync_date",
+                "value": sync_date.isoformat()
+            }
+
+            response = requests.post(url, headers=headers, json=data)
+
+            if response.status_code in [200, 201]:
+                print(f"✅ Dernière sync enregistrée: {sync_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print(f"⚠️ Erreur enregistrement last_sync_date: {response.status_code}")
+
+        except Exception as e:
+            print(f"⚠️ Erreur sauvegarde last_sync_date: {e}")
+
     def sync_clients(self) -> int:
         """
         Synchronise les clients depuis l'API vers Supabase.
+
+        Mode incrémental: Seuls les clients modifiés depuis last_sync_date sont récupérés.
 
         Returns:
             Nombre de clients synchronisés
@@ -72,8 +150,16 @@ class GazelleToSupabaseSync:
         print("\n📋 Synchronisation des clients...")
 
         try:
-            # Récupérer clients depuis API Gazelle
-            api_clients = self.api_client.get_clients(limit=1000)
+            # Mode incrémental ou complet
+            if self.incremental_mode and hasattr(self.api_client, 'get_clients_incremental'):
+                print("🚀 Mode incrémental activé (early exit sur updatedAt)")
+                api_clients = self.api_client.get_clients_incremental(
+                    last_sync_date=self.last_sync_date,
+                    limit=5000  # Sécurité
+                )
+            else:
+                # Mode complet (legacy)
+                api_clients = self.api_client.get_clients(limit=1000)
 
             if not api_clients:
                 print("⚠️  Aucun client récupéré depuis l'API")
@@ -270,13 +356,24 @@ class GazelleToSupabaseSync:
         """
         Synchronise les pianos depuis l'API vers Supabase.
 
+        Mode incrémental: Seuls les pianos modifiés depuis last_sync_date sont récupérés.
+
         Returns:
             Nombre de pianos synchronisés
         """
         print("\n🎹 Synchronisation des pianos...")
 
         try:
-            api_pianos = self.api_client.get_pianos(limit=1000)
+            # Mode incrémental ou complet
+            if self.incremental_mode and hasattr(self.api_client, 'get_pianos_incremental'):
+                print("🚀 Mode incrémental activé (early exit sur updatedAt)")
+                api_pianos = self.api_client.get_pianos_incremental(
+                    last_sync_date=self.last_sync_date,
+                    limit=5000  # Sécurité
+                )
+            else:
+                # Mode complet (legacy)
+                api_pianos = self.api_client.get_pianos(limit=1000)
 
             if not api_pianos:
                 print("⚠️  Aucun piano récupéré depuis l'API")
@@ -385,21 +482,34 @@ class GazelleToSupabaseSync:
         # SÉCURITÉ: Toujours mode incrémental par défaut (7 jours)
         # L'import historique complet doit être lancé MANUELLEMENT avec force_historical=True
         if start_date_override:
-            # Override manuel
-            effective_start_date = start_date_override
-            print(f"🎯 Mode manuel: import depuis {effective_start_date}")
+            # Override manuel - convertir date Montreal → UTC pour filtre API
+            from datetime import datetime as dt
+            start_dt = dt.fromisoformat(start_date_override)
+            effective_start_date = format_for_gazelle_filter(start_dt)
+            print(f"🎯 Mode manuel: import depuis {start_date_override} Montreal → {effective_start_date} UTC")
         else:
             # TOUJOURS mode incrémental: 7 derniers jours (ignore le marqueur historical_done)
-            effective_start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-            print(f"🔄 Sync incrémental SÉCURISÉE: derniers 7 jours (depuis {effective_start_date})")
+            start_dt = datetime.now() - timedelta(days=7)
+            effective_start_date = format_for_gazelle_filter(start_dt)
+            print(f"🔄 Sync incrémental SÉCURISÉE: derniers 7 jours")
+            print(f"   📍 Depuis: {start_dt.strftime('%Y-%m-%d')} Montreal → {effective_start_date} UTC")
             print(f"   ℹ️  Import historique désactivé pour workflow automatique")
             print(f"   ℹ️  Pour import complet 2017-maintenant: lancer manuellement avec force_historical=True")
 
         try:
-            api_appointments = self.api_client.get_appointments(
-                limit=None,
-                start_date_override=effective_start_date
-            )
+            # Mode incrémental rapide ou legacy
+            if self.incremental_mode and hasattr(self.api_client, 'get_appointments_incremental'):
+                print("🚀 Mode incrémental rapide (sortBy DATE_DESC + filtre)")
+                api_appointments = self.api_client.get_appointments_incremental(
+                    last_sync_date=self.last_sync_date,
+                    limit=None
+                )
+            else:
+                # Mode legacy (allEventsBatched sans sortBy)
+                api_appointments = self.api_client.get_appointments(
+                    limit=None,
+                    start_date_override=effective_start_date
+                )
 
             if not api_appointments:
                 print("⚠️  Aucun rendez-vous récupéré depuis l'API")
@@ -420,24 +530,21 @@ class GazelleToSupabaseSync:
                     notes_raw = appt_data.get('notes', '')
                     description = notes_raw
 
-                    # Date et heure depuis start
+                    # Date et heure depuis start (CoreDateTime)
                     start_time = appt_data.get('start')
                     appointment_date = None
                     appointment_time = None
+                    start_time_utc = None
 
                     if start_time:
                         try:
-                            from datetime import datetime as dt
-
-                            # CORRECT: Gazelle retourne du VRAI UTC (le 'Z' est fiable)
-                            # L'API affiche 09:15 à l'écran (Toronto) et retourne 14:15Z dans l'API (UTC)
-                            # On stocke tel quel, sans double conversion.
-                            # fromisoformat() ne supporte pas 'Z', il faut le remplacer par '+00:00'
-                            start_time_fixed = start_time.replace('Z', '+00:00') if start_time else start_time
-                            dt_utc = dt.fromisoformat(start_time_fixed)
-
-                            appointment_date = dt_utc.date().isoformat()
-                            appointment_time = dt_utc.time().isoformat()
+                            # Parser le CoreDateTime (UTC) et extraire date/heure en Montreal
+                            dt_parsed = parse_gazelle_datetime(start_time)
+                            if dt_parsed:
+                                # Extraire date/heure en timezone Montreal (pour les colonnes séparées)
+                                appointment_date, appointment_time = extract_date_time(dt_parsed)
+                                # Formater pour Supabase (UTC avec 'Z')
+                                start_time_utc = format_for_supabase(dt_parsed)
                         except Exception as e:
                             print(f"⚠️ Erreur conversion heure '{start_time}': {e}")
                             pass
@@ -484,13 +591,14 @@ class GazelleToSupabaseSync:
                         'description': description,
                         'appointment_date': appointment_date,
                         'appointment_time': appointment_time,
+                        'start_datetime': start_time_utc,  # CoreDateTime complet en UTC
                         'duration_minutes': duration_minutes,
                         'status': status,
                         'technicien': technicien,
                         'location': location,
                         'notes': notes,
-                        'created_at': start_time,  # Utiliser start comme created_at
-                        'updated_at': datetime.now().isoformat()
+                        'created_at': start_time_utc,  # CoreDateTime UTC avec 'Z'
+                        'updated_at': format_for_supabase(datetime.now())
                     }
 
                     # UPSERT avec on_conflict
@@ -559,18 +667,20 @@ class GazelleToSupabaseSync:
 
         try:
             from datetime import datetime, timedelta
-            from zoneinfo import ZoneInfo
 
             # Date de cutoff: maintenant - 30 jours (étendu pour capturer services de fin décembre)
             cutoff_date = datetime.now() - timedelta(days=30)
-            cutoff_iso = cutoff_date.isoformat()
 
-            print(f"📅 Fenêtre de synchronisation: entrées depuis {cutoff_iso}")
+            # IMPORTANT: Convertir la date Montreal → UTC pour le filtre API
+            cutoff_iso_utc = format_for_gazelle_filter(cutoff_date)
+
+            print(f"📅 Fenêtre de synchronisation: entrées depuis les 30 derniers jours")
+            print(f"   📍 Cutoff: {cutoff_date.strftime('%Y-%m-%d')} Montreal → {cutoff_iso_utc} UTC")
 
             # Utiliser le filtre API pour récupérer SEULEMENT les 30 derniers jours
             # Cela évite de télécharger 100,000+ entrées inutiles à chaque sync
             api_entries = self.api_client.get_timeline_entries(
-                since_date=cutoff_iso,
+                since_date=cutoff_iso_utc,
                 limit=None
             )
 
@@ -585,25 +695,26 @@ class GazelleToSupabaseSync:
 
             for entry_data in api_entries:
                 try:
-                    # CRITICAL: Vérifier si l'entrée est trop ancienne (>30 jours)
-                    occurred_at = entry_data.get('occurredAt')
+                    # Parser occurredAt (CoreDateTime) pour validation et stockage
+                    occurred_at_raw = entry_data.get('occurredAt')
+                    occurred_at_utc = None
 
-                    if occurred_at:
-                        # Parser la date (format ISO)
+                    if occurred_at_raw:
                         try:
-                            entry_date = datetime.fromisoformat(occurred_at.replace('Z', '+00:00'))
-                            # Rendre aware si naive
-                            if entry_date.tzinfo is None:
-                                entry_date = entry_date.replace(tzinfo=ZoneInfo('UTC'))
+                            # Parser le CoreDateTime de Gazelle
+                            dt_parsed = parse_gazelle_datetime(occurred_at_raw)
+                            if dt_parsed:
+                                # Formater pour Supabase (UTC avec 'Z')
+                                occurred_at_utc = format_for_supabase(dt_parsed)
 
-                            # Comparer avec cutoff (rendre cutoff aware aussi)
-                            cutoff_aware = cutoff_date.replace(tzinfo=ZoneInfo('UTC'))
-
-                            if entry_date < cutoff_aware:
-                                # SKIP cette entrée (trop vieille), mais continuer la sync
-                                continue
+                                # Vérifier age (30 jours cutoff)
+                                from zoneinfo import ZoneInfo
+                                cutoff_aware = cutoff_date.replace(tzinfo=ZoneInfo('UTC'))
+                                if dt_parsed < cutoff_aware:
+                                    # SKIP cette entrée (trop vieille)
+                                    continue
                         except Exception as e:
-                            print(f"⚠️  Erreur parsing date '{occurred_at}': {e}")
+                            print(f"⚠️  Erreur parsing date '{occurred_at_raw}': {e}")
 
                     external_id = entry_data.get('id')
 
@@ -632,10 +743,6 @@ class GazelleToSupabaseSync:
                     title = entry_data.get('summary', '')
                     details = entry_data.get('comment', '')
 
-                    # DEBUG: Logger les SERVICE_ENTRY_MANUAL du 26-28 déc
-                    if entry_type == 'SERVICE_ENTRY_MANUAL' and occurred_at and occurred_at >= '2025-12-26':
-                        print(f"🔍 SERVICE_ENTRY_MANUAL: {occurred_at} | {(details or title)[:50]}")
-
                     timeline_record = {
                         'external_id': external_id,
                         'client_id': client_id,
@@ -643,7 +750,7 @@ class GazelleToSupabaseSync:
                         'invoice_id': invoice_id,
                         'estimate_id': estimate_id,
                         'user_id': user_id,
-                        'occurred_at': occurred_at,
+                        'occurred_at': occurred_at_utc,  # CoreDateTime UTC avec 'Z'
                         'entry_type': entry_type,
                         'title': title,
                         'description': details  # La colonne s'appelle 'description' pas 'details'
@@ -656,11 +763,6 @@ class GazelleToSupabaseSync:
                     headers["Prefer"] = "resolution=merge-duplicates"
 
                     response = requests.post(url, headers=headers, json=timeline_record)
-
-                    # DEBUG: Logger réponse complète pour services du 26-28 déc
-                    if entry_type == 'SERVICE_ENTRY_MANUAL' and occurred_at and occurred_at >= '2025-12-26':
-                        print(f"  📤 POST Response: {response.status_code}")
-                        print(f"     Body: {response.text[:300]}")
 
                     if response.status_code in [200, 201]:
                         self.stats['timeline']['synced'] += 1
@@ -691,14 +793,33 @@ class GazelleToSupabaseSync:
             print(f"❌ Erreur lors de la synchronisation des timeline entries: {e}")
             raise
 
-    def sync_users(self) -> int:
+    def sync_users(self, force: bool = False) -> int:
         """
         Synchronise les techniciens (users) depuis l'API Gazelle vers Supabase.
+
+        Args:
+            force: Si True, force la sync même si les users existent déjà.
+                   Si False (défaut), skip si la table users n'est pas vide.
 
         Returns:
             Nombre de techniciens synchronisés
         """
         print("\n👥 Synchronisation des techniciens (users)...")
+
+        # Vérifier si les users existent déjà (sauf si force=True)
+        if not force:
+            try:
+                url = f"{self.storage.api_url}/users?select=id&limit=1"
+                response = requests.get(url, headers=self.storage._get_headers())
+                if response.status_code == 200:
+                    existing_users = response.json()
+                    if existing_users:
+                        print("⏭️  Users déjà synchronisés (table non vide) - skip")
+                        print("   💡 Utilise sync_users(force=True) pour forcer la re-sync")
+                        return 0
+            except Exception as e:
+                print(f"⚠️  Impossible de vérifier users existants: {e}")
+                # Continue la sync en cas d'erreur
 
         try:
             # Récupérer les users depuis l'API Gazelle
@@ -803,6 +924,10 @@ class GazelleToSupabaseSync:
             print(f"   • Timeline:     {self.stats['timeline']['synced']:4d} synchronisés, {self.stats['timeline']['errors']:2d} erreurs")
             print("=" * 70)
 
+            # Sauvegarder timestamp de fin de sync (mode incrémental)
+            if self.incremental_mode:
+                self._save_last_sync_date(datetime.now())
+
             return {
                 'success': True,
                 'duration_seconds': duration,
@@ -826,11 +951,18 @@ class GazelleToSupabaseSync:
 def main():
     """Point d'entrée principal du script."""
     import time
+    import sys
     start_time = time.time()
     logger = SyncLogger()
 
+    # Mode incrémental par défaut (--full pour mode complet)
+    incremental_mode = True
+    if len(sys.argv) > 1 and sys.argv[1] == '--full':
+        incremental_mode = False
+        print("⚠️  Mode COMPLET activé (--full)")
+
     try:
-        sync_manager = GazelleToSupabaseSync()
+        sync_manager = GazelleToSupabaseSync(incremental_mode=incremental_mode)
         result = sync_manager.sync_all()
 
         # Logger le résultat dans sync_logs

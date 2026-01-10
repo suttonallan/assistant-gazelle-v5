@@ -313,7 +313,7 @@ class EventManager:
         if not db_field:
             return {"ok": False, "error": f"Champ non supporté: {field}"}
 
-        payload = {"updated_at": datetime.utcnow().isoformat()}
+        payload = {"updated_at": datetime.now(timezone.utc).isoformat()}
         if db_field in ("request_date", "appointment_date", "billed_at"):
             payload[db_field] = _parse_datetime(str(value))
         elif db_field == "billing_amount":
@@ -337,10 +337,10 @@ class EventManager:
             return {"ok": False, "error": f"status invalide: {status}"}
         payload = {
             "status": status,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         if status == "BILLED":
-            payload["billed_at"] = datetime.utcnow().isoformat()
+            payload["billed_at"] = datetime.now(timezone.utc).isoformat()
             payload["billed_by"] = billed_by or "system"
 
         hdrs = self.storage._get_headers().copy()
@@ -384,9 +384,9 @@ class EventManager:
         url = f"{self.storage.api_url}/place_des_arts_requests?status=eq.COMPLETED&id=in.({','.join(request_ids)})"
         payload = {
             "status": "BILLED",
-            "billed_at": datetime.utcnow().isoformat(),
+            "billed_at": datetime.now(timezone.utc).isoformat(),
             "billed_by": billed_by,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         resp = requests.patch(url, headers=hdrs, json=payload)
         if resp.status_code not in (200, 204):

@@ -4,23 +4,28 @@ import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 import { API_URL } from '../utils/apiConfig'
 
 /**
- * Journal des Tâches Planifiées
+ * Journal des Tâches Planifiées & Importations
  *
- * Affiche les logs des exécutions du scheduler avec:
- * - Historique des 20 dernières exécutions
+ * Affiche:
+ * - Importations récentes depuis sync_logs (Supabase)
+ * - Logs des exécutions du scheduler
  * - Boutons pour lancer manuellement chaque tâche
  * - Statut (Succès/Erreur) avec détails
- * - Support "Nick" au lieu de "Nicolas" dans les logs
  */
 const SchedulerJournal = ({ currentUser }) => {
   const [logs, setLogs] = useState([])
+  const [syncLogs, setSyncLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [runningTasks, setRunningTasks] = useState(new Set())
 
   // Charger les logs au montage et toutes les 30 secondes
   useEffect(() => {
     loadLogs()
-    const interval = setInterval(loadLogs, 30000) // Refresh toutes les 30s
+    loadSyncLogs()
+    const interval = setInterval(() => {
+      loadLogs()
+      loadSyncLogs()
+    }, 30000) // Refresh toutes les 30s
     return () => clearInterval(interval)
   }, [])
 
@@ -34,6 +39,17 @@ const SchedulerJournal = ({ currentUser }) => {
       console.error('Erreur chargement logs:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadSyncLogs = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/sync-logs/recent?limit=50`)
+      if (!response.ok) throw new Error('Erreur chargement sync logs')
+      const data = await response.json()
+      setSyncLogs(data.logs || [])
+    } catch (err) {
+      console.error('Erreur chargement sync logs:', err)
     }
   }
 
@@ -129,9 +145,9 @@ const SchedulerJournal = ({ currentUser }) => {
     },
     {
       name: 'alerts',
-      label: 'Sync RV & Alertes',
+      label: 'Sync RV + Scan Notifications',
       icon: '📧',
-      description: 'Import RV et envoi alertes RV non confirmés',
+      description: 'Import RV et scan alertes RV non confirmés (16h00)',
       category: 'scheduler'
     }
   ]
@@ -242,161 +258,176 @@ const SchedulerJournal = ({ currentUser }) => {
     )
   }
 
+  // Fonction pour recharger tous les logs
+  const refreshAll = () => {
+    loadLogs()
+    loadSyncLogs()
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Boutons d'exécution manuelle - Tâches Planifiées */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          ⚡ Tâches Planifiées - Exécution Manuelle
-        </h3>
+    <div className="space-y-4">
+      {/* En-tête avec actualisation globale */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Tâches & Imports</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Gérez vos synchronisations et consultez l'historique
+          </p>
+        </div>
+        <button
+          onClick={refreshAll}
+          className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2"
+        >
+          🔄 Actualiser tout
+        </button>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {availableTasks.map(task => (
-            <div key={task.name} className="border rounded-lg p-4 hover:border-blue-500 transition-colors">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-2xl">{task.icon}</span>
-                    <h4 className="font-semibold text-gray-900">{task.label}</h4>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-3">{task.description}</p>
-                </div>
-              </div>
-
+      {/* Section compacte: Exécution manuelle */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="px-4 py-3 border-b border-gray-200">
+          <h3 className="text-base font-semibold text-gray-900">
+            ⚡ Exécution manuelle
+          </h3>
+        </div>
+        <div className="p-4">
+          {/* Tâches principales en ligne compacte */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+            {availableTasks.map(task => (
               <button
+                key={task.name}
                 onClick={() => runTask(task.name, task.label)}
                 disabled={runningTasks.has(task.name)}
-                className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
                   runningTasks.has(task.name)
                     ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
+                title={task.description}
               >
-                {runningTasks.has(task.name) ? '⏳ En cours...' : '▶️ Lancer maintenant'}
+                <div className="text-base">{task.icon}</div>
+                <div className="text-xs mt-1">{task.label.split(' ')[0]}</div>
               </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Imports Individuels */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          📥 Imports Gazelle Individuels
-        </h3>
-        <p className="text-sm text-gray-600 mb-4">
-          Lancez des imports spécifiques depuis l'API Gazelle vers Supabase
-        </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {availableImports.map(imp => (
-            <div key={imp.name} className="border rounded-lg p-3 hover:border-green-500 transition-colors">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">{imp.icon}</span>
-                <h4 className="font-semibold text-gray-900 text-sm">{imp.label}</h4>
-              </div>
-              <p className="text-xs text-gray-600 mb-3">{imp.description}</p>
-              <button
-                onClick={() => runImport(imp.name, imp.label)}
-                disabled={runningTasks.has(`import_${imp.name}`)}
-                className={`w-full px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-                  runningTasks.has(`import_${imp.name}`)
-                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                {runningTasks.has(`import_${imp.name}`) ? '⏳ Import...' : '▶️ Lancer'}
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Journal des exécutions */}
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
-              📜 Journal des Exécutions
-            </h3>
-            <button
-              onClick={loadLogs}
-              className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            >
-              🔄 Actualiser
-            </button>
+            ))}
           </div>
-          <p className="text-sm text-gray-500 mt-1">
-            Historique des 20 dernières exécutions
+
+          {/* Imports individuels en grille compacte */}
+          <div className="pt-3 border-t border-gray-200">
+            <p className="text-xs text-gray-600 mb-2">Imports spécifiques:</p>
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+              {availableImports.map(imp => (
+                <button
+                  key={imp.name}
+                  onClick={() => runImport(imp.name, imp.label)}
+                  disabled={runningTasks.has(`import_${imp.name}`)}
+                  className={`px-2 py-2 rounded text-xs font-medium transition-colors ${
+                    runningTasks.has(`import_${imp.name}`)
+                      ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                  title={imp.description}
+                >
+                  <div className="text-lg">{imp.icon}</div>
+                  <div className="text-xs mt-1">{imp.label.replace('Import ', '')}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Indicateur de tâches en cours */}
+          {runningTasks.size > 0 && (
+            <div className="mt-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800 flex items-center gap-2">
+              <span className="animate-pulse">⏳</span>
+              <span>{runningTasks.size} tâche(s) en cours d'exécution...</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Historique des synchronisations (GitHub Actions + Manuelles) */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="px-4 py-3 border-b border-gray-200">
+          <h3 className="text-base font-semibold text-gray-900">
+            📊 Historique des synchronisations
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Sync automatiques (1h00, 16h00) et manuelles
           </p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Heure
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tâche
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Durée
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Message
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Déclencheur
-                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Source</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Statut</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Tables modifiées</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Durée</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {logs.length === 0 ? (
+              {syncLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-4 text-center text-sm text-gray-500">
-                    Aucune exécution enregistrée
+                  <td colSpan="5" className="px-4 py-8 text-center text-sm text-gray-500">
+                    <div className="text-3xl mb-2">📭</div>
+                    <div className="font-medium">Aucune synchronisation récente</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Les logs apparaîtront ici après la première sync automatique (1h00 ou 16h00) ou manuelle
+                    </div>
                   </td>
                 </tr>
               ) : (
-                logs.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(log.started_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
-                        {log.task_label}
-                      </div>
-                      {formatStats(log.stats)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(log.status)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {formatDuration(log.duration_seconds)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      <div className="max-w-xs truncate" title={log.message}>
-                        {formatMessage(log.message)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {log.triggered_by === 'scheduler' ? '⏰ Auto' :
-                       log.triggered_by === 'manual' ? '👤 Manuel' :
-                       log.triggered_by}
-                      {log.triggered_by_user && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          {log.triggered_by_user}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                syncLogs.slice(0, 15).map(log => {
+                  const tablesUpdated = log.tables_updated
+                    ? (typeof log.tables_updated === 'string' ? JSON.parse(log.tables_updated) : log.tables_updated)
+                    : {}
+
+                  return (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-900">
+                        {new Date(log.created_at).toLocaleString('fr-CA', {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap text-xs">
+                        {log.script_name === 'sync_appointments_and_alerts.py' ? '📧 RV + Alertes' :
+                         log.script_name === 'GitHub_Full_Sync' ? '🤖 GitHub Actions' :
+                         log.script_name.replace('sync_', '').replace('.py', '')}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap">
+                        {log.status === 'success' && (
+                          <span className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">✅</span>
+                        )}
+                        {log.status === 'error' && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">❌</span>
+                        )}
+                        {log.status === 'warning' && (
+                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">⚠️</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-gray-600">
+                        {Object.keys(tablesUpdated).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(tablesUpdated).map(([table, count]) => (
+                              <span key={table} className="inline-flex items-center">
+                                {table}: <strong className="ml-0.5">{count}</strong>
+                                {Object.keys(tablesUpdated).length > 1 && <span className="mx-1">•</span>}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 whitespace-nowrap text-xs text-gray-600">
+                        {log.execution_time_seconds ? `${log.execution_time_seconds}s` : '-'}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>

@@ -1560,10 +1560,10 @@ async def sync_gazelle_products_smart(force: bool = False, max_age_hours: int = 
             }
         
         # 2. Filtrer les produits qui nécessitent une synchronisation
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         products_to_sync = []
         skipped_count = 0
-        
+
         for local_prod in linked_products:
             if force:
                 products_to_sync.append(local_prod)
@@ -1577,7 +1577,7 @@ async def sync_gazelle_products_smart(force: bool = False, max_age_hours: int = 
                     try:
                         last_sync_dt = datetime.fromisoformat(last_sync.replace('Z', '+00:00'))
                         if isinstance(last_sync_dt, datetime):
-                            age_hours = (now - last_sync_dt.replace(tzinfo=None)).total_seconds() / 3600
+                            age_hours = (now - last_sync_dt).total_seconds() / 3600
                             if age_hours >= max_age_hours:
                                 products_to_sync.append(local_prod)
                             else:
@@ -2148,6 +2148,510 @@ async def apply_consumption_from_invoice(
             "message": f"{len(consumptions)} consommation(s) enregistrée(s)",
             "consumptions": consumptions
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
+# ============================================================
+# Routes pour Logs de Déductions d'Inventaire
+# ============================================================
+
+@router.get("/deduction-logs", response_model=Dict[str, Any])
+async def get_deduction_logs(limit: int = 100):
+    """
+    Récupère les logs de déductions d'inventaire automatiques depuis sync_logs.
+
+    Les déductions sont créées quand un service consomme des consommables
+    (ex: Entretien annuel → consomme 1 buvard, 1 gaine).
+
+    Query params:
+        - limit: Nombre maximum de logs (défaut: 100)
+
+    Returns:
+        - logs: Liste des déductions avec date, produits, quantités, technicien
+        - count: Nombre total de logs
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Récupérer les logs depuis sync_logs où script_name = 'Deduction_Inventaire_Auto'
+        all_logs = storage.get_data("sync_logs")
+
+        # Filtrer les logs de déduction
+        deduction_logs = [
+            log for log in all_logs
+            if log.get('script_name') == 'Deduction_Inventaire_Auto'
+        ]
+
+        # Trier par date décroissante (plus récents d'abord)
+        deduction_logs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        # Limiter le nombre de résultats
+        deduction_logs = deduction_logs[:limit]
+
+        return {
+            "success": True,
+            "logs": deduction_logs,
+            "count": len(deduction_logs)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur chargement logs déduction: {str(e)}")
+
+
+@router.get("/deduction-summary", response_model=Dict[str, Any])
+async def get_deduction_summary(days: int = 30):
+    """
+    Récupère un résumé des déductions d'inventaire sur les X derniers jours.
+
+    Query params:
+        - days: Nombre de jours à analyser (défaut: 30)
+
+    Returns:
+        - summary: Statistiques par produit (produit, quantité totale déduite, nombre de déductions)
+        - total_deductions: Nombre total de déductions
+        - period_start: Date de début de la période
+        - period_end: Date de fin de la période
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Calculer les dates de début et fin
+        now = datetime.now()
+        period_start = now - timedelta(days=days)
+
+        # Récupérer tous les logs de déduction
+        all_logs = storage.get_data("sync_logs")
+
+        deduction_logs = [
+            log for log in all_logs
+            if log.get('script_name') == 'Deduction_Inventaire_Auto' and
+            datetime.fromisoformat(log.get('created_at', '').replace('Z', '+00:00')) >= period_start
+        ]
+
+        # Agréger par produit
+        summary = {}
+        for log in deduction_logs:
+            tables_updated = log.get('tables_updated', {})
+            if isinstance(tables_updated, str):
+                import json
+                try:
+                    tables_updated = json.loads(tables_updated)
+                except:
+                    tables_updated = {}
+
+            # tables_updated format: {"produits": {"code": "BUV-001", "quantite": 1}, "ventes": 1}
+            produit_info = tables_updated.get('produits', {})
+            if isinstance(produit_info, dict):
+                code_produit = produit_info.get('code', 'unknown')
+                quantite = produit_info.get('quantite', 1)
+
+                if code_produit not in summary:
+                    summary[code_produit] = {
+                        "code_produit": code_produit,
+                        "total_quantity": 0,
+                        "deduction_count": 0
+                    }
+
+                summary[code_produit]["total_quantity"] += quantite
+                summary[code_produit]["deduction_count"] += 1
+
+        # Convertir en liste et trier par quantité décroissante
+        summary_list = list(summary.values())
+        summary_list.sort(key=lambda x: x["total_quantity"], reverse=True)
+
+        return {
+            "success": True,
+            "summary": summary_list,
+            "total_deductions": len(deduction_logs),
+            "period_start": period_start.isoformat(),
+            "period_end": now.isoformat(),
+            "days": days
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur calcul résumé déductions: {str(e)}")
+
+
+@router.post("/process-deductions", response_model=Dict[str, Any])
+async def trigger_deduction_processing(days: int = 7):
+    """
+    Déclenche le traitement des déductions d'inventaire automatiques.
+
+    Analyse les factures récentes et crée des logs de déduction pour les services
+    qui consomment des consommables (selon les règles définies).
+
+    Query params:
+        - days: Nombre de jours à analyser (défaut: 7)
+
+    Returns:
+        - success: True si le traitement s'est terminé
+        - stats: Statistiques (factures traitées, déductions créées, erreurs)
+        - message: Message de résumé
+    """
+    try:
+        print(f"🔄 Déclenchement traitement déductions (derniers {days} jours)...")
+
+        # Importer le processeur
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from modules.inventory_deductions.process_deductions import InventoryDeductionProcessor
+
+        # Exécuter le traitement
+        processor = InventoryDeductionProcessor(days_lookback=days)
+        stats = processor.process_recent_invoices()
+
+        return {
+            "success": True,
+            "message": f"Traitement terminé: {stats['deductions_created']} déductions créées",
+            "stats": stats
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur traitement déductions: {str(e)}"
+        )
+
+
+# ============================================================
+# Routes pour Configuration des Règles de Déduction
+# ============================================================
+
+@router.get("/deduction-config/global-rule", response_model=Dict[str, Any])
+async def get_global_deduction_rule():
+    """
+    Récupère la configuration de la règle globale de déduction automatique.
+
+    La règle globale permet de déduire automatiquement toutes les fournitures
+    et accessoires présents sur une facture du stock du technicien.
+
+    Returns:
+        - enabled: True si la règle est activée
+        - description: Description de la règle
+        - item_types: Types d'items concernés (fournitures, accessoires)
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Récupérer la config depuis system_settings
+        settings = storage.get_data("system_settings", filters={"key": "deduction_global_rule"})
+
+        if settings:
+            config = settings[0].get('value', {})
+            if isinstance(config, str):
+                import json
+                config = json.loads(config)
+        else:
+            # Config par défaut
+            config = {
+                "enabled": False,
+                "item_types": ["fourniture", "accessoire"],
+                "description": "Toute fourniture ou accessoire sur facture déclenche déduction automatique"
+            }
+
+        return {
+            "success": True,
+            "config": config
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération config: {str(e)}")
+
+
+class GlobalDeductionRuleUpdate(BaseModel):
+    """Modèle pour mise à jour de la règle globale."""
+    enabled: bool
+    item_types: Optional[List[str]] = ["fourniture", "accessoire"]
+
+
+@router.put("/deduction-config/global-rule", response_model=Dict[str, Any])
+async def update_global_deduction_rule(config: GlobalDeductionRuleUpdate):
+    """
+    Met à jour la règle globale de déduction automatique.
+
+    Body:
+        - enabled: True pour activer, False pour désactiver
+        - item_types: Types d'items concernés (optionnel)
+
+    Returns:
+        - success: True si mise à jour réussie
+        - config: Configuration mise à jour
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Préparer la config
+        config_value = {
+            "enabled": config.enabled,
+            "item_types": config.item_types,
+            "description": "Toute fourniture ou accessoire sur facture déclenche déduction automatique",
+            "updated_at": datetime.now().isoformat()
+        }
+
+        # Sauvegarder dans system_settings
+        import json
+        setting_data = {
+            "key": "deduction_global_rule",
+            "value": json.dumps(config_value)
+        }
+
+        success = storage.update_data(
+            "system_settings",
+            setting_data,
+            id_field="key",
+            upsert=True
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Échec mise à jour config")
+
+        return {
+            "success": True,
+            "message": f"Règle globale {'activée' if config.enabled else 'désactivée'}",
+            "config": config_value
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur mise à jour config: {str(e)}")
+
+
+class KeywordDeductionRule(BaseModel):
+    """Modèle pour règle de déduction par mot-clé."""
+    keyword: str
+    material_code_produit: str
+    quantity: float = 1.0
+    case_sensitive: bool = False
+    notes: Optional[str] = None
+
+
+@router.get("/deduction-config/keyword-rules", response_model=Dict[str, Any])
+async def get_keyword_deduction_rules():
+    """
+    Récupère toutes les règles de déduction par mots-clés.
+
+    Ces règles scannent les notes des factures pour détecter des mots-clés
+    et déclencher automatiquement des déductions.
+
+    Exemple: "Buvard remplacé" → Déduire 1x Buvard
+
+    Returns:
+        - rules: Liste des règles avec keyword, material, quantity
+        - count: Nombre de règles actives
+    """
+    try:
+        storage = get_supabase_storage()
+
+        # Récupérer depuis une table dédiée ou system_settings
+        rules = storage.get_data("keyword_deduction_rules")
+
+        return {
+            "success": True,
+            "rules": rules,
+            "count": len(rules)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur récupération règles: {str(e)}")
+
+
+@router.post("/deduction-config/keyword-rules", response_model=Dict[str, Any])
+async def create_keyword_deduction_rule(rule: KeywordDeductionRule):
+    """
+    Crée une nouvelle règle de déduction par mot-clé.
+
+    Body:
+        - keyword: Mot-clé à détecter (ex: "Buvard remplacé")
+        - material_code_produit: Code du matériel à déduire
+        - quantity: Quantité (défaut: 1.0)
+        - case_sensitive: Sensible à la casse (défaut: False)
+        - notes: Notes explicatives
+
+    Returns:
+        - success: True si création réussie
+        - rule: Règle créée
+    """
+    try:
+        storage = get_supabase_storage()
+
+        rule_data = {
+            "keyword": rule.keyword,
+            "material_code_produit": rule.material_code_produit,
+            "quantity": rule.quantity,
+            "case_sensitive": rule.case_sensitive,
+            "notes": rule.notes,
+            "created_at": datetime.now().isoformat()
+        }
+
+        success = storage.update_data(
+            "keyword_deduction_rules",
+            rule_data,
+            id_field="id",
+            upsert=True
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Échec création règle")
+
+        return {
+            "success": True,
+            "message": f"Règle créée: '{rule.keyword}' → {rule.material_code_produit}",
+            "rule": rule_data
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur création règle: {str(e)}")
+
+
+@router.delete("/deduction-config/keyword-rules/{rule_id}", response_model=Dict[str, Any])
+async def delete_keyword_deduction_rule(rule_id: int):
+    """
+    Supprime une règle de déduction par mot-clé.
+
+    Path params:
+        - rule_id: ID de la règle à supprimer
+
+    Returns:
+        - success: True si suppression réussie
+    """
+    try:
+        storage = get_supabase_storage()
+
+        success = storage.delete_data("keyword_deduction_rules", "id", rule_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Règle introuvable")
+
+        return {
+            "success": True,
+            "message": "Règle supprimée"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur suppression règle: {str(e)}")
+
+
+@router.post("/deduction-config/preview", response_model=Dict[str, Any])
+async def preview_deductions(days: int = 7):
+    """
+    Génère un aperçu des déductions qui seraient créées SANS les appliquer.
+
+    Permet de vérifier les déductions avant validation définitive.
+
+    Query params:
+        - days: Nombre de jours à analyser (défaut: 7)
+
+    Returns:
+        - success: True si preview généré
+        - preview: Liste des déductions prévues avec détails
+        - total_deductions: Nombre total de déductions
+        - by_technician: Déductions groupées par technicien
+        - warnings: Avertissements (stock négatif, items inconnus, etc.)
+    """
+    try:
+        # Import du processeur
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from modules.inventory_deductions.process_deductions import InventoryDeductionProcessor
+
+        # Créer le processeur en mode preview (ne pas appliquer)
+        processor = InventoryDeductionProcessor(days_lookback=days)
+
+        # TODO: Ajouter mode preview au processeur
+        # Pour l'instant, on simule avec la même logique mais sans écrire
+
+        storage = get_supabase_storage()
+
+        # Récupérer les factures récentes
+        from core.gazelle_api_client import GazelleAPIClient
+        api_client = GazelleAPIClient()
+
+        cutoff_date = datetime.now() - timedelta(days=days)
+        all_invoices = api_client.get_invoices(limit=None)
+
+        recent_invoices = [
+            inv for inv in all_invoices
+            if inv.get('createdAt') and
+            datetime.fromisoformat(inv.get('createdAt').replace('Z', '+00:00')) >= cutoff_date
+        ]
+
+        # Simuler les déductions sans les créer
+        preview_deductions = []
+        warnings = []
+        by_technician = {}
+
+        # Récupérer les règles de consommation
+        consumption_rules = storage.get_data("service_inventory_consumption")
+        rules_by_service = {}
+        for rule in consumption_rules:
+            service_id = rule.get('service_gazelle_id')
+            if service_id:
+                if service_id not in rules_by_service:
+                    rules_by_service[service_id] = []
+                rules_by_service[service_id].append(rule)
+
+        # Analyser chaque facture
+        for invoice in recent_invoices[:10]:  # Limiter à 10 pour preview rapide
+            invoice_id = invoice.get('id')
+            invoice_number = invoice.get('number', 'N/A')
+
+            user_obj = invoice.get('user', {})
+            user_id = user_obj.get('id') if user_obj else None
+
+            # Mapper technicien (simplifié)
+            technicien = "Allan"  # TODO: mapping réel
+
+            items_connection = invoice.get('allInvoiceItems', {})
+            items = items_connection.get('nodes', [])
+
+            for item in items:
+                item_type = item.get('type')
+                description = item.get('description', '')
+                quantity = float(item.get('quantity', 1.0))
+
+                # Vérifier si règle existe
+                if item_type in rules_by_service:
+                    for rule in rules_by_service[item_type]:
+                        material_code = rule.get('material_code_produit')
+                        qty_per_service = float(rule.get('quantity', 1.0))
+                        total_qty = qty_per_service * quantity
+
+                        deduction = {
+                            "invoice_number": invoice_number,
+                            "technicien": technicien,
+                            "service": description,
+                            "material_code": material_code,
+                            "quantity": total_qty,
+                            "source": "service_rule"
+                        }
+
+                        preview_deductions.append(deduction)
+
+                        # Grouper par technicien
+                        if technicien not in by_technician:
+                            by_technician[technicien] = []
+                        by_technician[technicien].append(deduction)
+
+        return {
+            "success": True,
+            "preview": preview_deductions,
+            "total_deductions": len(preview_deductions),
+            "by_technician": by_technician,
+            "warnings": warnings,
+            "period": {
+                "days": days,
+                "invoices_analyzed": len(recent_invoices[:10])
+            }
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur génération preview: {str(e)}")

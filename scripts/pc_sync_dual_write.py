@@ -288,11 +288,11 @@ def transform_appointment_for_supabase(appt: Dict) -> Dict:
         try:
             # Parse ISO timestamp
             dt_utc = datetime.fromisoformat(appt['startTime'].replace('Z', '+00:00'))
-            # Convertir en Eastern Time
-            eastern = pytz.timezone('America/Toronto')
-            dt_eastern = dt_utc.astimezone(eastern)
+            # Convertir en Montréal (Eastern Time)
+            montreal = pytz.timezone('America/Montreal')
+            dt_montreal = dt_utc.astimezone(montreal)
             # Extraire juste l'heure (format TIME pour PostgreSQL)
-            appointment_time = dt_eastern.strftime('%H:%M:%S')
+            appointment_time = dt_montreal.strftime('%H:%M:%S')
         except Exception as e:
             print(f"  ⚠️ Erreur parsing startTime pour {appt.get('id')}: {e}")
 

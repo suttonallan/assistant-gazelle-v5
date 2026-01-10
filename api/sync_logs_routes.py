@@ -84,7 +84,7 @@ async def get_sync_stats():
         storage = SupabaseStorage()
 
         # Timestamp 24h avant maintenant
-        yesterday = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        yesterday = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
 
         # Récupérer tous les logs des dernières 24h
         url = f"{storage.api_url}/sync_logs?select=*&created_at=gte.{yesterday}&order=created_at.desc"

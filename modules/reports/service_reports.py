@@ -24,7 +24,7 @@ from gspread.exceptions import SpreadsheetNotFound, WorksheetNotFound
 
 from core.supabase_storage import SupabaseStorage
 
-MONTREAL_TZ = ZoneInfo("America/Toronto")
+MONTREAL_TZ = ZoneInfo("America/Montreal")
 # Google Sheet: https://docs.google.com/spreadsheets/d/1ZZsMrIT0BEwHKQ6-BKGzFoXR3k99zCEzixp0tsRKUj8
 SHEET_NAME = "Rapport Timeline de l'assistant v5"
 

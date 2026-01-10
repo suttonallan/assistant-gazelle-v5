@@ -129,51 +129,105 @@ parse_time = parse_time_flexible
 # ------------------------------------------------------------
 
 def normalize_room(room_text: str) -> str:
+    """
+    Normalise les codes de salles PDA selon les règles strictes.
+
+    Salles fixes PDA:
+    - Maison Symphonique (MS)
+    - 5e salle (5E)
+    - Théâtre Maisonneuve (TM)
+    - Théâtre Jean-Duceppe (TJD)
+    - Wilfrid-Pelletier (WP) + WP loge A
+    - Claude-Léveillée (SCL)
+
+    RÈGLE: Mappe les abréviations (CL, SCL) vers noms standards SANS inventer de préfixes.
+    """
     if not room_text:
         return ''
+
     room_text = room_text.strip()
-    known_codes = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
+
+    # Codes connus - acceptés tels quels
+    known_codes = ['WP', 'TM', 'MS', 'TJD', '5E', 'SCL']
     if room_text.upper() in known_codes:
-        # Normaliser CL -> SCL (Studio Claude-Léveillée)
-        # Garder 5E tel quel (ne pas convertir en C5)
-        if room_text.upper() == 'CL':
-            return 'SCL'
         return room_text.upper()
+
+    # Normalisation stricte: CL → SCL (Claude-Léveillée)
+    if room_text.upper() == 'CL':
+        return 'SCL'
+
+    # WP loge A (cas spécial)
+    if 'loge' in room_text.lower() and 'wp' in room_text.lower():
+        return 'WP loge A'
+
+    # Mapping vers codes standards (SANS préfixes inventés)
     room_mapping = {
-        'wilfrid-pelletier': 'WP', 'wilfrid pelletier': 'WP', 'wilfrid': 'WP', 'pelletier': 'WP',
-        'théâtre maisonneuve': 'TM', 'theatre maisonneuve': 'TM', 'maisonneuve': 'TM',
-        'salle d': 'SD',
-        'cinquième salle': '5E', '5e salle': '5E', 'cinquieme salle': '5E',
-        'studio claude-léveillée': 'SCL', 'studio claude léveillée': 'SCL',
-        'salle claude léveillée': 'SCL', 'salle claude-léveillée': 'SCL',
-        'claude léveillée': 'SCL', 'claude-léveillée': 'SCL', 'claude leveillee': 'SCL', 'claude-leveillee': 'SCL',
-        'cl': 'SCL',
+        # Wilfrid-Pelletier
+        'wilfrid-pelletier': 'WP',
+        'wilfrid pelletier': 'WP',
+        'wilfrid': 'WP',
+        'pelletier': 'WP',
+
+        # Théâtre Maisonneuve
+        'théâtre maisonneuve': 'TM',
+        'theatre maisonneuve': 'TM',
+        'maisonneuve': 'TM',
+
+        # Maison Symphonique
+        'maison symphonique': 'MS',
+
+        # 5e salle
+        'cinquième salle': '5E',
+        '5e salle': '5E',
+        'cinquieme salle': '5E',
+
+        # Claude-Léveillée (pas de préfixes "Studio" ou "Salle")
+        'claude-léveillée': 'SCL',
+        'claude léveillée': 'SCL',
+        'claude leveillee': 'SCL',
+        'claude-leveillee': 'SCL',
+        'studio claude-léveillée': 'SCL',
+        'studio claude léveillée': 'SCL',
+        'salle claude léveillée': 'SCL',
+        'salle claude-léveillée': 'SCL',
+
+        # Théâtre Jean-Duceppe
+        'théâtre jean-duceppe': 'TJD',
+        'theatre jean-duceppe': 'TJD',
+        'jean-duceppe': 'TJD',
+        'duceppe': 'TJD',
     }
+
     room_lower = room_text.lower()
     for key, code in room_mapping.items():
         if key in room_lower:
             return code
-    if room_lower.startswith('salle') or 'salle' in room_lower:
-        if len(room_text) <= 10 and room_text.isupper():
-            return room_text
+
+    # Si aucune correspondance, retourner tel quel (majuscules si c'est un code court)
+    if len(room_text) <= 10 and room_text.isupper():
         return room_text
+
     return room_text
 
 
 def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
     """
     Parse des lignes tabulaires (copier-coller de tableur), délimitées par tabulations.
+
+    RÈGLE 2: Utilise le champ 'Commentaire' (colonne 9) pour infos contextuelles.
+    RÈGLE 4: Séparation stricte Date (YYYY-MM-DD) / Heure (ex: 'Avant 10h').
+
     Attendu (colonnes min):
     0: Date demande (optionnel)
-    1: Date RDV
+    1: Date RDV (YYYY-MM-DD seulement)
     2: Salle
     3: Pour qui
     4: Diapason
     5: Demandeur
     6: Piano
-    7: Heure
+    7: Heure (ex: '10h', 'Avant 10h', '14h30')
     8: Technicien (nom)
-    9: Commentaire (notes)
+    9: Commentaire (notes contextuelles - ex: 'alternative du samedi 10 janvier')
     """
     rows = []
     tech_map = {
@@ -190,55 +244,78 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
         parts = [p.strip() for p in line.split('\t')]
         if len(parts) < 8:
             continue
+        # RÈGLE 4: Séparation stricte Date / Heure
         req_date_raw = parts[0] or None
         appt_date_raw = parts[1]
+
         try:
+            # Date RDV (YYYY-MM-DD seulement)
             appt_date = parse_date_with_year(appt_date_raw, current_date)
         except Exception:
             continue
+
         req_date = None
         if req_date_raw:
             try:
                 req_date = parse_date_with_year(req_date_raw, current_date)
             except Exception:
                 req_date = None
+
+        # Heure (colonne 7) - ne JAMAIS mélanger avec la date
+        time_str = parts[7] if len(parts) >= 8 else ''
+
+        # Technicien
         tech = parts[8] if len(parts) >= 9 else ''
         tech_id = tech_map.get(tech.lower())
 
-        # Calculer le jour de la semaine en français (seulement samedi/dimanche)
+        # RÈGLE 2: Commentaire (colonne 9) pour infos contextuelles
+        # Ex: "alternative du samedi 10 janvier"
+        notes_raw = parts[9] if len(parts) >= 10 else ''
+
+        # Calculer le jour de la semaine (seulement samedi/dimanche)
         jours_semaine = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
         jour_semaine = jours_semaine[appt_date.weekday()]
         is_weekend = appt_date.weekday() >= 5  # 5=samedi, 6=dimanche
 
-        # Ajouter le jour aux notes seulement si c'est samedi ou dimanche
-        notes_raw = parts[9] if len(parts) >= 10 else ''
+        # Enrichir le commentaire avec le jour si c'est un weekend
         if is_weekend:
-            # C'est un weekend, ajouter le jour
             if notes_raw and jour_semaine.lower() in notes_raw.lower():
-                # Le jour est déjà mentionné, ne pas dupliquer
+                # Jour déjà mentionné, ne pas dupliquer
                 notes = notes_raw
             elif notes_raw:
-                # Ajouter le jour avant les notes existantes
+                # Ajouter le jour avant le commentaire
                 notes = f"{jour_semaine} - {notes_raw}"
             else:
-                # Pas de notes, juste le jour
+                # Pas de commentaire, juste le jour
                 notes = jour_semaine
         else:
-            # Jour de semaine, garder les notes telles quelles
+            # Jour de semaine: garder le commentaire tel quel
             notes = notes_raw
+
+        # RÈGLE 1: Champ Demandeur - vérifier et nettoyer
+        requester = parts[5].strip() if len(parts) >= 6 else ''
+        if requester:
+            requester_lower = requester.lower()
+            # Ne pas deviner depuis codes de salle
+            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl']
+            if requester_lower in room_codes:
+                requester = ''  # Vider si c'est un code de salle
+            # Mapping Isabelle → IC
+            elif 'isabelle' in requester_lower or 'clairoux' in requester_lower:
+                requester = 'IC'
 
         rows.append({
             'date': appt_date,
             'request_date': req_date,
-            'room': parts[2],
-            'for_who': parts[3],
-            'diapason': parts[4],
-            'requester': parts[5],
-            'piano': parts[6],
-            'time': parts[7],
+            'room': normalize_room(parts[2]) if len(parts) >= 3 else '',
+            'for_who': parts[3] if len(parts) >= 4 else '',
+            'diapason': parts[4] if len(parts) >= 5 else '',
+            'requester': requester,
+            'piano': parts[6] if len(parts) >= 7 else '',
+            'time': time_str,  # Heure seule (ex: "Avant 10h", "14h30")
             'technician': tech,
             'technician_id': tech_id or '',
-            'notes': notes,
+            'notes': notes,  # Commentaire + jour weekend si applicable
             'service': 'Accord standard',
             'confidence': 1.0,
             'warnings': []
@@ -542,19 +619,38 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             result['requester'] = candidate_requester
             result['confidence'] += 0.05
 
+        # RÈGLE 1: Champ Demandeur vierge si pas explicitement nommé
         # Mapper les noms de demandeurs connus vers leurs codes
+        # Ne jamais deviner à partir des codes de salle
         if result.get('requester'):
             requester_lower = result['requester'].lower().strip()
-            requester_mapping = {
-                'isabelle': 'IC',
-                'isabelle constantineau': 'IC',
-                # Ajouter d'autres mappings ici au besoin
-                # 'nom': 'CODE',
-            }
-            for name, code in requester_mapping.items():
-                if name in requester_lower:
-                    result['requester'] = code
-                    break
+
+            # Si c'est juste un code de salle (WP, TM, MS, etc.), VIDER le champ
+            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl', 'sd', 'c5', 'odm']
+            if requester_lower in room_codes:
+                result['requester'] = ''  # Champ vide si c'est un code de salle
+            else:
+                # Mapping noms connus → codes
+                requester_mapping = {
+                    'isabelle': 'IC',
+                    'isabelle clairoux': 'IC',
+                    'isabelle constantineau': 'IC',
+                    'clairoux': 'IC',  # Nom de famille seul
+                    # Ajouter d'autres mappings ici au besoin
+                    # 'nom': 'CODE',
+                }
+                for name, code in requester_mapping.items():
+                    if name in requester_lower:
+                        result['requester'] = code
+                        break
+
+                # Si ce n'est PAS un nom de personne reconnu (ex: initiales courtes non mappées),
+                # vérifier si c'est un nom valide (contient au moins 3 caractères)
+                if result['requester'] and len(result['requester'].strip()) < 3:
+                    # Initiales de 1-2 lettres: garder seulement si c'est un code connu
+                    known_codes = ['IC', 'AJ', 'PT']  # Liste des codes valides
+                    if result['requester'].upper() not in known_codes:
+                        result['requester'] = ''  # Vider si code inconnu
 
         if not result.get('service'):
             result['service'] = 'Accord standard'

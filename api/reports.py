@@ -56,8 +56,8 @@ def start_scheduler():
 
         # Initialisation lazy du scheduler
         if scheduler is None:
-            print("   → Création du BackgroundScheduler (timezone=America/Toronto)")
-            scheduler = BackgroundScheduler(timezone="America/Toronto")
+            print("   → Création du BackgroundScheduler (timezone=America/Montreal)")
+            scheduler = BackgroundScheduler(timezone="America/Montreal")
 
         if not scheduler.running:
             print("   → Démarrage du scheduler en mode pausé")
