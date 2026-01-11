@@ -3,10 +3,8 @@ import { Fab, Drawer, IconButton } from '@mui/material'
 import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import LoginScreen from './components/LoginScreen'
-import DashboardHome from './components/DashboardHome'
-import AlertesRV from './components/AlertesRV'
+import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
 import InventaireDashboard from './components/InventaireDashboard'
-import NotificationsPanel from './components/NotificationsPanel'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
 import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard'
@@ -79,7 +77,7 @@ function FestiveDecor({ show }) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('inventaire') // 'dashboard', 'pianos', 'alertes-rv', 'inventaire', 'tournees' - DÉFAUT: inventaire
+  const [currentView, setCurrentView] = useState('tableau-de-bord') // DÉFAUT: tableau-de-bord unifié
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
@@ -353,23 +351,11 @@ function App() {
         )
       case 'admin':
       default:
-        // Dashboard admin (actuel)
-        if (currentView === 'dashboard') {
+        // Dashboard admin unifié
+        if (currentView === 'tableau-de-bord' || currentView === 'dashboard') {
           return (
-            <ErrorBoundary componentName="Dashboard Home">
-              <DashboardHome currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'notifications') {
-          return (
-            <ErrorBoundary componentName="Notifications">
-              <NotificationsPanel currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'alertes-rv') {
-          return (
-            <ErrorBoundary componentName="Alertes RV">
-              <AlertesRV currentUser={effectiveUser} />
+            <ErrorBoundary componentName="Tableau de Bord">
+              <TableauDeBord currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'configuration') {
@@ -576,45 +562,17 @@ function App() {
                   </>
                 ) : (
                   <>
-                    {/* Dashboard - admin seulement */}
+                    {/* Tableau de Bord - admin seulement */}
                     {effectiveRole === 'admin' && (
                       <button
-                        onClick={() => setCurrentView('dashboard')}
+                        onClick={() => setCurrentView('tableau-de-bord')}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'dashboard'
+                          currentView === 'tableau-de-bord' || currentView === 'dashboard'
                             ? 'bg-blue-100 text-blue-700 font-medium'
                             : 'text-gray-600 hover:bg-gray-100'
                         }`}
                       >
-                        📊 Dashboard
-                      </button>
-                    )}
-
-                    {/* Notifications - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('notifications')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'notifications'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🔔 Notifications
-                      </button>
-                    )}
-
-                    {/* Alertes RV - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('alertes-rv')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'alertes-rv'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🔔 Alertes RV
+                        📊 Tableau de bord
                       </button>
                     )}
 
