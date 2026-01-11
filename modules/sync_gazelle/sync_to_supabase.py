@@ -653,12 +653,17 @@ class GazelleToSupabaseSync:
 
     def sync_timeline_entries(self) -> int:
         """
-        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE 15 JOURS).
+        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE 30 JOURS).
 
-        Stratégie simplifiée:
-        1. Récupère les entrées de l'API (triées du plus récent au plus ancien)
-        2. Arrête dès qu'une entrée a plus de 15 jours
-        3. Utilise UPSERT pour mettre à jour les entrées existantes
+        Stratégie hybride (LEÇON MARGOT 2026-01-11):
+        1. Utilise occurredAtGet pour l'historique (30 jours)
+        2. Pour les vérifications critiques récentes, utiliser get_recent_timeline_entries_for_client()
+           qui récupère les 50 dernières SANS filtre de date (évite problèmes fuseaux horaires)
+
+        POURQUOI HYBRIDE:
+        - occurredAtGet peut rater des entrées récentes (UTC vs Montreal, délai API)
+        - Méthode brute garantit de ne rien manquer pour les données critiques
+        - Exemple: Note "Piano débranché. Besoin rallonge" (10 jan) ratée par filtre strict
 
         Returns:
             Nombre d'entrées synchronisées

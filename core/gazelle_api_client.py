@@ -750,6 +750,58 @@ class GazelleAPIClient:
         print(f"✅ {len(all_entries)} entrées timeline récupérées depuis l'API")
         return all_entries
 
+    def get_recent_timeline_entries_for_client(self, client_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Récupère les N dernières entrées timeline pour un client SANS filtre de date.
+
+        LEÇON MARGOT (2026-01-11): La méthode brute est plus fiable pour les données récentes
+        car elle évite les problèmes de:
+        - Fuseaux horaires UTC vs local
+        - Entrées attachées au piano plutôt qu'au client
+        - Délais de propagation de l'API
+
+        Args:
+            client_id: ID du client Gazelle (ex: 'cli_9UMLkteep8EsISbG')
+            limit: Nombre d'entrées à récupérer (défaut: 50)
+
+        Returns:
+            Liste des entrées timeline les plus récentes pour ce client
+        """
+        query = """
+        query GetRecentEntriesForClient($clientId: String!, $limit: Int!) {
+            allTimelineEntries(clientId: $clientId, first: $limit) {
+                edges {
+                    node {
+                        id
+                        occurredAt
+                        type
+                        summary
+                        comment
+                        client { id }
+                        piano { id }
+                        invoice { id }
+                        estimate { id }
+                        user { id }
+                    }
+                }
+            }
+        }
+        """
+
+        variables = {
+            "clientId": client_id,
+            "limit": limit
+        }
+
+        result = self._execute_query(query, variables)
+
+        timeline_data = result.get('data', {}).get('allTimelineEntries', {})
+        edges = timeline_data.get('edges', [])
+        entries = [edge['node'] for edge in edges if 'node' in edge]
+
+        print(f"✅ {len(entries)} entrées récentes récupérées pour client {client_id}")
+        return entries
+
     def create_timeline_entry(
         self,
         piano_id: str,
