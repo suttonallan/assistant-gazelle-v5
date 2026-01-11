@@ -739,7 +739,7 @@ class GazelleToSupabaseSync:
 
                     # Données de l'entrée
                     entry_type = entry_data.get('type', 'UNKNOWN')
-                    # IMPORTANT: GraphQL retourne summary/comment, pas title/details
+                    # TODO: Confirmer avec NotebookLM les vrais noms de champs (description vs summary/comment)
                     title = entry_data.get('summary', '')
                     details = entry_data.get('comment', '')
 
@@ -753,7 +753,7 @@ class GazelleToSupabaseSync:
                         'occurred_at': occurred_at_utc,  # CoreDateTime UTC avec 'Z'
                         'entry_type': entry_type,
                         'title': title,
-                        'description': details  # La colonne s'appelle 'description' pas 'details'
+                        'description': details  # Colonne 'description' en DB = champ 'comment' en API
                         # Note: createdAt/updatedAt n'existent pas dans PrivateTimelineEntry
                     }
 

@@ -672,7 +672,8 @@ class GazelleAPIClient:
             Liste de dictionnaires contenant les timeline entries
         """
         # Construire la query avec filtre de date optionnel
-        # NOTE: Utiliser occurredAtGet (pas Gte!) selon la doc API Gazelle
+        # NOTE: occurredAtGet signifie >= (Greater Than or Equal), pas ==
+        # TODO: Vérifier les VRAIS noms de champs avec NotebookLM
         query = """
         query GetTimelineEntries($cursor: String, $occurredAtGet: CoreDateTime) {
             allTimelineEntries(first: 100, after: $cursor, occurredAtGet: $occurredAtGet) {
@@ -718,7 +719,7 @@ class GazelleAPIClient:
             if cursor:
                 variables["cursor"] = cursor
             if since_date:
-                variables["occurredAtGet"] = since_date
+                variables["occurredAtGet"] = since_date  # occurredAtGet = filtre >= (confirmed par doc)
 
             result = self._execute_query(query, variables)
 
