@@ -9,6 +9,7 @@ Fournit les données pour:
 """
 
 import sys
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException
@@ -166,27 +167,47 @@ async def get_system_status() -> Dict[str, Any]:
         storage = get_storage()
 
         # Récupérer le dernier log de synchronisation
-        response = storage.client.table('scheduler_logs').select(
+        response = storage.client.table('sync_logs').select(
             '*'
         ).order(
-            'id', desc=True
+            'created_at', desc=True
         ).limit(1).execute()
 
         if not response.data:
             return {
                 "last_sync_date": None,
                 "last_sync_status": "unknown",
-                "last_sync_items": 0
+                "last_sync_items": 0,
+                "last_sync_job": None,
+                "last_sync_error": None,
+                "execution_time": None
             }
 
         log = response.data[0]
 
+        # Calculer le nombre total d'items synchronisés
+        total_items = 0
+        tables_updated = log.get('tables_updated')
+        if tables_updated:
+            try:
+                if isinstance(tables_updated, str):
+                    tables_data = json.loads(tables_updated)
+                else:
+                    tables_data = tables_updated
+
+                if isinstance(tables_data, dict):
+                    total_items = sum(tables_data.values())
+            except:
+                pass
+
         return {
-            "last_sync_date": log.get('timestamp'),
+            "last_sync_date": log.get('created_at'),
             "last_sync_status": log.get('status', 'unknown'),
-            "last_sync_items": 0,  # TODO: Calculer depuis les détails du log
-            "last_sync_job": log.get('job_id'),
-            "last_sync_error": log.get('error_message')
+            "last_sync_items": total_items,
+            "last_sync_job": log.get('script_name'),
+            "last_sync_error": log.get('error_message'),
+            "execution_time": log.get('execution_time_seconds'),
+            "tables_updated": log.get('tables_updated')
         }
 
     except Exception as e:
