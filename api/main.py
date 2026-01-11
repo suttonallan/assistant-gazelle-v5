@@ -24,7 +24,7 @@ import requests
 from api.institutions import router as institutions_router
 from api.vincent_dindy import router as vincent_dindy_router
 from api.alertes_rv import router as alertes_rv_router
-from api.tableau_de_bord_routes import router as tableau_de_bord_router  # 🆕 Tableau de Bord unifié
+from api.tableau_de_bord_routes import router_alertes, router_pianos, router_system  # 🆕 Tableau de Bord unifié (3 routers)
 from api.inventaire import router as inventaire_router
 from api.catalogue_routes import router as catalogue_router
 from api.tournees import router as tournees_router
@@ -156,7 +156,9 @@ app.add_middleware(
 # Routes SANS /api (pour développement avec proxy Vite)
 # IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
 app.include_router(humidity_alerts_router)
-app.include_router(tableau_de_bord_router)  # 🆕 Tableau de Bord unifié
+app.include_router(router_alertes)  # 🆕 Tableau de Bord - Alertes
+app.include_router(router_pianos)   # 🆕 Tableau de Bord - Pianos
+app.include_router(router_system)   # 🆕 Tableau de Bord - Système
 app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
@@ -175,7 +177,9 @@ app.include_router(institutions_router)  # Route dynamique /{institution}/pianos
 # Routes AVEC /api (pour production sans proxy)
 # IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
 app.include_router(humidity_alerts_router, prefix="/api")
-app.include_router(tableau_de_bord_router, prefix="/api")  # 🆕 Tableau de Bord unifié
+app.include_router(router_alertes, prefix="/api")  # 🆕 Tableau de Bord - Alertes
+app.include_router(router_pianos, prefix="/api")   # 🆕 Tableau de Bord - Pianos
+app.include_router(router_system, prefix="/api")   # 🆕 Tableau de Bord - Système
 app.include_router(vincent_dindy_router, prefix="/api")
 app.include_router(alertes_rv_router, prefix="/api")
 app.include_router(inventaire_router, prefix="/api")

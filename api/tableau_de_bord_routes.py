@@ -19,7 +19,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.supabase_storage import SupabaseStorage
 
-router = APIRouter(prefix="/api/alertes", tags=["tableau-de-bord"])
+# Créer 3 routers séparés pour éviter les conflits de préfixes
+router_alertes = APIRouter(prefix="/alertes", tags=["tableau-de-bord"])
+router_pianos = APIRouter(prefix="/pianos", tags=["tableau-de-bord"])
+router_system = APIRouter(prefix="/system", tags=["tableau-de-bord"])
 
 # Singletons
 _storage = None
@@ -37,7 +40,7 @@ def get_storage() -> SupabaseStorage:
 # ENDPOINTS - ALERTES
 # ============================================================
 
-@router.get("/rv-non-confirmes")
+@router_alertes.get("/rv-non-confirmes")
 async def get_unconfirmed_appointments() -> Dict[str, Any]:
     """
     Récupère les rendez-vous non confirmés pour les prochains jours.
@@ -107,7 +110,7 @@ async def get_unconfirmed_appointments() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/maintenance")
+@router_alertes.get("/maintenance")
 async def get_maintenance_alerts() -> Dict[str, Any]:
     """
     Récupère les alertes de maintenance pour les pianos en retard.
@@ -198,7 +201,7 @@ async def get_maintenance_alerts() -> Dict[str, Any]:
 # ENDPOINTS - HISTORIQUE PIANOS
 # ============================================================
 
-@router.get("/pianos/history")
+@router_pianos.get("/history")
 async def get_piano_history(days: int = 7, type: str = 'technical') -> Dict[str, Any]:
     """
     Récupère l'historique des modifications de pianos (modifications techniques uniquement).
@@ -281,7 +284,7 @@ async def get_piano_history(days: int = 7, type: str = 'technical') -> Dict[str,
 # ENDPOINTS - ÉTAT SYSTÈME
 # ============================================================
 
-@router.get("/system/status")
+@router_system.get("/status")
 async def get_system_status() -> Dict[str, Any]:
     """
     Récupère l'état du système (derniers imports Gazelle).
