@@ -36,6 +36,7 @@ export default function VDI_TechnicianView({
 
   // Utilitaires
   moisDepuisAccord,
+  formatDateRelative,
   getSyncStatusIcon,
   pianosFiltres
 }) {
