@@ -18,6 +18,7 @@
       "cover removed",
       "cover off",
       "sans housse",
+      "pas de housse",
       "no cover",
       "housse manquante",
       "missing cover"
@@ -35,6 +36,8 @@
       "pl debranché",
       "player débranché",
       "player debranché",
+      "dampp chaser débranché",
+      "système débranché",
       "déconnecté",
       "deconnecte",
       "disconnected",
@@ -45,6 +48,9 @@
     "reservoir": [
       "réservoir vide",
       "reservoir vide",
+      "réservoir à remplir",
+      "reservoir à remplir",
+      "remplir réservoir",
       "tank empty",
       "empty tank",
       "réservoir manquant",
@@ -53,6 +59,20 @@
       "pas de réservoir",
       "pas de reservoir",
       "no reservoir"
+    ],
+    "environnement": [
+      "fenêtre ouverte",
+      "fenetre ouverte",
+      "température basse",
+      "temperature basse",
+      "humidité",
+      "humidite",
+      "humidity",
+      "température",
+      "temperature",
+      "chauffage",
+      "heating",
+      "ventilation"
     ]
   },
 
@@ -93,6 +113,23 @@
       "reservoir rempli a nouveau",
       "reservoir remis",
       "reservoir reinstalled"
+    ],
+    "environnement": [
+      "fenêtre fermée",
+      "fenetre fermee",
+      "window closed",
+      "température normale",
+      "temperature normale",
+      "temperature normal",
+      "humidité normale",
+      "humidite normale",
+      "humidity normal",
+      "corrigé",
+      "corrige",
+      "fixed",
+      "résolu",
+      "resolu",
+      "resolved"
     ]
   }
 }

@@ -44,49 +44,120 @@ def get_storage() -> SupabaseStorage:
 @router_alertes.get("/rv-non-confirmes")
 async def get_unconfirmed_appointments() -> Dict[str, Any]:
     """
-    Récupère les rendez-vous non confirmés pour les prochains jours.
+    Récupère les rendez-vous non confirmés nécessitant attention.
+
+    Critères:
+    - Créés il y a plus de 4 mois (120 jours)
+    - Pour une date dans 14 jours
+    - Statut ACTIVE (pas confirmés)
+    - Exclut les types Admin/Memo/Personal
+    - Avec un vrai client associé
 
     Returns:
         {
             "appointments": [...],
-            "count": int
+            "count": int,
+            "target_date": str,
+            "creation_cutoff": str
         }
     """
     try:
         storage = get_storage()
 
-        # Récupérer les RV des 7 prochains jours
+        # Date cible: dans 14 jours
         today = datetime.now().date()
-        end_date = today + timedelta(days=7)
+        target_date = today + timedelta(days=14)
 
-        # Utiliser seulement les colonnes qui existent
+        # Date limite de création: il y a 120 jours
+        creation_cutoff = datetime.now() - timedelta(days=120)
+
+        # Récupérer les RV qui correspondent aux critères
         response = storage.client.table('gazelle_appointments').select(
             '*'
-        ).gte(
-            'appointment_date', today.isoformat()
+        ).eq(
+            'appointment_date', target_date.isoformat()
+        ).eq(
+            'status', 'ACTIVE'  # Pas encore confirmés
         ).lte(
-            'appointment_date', end_date.isoformat()
+            'created_at', creation_cutoff.isoformat()
+        ).not_.is_(
+            'client_external_id', 'null'  # Doit avoir un vrai client
         ).order(
-            'appointment_date', desc=False
-        ).limit(15).execute()
+            'appointment_time', desc=False
+        ).limit(50).execute()
 
         appointments = response.data or []
 
-        # Pour chaque appointment, essayer d'enrichir avec client et tech
-        for apt in appointments:
-            # Nom du client
-            apt['client_name'] = 'Client'
+        # Filtrer les types Admin/Memo/Personal
+        EXCLUDE_TITLES = ['admin', 'memo', 'personal', 'mise à jour', 'personnel']
+        filtered = []
 
-            # Nom du technicien
-            apt['technician_name'] = 'Non assigné'
+        for apt in appointments:
+            title = (apt.get('title') or '').lower()
+
+            # Exclure si le titre contient un mot-clé d'exclusion
+            if any(exclude in title for exclude in EXCLUDE_TITLES):
+                continue
+
+            # Enrichir avec le nom du client
+            if apt.get('client_external_id'):
+                try:
+                    client_resp = storage.client.table('gazelle_clients').select(
+                        'company_name'
+                    ).eq(
+                        'external_id', apt['client_external_id']
+                    ).limit(1).execute()
+
+                    if client_resp.data and len(client_resp.data) > 0:
+                        apt['client_name'] = client_resp.data[0]['company_name']
+                    else:
+                        apt['client_name'] = 'Client inconnu'
+                except:
+                    apt['client_name'] = 'Client inconnu'
+            else:
+                apt['client_name'] = 'Sans client'
+
+            # Enrichir avec le nom du technicien
+            if apt.get('technicien'):
+                try:
+                    tech_resp = storage.client.table('gazelle_users').select(
+                        'first_name, last_name'
+                    ).eq(
+                        'external_id', apt['technicien']
+                    ).limit(1).execute()
+
+                    if tech_resp.data and len(tech_resp.data) > 0:
+                        tech = tech_resp.data[0]
+                        apt['technician_name'] = f"{tech.get('first_name', '')} {tech.get('last_name', '')}".strip()
+                    else:
+                        apt['technician_name'] = 'Non assigné'
+                except:
+                    apt['technician_name'] = 'Non assigné'
+            else:
+                apt['technician_name'] = 'Non assigné'
+
+            # Calculer l'ancienneté du RV
+            if apt.get('created_at'):
+                try:
+                    created = datetime.fromisoformat(apt['created_at'].replace('Z', '+00:00'))
+                    age_days = (datetime.now(created.tzinfo) - created).days
+                    apt['age_days'] = age_days
+                except:
+                    apt['age_days'] = 0
+
+            filtered.append(apt)
 
         return {
-            "appointments": appointments,
-            "count": len(appointments)
+            "appointments": filtered,
+            "count": len(filtered),
+            "target_date": target_date.isoformat(),
+            "creation_cutoff": creation_cutoff.date().isoformat()
         }
 
     except Exception as e:
         print(f"[TableauDeBord] Erreur get_unconfirmed_appointments: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

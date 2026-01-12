@@ -653,47 +653,53 @@ class GazelleToSupabaseSync:
 
     def sync_timeline_entries(self) -> int:
         """
-        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE 30 JOURS).
+        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE GLISSANTE 7 JOURS).
 
-        Stratégie hybride (LEÇON MARGOT 2026-01-11):
-        1. Utilise occurredAtGet pour l'historique (30 jours)
-        2. Pour les vérifications critiques récentes, utiliser get_recent_timeline_entries_for_client()
-           qui récupère les 50 dernières SANS filtre de date (évite problèmes fuseaux horaires)
+        STRATÉGIE OPTIMISÉE (2026-01-11):
+        - Fenêtre glissante de 7 jours uniquement (pas d'historique complet)
+        - Clé unique: external_id (on_conflict) pour éviter doublons
+        - Suffisant pour capturer notes de Margot et corrections récentes
+        - Performance: <30 secondes vs 10 minutes pour historique complet
 
-        POURQUOI HYBRIDE:
-        - occurredAtGet peut rater des entrées récentes (UTC vs Montreal, délai API)
-        - Méthode brute garantit de ne rien manquer pour les données critiques
-        - Exemple: Note "Piano débranché. Besoin rallonge" (10 jan) ratée par filtre strict
+        POURQUOI 7 JOURS:
+        - Base historique déjà dans Supabase
+        - Notes récentes capturées rapidement
+        - Pas de surcharge inutile
+        - Corrections de la semaine incluses
 
         Returns:
             Nombre d'entrées synchronisées
         """
-        print("\n📖 Synchronisation timeline (fenêtre glissante 30 jours)...")
+        print(">>> Connexion à Gazelle lancée...")
+        print("\n📖 Synchronisation timeline (fenêtre glissante 7 jours)...")
 
         try:
             from datetime import datetime, timedelta
 
-            # Date de cutoff: maintenant - 30 jours (étendu pour capturer services de fin décembre)
-            cutoff_date = datetime.now() - timedelta(days=30)
+            # Date de cutoff: 7 jours en arrière (fenêtre glissante)
+            now = datetime.now()
+            cutoff_date = now - timedelta(days=7)
 
             # IMPORTANT: Convertir la date Montreal → UTC pour le filtre API
             cutoff_iso_utc = format_for_gazelle_filter(cutoff_date)
 
-            print(f"📅 Fenêtre de synchronisation: entrées depuis les 30 derniers jours")
+            print(f"📅 Fenêtre de synchronisation: 7 derniers jours seulement")
             print(f"   📍 Cutoff: {cutoff_date.strftime('%Y-%m-%d')} Montreal → {cutoff_iso_utc} UTC")
+            print(f"   ⚡ Performance optimisée: ~30 secondes")
 
-            # Utiliser le filtre API pour récupérer SEULEMENT les 30 derniers jours
+            # Utiliser le filtre API pour récupérer SEULEMENT les 7 derniers jours
             # Cela évite de télécharger 100,000+ entrées inutiles à chaque sync
+            # RÈGLE: On a déjà l'historique complet, on rattrape juste la semaine
             api_entries = self.api_client.get_timeline_entries(
                 since_date=cutoff_iso_utc,
                 limit=None
             )
 
             if not api_entries:
-                print("⚠️  Aucune timeline entry récupérée depuis l'API")
+                print("✅ Aucune timeline entry récente (7 derniers jours)")
                 return 0
 
-            print(f"📥 {len(api_entries)} timeline entries reçues de l'API")
+            print(f"📥 {len(api_entries)} timeline entries reçues (7 derniers jours)")
 
             synced_count = 0
             stopped_by_age = False
@@ -712,11 +718,11 @@ class GazelleToSupabaseSync:
                                 # Formater pour Supabase (UTC avec 'Z')
                                 occurred_at_utc = format_for_supabase(dt_parsed)
 
-                                # Vérifier age (30 jours cutoff)
+                                # Vérifier age (7 jours cutoff)
                                 from zoneinfo import ZoneInfo
                                 cutoff_aware = cutoff_date.replace(tzinfo=ZoneInfo('UTC'))
                                 if dt_parsed < cutoff_aware:
-                                    # SKIP cette entrée (trop vieille)
+                                    # SKIP cette entrée (plus vieille que 7 jours)
                                     continue
                         except Exception as e:
                             print(f"⚠️  Erreur parsing date '{occurred_at_raw}': {e}")
@@ -762,7 +768,8 @@ class GazelleToSupabaseSync:
                         # Note: createdAt/updatedAt n'existent pas dans PrivateTimelineEntry
                     }
 
-                    # UPSERT avec on_conflict
+                    # UPSERT avec on_conflict sur external_id (clé unique Gazelle)
+                    # IMPORTANT: Garantit aucun doublon, même si sync multiple fois
                     url = f"{self.storage.api_url}/gazelle_timeline_entries?on_conflict=external_id"
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
@@ -788,15 +795,24 @@ class GazelleToSupabaseSync:
 
             # Affichage final
             if stopped_by_age:
-                print(f"✅ {synced_count} timeline entries synchronisées (fenêtre 15 jours)")
+                print(f"✅ {synced_count} timeline entries synchronisées (fenêtre 7 jours)")
             else:
-                print(f"✅ {synced_count} timeline entries synchronisées (toutes < 15 jours)")
+                print(f"✅ {synced_count} timeline entries synchronisées (toutes < 7 jours)")
 
             return synced_count
 
         except Exception as e:
             print(f"❌ Erreur lors de la synchronisation des timeline entries: {e}")
             raise
+
+    def sync_timeline(self) -> int:
+        """
+        Alias pour sync_timeline_entries() pour compatibilité avec le scheduler.
+
+        Returns:
+            Nombre d'entrées synchronisées
+        """
+        return self.sync_timeline_entries()
 
     def sync_users(self, force: bool = False) -> int:
         """

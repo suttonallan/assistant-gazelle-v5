@@ -237,6 +237,62 @@ class ServiceReports:
         except Exception as e:
             print(f"⚠️ Impossible d'écrire l'en-tête sur {ws.title}: {e}")
 
+    @staticmethod
+    def _create_row_signature(row: List[str]) -> str:
+        """
+        Crée une signature unique pour une ligne basée sur DateEvenement + Description.
+        Utilisé pour détecter les doublons.
+        """
+        date_event = (row[0] if len(row) > 0 else "").strip()
+        description = (row[2] if len(row) > 2 else "").strip()
+        # Tronquer la description à 200 caractères pour éviter les problèmes de comparaison
+        description_truncated = description[:200]
+        return f"{date_event}|||{description_truncated}"
+
+    @staticmethod
+    def _get_existing_row_signatures(ws) -> set:
+        """
+        Récupère les signatures des lignes existantes dans le Google Sheet.
+        Retourne un set de signatures pour la détection de doublons.
+        """
+        try:
+            all_values = ws.get_all_values()
+            if len(all_values) <= 1:  # Seulement l'en-tête ou vide
+                return set()
+
+            # Ignorer l'en-tête (première ligne)
+            existing_signatures = set()
+            for row in all_values[1:]:  # Skip header
+                if row and any(cell.strip() for cell in row):  # Ignorer les lignes vides
+                    signature = ServiceReports._create_row_signature(row)
+                    existing_signatures.add(signature)
+
+            return existing_signatures
+        except Exception as e:
+            print(f"⚠️ Erreur lecture signatures existantes pour {ws.title}: {e}")
+            return set()
+
+    @staticmethod
+    def _filter_duplicate_rows(rows: List[List[str]], existing_signatures: set) -> List[List[str]]:
+        """
+        Filtre les lignes en double en comparant avec les signatures existantes.
+        Retourne uniquement les nouvelles lignes qui n'existent pas déjà.
+        """
+        new_rows = []
+        duplicate_count = 0
+
+        for row in rows:
+            signature = ServiceReports._create_row_signature(row)
+            if signature not in existing_signatures:
+                new_rows.append(row)
+            else:
+                duplicate_count += 1
+
+        if duplicate_count > 0:
+            print(f"   ⚠️ {duplicate_count} ligne(s) en double ignorée(s)")
+
+        return new_rows
+
     # ------------------------------------------------------------------
     # Construction et écriture des rapports
     # ------------------------------------------------------------------
@@ -550,11 +606,21 @@ class ServiceReports:
             self._ensure_headers(ws)
 
             if rows:
-                try:
-                    ws.append_rows(rows, value_input_option="RAW")
-                    counts[tab] = len(rows)
-                except Exception as e:
-                    print(f"❌ Erreur append {tab}: {e}")
+                # Filtrer les doublons si append=True
+                if append:
+                    existing_signatures = self._get_existing_row_signatures(ws)
+                    rows = self._filter_duplicate_rows(rows, existing_signatures)
+
+                if rows:
+                    try:
+                        # Insérer les nouvelles lignes après l'en-tête (ligne 2)
+                        # pour que les événements les plus récents apparaissent en premier
+                        ws.insert_rows(rows, row=2, value_input_option="RAW")
+                        counts[tab] = len(rows)
+                    except Exception as e:
+                        print(f"❌ Erreur insert {tab}: {e}")
+                        counts[tab] = 0
+                else:
                     counts[tab] = 0
             else:
                 counts[tab] = 0

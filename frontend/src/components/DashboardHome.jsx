@@ -1,17 +1,39 @@
 import { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
+import HumidityAlertsDashboard from './HumidityAlertsDashboard'
 
 export default function DashboardHome({ currentUser, selectedLocation }) {
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [humidityStats, setHumidityStats] = useState(null)
+  const [showHumidityDashboard, setShowHumidityDashboard] = useState(false)
 
   useEffect(() => {
     loadActivities()
+    loadHumidityStats()
     // Recharger toutes les 30 secondes
-    const interval = setInterval(loadActivities, 30000)
+    const interval = setInterval(() => {
+      loadActivities()
+      loadHumidityStats()
+    }, 30000)
     return () => clearInterval(interval)
   }, [selectedLocation])
+
+  const loadHumidityStats = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/humidity-alerts/stats`)
+      if (!response.ok) {
+        console.warn('Stats humidité non disponibles')
+        return
+      }
+      const data = await response.json()
+      setHumidityStats(data)
+    } catch (err) {
+      console.error('Erreur chargement stats humidité:', err)
+      // Ne pas afficher d'erreur si les alertes humidité ne sont pas disponibles
+    }
+  }
 
   const loadActivities = async () => {
     // Ne charger les activités que pour vincent-dindy
@@ -121,6 +143,52 @@ export default function DashboardHome({ currentUser, selectedLocation }) {
           Suivi des modifications effectuées sur les pianos
         </p>
       </div>
+
+      {/* Carte Alertes Humidité - Maintenance Institutionnelle */}
+      {humidityStats && humidityStats.institutional_unresolved > 0 && (
+        <div className="bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">🏛️</span>
+                <h3 className="text-lg font-bold text-gray-800">
+                  Alertes Maintenance Institutionnelle
+                </h3>
+              </div>
+              <p className="text-gray-700 mb-3">
+                {humidityStats.institutional_unresolved} alerte{humidityStats.institutional_unresolved > 1 ? 's' : ''} d'humidité non résolue{humidityStats.institutional_unresolved > 1 ? 's' : ''} détectée{humidityStats.institutional_unresolved > 1 ? 's' : ''} dans les institutions surveillées
+              </p>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="bg-white rounded px-3 py-2 border border-gray-200">
+                  <div className="text-xs text-gray-600">Total</div>
+                  <div className="text-2xl font-bold text-blue-600">{humidityStats.total_alerts || 0}</div>
+                </div>
+                <div className="bg-white rounded px-3 py-2 border border-orange-200">
+                  <div className="text-xs text-gray-600">Non résolues</div>
+                  <div className="text-2xl font-bold text-orange-600">{humidityStats.unresolved || 0}</div>
+                </div>
+                <div className="bg-white rounded px-3 py-2 border border-green-200">
+                  <div className="text-xs text-gray-600">Résolues</div>
+                  <div className="text-2xl font-bold text-green-600">{humidityStats.resolved || 0}</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHumidityDashboard(!showHumidityDashboard)}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-medium px-4 py-2 rounded transition-colors"
+              >
+                {showHumidityDashboard ? '🔼 Masquer les détails' : '🔍 Voir les détails'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dashboard Humidité complet (si demandé) */}
+      {showHumidityDashboard && (
+        <div className="mb-6">
+          <HumidityAlertsDashboard />
+        </div>
+      )}
 
       {/* Stats rapides */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
