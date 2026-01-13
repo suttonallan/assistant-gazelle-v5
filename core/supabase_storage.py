@@ -684,13 +684,27 @@ class SupabaseStorage:
         """
         from datetime import datetime, timezone
 
+        # Colonnes valides dans la table technician_reports (selon le schéma SQL)
+        valid_columns = {
+            "id", "technician_name", "client_name", "client_id", "date",
+            "report_type", "description", "notes", "hours_worked",
+            "submitted_at", "status", "created_at", "updated_at"
+        }
+
+        # Filtrer le rapport pour ne garder que les colonnes valides
+        # (exclure items_used qui n'existe pas dans la table)
+        filtered_report = {
+            k: v for k, v in report.items()
+            if k in valid_columns
+        }
+
         # Créer le rapport avec métadonnées
         report_id = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
         report_with_metadata = {
             "id": report_id,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "status": "pending",
-            **report  # Inclut tous les champs du rapport (technician_name, date, etc.)
+            **filtered_report  # Inclut seulement les champs valides
         }
 
         # Sauvegarder dans la table technician_reports

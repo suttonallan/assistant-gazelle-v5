@@ -472,6 +472,9 @@ async def submit_report(report: TechnicianReport):
             detail=f"Configuration manquante: {str(e)}. Ajoutez SUPABASE_URL et SUPABASE_KEY dans les variables d'environnement."
         )
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logging.error(f"Erreur lors de la sauvegarde du rapport: {e}\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Erreur lors de la sauvegarde: {str(e)}")
 
 
