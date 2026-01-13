@@ -672,78 +672,103 @@ async def import_email(payload: ImportRequest):
     """
     Import email/texte : parse, normalise, UPSERT.
     """
-    if not payload.raw_text:
-        raise HTTPException(status_code=400, detail="raw_text requis")
-    parsed = parse_email_text(payload.raw_text)
-    if not parsed:
-        return {"success": True, "imported": 0, "warnings": ["Aucune demande détectée"]}
+    try:
+        if not payload.raw_text:
+            raise HTTPException(status_code=400, detail="raw_text requis")
+        
+        parsed = parse_email_text(payload.raw_text)
+        if not parsed:
+            return {"success": True, "imported": 0, "warnings": ["Aucune demande détectée"], "message": "Aucune demande détectée dans le texte"}
 
-    storage = get_storage()
+        storage = get_storage()
 
-    def exists_duplicate(row: Dict[str, Any]) -> bool:
-        # Critère V4 : même date, salle, pour qui, heure
-        params = [
-            f"appointment_date=eq.{row.get('appointment_date')}",
-            f"room=eq.{row.get('room') or ''}",
-            f"for_who=eq.{row.get('for_who') or ''}",
-            f"time=eq.{row.get('time') or ''}",
-            "select=id",
-            "limit=1"
-        ]
-        url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
-        resp = requests.get(url, headers=storage._get_headers())
-        return resp.status_code == 200 and resp.json()
+        def exists_duplicate(row: Dict[str, Any]) -> bool:
+            # Critère V4 : même date, salle, pour qui, heure
+            try:
+                params = [
+                    f"appointment_date=eq.{row.get('appointment_date')}",
+                    f"room=eq.{row.get('room') or ''}",
+                    f"for_who=eq.{row.get('for_who') or ''}",
+                    f"time=eq.{row.get('time') or ''}",
+                    "select=id",
+                    "limit=1"
+                ]
+                url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
+                resp = requests.get(url, headers=storage._get_headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return bool(data and isinstance(data, list) and len(data) > 0)
+                return False
+            except Exception as e:
+                logging.warning(f"Erreur vérification doublon: {e}")
+                return False
 
-    rows = []
-    duplicates = []
-    today_iso = datetime.now(timezone.utc).date().isoformat()
-    for idx, item in enumerate(parsed, start=1):
-        appointment_date = item.get("date")
-        if isinstance(appointment_date, datetime):
-            appointment_date = appointment_date.date().isoformat()
-        elif not appointment_date:
-            continue  # saute si pas de date
+        rows = []
+        duplicates = []
+        today_iso = datetime.now(timezone.utc).date().isoformat()
+        
+        for idx, item in enumerate(parsed, start=1):
+            try:
+                appointment_date = item.get("date")
+                if isinstance(appointment_date, datetime):
+                    appointment_date = appointment_date.date().isoformat()
+                elif not appointment_date:
+                    continue  # saute si pas de date
 
-        row = {
-            "id": f"pda_email_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
-            "request_date": today_iso,
-            "appointment_date": appointment_date,
-            "room": item.get("room") or "",
-            "room_original": item.get("room"),
-            "for_who": item.get("for_who") or "",
-            "diapason": item.get("diapason") or "",
-            "requester": item.get("requester") or "",
-            "piano": item.get("piano") or "",
-            "time": item.get("time") or "",
-            "technician_id": None,
-            "status": "PENDING",
-            "original_raw_text": payload.raw_text,
-            "notes": item.get("notes") or "",
-        }
-        if exists_duplicate(row):
-            duplicates.append(row)
-        else:
-            rows.append(row)
+                row = {
+                    "id": f"pda_email_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
+                    "request_date": today_iso,
+                    "appointment_date": appointment_date,
+                    "room": item.get("room") or "",
+                    "room_original": item.get("room"),
+                    "for_who": item.get("for_who") or "",
+                    "diapason": item.get("diapason") or "",
+                    "requester": item.get("requester") or "",
+                    "piano": item.get("piano") or "",
+                    "time": item.get("time") or "",
+                    "technician_id": None,
+                    "status": "PENDING",
+                    "original_raw_text": payload.raw_text,
+                    "notes": item.get("notes") or "",
+                }
+                
+                if exists_duplicate(row):
+                    duplicates.append(row)
+                else:
+                    rows.append(row)
+            except Exception as e:
+                logging.warning(f"Erreur traitement item {idx}: {e}")
+                continue
 
-    if not rows:
+        if not rows:
+            return {
+                "success": True,
+                "imported": 0,
+                "warnings": ["Aucune ligne exploitable (dates manquantes ou doublons existants)"],
+                "duplicates": duplicates,
+                "message": f"Aucune nouvelle demande ({(len(duplicates))} doublon(s) détecté(s))"
+            }
+
+        manager = get_manager()
+        result = manager.import_csv(rows, on_conflict="update")
+        
+        if result.get("errors"):
+            error_msg = result["errors"] if isinstance(result["errors"], str) else "; ".join(result["errors"]) if isinstance(result["errors"], list) else str(result["errors"])
+            raise HTTPException(status_code=400, detail=error_msg)
+        
         return {
             "success": True,
-            "imported": 0,
-            "warnings": ["Aucune ligne exploitable (dates manquantes ou doublons existants)"],
+            "imported": result.get("inserted", 0),
+            "message": result.get("message", f"{result.get('inserted', 0)} demande(s) importée(s)"),
+            "duplicates_skipped": len(duplicates),
             "duplicates": duplicates
         }
-
-    manager = get_manager()
-    result = manager.import_csv(rows, on_conflict="update")
-    if result.get("errors"):
-        raise HTTPException(status_code=400, detail=result["errors"])
-    return {
-        "success": True,
-        "imported": result.get("inserted", 0),
-        "message": result.get("message", ""),
-        "duplicates_skipped": len(duplicates),
-        "duplicates": duplicates
-    }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur import email: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'import: {str(e)}")
 
 
 class SyncManualRequest(BaseModel):

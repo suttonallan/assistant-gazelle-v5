@@ -126,6 +126,7 @@ async def shutdown_event():
 
 # CORS - Permet au frontend d'appeler l'API
 # Autoriser les ports de développement Vite (5173, 5174, 5175) et production
+# NOTE: allow_credentials=True ne peut pas être utilisé avec "*", donc on liste explicitement
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -136,7 +137,6 @@ app.add_middleware(
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
         "https://suttonallan.github.io",  # Production GitHub Pages
-        "*"  # Fallback pour compatibilité
     ],
     allow_credentials=True,
     allow_methods=["*"],
