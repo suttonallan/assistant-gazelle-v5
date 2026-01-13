@@ -595,7 +595,11 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 continue
 
             # After structured data, names are requester (signature)
-            if candidate_requester is None and has_structured_data and is_candidate_name(ls):
+            # MAIS seulement si for_who n'est pas déjà rempli avec cette ligne
+            if (candidate_requester is None and 
+                has_structured_data and 
+                is_candidate_name(ls) and
+                candidate_for_who != ls):  # Ne pas capturer si c'est déjà dans for_who
                 candidate_requester = ls
 
             if not result.get('piano') and (has_brand or has_piano_word or is_concert_label):
@@ -627,12 +631,17 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
         if not result.get('piano') and candidate_piano:
             result['piano'] = candidate_piano
             result['confidence'] += 0.1
+        # PRIORITÉ: for_who doit être assigné AVANT requester
+        # Si on a un candidate_for_who, il a la priorité (même si candidate_requester existe)
         if not result.get('for_who') and candidate_for_who:
             result['for_who'] = candidate_for_who
             result['confidence'] += 0.1
+        # Requester seulement si for_who est déjà rempli ET que ce n'est pas le même texte
         if not result.get('requester') and candidate_requester:
-            result['requester'] = candidate_requester
-            result['confidence'] += 0.05
+            # Ne pas mettre dans requester si c'est déjà dans for_who
+            if result.get('for_who') != candidate_requester:
+                result['requester'] = candidate_requester
+                result['confidence'] += 0.05
 
         # RÈGLE 1: Champ Demandeur vierge si pas explicitement nommé
         # Mapper les noms de demandeurs connus vers leurs codes
@@ -642,7 +651,8 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
 
             # Si c'est juste un code de salle (WP, TM, MS, etc.), VIDER le champ
             room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl', 'sd', 'c5', 'odm']
-            if requester_lower in room_codes:
+            # Vérifier aussi si le requester contient un code de salle (ex: "Clown ODM")
+            if requester_lower in room_codes or any(code in requester_lower for code in room_codes):
                 result['requester'] = ''  # Champ vide si c'est un code de salle
             else:
                 # Mapping noms connus → codes
