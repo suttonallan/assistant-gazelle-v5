@@ -270,6 +270,8 @@ class EventManager:
         - to_bill: status = COMPLETED and billed_at is null
         - this_month: appointment_date in current month
         """
+        from datetime import datetime
+        
         hdrs = self.storage._get_headers()
         base = f"{self.storage.api_url}/place_des_arts_requests"
 
@@ -280,11 +282,21 @@ class EventManager:
             if "content-range" in r.headers:
                 range_value = r.headers.get("content-range", "0/0").split("/")[-1]
                 return 0 if range_value == '*' else int(range_value)
-            return len(r.json())
+            data = r.json()
+            return len(data) if isinstance(data, list) else 0
 
         imported = count("status=in.(PENDING,imported)")
         to_bill = count("status=eq.COMPLETED&billed_at=is.null")
-        this_month = count("appointment_date=gte.date_trunc('month',now())&appointment_date=lt.date_trunc('month',now()+interval '1 month')")
+        
+        # Calculer le premier et dernier jour du mois actuel (format ISO pour PostgREST)
+        now = datetime.now()
+        first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if now.month == 12:
+            last_day = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            last_day = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        this_month = count(f"appointment_date=gte.{first_day.isoformat()}&appointment_date=lt.{last_day.isoformat()}")
 
         return {"imported": imported, "to_bill": to_bill, "this_month": this_month}
 
