@@ -6,6 +6,7 @@ Plus rapide, fiable et scalable que GitHub Gist.
 """
 
 import os
+import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import requests
@@ -302,6 +303,12 @@ class SupabaseStorage:
                 print(f"❌ Erreur Supabase {response.status_code}: {error_detail}")
                 print(f"   Table: {table_name}")
                 print(f"   Champs envoyés: {list(data.keys())}")
+                print(f"   Données complètes: {json.dumps(data, indent=2, default=str)}")
+                
+                # Si c'est une erreur 400/422, c'est probablement un problème de format ou de colonnes
+                if response.status_code in [400, 422]:
+                    raise ValueError(f"Erreur de validation Supabase ({response.status_code}): {error_detail}")
+                
                 return False
 
         except Exception as e:
@@ -706,29 +713,45 @@ class SupabaseStorage:
 
         # Créer le rapport avec métadonnées
         report_id = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+        
+        # S'assurer que tous les champs obligatoires sont présents
         report_with_metadata = {
             "id": report_id,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "status": "pending",
             **filtered_report  # Inclut seulement les champs valides
         }
+        
+        # Validation: vérifier que les champs obligatoires sont présents
+        required_fields = ["technician_name", "date", "report_type", "description"]
+        missing_fields = [field for field in required_fields if not report_with_metadata.get(field)]
+        if missing_fields:
+            raise ValueError(f"Champs obligatoires manquants: {missing_fields}")
 
         # Sauvegarder dans la table technician_reports
         try:
-            success = self.update_data(
-                table_name="technician_reports",
-                data=report_with_metadata,
-                id_field="id",
-                upsert=True,
-                auto_timestamp=False  # On gère submitted_at manuellement
-            )
-
-            if success:
+            # Afficher les données avant envoi
+            print(f"📤 Envoi vers Supabase: {json.dumps(report_with_metadata, indent=2, default=str)}")
+            
+            # Appeler update_data qui va lever une exception si erreur 400/422
+            try:
+                success = self.update_data(
+                    table_name="technician_reports",
+                    data=report_with_metadata,
+                    id_field="id",
+                    upsert=True,
+                    auto_timestamp=False  # On gère submitted_at manuellement
+                )
+                
+                if not success:
+                    # Si update_data retourne False sans exception, c'est une erreur inattendue
+                    raise Exception("Échec de la sauvegarde dans technician_reports (code de retour False). Vérifiez les logs Supabase ci-dessus.")
+                    
                 return report_with_metadata
-            else:
-                # L'erreur a déjà été loggée dans update_data()
-                # Récupérer plus de détails si possible
-                raise Exception("Échec de la sauvegarde dans technician_reports. Vérifiez les logs Supabase ci-dessus.")
+                
+            except ValueError as ve:
+                # Erreur de validation propagée depuis update_data
+                raise ve
 
         except Exception as e:
             print(f"❌ Exception dans add_report: {e}")
