@@ -494,7 +494,11 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             return bool(re.match(r'^\d{3}$', line.strip()))
 
         def is_requester_line(line: str) -> bool:
-            return bool(re.match(r'^[A-Z]{1,3}$', line.strip()) and line.strip() not in room_keywords)
+            # Codes de requester valides (initiales connues)
+            known_requester_codes = ['IC', 'AJ', 'PT']
+            line_upper = line.strip().upper()
+            # Seulement si c'est exactement un code connu (pas "ODM" ou autres codes)
+            return bool(line_upper in known_requester_codes)
 
         # Date
         for line in lines:
@@ -566,7 +570,17 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             # After structured data block (diapason/piano/time found): names are "requester"
             has_structured_data = result.get('diapason') or result.get('piano') or result.get('time')
 
-            if candidate_for_who is None and found_data_block and not has_structured_data and not is_diapason_line(ls) and not is_requester_line(ls) and not is_time_line(ls) and not has_brand and not has_piano_word:
+            # "Pour qui" doit être détecté AVANT les données structurées (diapason, piano, time)
+            # Exclure les codes de requester connus (IC, AJ, PT) et les codes de salle
+            if (candidate_for_who is None and 
+                found_data_block and 
+                not has_structured_data and 
+                not is_diapason_line(ls) and 
+                not is_requester_line(ls) and 
+                not is_time_line(ls) and 
+                not has_brand and 
+                not has_piano_word and
+                ls.upper() not in room_keywords):  # Exclure aussi les codes de salle
                 candidate_for_who = ls
                 continue
 
@@ -600,10 +614,11 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             next_idx = room_found_at_idx + 1
             if next_idx < len(lines):
                 next_line = lines[next_idx].strip()
-                # Check if this line is likely a name (not diapason, not piano, not time)
+                # Check if this line is likely a name (not diapason, not piano, not time, not requester code)
                 if (next_line and
                     not is_diapason_line(next_line) and
                     not is_time_line(next_line) and
+                    not is_requester_line(next_line) and  # Exclure les codes de requester
                     not any(kw.lower() in next_line.lower() for kw in piano_keywords) and
                     'piano' not in next_line.lower()):
                     result['for_who'] = next_line
@@ -743,9 +758,23 @@ def parse_email_text(email_text: str) -> List[Dict]:
 
     # Appliquer le demandeur global (signature) aux demandes sans demandeur
     if signature_requester:
+        # Mapper Isabelle vers IC si c'est la signature
+        signature_lower = signature_requester.lower().strip()
+        requester_mapping = {
+            'isabelle': 'IC',
+            'isabelle clairoux': 'IC',
+            'isabelle constantineau': 'IC',
+            'clairoux': 'IC',
+        }
+        mapped_requester = signature_requester
+        for name, code in requester_mapping.items():
+            if name in signature_lower:
+                mapped_requester = code
+                break
+        
         for req in requests:
             if not req.get('requester'):
-                req['requester'] = signature_requester
+                req['requester'] = mapped_requester
                 req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
 
     return requests
