@@ -692,11 +692,17 @@ class SupabaseStorage:
         }
 
         # Filtrer le rapport pour ne garder que les colonnes valides
-        # (exclure items_used qui n'existe pas dans la table)
+        # (exclure les champs non supportés par la table SQL)
         filtered_report = {
             k: v for k, v in report.items()
             if k in valid_columns
         }
+        
+        # Log pour diagnostic
+        excluded_fields = [k for k in report.keys() if k not in valid_columns]
+        if excluded_fields:
+            print(f"⚠️ Champs exclus (non dans la table): {excluded_fields}")
+        print(f"📝 Rapport à sauvegarder: {list(filtered_report.keys())}")
 
         # Créer le rapport avec métadonnées
         report_id = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
@@ -720,9 +726,14 @@ class SupabaseStorage:
             if success:
                 return report_with_metadata
             else:
-                raise Exception("Échec de la sauvegarde dans technician_reports")
+                # L'erreur a déjà été loggée dans update_data()
+                # Récupérer plus de détails si possible
+                raise Exception("Échec de la sauvegarde dans technician_reports. Vérifiez les logs Supabase ci-dessus.")
 
         except Exception as e:
+            print(f"❌ Exception dans add_report: {e}")
+            import traceback
+            traceback.print_exc()
             raise Exception(f"Erreur lors de l'ajout du rapport: {e}")
 
     def get_reports(self, status: Optional[str] = None) -> List[Dict[str, Any]]:

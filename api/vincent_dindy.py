@@ -453,6 +453,12 @@ async def submit_report(report: TechnicianReport):
     try:
         storage = get_supabase_storage()
         report_data = report.dict()
+        
+        # Log pour diagnostic
+        logging.info(f"📤 Réception rapport: {list(report_data.keys())}")
+        logging.info(f"   technician_name: {report_data.get('technician_name')}")
+        logging.info(f"   date: {report_data.get('date')}")
+        logging.info(f"   report_type: {report_data.get('report_type')}")
 
         # Ajouter le rapport au Gist
         saved_report = storage.add_report(report_data)
