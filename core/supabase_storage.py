@@ -702,13 +702,19 @@ class SupabaseStorage:
         # (exclure les champs non supportés par la table SQL)
         filtered_report = {
             k: v for k, v in report.items()
-            if k in valid_columns
+            if k in valid_columns and v is not None  # Exclure aussi les valeurs None
         }
         
         # Log pour diagnostic
         excluded_fields = [k for k in report.keys() if k not in valid_columns]
         if excluded_fields:
             print(f"⚠️ Champs exclus (non dans la table): {excluded_fields}")
+        
+        # Aussi exclure les champs None explicitement
+        none_fields = [k for k, v in report.items() if k in valid_columns and v is None]
+        if none_fields:
+            print(f"⚠️ Champs None exclus: {none_fields}")
+            
         print(f"📝 Rapport à sauvegarder: {list(filtered_report.keys())}")
 
         # Créer le rapport avec métadonnées
