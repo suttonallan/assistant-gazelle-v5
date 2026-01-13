@@ -54,9 +54,9 @@ async def get_institutional_alerts():
     try:
         storage = SupabaseStorage()
 
-        # Clients institutionnels à surveiller
+        # Clients institutionnels à surveiller (mots-clés partiels)
         INSTITUTIONAL_CLIENTS = [
-            'Vincent d\'Indy',
+            'Vincent',  # Matche "École de musique Vincent-d'Indy"
             'Place des Arts',
             'Orford'
         ]
@@ -64,14 +64,14 @@ async def get_institutional_alerts():
         # Utiliser le client Supabase Python pour filtrer par plusieurs client_name
         # On fait plusieurs requêtes et on combine les résultats
         all_alerts = []
-        for client_name in INSTITUTIONAL_CLIENTS:
+        for client_keyword in INSTITUTIONAL_CLIENTS:
             try:
-                response = storage.client.table('humidity_alerts_active').select('*').eq('client_name', client_name).order('observed_at', desc=True).execute()
+                response = storage.client.table('humidity_alerts_active').select('*').ilike('client_name', f'%{client_keyword}%').order('observed_at', desc=True).execute()
                 if response.data:
                     all_alerts.extend(response.data)
             except Exception as e:
                 # Si une requête échoue, continuer avec les autres
-                print(f"⚠️ Erreur récupération alertes pour {client_name}: {e}")
+                print(f"⚠️ Erreur récupération alertes pour {client_keyword}: {e}")
 
         # Calculer les statistiques
         total = len(all_alerts)
@@ -460,6 +460,64 @@ def _run_daily_scan():
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
+
+
+@router.post("/scan")
+async def trigger_manual_scan(days_back: int = 7) -> Dict[str, Any]:
+    """
+    Déclenche un scan manuel des alertes d'humidité.
+
+    Ce endpoint permet de forcer un scan sans attendre le scheduler automatique.
+    Utile pour tester ou forcer un scan immédiatement.
+
+    Args:
+        days_back: Nombre de jours à scanner en arrière (défaut: 7)
+
+    Returns:
+        {
+            "status": "success",
+            "scanned": 1577,
+            "alerts_found": 5,
+            "new_alerts": 3,
+            "errors": 0,
+            "execution_time_seconds": 2.5
+        }
+    """
+    try:
+        from modules.alerts.humidity_scanner_safe import HumidityScannerSafe
+        import time
+
+        print(f"🚀 [Humidity Alerts] Scan manuel déclenché (days_back={days_back})")
+        start_time = time.time()
+
+        scanner = HumidityScannerSafe()
+        result = scanner.scan_new_entries(days_back=days_back)
+
+        execution_time = time.time() - start_time
+
+        print(f"✅ [Humidity Alerts] Scan terminé en {execution_time:.2f}s")
+        print(f"   Scannées: {result.get('scanned', 0)}")
+        print(f"   Alertes trouvées: {result.get('alerts_found', 0)}")
+        print(f"   Nouvelles alertes: {result.get('new_alerts', 0)}")
+
+        return {
+            "status": "success",
+            "scanned": result.get('scanned', 0),
+            "alerts_found": result.get('alerts_found', 0),
+            "new_alerts": result.get('new_alerts', 0),
+            "errors": result.get('errors', 0),
+            "execution_time_seconds": round(execution_time, 2),
+            "days_back": days_back
+        }
+
+    except Exception as e:
+        print(f"❌ [Humidity Alerts] Erreur scan manuel: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors du scan: {str(e)}"
+        )
 
 
 @router.on_event("startup")

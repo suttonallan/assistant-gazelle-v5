@@ -6,7 +6,7 @@ Implémentation minimale pour importer un CSV dans Supabase.
 
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import List, Dict, Any, Tuple
 import requests
 
@@ -277,7 +277,10 @@ class EventManager:
             r = requests.get(f"{base}?select=id&{q}", headers=hdrs)
             if r.status_code != 200:
                 return 0
-            return int(r.headers.get("content-range", "0/0").split("/")[-1]) if "content-range" in r.headers else len(r.json())
+            if "content-range" in r.headers:
+                range_value = r.headers.get("content-range", "0/0").split("/")[-1]
+                return 0 if range_value == '*' else int(range_value)
+            return len(r.json())
 
         imported = count("status=in.(PENDING,imported)")
         to_bill = count("status=eq.COMPLETED&billed_at=is.null")

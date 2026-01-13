@@ -292,7 +292,16 @@ class SupabaseStorage:
                 print(f"✅ Données sauvegardées dans {table_name}")
                 return True
             else:
-                print(f"❌ Erreur Supabase {response.status_code}: {response.text}")
+                error_detail = response.text
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict):
+                        error_detail = f"{error_json.get('message', error_detail)} (code: {error_json.get('code', 'N/A')})"
+                except:
+                    pass
+                print(f"❌ Erreur Supabase {response.status_code}: {error_detail}")
+                print(f"   Table: {table_name}")
+                print(f"   Champs envoyés: {list(data.keys())}")
                 return False
 
         except Exception as e:
@@ -658,4 +667,104 @@ class SupabaseStorage:
         except Exception as e:
             print(f"⚠️ Erreur lors de la suppression de '{key}': {e}")
             return False
+
+    # ================================================================
+    # TECHNICIAN REPORTS (Vincent d'Indy)
+    # ================================================================
+
+    def add_report(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ajoute un rapport de technicien dans Supabase (table technician_reports).
+
+        Args:
+            report: Données du rapport à ajouter (doit inclure: technician_name, date, report_type, description)
+
+        Returns:
+            Rapport ajouté avec métadonnées
+        """
+        from datetime import datetime, timezone
+
+        # Créer le rapport avec métadonnées
+        report_id = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+        report_with_metadata = {
+            "id": report_id,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "status": "pending",
+            **report  # Inclut tous les champs du rapport (technician_name, date, etc.)
+        }
+
+        # Sauvegarder dans la table technician_reports
+        try:
+            success = self.update_data(
+                table_name="technician_reports",
+                data=report_with_metadata,
+                id_field="id",
+                upsert=True,
+                auto_timestamp=False  # On gère submitted_at manuellement
+            )
+
+            if success:
+                return report_with_metadata
+            else:
+                raise Exception("Échec de la sauvegarde dans technician_reports")
+
+        except Exception as e:
+            raise Exception(f"Erreur lors de l'ajout du rapport: {e}")
+
+    def get_reports(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Récupère les rapports de techniciens depuis Supabase (table technician_reports).
+
+        Args:
+            status: Filtrer par statut ("pending", "processed", etc.)
+
+        Returns:
+            Liste des rapports, triés par submitted_at DESC
+        """
+        try:
+            filters = {}
+            if status:
+                filters["status"] = status
+
+            reports = self.get_data(
+                table_name="technician_reports",
+                filters=filters,
+                order_by="submitted_at.desc"
+            )
+
+            return reports
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération des rapports: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def get_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Récupère un rapport spécifique par son ID depuis la table technician_reports.
+
+        Args:
+            report_id: ID du rapport
+
+        Returns:
+            Rapport ou None si non trouvé
+        """
+        try:
+            reports = self.get_data(
+                table_name="technician_reports",
+                filters={"id": report_id},
+                limit=1
+            )
+
+            if reports:
+                return reports[0]
+            else:
+                return None
+
+        except Exception as e:
+            print(f"⚠️ Erreur lors de la récupération du rapport {report_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
