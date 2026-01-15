@@ -275,6 +275,9 @@ class SupabaseStorage:
 
             headers = self._get_headers()
 
+            # DEBUG: Afficher les données avant envoi
+            print(f"DEBUG SUPABASE DATA (update_data): {json.dumps(data, indent=2, default=str)}")
+            
             if upsert:
                 # Mode UPSERT : insère ou met à jour
                 headers["Prefer"] = "resolution=merge-duplicates"
@@ -298,21 +301,34 @@ class SupabaseStorage:
                     error_json = response.json()
                     if isinstance(error_json, dict):
                         error_detail = f"{error_json.get('message', error_detail)} (code: {error_json.get('code', 'N/A')})"
+                        # Afficher aussi les détails complets de l'erreur
+                        print(f"DEBUG SUPABASE ERROR (JSON): {json.dumps(error_json, indent=2, default=str)}")
                 except:
                     pass
+                print(f"DEBUG SUPABASE ERROR: {error_detail}")
                 print(f"❌ Erreur Supabase {response.status_code}: {error_detail}")
                 print(f"   Table: {table_name}")
                 print(f"   Champs envoyés: {list(data.keys())}")
+                print(f"   URL: {url}")
+                print(f"   Response headers: {dict(response.headers)}")
                 print(f"   Données complètes: {json.dumps(data, indent=2, default=str)}")
                 
                 # Si c'est une erreur 400/422, c'est probablement un problème de format ou de colonnes
                 if response.status_code in [400, 422]:
                     raise ValueError(f"Erreur de validation Supabase ({response.status_code}): {error_detail}")
                 
+                # Pour les autres erreurs, retourner False (compatibilité avec le code existant)
+                # mais logger les détails pour le debug
                 return False
 
+        except ValueError as ve:
+            # Erreur de validation - propager directement
+            print(f"⚠️ Erreur de validation lors de la mise à jour de {table_name}: {ve}")
+            raise ve
         except Exception as e:
-            print(f"⚠️ Erreur lors de la mise à jour de {table_name}: {e}")
+            # Autres exceptions - logger et retourner False pour compatibilité
+            error_str = str(e)
+            print(f"⚠️ Erreur lors de la mise à jour de {table_name}: {error_str}")
             import traceback
             traceback.print_exc()
             return False
@@ -721,12 +737,20 @@ class SupabaseStorage:
         report_id = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
         
         # S'assurer que tous les champs obligatoires sont présents
+        # Note: submitted_at, created_at et updated_at sont gérés automatiquement par SQL (DEFAULT NOW())
+        # On peut les laisser vides et laisser SQL les gérer, ou les envoyer explicitement
         report_with_metadata = {
             "id": report_id,
-            "submitted_at": datetime.now(timezone.utc).isoformat(),
             "status": "pending",
             **filtered_report  # Inclut seulement les champs valides
         }
+        
+        # Ne pas inclure created_at, updated_at, submitted_at - ils sont gérés automatiquement par SQL
+        # Si on veut un contrôle précis, on peut les ajouter, mais pour éviter les erreurs de format,
+        # on les laisse à SQL
+        report_with_metadata.pop("created_at", None)
+        report_with_metadata.pop("updated_at", None)
+        report_with_metadata.pop("submitted_at", None)  # Laisser SQL gérer avec DEFAULT NOW()
         
         # Validation: vérifier que les champs obligatoires sont présents
         required_fields = ["technician_name", "date", "report_type", "description"]
@@ -736,11 +760,94 @@ class SupabaseStorage:
 
         # Sauvegarder dans la table technician_reports
         try:
-            # Afficher les données avant envoi
-            print(f"📤 Envoi vers Supabase: {json.dumps(report_with_metadata, indent=2, default=str)}")
+            # DEBUG: Afficher les données avant envoi
+            print(f"DEBUG SUPABASE DATA: {json.dumps(report_with_metadata, indent=2, default=str)}")
+            
+            # Essayer d'utiliser le client Supabase directement si disponible
+            if self.client:
+                print("🔧 Utilisation du client Supabase direct...")
+                try:
+                    # Les exceptions Supabase seront détectées par leur nom de type
+                    # Pas besoin d'importer explicitement
+                    
+                    # Utiliser le client Supabase directement pour avoir accès à response.error
+                    response = self.client.table('technician_reports').insert(report_with_metadata).execute()
+                    
+                    if response.data and len(response.data) > 0:
+                        print(f"✅ Rapport sauvegardé via client Supabase: {response.data[0]}")
+                        # Retourner les données avec l'ID généré par Supabase si différent
+                        saved_data = response.data[0]
+                        report_with_metadata.update(saved_data)
+                        return report_with_metadata
+                    else:
+                        # Si pas de data, vérifier s'il y a une erreur
+                        error_msg = getattr(response, 'error', None)
+                        if error_msg:
+                            print(f"DEBUG SUPABASE ERROR (client): {error_msg}")
+                            if hasattr(error_msg, 'message'):
+                                error_msg = error_msg.message
+                            elif isinstance(error_msg, dict):
+                                error_msg = error_msg.get('message', str(error_msg))
+                            raise ValueError(f"Erreur Supabase: {error_msg}")
+                        else:
+                            # Pas d'erreur mais pas de data non plus - cas étrange
+                            print(f"⚠️ Pas de données retournées mais pas d'erreur non plus")
+                            print(f"   Response type: {type(response)}")
+                            print(f"   Response data: {response.data}")
+                            print(f"   Response attributes: {dir(response)}")
+                            raise Exception("Échec de l'insertion: aucune donnée retournée par Supabase")
+                        
+                except ValueError as ve:
+                    # Erreur de validation - propager directement
+                    raise ve
+                except Exception as client_error:
+                    # Vérifier si c'est une APIError Supabase
+                    error_type_name = type(client_error).__name__
+                    is_api_error = 'APIError' in error_type_name or 'Supabase' in error_type_name
+                    error_str = str(client_error)
+                    error_type = type(client_error).__name__
+                    print(f"⚠️ Erreur avec client Supabase direct ({error_type}): {error_str}")
+                    import traceback
+                    traceback_str = traceback.format_exc()
+                    print(f"   Traceback: {traceback_str}")
+                    
+                    # Si c'est une erreur API Supabase, essayer d'extraire le message
+                    if hasattr(client_error, 'message'):
+                        error_str = client_error.message
+                    elif hasattr(client_error, 'args') and client_error.args:
+                        error_str = str(client_error.args[0])
+                    
+                    # Extraire le message d'erreur détaillé si disponible
+                    if hasattr(client_error, 'details'):
+                        print(f"   Détails: {client_error.details}")
+                    if hasattr(client_error, 'hint'):
+                        print(f"   Hint: {client_error.hint}")
+                    if hasattr(client_error, 'code'):
+                        print(f"   Code: {client_error.code}")
+                    
+                    # Si c'est une erreur critique (pas juste un fallback), lever l'exception
+                    # Sinon, continuer avec update_data
+                    # Les erreurs de validation doivent être propagées
+                    error_lower = error_str.lower()
+                    if any(keyword in error_lower for keyword in ["validation", "required", "missing", "not null", "constraint"]):
+                        raise ValueError(f"Erreur de validation: {error_str}")
+                    
+                    # Pour les erreurs API (400, 422, etc.), on peut essayer update_data
+                    # qui pourrait avoir une meilleure gestion d'erreur
+                    if is_api_error:
+                        print(f"🔄 Erreur API Supabase détectée, fallback sur update_data (requests)...")
+                    else:
+                        print("🔄 Fallback sur update_data (requests)...")
+                    # Ne pas lever l'exception ici, on va essayer update_data
             
             # Appeler update_data qui va lever une exception si erreur 400/422
+            # (utilisé si client Supabase n'est pas disponible ou a échoué)
+            if not self.client:
+                print("⚠️ Client Supabase non disponible, utilisation de update_data (requests)...")
+            
+            # Toujours essayer update_data comme fallback ou méthode principale
             try:
+                print("🔄 Tentative de sauvegarde via update_data (REST API)...")
                 success = self.update_data(
                     table_name="technician_reports",
                     data=report_with_metadata,
@@ -750,20 +857,37 @@ class SupabaseStorage:
                 )
                 
                 if not success:
-                    # Si update_data retourne False sans exception, c'est une erreur inattendue
-                    raise Exception("Échec de la sauvegarde dans technician_reports (code de retour False). Vérifiez les logs Supabase ci-dessus.")
-                    
+                    # update_data a retourné False - cela signifie une erreur non-ValueError
+                    # (probablement 500, 401, 403, etc.)
+                    # Les détails ont déjà été loggés dans update_data
+                    raise Exception("Échec de la sauvegarde dans technician_reports. Vérifiez les logs Supabase ci-dessus pour les détails de l'erreur.")
+                
+                # Si on arrive ici, c'est que update_data a réussi
+                print("✅ Rapport sauvegardé via update_data")
                 return report_with_metadata
                 
             except ValueError as ve:
                 # Erreur de validation propagée depuis update_data
                 raise ve
+            except Exception as update_error:
+                # Erreur depuis update_data
+                error_str = str(update_error)
+                print(f"❌ Erreur dans update_data: {error_str}")
+                import traceback
+                traceback.print_exc()
+                # Propager l'exception avec le message original
+                raise Exception(f"Erreur lors de la sauvegarde: {error_str}")
 
+        except ValueError as ve:
+            # Erreur de validation - propager avec le message original
+            raise ve
         except Exception as e:
-            print(f"❌ Exception dans add_report: {e}")
+            error_str = str(e)
+            print(f"❌ Exception dans add_report: {error_str}")
             import traceback
             traceback.print_exc()
-            raise Exception(f"Erreur lors de l'ajout du rapport: {e}")
+            # Propager l'exception avec un message plus détaillé
+            raise Exception(f"Erreur lors de l'ajout du rapport: {error_str}")
 
     def get_reports(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """

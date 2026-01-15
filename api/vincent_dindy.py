@@ -472,16 +472,30 @@ async def submit_report(report: TechnicianReport):
         }
 
     except ValueError as e:
-        # Configuration Supabase manquante
+        # Erreur de validation (champs manquants, format incorrect, etc.)
+        error_msg = str(e)
+        logging.error(f"❌ Erreur de validation lors de la sauvegarde du rapport: {error_msg}")
         raise HTTPException(
             status_code=400,
-            detail=f"Configuration manquante: {str(e)}. Ajoutez SUPABASE_URL et SUPABASE_KEY dans les variables d'environnement."
+            detail=f"Erreur de validation: {error_msg}"
         )
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
-        logging.error(f"Erreur lors de la sauvegarde du rapport: {e}\n{error_trace}")
-        raise HTTPException(status_code=500, detail=f"Erreur lors de la sauvegarde: {str(e)}")
+        error_msg = str(e)
+        logging.error(f"❌ Erreur lors de la sauvegarde du rapport: {error_msg}\n{error_trace}")
+        
+        # Retourner un message plus informatif selon le type d'erreur
+        if "Configuration manquante" in error_msg or "SUPABASE" in error_msg.upper():
+            detail_msg = f"Configuration manquante: {error_msg}. Vérifiez SUPABASE_URL et SUPABASE_KEY."
+        elif "Champs obligatoires manquants" in error_msg:
+            detail_msg = f"Données incomplètes: {error_msg}"
+        elif "Erreur Supabase" in error_msg or "Supabase" in error_msg:
+            detail_msg = f"Erreur de base de données: {error_msg}. Vérifiez les logs du serveur pour plus de détails."
+        else:
+            detail_msg = f"Erreur lors de la sauvegarde: {error_msg}"
+        
+        raise HTTPException(status_code=500, detail=detail_msg)
 
 
 @router.get("/reports", response_model=Dict[str, Any])
