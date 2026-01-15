@@ -1,5 +1,5 @@
-// LOG: Début du fichier VincentDIndyDashboard.jsx
-console.log('[VincentDIndyDashboard] Fichier chargé - ligne 1');
+// LOG: Début du fichier OrfordDashboard.jsx
+console.log('[OrfordDashboard] Fichier chargé - ligne 1');
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { submitReport, getReports, getPianos, updatePiano, getActivity } from '../api/vincentDIndyApi';
@@ -10,7 +10,7 @@ import VDI_ManagementView from './vdi/VDI_ManagementView';
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
 
-const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, institution = 'vincent-dindy' }) => {
+const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, institution = 'orford' }) => {
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
@@ -53,7 +53,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const [notesInput, setNotesInput] = useState('');
 
   // Pour sélection de l'établissement
-  const [selectedLocation, setSelectedLocation] = useState('vincent-dindy');
+  const [selectedLocation, setSelectedLocation] = useState('orford');
 
   // Pour push vers Gazelle
   const [readyForPushCount, setReadyForPushCount] = useState(0);
@@ -397,14 +397,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       // Créer le rapport pour l'API
       const report = {
         technician_name: 'Technicien', // TODO: Récupérer depuis l'authentification
-        client_name: 'École Vincent-d\'Indy',
+        client_name: 'Orford Musique',
         piano_id: piano.gazelleId || null, // NOUVEAU: ID Gazelle pour push automatique
         date: new Date().toISOString().split('T')[0],
         report_type: 'maintenance',
         description: `Travail effectué sur piano ${piano.piano} (Série: ${piano.serie}) - Local: ${piano.local}`,
         service_history_notes: piano.aFaire ? `À faire: ${piano.aFaire}\n\nTravail: ${travailInput}\n\nObservations: ${observationsInput}` : `Travail: ${travailInput}\n\nObservations: ${observationsInput}`,
         hours_worked: null,
-        institution: institution || 'vincent-dindy' // NOUVEAU: Support multi-institutions
+        institution: institution || 'orford' // NOUVEAU: Support multi-institutions
       };
 
       // Envoyer le rapport à l'API
@@ -731,4 +731,4 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   );
 };
 
-export default VincentDIndyDashboard;
+export default OrfordDashboard;

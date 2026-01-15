@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Fab, Drawer, IconButton } from '@mui/material'
 import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
+import OrfordDashboard from './components/OrfordDashboard'
 import LoginScreen from './components/LoginScreen'
 import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
 import InventaireDashboard from './components/InventaireDashboard'
@@ -235,7 +236,7 @@ function App() {
         } else if (currentView === 'orford') {
           return (
             <ErrorBoundary componentName="Orford">
-              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
+              <OrfordDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
@@ -281,7 +282,7 @@ function App() {
         } else if (currentView === 'orford') {
           return (
             <ErrorBoundary componentName="Orford">
-              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
+              <OrfordDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         } else if (currentView === 'place-des-arts') {
@@ -600,18 +601,6 @@ function App() {
                       }`}
                     >
                       📦 Inventaire
-                    </button>
-
-                    {/* Chat Technicien - Ma Journée */}
-                    <button
-                      onClick={() => setCurrentView('chat')}
-                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                        currentView === 'chat'
-                          ? 'bg-blue-100 text-blue-700 font-medium'
-                          : 'text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      🎵 Ma Journée
                     </button>
 
                     {/* Calculateur - admin, louise, margot, nick et jeanphilippe */}

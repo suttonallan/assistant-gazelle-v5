@@ -710,7 +710,7 @@ class SupabaseStorage:
         # Colonnes valides dans la table technician_reports (selon le schéma SQL)
         valid_columns = {
             "id", "technician_name", "client_name", "client_id", "date",
-            "report_type", "description", "notes", "hours_worked",
+            "report_type", "description", "service_history_notes", "hours_worked",
             "submitted_at", "status", "created_at", "updated_at"
         }
 

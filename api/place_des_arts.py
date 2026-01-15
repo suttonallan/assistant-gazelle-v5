@@ -632,16 +632,42 @@ async def delete_duplicates():
 async def preview_email(payload: PreviewRequest):
     """
     Prévisualisation import email (parsing texte, sans écriture).
+
+    NOUVEAU: Détection intelligente des formats inhabituels
+    - Si format habituel (tabulaire, compact) → import direct
+    - Si format inhabituel (langage naturel) → demande validation utilisateur
     """
     if not payload.raw_text:
         raise HTTPException(status_code=400, detail="raw_text requis")
     parsed = parse_email_text(payload.raw_text)
+
+    # Si aucune demande détectée
+    if not parsed:
+        return {
+            "success": False,
+            "preview": [],
+            "count": 0,
+            "message": "Aucune demande détectée",
+            "needs_validation": False
+        }
+
     # Map vers format normalisé (mais sans id)
     preview = []
+    needs_validation = False  # Flag pour formats inhabituels
+
     for idx, item in enumerate(parsed, start=1):
         appt_val = item.get("date")
         if isinstance(appt_val, datetime):
             appt_val = appt_val.date().isoformat()
+
+        # Détecter si c'est un format inhabituel (confiance < 1.0 ou warnings présents)
+        confidence = item.get("confidence", 0.0)
+        warnings = item.get("warnings", [])
+        is_unusual_format = confidence < 1.0 or len(warnings) > 0
+
+        if is_unusual_format:
+            needs_validation = True
+
         row = {
             "appointment_date": appt_val if isinstance(appt_val, str) else item.get("date"),
             "room": item.get("room"),
@@ -652,8 +678,9 @@ async def preview_email(payload: PreviewRequest):
             "time": item.get("time"),
             "service": item.get("service"),
             "notes": item.get("notes"),
-            "confidence": item.get("confidence"),
-            "warnings": item.get("warnings"),
+            "confidence": confidence,
+            "warnings": warnings,
+            "needs_validation": is_unusual_format  # Indique si ce champ nécessite validation
         }
         row["duplicate_of"] = find_duplicate_candidates(
             {
@@ -664,7 +691,14 @@ async def preview_email(payload: PreviewRequest):
             }
         )
         preview.append(row)
-    return {"success": True, "preview": preview, "count": len(preview)}
+
+    return {
+        "success": True,
+        "preview": preview,
+        "count": len(preview),
+        "needs_validation": needs_validation,
+        "message": "Veuillez vérifier les champs détectés avant d'importer" if needs_validation else "Demandes détectées avec haute confiance"
+    }
 
 
 @router.post("/import")
@@ -989,3 +1023,107 @@ async def get_learning_stats():
             "success": False,
             "error": str(e)
         }
+
+
+@router.get("/appointments/today", response_model=Dict[str, Any])
+async def get_today_appointments():
+    """
+    Récupère les rendez-vous du jour pour Place des Arts depuis Supabase.
+    Sync matinale à 7h00 et 17h00 via cron job.
+    
+    Returns:
+        {
+            "appointments": [
+                {
+                    "id": "appt_123",
+                    "title": "Accord piano",
+                    "start": "2024-01-15T09:00:00Z",
+                    "duration": 60,
+                    "piano_ids": ["ins_abc123", "ins_def456"]
+                }
+            ],
+            "count": 5,
+            "date": "2024-01-15"
+        }
+    """
+    try:
+        from datetime import date
+        from supabase import create_client
+        
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            raise HTTPException(
+                status_code=500,
+                detail="Configuration Supabase manquante"
+            )
+        
+        supabase = create_client(supabase_url, supabase_key)
+        today = date.today().isoformat()
+        
+        # ID client Place des Arts
+        pda_client_id = "cli_HbEwl9rN11pSuDEU"
+        
+        # Requête Supabase : appointments du jour pour Place des Arts
+        # Note: La structure exacte de la table sera déterminée lors de la création du sync
+        # Pour l'instant, on récupère tous les appointments du jour
+        # TODO: Filtrer par client_id une fois la structure de la table connue
+        try:
+            response = supabase.table('gazelle_appointments')\
+                .select('*')\
+                .gte('start_datetime', f'{today}T00:00:00')\
+                .lt('start_datetime', f'{today}T23:59:59')\
+                .order('start_datetime')\
+                .execute()
+        except Exception as table_error:
+            # Si la table n'existe pas ou a une structure différente, retourner liste vide
+            logging.warning(f"⚠️ Table gazelle_appointments non disponible: {table_error}")
+            return {
+                "appointments": [],
+                "count": 0,
+                "date": today,
+                "note": "Table gazelle_appointments sera créée par le sync matinal"
+            }
+        
+        appointments = response.data if response.data else []
+        
+        # Formater les données pour le frontend
+        formatted_appointments = []
+        for apt in appointments:
+            # Extraire les piano_ids depuis allEventPianos si disponible
+            piano_ids = []
+            if apt.get('piano_ids'):
+                if isinstance(apt['piano_ids'], list):
+                    piano_ids = apt['piano_ids']
+                elif isinstance(apt['piano_ids'], str):
+                    try:
+                        import json
+                        piano_ids = json.loads(apt['piano_ids'])
+                    except:
+                        piano_ids = []
+            
+            formatted_appointments.append({
+                "id": apt.get('id'),
+                "title": apt.get('title', 'Rendez-vous'),
+                "start": apt.get('start_datetime') or apt.get('start'),
+                "duration": apt.get('duration', 60),
+                "piano_ids": piano_ids,
+                "room": apt.get('room'),
+                "for_who": apt.get('for_who')
+            })
+        
+        return {
+            "appointments": formatted_appointments,
+            "count": len(formatted_appointments),
+            "date": today
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ Erreur récupération RV du jour: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la récupération des rendez-vous: {str(e)}"
+        )

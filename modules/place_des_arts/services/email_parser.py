@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 
 # ------------------------------------------------------------
@@ -442,6 +442,165 @@ def parse_single_line_format(line: str, result: Dict, current_date: datetime) ->
         return False
 
 
+def parse_natural_language_request(text: str, current_date: datetime) -> Optional[Dict]:
+    """
+    Parse des demandes en langage naturel comme:
+    "Est-ce possible de faire un accord du Steinway 9' D - New York à 442 de la Salle D le 20 janvier entre 8h00 et 9h00?"
+
+    Patterns détectés:
+    - "accord" / "tuning" → service
+    - "Steinway 9' D" / "Yamaha C7" → piano
+    - "à 442" / "440 Hz" → diapason
+    - "Salle D" / "MS" / "WP" → room
+    - "20 janvier" → date
+    - "entre 8h00 et 9h00" / "avant 10h" → time
+    """
+    result = {
+        'date': None, 'request_date': None, 'time': None, 'room': None,
+        'piano': None, 'service': None, 'for_who': None, 'diapason': None,
+        'requester': None, 'notes': None, 'confidence': 0.0, 'warnings': []
+    }
+
+    text_lower = text.lower()
+
+    # 1. Détecter le service demandé
+    service_patterns = [
+        (r'accord', 'Accord'),
+        (r'tuning', 'Accord'),
+        (r'réparation', 'Réparation'),
+        (r'voicing', 'Voicing'),
+        (r'régulation', 'Régulation'),
+        (r'entretien', 'Entretien')
+    ]
+    for pattern, service_name in service_patterns:
+        if re.search(pattern, text_lower):
+            result['service'] = service_name
+            result['confidence'] += 0.15
+            break
+
+    # 2. Détecter le piano (marque + modèle)
+    # Format: "Steinway 9' D - New York" ou "Yamaha C7" ou "Baldwin 9'"
+    piano_patterns = [
+        r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*-?\s*[a-z\s]*)',  # Steinway 9' D - New York
+        r'(yamaha\s+[a-z]\d+)',  # Yamaha C7
+        r'(kawai\s+[a-z]+\d*)',  # Kawai GX7
+        r'(baldwin\s+\d+[\'"]?)',  # Baldwin 9'
+        r'(bösendorfer\s+\d+)',  # Bösendorfer 280
+        r'(fazioli\s+[a-z]*\d+)'  # Fazioli F278
+    ]
+    for pattern in piano_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            # Extraire le texte original (avec majuscules)
+            start, end = match.span()
+            result['piano'] = text[start:end].strip()
+            result['confidence'] += 0.2
+            break
+
+    # 3. Détecter le diapason (440, 441, 442, etc.)
+    diapason_match = re.search(r'(?:à|a)\s*(\d{3})(?:\s*hz)?', text_lower)
+    if diapason_match:
+        result['diapason'] = diapason_match.group(1)
+        result['confidence'] += 0.15
+
+    # 4. Détecter la salle
+    # Format: "de la Salle D" / "Salle D" / "MS" / "WP"
+    room_patterns = [
+        (r'salle\s+([a-z])', r'\1'),  # Salle D → D
+        (r'\b(ms|wp|tm|tjd|5e|scl)\b', r'\1'),  # Codes standards
+        (r'maison\s+symphonique', 'MS'),
+        (r'wilfrid[-\s]?pelletier', 'WP'),
+        (r'théâtre\s+maisonneuve', 'TM'),
+        (r'theater\s+maisonneuve', 'TM'),
+        (r'jean[-\s]?duceppe', 'TJD'),
+        (r'claude[-\s]?léveillée', 'SCL')
+    ]
+    for pattern, replacement in room_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            if replacement.startswith(r'\1'):
+                result['room'] = match.group(1).upper()
+            else:
+                result['room'] = replacement
+            result['confidence'] += 0.15
+            break
+
+    # 5. Détecter la date
+    # Format: "le 20 janvier" / "20 janvier" / "janvier 20"
+    date_patterns = [
+        r'(?:le\s+)?(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)',
+        r'(?:le\s+)?(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
+        r'(\d{1,2})[-/](\w{3,})'
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                date_str = match.group(0).replace('le ', '')
+                result['date'] = parse_date_flexible(date_str, current_date)
+                result['confidence'] += 0.2
+                break
+            except Exception as e:
+                result['warnings'].append(f"Erreur parsing date: {e}")
+
+    # 6. Détecter l'heure
+    # Format: "entre 8h00 et 9h00" / "avant 10h" / "à 14h30"
+    time_patterns = [
+        r'entre\s+(\d{1,2}h\d{2})\s+et\s+(\d{1,2}h\d{2})',  # entre 8h00 et 9h00
+        r'avant\s+(\d{1,2}h\d{2})',  # avant 10h
+        r'(?:à|a)\s+(\d{1,2}h\d{2})',  # à 14h30
+        r'(\d{1,2}h\d{2})',  # 14h30
+    ]
+    for pattern in time_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            if 'entre' in match.group(0):
+                result['time'] = f"{match.group(1)}-{match.group(2)}"
+            elif 'avant' in match.group(0):
+                result['time'] = f"avant {match.group(1)}"
+            else:
+                result['time'] = match.group(1)
+            result['confidence'] += 0.15
+            break
+
+    # 7. Détecter le demandeur (signature en fin de message)
+    # Chercher les noms connus en fin de texte
+    lines = text.split('\n')
+    for line in reversed(lines):
+        line_stripped = line.strip()
+        if not line_stripped or '@' in line_stripped:
+            continue
+        # Mapping des demandeurs connus
+        requester_mapping = {
+            'annie jenkins': 'ANNIE JENKINS',
+            'annie': 'ANNIE JENKINS',
+            'jenkins': 'ANNIE JENKINS',
+            'isabelle clairoux': 'IC',
+            'isabelle': 'IC',
+            'clairoux': 'IC',
+            'patricia': 'PT',
+            'alain': 'AJ'
+        }
+        line_lower = line_stripped.lower()
+        for name, code in requester_mapping.items():
+            if name in line_lower:
+                result['requester'] = code
+                result['confidence'] += 0.1
+                break
+        if result['requester']:
+            break
+
+    # Retourner None si aucun élément essentiel n'a été détecté
+    if not result['date'] and not result['piano'] and not result['room']:
+        return None
+
+    # TOUJOURS ajouter un avertissement pour le format naturel (même si confiance élevée)
+    # Cela permettra à l'utilisateur de valider et d'apprendre au système
+    result['warnings'].append("Format naturel détecté - Veuillez confirmer les champs")
+
+    return result
+
+
 def parse_email_block(block_text: str, current_date: datetime) -> Dict:
     lines = [l.strip() for l in block_text.strip().split('\n') if l.strip()]
     result = {
@@ -449,6 +608,11 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
         'piano': None, 'service': None, 'for_who': None, 'diapason': None,
         'requester': None, 'notes': None, 'confidence': 0.0, 'warnings': []
     }
+
+    # NOUVEAU: Essayer d'abord le parsing en langage naturel
+    natural_result = parse_natural_language_request(block_text, current_date)
+    if natural_result and natural_result['confidence'] >= 0.5:
+        return natural_result
 
     # Try single-line format on each line in the block
     for line in lines:

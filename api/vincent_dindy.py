@@ -50,12 +50,14 @@ class TechnicianReport(BaseModel):
     technician_name: str
     client_name: Optional[str] = None
     client_id: Optional[str] = None
+    piano_id: Optional[str] = None  # ID Gazelle du piano (pour push automatique)
     date: str
     report_type: str  # "maintenance", "repair", "inspection", etc.
     description: str
-    notes: Optional[str] = None
+    service_history_notes: Optional[str] = None  # Notes envoyées à Gazelle via serviceHistoryNotes
     items_used: Optional[List[Dict[str, Any]]] = None
     hours_worked: Optional[float] = None
+    institution: Optional[str] = "vincent-dindy"  # Institution (pour routing modulaire)
 
 
 def get_csv_path() -> str:
@@ -445,31 +447,148 @@ async def batch_update_pianos(updates: List[Dict[str, Any]]):
 @router.post("/reports", response_model=Dict[str, Any])
 async def submit_report(report: TechnicianReport):
     """
-    Soumet un rapport de technicien.
+    Soumet un rapport de technicien et le pousse vers Gazelle (système modulaire multi-institutions).
 
-    Le rapport est sauvegardé dans Supabase (persistant et fiable).
-    Plus tard, on pourra pousser ces rapports vers Gazelle.
+    Workflow:
+    1. Sauvegarde dans Supabase (backup fiable)
+    2. Si piano_id fourni → Push automatique vers Gazelle via completeEvent
+    3. Retour du résultat avec statut Gazelle
+
+    Le système est modulaire et supporte plusieurs institutions via le champ 'institution'.
     """
     try:
         storage = get_supabase_storage()
         report_data = report.dict()
-        
+
         # Log pour diagnostic
         logging.info(f"📤 Réception rapport: {list(report_data.keys())}")
         logging.info(f"   technician_name: {report_data.get('technician_name')}")
+        logging.info(f"   piano_id: {report_data.get('piano_id')}")
+        logging.info(f"   institution: {report_data.get('institution')}")
         logging.info(f"   date: {report_data.get('date')}")
         logging.info(f"   report_type: {report_data.get('report_type')}")
 
-        # Ajouter le rapport au Gist
+        # 1. Sauvegarder dans Supabase (backup fiable)
         saved_report = storage.add_report(report_data)
+        logging.info(f"✅ Rapport sauvegardé dans Supabase: {saved_report['id']}")
 
-        return {
+        result = {
             "success": True,
-            "message": "Rapport reçu et sauvegardé dans Supabase",
+            "message": "Rapport sauvegardé dans Supabase",
             "report_id": saved_report["id"],
             "submitted_at": saved_report["submitted_at"],
-            "status": saved_report["status"]
+            "status": saved_report["status"],
+            "gazelle_push": None  # Rempli si push vers Gazelle
         }
+
+        # 2. Détection automatique d'alertes d'humidité (3 institutions uniquement)
+        institution = report_data.get('institution', 'vincent-dindy')
+        monitored_institutions = ['vincent-dindy', 'place-des-arts', 'orford']
+
+        if institution in monitored_institutions:
+            try:
+                from core.humidity_alert_detector import detect_humidity_issue, create_humidity_alert
+
+                service_notes = report_data.get('service_history_notes') or report_data.get('description', '')
+                detection = detect_humidity_issue(service_notes)
+
+                if detection:
+                    logging.info(f"🚨 Problème d'humidité détecté: {detection['alert_type']}")
+
+                    # Créer l'alerte dans Supabase si piano_id disponible
+                    piano_id_for_alert = report_data.get('piano_id')
+                    if piano_id_for_alert:
+                        alert_data = create_humidity_alert(
+                            piano_id=piano_id_for_alert,
+                            client_name=report_data.get('client_name', institution),
+                            notes=service_notes,
+                            detection_result=detection
+                        )
+
+                        # Sauvegarder l'alerte
+                        success = storage.update_data(
+                            table_name="humidity_alerts_active",
+                            data=alert_data,
+                            id_field="piano_id",
+                            upsert=True
+                        )
+
+                        if success:
+                            logging.info(f"✅ Alerte d'humidité créée pour piano {piano_id_for_alert}")
+                            result['humidity_alert_created'] = True
+                            result['alert_type'] = detection['alert_type']
+                        else:
+                            logging.warning(f"⚠️  Échec création alerte d'humidité")
+                    else:
+                        logging.info(f"ℹ️  Problème détecté mais pas de piano_id pour créer l'alerte")
+
+            except Exception as e:
+                logging.error(f"⚠️  Erreur détection alerte humidité: {e}")
+                # Ne pas bloquer la sauvegarde du rapport
+
+        # 3. Push automatique vers Gazelle si piano_id fourni
+        piano_id = report_data.get('piano_id')
+        if piano_id:
+            try:
+                from core.service_completion_bridge import complete_service_session
+
+                # Utiliser service_history_notes si fourni, sinon fallback sur description
+                service_notes = report_data.get('service_history_notes') or report_data.get('description', '')
+
+                # Mapper report_type vers service_type Gazelle
+                service_type_mapping = {
+                    'maintenance': 'TUNING',
+                    'repair': 'REPAIR',
+                    'inspection': 'INSPECTION'
+                }
+                service_type = service_type_mapping.get(
+                    report_data.get('report_type', 'maintenance').lower(),
+                    'TUNING'
+                )
+
+                # Push vers Gazelle avec le système modulaire
+                logging.info(f"🚀 Push vers Gazelle via complete_service_session...")
+                gazelle_result = complete_service_session(
+                    piano_id=piano_id,
+                    service_notes=service_notes,
+                    institution=report_data.get('institution', 'vincent-dindy'),
+                    technician_name=report_data.get('technician_name'),
+                    client_id=report_data.get('client_id'),
+                    service_type=service_type,
+                    event_date=report_data.get('date')
+                )
+
+                if gazelle_result['success']:
+                    result['gazelle_push'] = {
+                        'success': True,
+                        'event_id': gazelle_result.get('gazelle_event_id'),
+                        'timeline_created': gazelle_result.get('service_note_created'),
+                        'last_tuned_updated': gazelle_result.get('last_tuned_updated')
+                    }
+                    result['message'] = "Rapport sauvegardé et poussé vers Gazelle avec succès"
+                    logging.info(f"✅ Push Gazelle réussi: Event {gazelle_result.get('gazelle_event_id')}")
+                else:
+                    result['gazelle_push'] = {
+                        'success': False,
+                        'error': gazelle_result.get('error')
+                    }
+                    logging.warning(f"⚠️  Push Gazelle échoué: {gazelle_result.get('error')}")
+                    result['message'] = f"Rapport sauvegardé mais push Gazelle échoué: {gazelle_result.get('error')}"
+
+            except Exception as e:
+                # Log l'erreur mais ne pas fail la requête (rapport déjà sauvegardé)
+                error_msg = str(e)
+                logging.error(f"❌ Erreur push Gazelle: {error_msg}")
+                import traceback
+                logging.error(traceback.format_exc())
+
+                result['gazelle_push'] = {
+                    'success': False,
+                    'error': error_msg
+                }
+                result['message'] = f"Rapport sauvegardé mais push Gazelle échoué: {error_msg}"
+
+        return result
 
     except ValueError as e:
         # Erreur de validation (champs manquants, format incorrect, etc.)

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for file in /Users/allansutton/Downloads/credentials_ptm.json /Users/allansutton/Downloads/Working/credentials.json /Users/allansutton/Downloads/piano-sheets-471218-eb83900dc27d.json /Users/allansutton/Downloads/pianos-de-orford-et-plus-9d028e82fcb0.json)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(done)"
+    ]
+  }
+}
