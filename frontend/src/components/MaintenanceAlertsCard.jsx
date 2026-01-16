@@ -146,12 +146,21 @@ const MaintenanceAlertsCard = () => {
                       {alert.client_name || 'Client inconnu'}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-700 mb-1">
-                    {alert.description}
+                  {/* Numéro de local et piano */}
+                  <div className="text-xs text-gray-600 mb-2 space-y-1">
+                    <div>
+                      📍 <span className="font-medium">Local:</span> {alert.room_number || 'N/A'} •
+                      🎹 <span className="font-medium">Piano:</span> {alert.piano_make} {alert.piano_model || ''}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    Piano: {alert.piano_make} {alert.piano_model || ''} •
-                    {new Date(alert.observed_at).toLocaleDateString('fr-CA')}
+                  {/* Note exacte du technicien */}
+                  <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded border-l-2 border-gray-300 mb-2">
+                    <div className="text-xs text-gray-500 font-semibold mb-1">Note du technicien:</div>
+                    <div className="italic">"{alert.technician_note || alert.description}"</div>
+                  </div>
+                  {/* Date */}
+                  <div className="text-xs text-gray-400">
+                    📅 {new Date(alert.observed_at).toLocaleDateString('fr-CA')}
                   </div>
                 </div>
               </div>

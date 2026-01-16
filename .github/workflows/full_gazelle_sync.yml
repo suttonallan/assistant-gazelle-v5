@@ -37,6 +37,27 @@ jobs:
         echo ""
         python3 modules/sync_gazelle/sync_to_supabase.py
 
+    - name: Generate Timeline Report
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      run: |
+        echo ""
+        echo "📊 Génération du rapport Timeline Google Sheets"
+        echo "📅 $(date)"
+
+        # Créer le fichier credentials Google depuis le secret
+        echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > /tmp/google_credentials.json
+        export GOOGLE_APPLICATION_CREDENTIALS=/tmp/google_credentials.json
+
+        # Générer le rapport
+        python3 -c "from modules.reports.service_reports import run_reports; run_reports(append=False)"
+
+        # Nettoyer le fichier credentials
+        rm /tmp/google_credentials.json
+
+        echo "✅ Rapport Timeline généré"
+
     - name: Report results
       if: always()
       run: |
