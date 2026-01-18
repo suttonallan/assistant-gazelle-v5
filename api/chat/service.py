@@ -281,14 +281,9 @@ class V5DataProvider:
             technician_id: ID Gazelle du technicien (ex: "usr_HcCiFk7o0vZ9xAI0")
             user_role: Rôle de l'utilisateur ("admin", "assistant", "technicien")
         """
-        import requests
-
-        # Requête Supabase: appointments de la journée
-        url = f"{self.storage.api_url}/gazelle_appointments"
-        headers = self.storage._get_headers()
-
-        params = {
-            "select": """
+        # Construire la requête avec le client Supabase (gère correctement les JOINs)
+        query = self.storage.client.table('gazelle_appointments')\
+            .select("""
                 external_id,
                 appointment_date,
                 appointment_time,
@@ -297,35 +292,24 @@ class V5DataProvider:
                 title,
                 description,
                 location,
-                is_personal_event,
+                client_external_id,
                 client:client_external_id(
                     external_id,
                     company_name,
                     email,
                     phone,
-                    address,
                     city,
-                    postal_code,
-                    province
-                ),
-                piano:piano_external_id(
-                    external_id,
-                    make,
-                    model,
-                    type,
-                    serial_number,
-                    dampp_chaser_installed
+                    postal_code
                 )
-            """,
-            "appointment_date": f"eq.{date}",
-            "order": "appointment_time.asc"
-        }
+            """)\
+            .eq('appointment_date', date)\
+            .order('appointment_time')
 
         # Filtrage selon rôle ET technicien demandé
         if technician_id:
             # Si un technicien spécifique est demandé, filtrer par ce technicien
             # (même pour admin/assistant qui veulent voir "les rv de nicolas")
-            params["technicien"] = f"eq.{technician_id}"
+            query = query.eq('technicien', technician_id)
         elif user_role == "admin" or user_role == "assistant":
             # Admin/Louise sans technicien spécifié → voient TOUT
             pass
@@ -342,9 +326,12 @@ class V5DataProvider:
                 appointments=[]
             )
 
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code != 200:
+        # Exécuter la requête
+        try:
+            response = query.execute()
+            appointments_raw = response.data
+        except Exception as e:
+            print(f"❌ Erreur requête appointments: {e}")
             # Fallback: retourner journée vide
             return DayOverview(
                 date=date,
@@ -355,8 +342,6 @@ class V5DataProvider:
                 neighborhoods=[],
                 appointments=[]
             )
-
-        appointments_raw = response.json()
 
         # Transformer en AppointmentOverview
         appointments = []
@@ -464,12 +449,18 @@ class V5DataProvider:
 
             # Récupérer la timeline du CLIENT (pas par piano individuel)
             # La plupart des timeline entries sont liées au client directement
+            # Augmenter limite à 50 pour capturer vrais services (pas seulement emails)
             timeline_url = f"{self.storage.api_url}/gazelle_timeline_entries"
+
+            # PostgREST: Filtrer pour garder SEULEMENT les vrais services
+            # (pas les emails automatiques de type NOTE)
             timeline_params = {
-                "select": "occurred_at,entry_type,title,description,entry_date,event_type",
+                "select": "occurred_at,entry_type,title,description,entry_date,event_type,metadata",
                 "client_external_id": f"eq.{client_id}",
-                "order": "entry_date.desc",
-                "limit": 10
+                # Filtrer: garder SERVICE_ENTRY_MANUAL, APPOINTMENT, PIANO_MEASUREMENT
+                "entry_type": "in.(SERVICE_ENTRY_MANUAL,APPOINTMENT,PIANO_MEASUREMENT)",
+                "order": "occurred_at.desc",  # Utiliser occurred_at au lieu de entry_date
+                "limit": 50
             }
 
             timeline_response = requests.get(timeline_url, headers=headers, params=timeline_params)
@@ -503,11 +494,52 @@ class V5DataProvider:
             event_data=event_data
         )
 
+        # 4. Générer les résumés intelligents IA
+        client_smart_summary = None
+        piano_smart_summary = None
+
+        if client and not is_personal_event:
+            from .smart_summaries import SmartSummaryGenerator
+
+            summary_generator = SmartSummaryGenerator(self.storage)
+
+            # Résumé client
+            comfort_dict = comfort.model_dump() if hasattr(comfort, 'model_dump') else comfort.dict()
+            timeline_dict = [entry.model_dump() if hasattr(entry, 'model_dump') else entry.dict() for entry in timeline_entries]
+
+            client_smart_summary = summary_generator.generate_client_summary(
+                client_id=client.get("external_id"),
+                timeline_entries=timeline_dict,
+                comfort_info=comfort_dict
+            )
+
+            # Résumé piano (si piano principal dans appointment)
+            piano_id = apt_raw.get("piano_external_id") or overview.piano_id
+            if piano_id:
+                # Récupérer infos piano
+                piano_url = f"{self.storage.api_url}/gazelle_pianos"
+                piano_params = {
+                    "select": "make,model,year,has_dampp_chaser,type",
+                    "external_id": f"eq.{piano_id}"
+                }
+                piano_response = requests.get(piano_url, headers=headers, params=piano_params)
+
+                if piano_response.status_code == 200 and piano_response.json():
+                    piano_info = piano_response.json()[0]
+
+                    piano_smart_summary = summary_generator.generate_piano_summary(
+                        piano_id=piano_id,
+                        timeline_entries=timeline_dict,
+                        piano_info=piano_info
+                    )
+
         return AppointmentDetail(
             overview=overview,
             comfort=comfort,
             timeline_summary=timeline_summary,
             timeline_entries=timeline_entries,
+            client_smart_summary=client_smart_summary,
+            piano_smart_summary=piano_smart_summary,
             photos=[]  # TODO: Ajouter si photos disponibles
         )
 
@@ -739,7 +771,38 @@ class V5DataProvider:
         FONCTION CRITIQUE pour bridge V5→V6.
         """
         client = apt_raw.get("client") or {}
-        piano = apt_raw.get("piano") or {}
+
+        # Piano: récupérer depuis le client (pas de piano_external_id dans appointments)
+        piano = {}
+        if client and client.get("external_id"):
+            # Récupérer le(s) piano(s) du client
+            try:
+                client_id = client.get("external_id")
+                pianos_result = self.storage.client.table('gazelle_pianos')\
+                    .select('external_id,make,model,type,dampp_chaser_installed')\
+                    .eq('client_external_id', client_id)\
+                    .limit(1)\
+                    .execute()
+
+                if pianos_result.data:
+                    piano = pianos_result.data[0]
+                    # Debug log pour vérifier
+                    if piano.get('dampp_chaser_installed'):
+                        print(f"✅ PLS détecté pour client {client_id}: {piano.get('make')} {piano.get('model')}")
+                else:
+                    print(f"⚠️  Aucun piano trouvé pour client {client_id}")
+            except Exception as e:
+                print(f"❌ Erreur récupération piano pour client {client.get('external_id')}: {e}")
+                import traceback
+                traceback.print_exc()
+                piano = {}
+        else:
+            # Debug: pourquoi pas de client?
+            if not client:
+                print(f"⚠️  Pas de client pour appointment {apt_raw.get('external_id')}")
+            elif not client.get("external_id"):
+                print(f"⚠️  Client sans external_id: {client}")
+            piano = apt_raw.get("piano") or {}
 
         # Time slot - Les données sont maintenant stockées en Eastern Time (pas UTC)
         time_raw = apt_raw.get("appointment_time")
@@ -946,12 +1009,11 @@ class V5DataProvider:
 
     def _generate_timeline_summary(self, entries: List[TimelineEntry], client_data: Dict[str, Any] = None, is_personal_event: bool = False, event_data: Dict[str, Any] = None) -> str:
         """
-        Génère un résumé INTELLIGENT et NARRATIF de l'historique.
+        Génère un résumé SIMPLIFIÉ de l'historique.
 
-        Analyse et met en évidence CE QUI SORT DE L'ORDINAIRE:
-        - Régularité des visites (depuis quand, fréquence)
+        NOTE: L'ancienneté et la fréquence sont maintenant dans le "Résumé Intelligent IA",
+        donc on se concentre ici sur:
         - Dernière visite avec détails importants
-        - Notes "à faire la prochaine fois" ou action items
         - ALERTES: Paiements lents, conditions anormales, problèmes récurrents
 
         Format: Texte narratif pour le technicien, pas une liste.
@@ -980,31 +1042,7 @@ class V5DataProvider:
         summary_parts = []
         alerts = []  # Alertes importantes à afficher EN PREMIER
 
-        # 1. RÉGULARITÉ - Analyser la fréquence des visites
-        service_entries = [e for e in entries if e.type == "service"]
-        if len(service_entries) >= 2:
-            # Calculer la première et dernière visite
-            try:
-                first_date = parser.parse(service_entries[-1].date)
-                last_date = parser.parse(service_entries[0].date)
-                years_diff = (last_date - first_date).days / 365.25
-
-                if years_diff >= 1:
-                    year_first = first_date.year
-                    frequency = len(service_entries) / years_diff if years_diff > 0 else len(service_entries)
-
-                    if frequency >= 2:
-                        freq_text = f"environ {int(frequency)} fois par an"
-                    elif frequency >= 1:
-                        freq_text = "environ 1 fois par an"
-                    else:
-                        freq_text = f"environ tous les {int(1/frequency)} ans"
-
-                    summary_parts.append(f"Client régulier depuis {year_first} ({freq_text}).")
-            except:
-                pass  # Si parsing échoue, ignorer l'analyse de fréquence
-
-        # 2. DERNIÈRE VISITE - Infos importantes
+        # DERNIÈRE VISITE - Infos importantes
         if latest.technician:
             summary_parts.append(f"Dernière visite: {latest.date} par {latest.technician}.")
         else:

@@ -304,21 +304,32 @@ function AppointmentCard({ appointment, onClick }) {
           )}
         </Box>
 
-        {/* LIGNE 2: Nom Client (compact) */}
-        <Typography
-          variant="body1"
-          sx={{
-            mb: 0.5,
-            fontWeight: 500,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {appointment.client_name}
-        </Typography>
+        {/* LIGNE 2: Nom Client + Badge PLS */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5 }}>
+          <Typography
+            variant="body1"
+            sx={{
+              fontWeight: 500,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {appointment.client_name}
+          </Typography>
 
-        {/* LIGNE 3: PLS (Piano-Lieu-Service) - Format ultra-compact */}
+          {/* Badge PLS à côté du nom */}
+          {appointment.has_dampp_chaser && (
+            <Chip
+              label="PLS"
+              size="small"
+              color="info"
+              sx={{ height: '20px', fontSize: '0.7rem', fontWeight: 'bold' }}
+            />
+          )}
+        </Box>
+
+        {/* LIGNE 3: Piano + Lieu - Format ultra-compact */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
           {/* Piano */}
           {appointment.piano_brand && (
@@ -327,14 +338,6 @@ function AppointmentCard({ appointment, onClick }) {
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {appointment.piano_brand} {appointment.piano_model}
               </Typography>
-              {appointment.has_dampp_chaser && (
-                <Chip
-                  label="PLS"
-                  size="small"
-                  color="info"
-                  sx={{ height: '18px', fontSize: '0.65rem', fontWeight: 'bold' }}
-                />
-              )}
             </Box>
           )}
 
@@ -546,6 +549,39 @@ function AppointmentDetailDrawer({ appointment, detail, loading, onClose }) {
       </Box>
 
       <Divider sx={{ my: 2 }} />
+
+      {/* RÉSUMÉS INTELLIGENTS IA */}
+      {(detail.client_smart_summary || detail.piano_smart_summary) && (
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
+            🤖 Résumé Intelligent
+          </Typography>
+
+          {/* Résumé Client */}
+          {detail.client_smart_summary && (
+            <Box sx={{ mb: 2, p: 2, bgcolor: 'info.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'info.main' }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
+                👤 Client:
+              </Typography>
+              <Typography variant="body2" sx={{ lineHeight: 1.8, color: 'text.primary' }}>
+                {detail.client_smart_summary}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Résumé Piano */}
+          {detail.piano_smart_summary && (
+            <Box sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'success.main' }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: 'success.dark' }}>
+                🎹 Piano:
+              </Typography>
+              <Typography variant="body2" sx={{ lineHeight: 1.8, color: 'text.primary' }}>
+                {detail.piano_smart_summary}
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
 
       {/* Timeline Summary - Résumé intelligent SEULEMENT */}
       <Box sx={{ mb: 3 }}>
