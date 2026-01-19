@@ -87,15 +87,22 @@ export default function ChatIntelligent({ currentUser }) {
   const handleQuickQuery = async (quickQuery) => {
     setQuery(quickQuery);
     setLoading(true);
+
+    const payload = {
+      query: quickQuery,
+      technician_id: technicianGazelleId,  // ID Gazelle du technicien
+      user_role: userRole
+    };
+
+    console.log('[ChatIntelligent] Sending query:', payload);
+
     try {
-      const res = await axios.post(`${API_BASE}/api/chat/query`, {
-        query: quickQuery,
-        technician_id: technicianGazelleId,  // ID Gazelle du technicien
-        user_role: userRole
-      });
+      const res = await axios.post(`${API_BASE}/api/chat/query`, payload);
+      console.log('[ChatIntelligent] Query response:', res.data);
       setResponse(res.data);
     } catch (error) {
-      console.error('Erreur quick query:', error);
+      console.error('[ChatIntelligent] Query error:', error);
+      console.error('[ChatIntelligent] Error response:', error.response?.data);
     } finally {
       setLoading(false);
     }

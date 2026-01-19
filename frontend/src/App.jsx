@@ -201,9 +201,13 @@ function App() {
     email: ROLES[simulatedRole]?.email || currentUser?.email,
     name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
     role: simulatedRole,
-    id: ROLES[simulatedRole]?.gazelleId || currentUser?.id, // ⭐ ID Gazelle du rôle simulé (pour le chat)
+    id: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId || currentUser?.id, // ⭐ ID Gazelle du rôle simulé (pour le chat)
     gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId // Alias pour compatibilité
-  } : currentUser
+  } : {
+    ...currentUser,
+    // ⭐ FIX: Garantir que currentUser.id contient le gazelleId même sans simulation
+    id: currentUser?.gazelleId || ROLES[effectiveRole]?.gazelleId || currentUser?.id
+  }
 
   const handleLogin = (user) => {
     setCurrentUser(user)
