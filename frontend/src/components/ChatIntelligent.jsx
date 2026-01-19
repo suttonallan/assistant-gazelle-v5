@@ -51,8 +51,8 @@ export default function ChatIntelligent({ currentUser }) {
   const [appointmentDetail, setAppointmentDetail] = useState(null);
 
   // Déterminer rôle et ID Gazelle du technicien depuis currentUser
-  const userRole = currentUser?.role || 'technicien';
-  const technicianGazelleId = currentUser?.gazelleId || null;  // ID Gazelle (source de vérité)
+  const userRole = currentUser?.role || 'admin';
+  const technicianGazelleId = currentUser?.id || null;  // ID Gazelle (dans users.id, pas gazelleId)
 
   // Auto-load journée d'aujourd'hui au mount
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import ExportButton from './ExportButton'
 import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
@@ -454,15 +454,19 @@ const InventaireDashboard = ({ currentUser }) => {
       if (!response.ok) throw new Error('Erreur sauvegarde')
 
       setHasChanges(false)
-      await loadInventory()
       alert(`Ordre sauvegardé pour ${catalogueAdmin.length} produits`)
+
+      // Recharger l'inventaire après un court délai pour éviter AbortError
+      setTimeout(() => {
+        loadInventory()
+      }, 100)
     } catch (err) {
       alert('Erreur: ' + err.message)
     }
   }
 
-  // Filtrer produits (admin)
-  const filteredProducts = (() => {
+  // Filtrer produits (admin) - Optimisé avec useMemo pour éviter re-renders
+  const filteredProducts = useMemo(() => {
     let filtered = catalogueAdmin
 
     // Filtre 1: Masquer les inactifs si demandé
@@ -481,7 +485,7 @@ const InventaireDashboard = ({ currentUser }) => {
     }
 
     return filtered
-  })()
+  }, [catalogueAdmin, showInactiveProducts, searchQuery])
 
   if (loading) {
     return (
@@ -532,15 +536,15 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const orderedTechnicians = getOrderedTechnicians()
 
-  // Debug: afficher le mapping
-  console.log('🟢 DEBUG InventaireDashboard - Colonne Verte:', {
-    userEmail: currentUser?.email,
-    userName: currentUser?.name,
-    mappedUsername: currentUsername,
-    isAdmin: currentUserIsAdmin,
-    availableUsernames: TECHNICIENS.map(t => t.username),
-    orderedTechnicians: orderedTechnicians.map(t => t.name)
-  })
+  // Debug: afficher le mapping (seulement une fois au montage)
+  // console.log('🟢 DEBUG InventaireDashboard - Colonne Verte:', {
+  //   userEmail: currentUser?.email,
+  //   userName: currentUser?.name,
+  //   mappedUsername: currentUsername,
+  //   isAdmin: currentUserIsAdmin,
+  //   availableUsernames: TECHNICIENS.map(t => t.username),
+  //   orderedTechnicians: orderedTechnicians.map(t => t.name)
+  // })
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -655,9 +659,7 @@ const InventaireDashboard = ({ currentUser }) => {
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-gray-400">
-                            {product.code_produit}
-                          </div>
+                          {/* Code produit masqué */}
                         </td>
 
                         {orderedTechnicians.map(tech => {
@@ -726,9 +728,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   </td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">
                     {productName}
-                    {product && (
-                      <div className="text-xs text-gray-500 mt-0.5">{tx.code_produit}</div>
-                    )}
+                    {/* Code produit masqué */}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">{tx.technicien}</td>
                   <td className="px-4 py-3 text-sm">
