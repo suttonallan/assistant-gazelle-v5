@@ -55,21 +55,26 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
   // Pour sélection de l'établissement
   const [selectedLocation, setSelectedLocation] = useState('orford');
 
+  // Pour le volet "Tournées" dans la vue technicien - institution sélectionnée
+  const [selectedInstitutionForTechnician, setSelectedInstitutionForTechnician] = useState(institution);
+
   // Pour push vers Gazelle
   const [readyForPushCount, setReadyForPushCount] = useState(0);
   const [pushInProgress, setPushInProgress] = useState(false);
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
-  const loadPianosFromAPI = useCallback(async () => {
+  const loadPianosFromAPI = useCallback(async (targetInstitution = null) => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Chargement des pianos depuis:', API_URL);
+      // Utiliser l'institution cible si fournie, sinon l'institution du dashboard
+      const institutionToLoad = targetInstitution || institution;
+      console.log('🔄 Chargement des pianos depuis:', API_URL, 'pour institution:', institutionToLoad);
 
       // Toujours charger TOUS les pianos (include_inactive=true)
       // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/api/${institution}/pianos?include_inactive=true`;
+      const url = `${API_URL}/api/${institutionToLoad}/pianos?include_inactive=true`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -94,6 +99,12 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
       setLoading(false);
     }
   }, [institution]); // Recharger les pianos si l'institution change
+
+  // Handler pour changement d'institution depuis le volet tournées
+  const handleInstitutionChangeForTechnician = useCallback(async (newInstitution) => {
+    setSelectedInstitutionForTechnician(newInstitution);
+    await loadPianosFromAPI(newInstitution);
+  }, [loadPianosFromAPI]);
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -457,14 +468,14 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
-    console.log('[VincentDIndyDashboard] useEffect de chargement initial déclenché');
+    console.log('[OrfordDashboard] useEffect de chargement initial déclenché');
     try {
       loadPianosFromAPI();
     } catch (e) {
-      console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
+      console.error('[OrfordDashboard] Erreur dans useEffect de chargement:', e);
       alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
     }
-  }, [loadPianosFromAPI]); // Maintenant mémorisés avec useCallback
+  }, [loadPianosFromAPI, institution]); // Recharger si l'institution change
 
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
@@ -656,6 +667,9 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
               formatDateRelative={formatDateRelative}
               getSyncStatusIcon={getSyncStatusIcon}
               pianosFiltres={pianosFiltres}
+              selectedInstitution={selectedInstitutionForTechnician}
+              setSelectedInstitution={setSelectedInstitutionForTechnician}
+              onInstitutionChange={handleInstitutionChangeForTechnician}
                         />
                       </div>
         </div>

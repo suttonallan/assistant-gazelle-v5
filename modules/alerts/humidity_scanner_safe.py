@@ -100,6 +100,19 @@ class HumidityScannerSafe:
 
         text_lower = text.lower()
 
+        # ⚠️ FILTRE: Ignorer les notes de service normales avec mesures
+        # Exemples à ignorer: "21C, 39%", "Accord 440Hz, 21C, 39%", "température: 20C"
+        import re
+
+        # Pattern pour détecter des mesures normales de température/humidité
+        # Format: chiffres + C/F/° suivi de chiffres + %
+        # Exemples: "21C, 39%", "20°C 45%", "68F, 40%"
+        measurement_pattern = r'\d+\s*[CF°]\s*,?\s*\d+\s*%'
+
+        if re.search(measurement_pattern, text):
+            # C'est une mesure normale, pas une alerte - ignorer
+            return None
+
         # Parcourir chaque type de problème
         for issue_type, keyword_list in (alert_keywords or {}).items():
             if not keyword_list:
@@ -110,6 +123,23 @@ class HumidityScannerSafe:
                     continue
 
                 if keyword.lower() in text_lower:
+                    # ⚠️ FILTRE SPÉCIAL pour "environnement"
+                    # Les mots "humidité" et "température" seuls ne suffisent pas
+                    # Il faut un contexte de problème (basse, haute, anormale, etc.)
+                    if issue_type == "environnement":
+                        broad_keywords = ["humidité", "humidite", "humidity", "température", "temperature"]
+                        if keyword.lower() in broad_keywords:
+                            # Vérifier qu'il y a un contexte de problème
+                            problem_context = [
+                                "basse", "haute", "élevée", "elevee", "anormale",
+                                "problème", "probleme", "issue", "trop",
+                                "low", "high", "abnormal", "problem"
+                            ]
+                            has_context = any(ctx in text_lower for ctx in problem_context)
+                            if not has_context:
+                                # Juste une mention de température/humidité sans problème
+                                continue
+
                     # Problème détecté, vérifier s'il est résolu
                     is_resolved = False
                     resolution_keyword = None

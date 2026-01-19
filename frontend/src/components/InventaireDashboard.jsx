@@ -1708,7 +1708,7 @@ const InventaireDashboard = ({ currentUser }) => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{product.code_produit}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-400 italic">***</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{product.name}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{product.category}</td>
                     <td className="px-4 py-3 text-sm">

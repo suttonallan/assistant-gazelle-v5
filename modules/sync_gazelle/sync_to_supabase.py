@@ -808,11 +808,170 @@ class GazelleToSupabaseSync:
     def sync_timeline(self) -> int:
         """
         Alias pour sync_timeline_entries() pour compatibilité avec le scheduler.
+        v6: Enrichit aussi avec PrivatePianoMeasurement après la sync.
 
         Returns:
             Nombre d'entrées synchronisées
         """
-        return self.sync_timeline_entries()
+        count = self.sync_timeline_entries()
+        # Enrichir avec PrivatePianoMeasurement après la sync
+        self._enrich_timeline_with_measurements()
+        return count
+    
+    def _enrich_timeline_with_measurements(self):
+        """
+        v6: Enrichit les timeline entries avec les mesures de PrivatePianoMeasurement.
+        
+        Stratégie:
+        1. Pour chaque piano récemment synchronisé, interroger allPianoMeasurements
+        2. Si une mesure existe dans PrivatePianoMeasurement, elle est prioritaire
+        3. Sinon, on garde l'extraction du texte (déjà dans metadata)
+        4. Met à jour metadata avec les mesures structurées
+        """
+        print("\n🌡️  Enrichissement avec PrivatePianoMeasurement (v6)...")
+        
+        try:
+            from datetime import datetime, timedelta
+            from supabase import create_client
+            import json
+            
+            # Récupérer les timeline entries récentes (7 jours) avec piano_id
+            cutoff_date = datetime.now() - timedelta(days=7)
+            cutoff_iso = cutoff_date.isoformat()
+            
+            supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
+            
+            # Récupérer les timeline entries récentes avec piano_id
+            result = supabase.table('gazelle_timeline_entries')\
+                .select('id, piano_id, occurred_at, metadata')\
+                .not_.is_('piano_id', 'null')\
+                .gte('occurred_at', cutoff_iso)\
+                .execute()
+            
+            if not result.data:
+                print("   ✅ Aucune timeline entry récente avec piano_id")
+                return
+            
+            print(f"   📊 {len(result.data)} timeline entries à enrichir")
+            
+            # Grouper par piano_id pour optimiser les requêtes
+            pianos_to_check = set()
+            for entry in result.data:
+                if entry.get('piano_id'):
+                    pianos_to_check.add(entry['piano_id'])
+            
+            print(f"   🎹 {len(pianos_to_check)} pianos uniques à vérifier")
+            
+            # Requête GraphQL pour récupérer les mesures
+            query = """
+            query($pianoId: ID!) {
+                piano(id: $pianoId) {
+                    id
+                    allPianoMeasurements(first: 10, orderBy: CREATED_AT_DESC) {
+                        nodes {
+                            id
+                            createdAt
+                            takenOn
+                            temperature
+                            humidity
+                            notes
+                        }
+                    }
+                }
+            }
+            """
+            
+            enriched_count = 0
+            
+            for piano_id in list(pianos_to_check)[:50]:  # Limiter à 50 pour performance
+                try:
+                    variables = {"pianoId": piano_id}
+                    result_gql = self.api_client._execute_query(query, variables)
+                    
+                    piano_data = result_gql.get('data', {}).get('piano', {})
+                    measurements = piano_data.get('allPianoMeasurements', {}).get('nodes', [])
+                    
+                    if not measurements:
+                        continue
+                    
+                    # Pour chaque timeline entry de ce piano, chercher une mesure correspondante
+                    for entry in result.data:
+                        if entry.get('piano_id') != piano_id:
+                            continue
+                        
+                        entry_date = entry.get('occurred_at')
+                        if not entry_date:
+                            continue
+                        
+                        # Chercher une mesure proche de la date de l'entrée (±1 jour)
+                        try:
+                            entry_dt = datetime.fromisoformat(entry_date.replace('Z', '+00:00'))
+                        except:
+                            continue
+                        
+                        best_measurement = None
+                        min_diff = timedelta(days=2)
+                        
+                        for measurement in measurements:
+                            taken_on = measurement.get('takenOn') or measurement.get('createdAt')
+                            if not taken_on:
+                                continue
+                            
+                            try:
+                                measure_dt = datetime.fromisoformat(taken_on.replace('Z', '+00:00'))
+                                diff = abs(entry_dt - measure_dt)
+                                if diff < min_diff:
+                                    min_diff = diff
+                                    best_measurement = measurement
+                            except:
+                                continue
+                        
+                        # Si mesure trouvée, mettre à jour metadata
+                        if best_measurement:
+                            current_metadata = entry.get('metadata') or {}
+                            if isinstance(current_metadata, str):
+                                try:
+                                    current_metadata = json.loads(current_metadata)
+                                except:
+                                    current_metadata = {}
+                            
+                            # Priorité: mesure de PrivatePianoMeasurement
+                            current_metadata['measurements'] = {
+                                'temperature': best_measurement.get('temperature'),
+                                'humidity': best_measurement.get('humidity'),
+                                'source': 'PrivatePianoMeasurement',
+                                'measurement_id': best_measurement.get('id'),
+                                'taken_on': best_measurement.get('takenOn')
+                            }
+                            
+                            # Mettre à jour dans Supabase
+                            update_url = f"{self.storage.api_url}/gazelle_timeline_entries?id=eq.{entry['id']}"
+                            update_headers = self.storage._get_headers()
+                            
+                            import requests
+                            update_resp = requests.patch(
+                                update_url,
+                                headers=update_headers,
+                                json={'metadata': current_metadata}
+                            )
+                            
+                            if update_resp.status_code in [200, 204]:
+                                enriched_count += 1
+                
+                except Exception as e:
+                    if enriched_count == 0:  # Afficher seulement la première erreur
+                        print(f"   ⚠️  Erreur enrichissement piano {piano_id}: {e}")
+                    continue
+            
+            if enriched_count > 0:
+                print(f"   ✅ {enriched_count} timeline entries enrichies avec PrivatePianoMeasurement")
+            else:
+                print(f"   ℹ️  Aucune mesure PrivatePianoMeasurement trouvée pour les entrées récentes")
+        
+        except Exception as e:
+            print(f"   ⚠️  Erreur enrichissement: {e}")
+            import traceback
+            traceback.print_exc()
 
     def sync_users(self, force: bool = False) -> int:
         """

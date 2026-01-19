@@ -164,9 +164,20 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
         pianos_count = syncer.sync_pianos()
         print(f"✅ Pianos synchronisés: {pianos_count}")
 
-        # Sync timeline
-        timeline_count = syncer.sync_timeline()
-        print(f"✅ Timeline entries synchronisées: {timeline_count}")
+        # Sync timeline - Utilise smart_import avec filtre anti-bruit (7 derniers jours)
+        # Remplacé sync_timeline() par smart_import pour éviter le bruit (Mailchimp, emails)
+        from datetime import datetime, timedelta
+        from scripts.smart_import_all_data import SmartImport
+        
+        # Calculer date de cutoff (7 jours en arrière, format ISO UTC)
+        cutoff_date = datetime.now() - timedelta(days=7)
+        since_date_iso = cutoff_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        print(f"📊 Timeline: Utilisation smart_import avec filtre anti-bruit (7 jours)")
+        smart_importer = SmartImport(dry_run=False, delay=0.3)  # Délai réduit pour sync quotidienne
+        timeline_result = smart_importer.import_timeline(since_date=since_date_iso)
+        timeline_count = timeline_result.get('imported', 0)
+        print(f"✅ Timeline entries synchronisées: {timeline_count} (sur {timeline_result.get('valuable', 0)} de haute valeur)")
 
         # Sync appointments
         appointments_count = syncer.sync_appointments()

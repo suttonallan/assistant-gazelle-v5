@@ -54,6 +54,14 @@ export default function ChatIntelligent({ currentUser }) {
   const userRole = currentUser?.role || 'admin';
   const technicianGazelleId = currentUser?.id || null;  // ID Gazelle (dans users.id, pas gazelleId)
 
+  // Debug logging
+  console.log('[ChatIntelligent] currentUser:', {
+    name: currentUser?.name,
+    email: currentUser?.email,
+    id: currentUser?.id,
+    role: currentUser?.role
+  });
+
   // Auto-load journée d'aujourd'hui au mount
   useEffect(() => {
     handleQuickQuery("aujourd'hui");

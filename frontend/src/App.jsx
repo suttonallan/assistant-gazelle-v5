@@ -195,13 +195,14 @@ function App() {
   // }, [effectiveRole, currentView])
 
   // Créer un utilisateur effectif avec les bonnes propriétés selon le rôle simulé
-  // IMPORTANT: Préserver gazelleId même lors de l'impersonation (nécessaire pour Chat Technicien)
+  // IMPORTANT: Utiliser le gazelleId du rôle simulé pour que le chat affiche les RV du bon technicien
   const effectiveUser = simulatedRole ? {
     ...currentUser,
     email: ROLES[simulatedRole]?.email || currentUser?.email,
     name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
     role: simulatedRole,
-    gazelleId: currentUser?.gazelleId // ⭐ Préserver l'ID Gazelle du vrai utilisateur
+    id: ROLES[simulatedRole]?.gazelleId || currentUser?.id, // ⭐ ID Gazelle du rôle simulé (pour le chat)
+    gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId // Alias pour compatibilité
   } : currentUser
 
   const handleLogin = (user) => {

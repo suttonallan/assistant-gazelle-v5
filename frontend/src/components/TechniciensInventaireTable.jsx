@@ -268,9 +268,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-400">
-                    {product.code_produit}
-                  </div>
+                  {/* Code produit masqué pour tous les utilisateurs */}
                 </td>
 
                 {TECHNICIENS.map(tech => {

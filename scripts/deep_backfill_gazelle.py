@@ -119,12 +119,13 @@ class DeepBackfillService:
         page = 0
 
         # GraphQL Query avec pagination Relay
+        # CORRECTION CRITIQUE: Utiliser occurredAtGte (Greater Than or Equal), pas occurredAtGet
         query = """
-        query GetTimelineYear($cursor: String, $occurredAtGet: CoreDateTime, $occurredAtLte: CoreDateTime) {
+        query GetTimelineYear($cursor: String, $occurredAtGte: CoreDateTime, $occurredAtLte: CoreDateTime) {
             allTimelineEntries(
                 first: 100,
                 after: $cursor,
-                occurredAtGet: $occurredAtGet,
+                occurredAtGte: $occurredAtGte,
                 occurredAtLte: $occurredAtLte
             ) {
                 edges {
@@ -156,7 +157,7 @@ class DeepBackfillService:
                 # Exécuter la query
                 variables = {
                     "cursor": cursor,
-                    "occurredAtGet": start_date,
+                    "occurredAtGte": start_date,
                     "occurredAtLte": end_date
                 }
 
@@ -183,12 +184,26 @@ class DeepBackfillService:
 
                     try:
                         # Préparer le record Supabase
+                        # CORRECTION TIMEZONE: S'assurer que occurred_at est offset-aware
+                        occurred_at_raw = entry.get('occurredAt')
+                        occurred_at_aware = None
+                        if occurred_at_raw:
+                            try:
+                                # Parser la date ISO et s'assurer qu'elle est timezone-aware
+                                dt = datetime.fromisoformat(occurred_at_raw.replace('Z', '+00:00'))
+                                if dt.tzinfo is None:
+                                    dt = dt.replace(tzinfo=timezone.utc)
+                                occurred_at_aware = dt.isoformat()
+                            except Exception as e_date:
+                                print(f"   ⚠️  Erreur parsing date {occurred_at_raw}: {e_date}")
+                                occurred_at_aware = occurred_at_raw  # Fallback
+
                         record = {
                             'external_id': entry_id,
                             'entry_type': entry.get('type'),
                             'description': entry.get('comment'),
                             'title': entry.get('summary'),
-                            'occurred_at': entry.get('occurredAt'),
+                            'occurred_at': occurred_at_aware,
                             'entity_id': entry.get('client', {}).get('id') if entry.get('client') else None,
                             'piano_id': entry.get('piano', {}).get('id') if entry.get('piano') else None,
                             'user_id': entry.get('user', {}).get('id') if entry.get('user') else None,

@@ -62,9 +62,31 @@ class ServiceReports:
     ) -> None:
         self.storage = storage or SupabaseStorage()
         self.sheet_name = sheet_name
-        self.credentials_path = credentials_path or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        # v6: Utiliser IdentityManager pour charger depuis Supabase ou fallback v5
+        if credentials_path:
+            # Si un chemin est fourni explicitement, l'utiliser
+            self.credentials_path = credentials_path
+        else:
+            # Sinon, utiliser IdentityManager (v6) avec fallback v5
+            try:
+                from v6_foundation.identity_manager import IdentityManager
+                identity_manager = IdentityManager(storage=self.storage)
+                self.credentials_path = identity_manager.get_google_credentials_path()
+                # Garder une référence pour le nettoyage si nécessaire
+                self._identity_manager = identity_manager
+            except (ImportError, FileNotFoundError) as e:
+                # Fallback v5: Variable d'environnement
+                print(f"⚠️  IdentityManager non disponible, utilisation du fallback v5: {e}")
+                self.credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                self._identity_manager = None
+        
         if not self.credentials_path:
-            raise FileNotFoundError("GOOGLE_APPLICATION_CREDENTIALS manquant dans l'environnement")
+            raise FileNotFoundError(
+                "GOOGLE_APPLICATION_CREDENTIALS manquant. "
+                "Vérifiez Supabase system_settings['GOOGLE_SHEETS_JSON'] "
+                "ou la variable d'environnement GOOGLE_APPLICATION_CREDENTIALS"
+            )
         if not os.path.exists(self.credentials_path):
             raise FileNotFoundError(f"Fichier de service account introuvable: {self.credentials_path}")
         self.gc = self._init_gspread_client(self.credentials_path)
@@ -314,34 +336,69 @@ class ServiceReports:
 
     @staticmethod
     def _extract_measurements_from_text(text: str) -> str:
-        """Extrait température et humidité d'un texte (ex: 'Température ambiante 23° Celsius, humidité relative 35%' -> '23°, 35%')."""
+        """
+        Extrait température et humidité d'un texte avec détection intelligente de toutes les variantes.
+
+        Formats détectés:
+        - 20C, 33% | 20c, 33% | 20°C, 33% | 20°, 33% | 20 C, 33%
+        - Température ambiante 23° Celsius, humidité relative 35%
+        - 68F, 40% (Fahrenheit)
+
+        Retourne format normalisé: "20°, 33%" ou "33%" si seulement humidité
+        """
         import re
 
         if not text:
             return ""
 
-        # Chercher température (23°, 23° Celsius, 23 degrés, etc.)
-        temp_match = re.search(r'(\d+)\s*°\s*(?:Celsius|C)?', text, re.IGNORECASE)
+        # PATTERN 1: Détecter format compact direct "20C, 33%" ou "20°, 33%"
+        # Cherche: nombre + [C|c|°|° C|°C|F|f] + optionnel(virgule|espace) + nombre + %
+        compact_pattern = r'(\d+)\s*([CcFf°](?:\s*[CcFf])?)\s*,?\s*(\d+)\s*%'
+        compact_match = re.search(compact_pattern, text)
 
-        # Chercher humidité (35%, humidité 35%, humidité relative 35%, etc.)
+        if compact_match:
+            temp_value = compact_match.group(1)
+            temp_unit = compact_match.group(2).strip().upper()
+            humidity_value = compact_match.group(3)
+
+            # Normaliser l'unité (tout convertir en °)
+            return f"{temp_value}°, {humidity_value}%"
+
+        # PATTERN 2: Chercher température seule avec différentes variantes
+        # 23°, 23° Celsius, 23°C, 23C, 23c, 23 C, 23 degrés, 68F, etc.
+        temp_patterns = [
+            r'(\d+)\s*°\s*(?:Celsius|C)?',  # 23°, 23° Celsius, 23°C
+            r'(\d+)\s*[CcFf](?:\s|,|$)',     # 23C, 23c, 23F (suivi d'espace, virgule ou fin)
+            r'(\d+)\s+degrés?\s*(?:Celsius)?', # 23 degrés, 23 degré Celsius
+        ]
+
+        temp_match = None
+        for pattern in temp_patterns:
+            temp_match = re.search(pattern, text, re.IGNORECASE)
+            if temp_match:
+                break
+
+        # PATTERN 3: Chercher humidité
+        # Priorité 1: Avec mot-clé "humidité/humidity"
         humidity_match = re.search(r'(?:humidité|humidity)[^0-9]*(\d+)\s*%', text, re.IGNORECASE)
 
-        # Si pas trouvé avec "humidité", chercher juste un nombre suivi de %
+        # Priorité 2: Juste un nombre suivi de %
         if not humidity_match:
-            # Chercher pattern: nombre + %
             all_percent = re.findall(r'(\d+)\s*%', text)
             if all_percent:
+                # Prendre le premier % trouvé
                 humidity_match = type('obj', (object,), {'group': lambda self, x: all_percent[0]})()
 
+        # COMBINER les résultats
         if temp_match and humidity_match:
             temp = temp_match.group(1)
-            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else humidity_match.group(0) if hasattr(humidity_match, 'group') else all_percent[0]
+            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else all_percent[0]
             return f"{temp}°, {humidity}%"
         elif temp_match:
             return f"{temp_match.group(1)}°"
         elif humidity_match:
-            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else all_percent[0]
-            return f"{humidity}%"
+            humidity = humidity_match.group(1) if hasattr(humidity_match, 'group') else (all_percent[0] if 'all_percent' in locals() else "")
+            return f"{humidity}%" if humidity else ""
 
         return ""
 
@@ -444,15 +501,27 @@ class ServiceReports:
                 service_keys.add(key)
                 measures = measurements_by_piano_date.get(key, [])
 
-                # 3. Combiner les deux sources
+                # 3. Combiner intelligemment (éviter doublons)
+                # Priorité: mesure complète (temp + humidité) > humidité seule
                 all_measures = []
+
                 if extracted_from_text:
                     all_measures.append(extracted_from_text)
                 if measures:
                     all_measures.extend(measures)
 
+                # Dédupliquer et prioriser les mesures complètes
                 if all_measures:
-                    mesure_humidite = " | ".join(all_measures)
+                    # Séparer mesures complètes (avec °) et humidité seule (juste %)
+                    complete_measures = [m for m in all_measures if "°" in m]
+                    humidity_only = [m for m in all_measures if "°" not in m and "%" in m]
+
+                    # Priorité 1: Si on a une mesure complète, l'utiliser (prendre la première)
+                    if complete_measures:
+                        mesure_humidite = complete_measures[0]
+                    # Priorité 2: Sinon, prendre l'humidité seule
+                    elif humidity_only:
+                        mesure_humidite = humidity_only[0]
 
             row = [
                 entry_date,          # DateEvenement
@@ -518,7 +587,16 @@ class ServiceReports:
             last_name = user.get("last_name") or ""
             technicien = f"{first_name} {last_name}".strip() if (first_name or last_name) else ""
 
-            mesure_humidite = " | ".join(measures)
+            # Dédupliquer et prioriser les mesures complètes (même logique que services)
+            complete_measures = [m for m in measures if "°" in m]
+            humidity_only = [m for m in measures if "°" not in m and "%" in m]
+
+            if complete_measures:
+                mesure_humidite = complete_measures[0]
+            elif humidity_only:
+                mesure_humidite = humidity_only[0]
+            else:
+                mesure_humidite = ""
 
             row = [
                 entry_date,          # DateEvenement

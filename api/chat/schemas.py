@@ -184,6 +184,20 @@ class AppointmentDetail(BaseModel):
         description="Entrées timeline complètes (limitées aux 10 dernières)"
     )
 
+    # Section 4: RÉSUMÉS INTELLIGENTS IA (nouveauté v6)
+    client_smart_summary: Optional[str] = Field(
+        None,
+        description="Résumé intelligent du client généré par IA",
+        example="Client depuis 2018 (6 ans), fait accorder son piano chaque année en septembre. "
+                "⚠️ Présence de chien nerveux. Préfère être contacté par email."
+    )
+    piano_smart_summary: Optional[str] = Field(
+        None,
+        description="Résumé intelligent du piano généré par IA",
+        example="Steinway D de 1968 (56 ans), accordé 3x/an, équipé Life Saver System. "
+                "Climat très stable. Dernière réparation majeure: changement cordes (2023)."
+    )
+
     # Photos (si disponibles)
     photos: List[str] = Field(
         default_factory=list,

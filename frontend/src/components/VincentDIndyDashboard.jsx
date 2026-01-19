@@ -55,21 +55,31 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Pour sélection de l'établissement
   const [selectedLocation, setSelectedLocation] = useState('vincent-dindy');
 
+  // Pour le volet "Tournées" dans la vue technicien - institution sélectionnée
+  const [selectedInstitutionForTechnician, setSelectedInstitutionForTechnician] = useState(institution);
+  
+  // Debug: log de l'institution initiale
+  useEffect(() => {
+    console.log('[VincentDIndyDashboard] Institution initiale:', institution, 'selectedInstitutionForTechnician:', selectedInstitutionForTechnician);
+  }, [institution, selectedInstitutionForTechnician]);
+
   // Pour push vers Gazelle
   const [readyForPushCount, setReadyForPushCount] = useState(0);
   const [pushInProgress, setPushInProgress] = useState(false);
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
-  const loadPianosFromAPI = useCallback(async () => {
+  const loadPianosFromAPI = useCallback(async (targetInstitution = null) => {
     try {
       setLoading(true);
       setError(null);
-      console.log('🔄 Chargement des pianos depuis:', API_URL);
+      // Utiliser l'institution cible si fournie, sinon l'institution du dashboard
+      const institutionToLoad = targetInstitution || institution;
+      console.log('🔄 Chargement des pianos depuis:', API_URL, 'pour institution:', institutionToLoad);
 
       // Toujours charger TOUS les pianos (include_inactive=true)
       // Le filtrage se fera côté frontend via showAllPianos
-      const url = `${API_URL}/api/${institution}/pianos?include_inactive=true`;
+      const url = `${API_URL}/api/${institutionToLoad}/pianos?include_inactive=true`;
       const response = await fetch(url);
       const data = await response.json();
 
@@ -464,7 +474,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       console.error('[VincentDIndyDashboard] Erreur dans useEffect de chargement:', e);
       alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
     }
-  }, [loadPianosFromAPI]); // Maintenant mémorisés avec useCallback
+  }, [loadPianosFromAPI, institution]); // Recharger si l'institution change
+
+  // Handler pour changement d'institution depuis le volet tournées
+  const handleInstitutionChangeForTechnician = useCallback(async (newInstitution) => {
+    setSelectedInstitutionForTechnician(newInstitution);
+    await loadPianosFromAPI(newInstitution);
+  }, [loadPianosFromAPI]);
 
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
@@ -625,6 +641,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
+    console.log('🔧 [VincentDIndyDashboard] Rendu vue technicien');
+    console.log('🔧 [VincentDIndyDashboard] Props pour VDI_TechnicianView:', {
+      selectedInstitutionForTechnician,
+      institution,
+      finalSelectedInstitution: selectedInstitutionForTechnician || institution
+    });
+    
     return (
       <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
@@ -656,6 +679,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               formatDateRelative={formatDateRelative}
               getSyncStatusIcon={getSyncStatusIcon}
               pianosFiltres={pianosFiltres}
+              selectedInstitution={selectedInstitutionForTechnician || institution}
+              setSelectedInstitution={setSelectedInstitutionForTechnician}
+              onInstitutionChange={handleInstitutionChangeForTechnician}
                         />
                       </div>
         </div>
