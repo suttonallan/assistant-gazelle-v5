@@ -303,6 +303,7 @@ class V5DataProvider:
                 )
             """)\
             .eq('appointment_date', date)\
+            .eq('status', 'ACTIVE')\
             .order('appointment_time')
 
         # Filtrage selon rôle ET technicien demandé
@@ -1096,14 +1097,28 @@ class V5DataProvider:
             # Chercher si contient un keyword d'action
             for keyword in action_keywords:
                 if keyword in details_lower or keyword in summary_lower:
-                    # Extraire la phrase pertinente
+                    # Extraire SEULEMENT la phrase pertinente (pas tout le texte)
                     text = entry.details or entry.summary or ""
-                    # Trouver la ligne contenant le keyword
-                    for line in text.split('\n'):
-                        if any(kw in line.lower() for kw in action_keywords):
-                            clean_line = line.strip('- ').strip()
-                            if len(clean_line) > 10:  # Éviter les fragments
-                                summary_parts.append(f"📝 Note: {clean_line}")
+
+                    # Chercher phrase entre parenthèses ou après keyword
+                    import re
+
+                    # Pattern 1: Texte entre parenthèses contenant keyword
+                    paren_pattern = r'\([^)]*(?:' + '|'.join(action_keywords) + r')[^)]*\)'
+                    paren_matches = re.findall(paren_pattern, text, re.IGNORECASE)
+                    if paren_matches:
+                        clean_note = paren_matches[0].strip('()').strip()
+                        summary_parts.append(f"📝 {clean_note}")
+                        break
+
+                    # Pattern 2: Phrase complète contenant keyword (jusqu'au point)
+                    for sentence in text.split('.'):
+                        if any(kw in sentence.lower() for kw in action_keywords):
+                            # Nettoyer la phrase
+                            clean_sentence = sentence.strip('- ').strip()
+                            # Limiter à 100 caractères
+                            if 10 < len(clean_sentence) <= 100:
+                                summary_parts.append(f"📝 {clean_sentence}")
                                 break
                     break  # Une seule note importante
 
