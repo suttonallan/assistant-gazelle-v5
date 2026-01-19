@@ -151,12 +151,15 @@ export default function AssistantWidget({ currentUser, role = 'admin', compact =
     return (
       <button
         onClick={() => {
+          console.log('[AssistantWidget] Bouton cliqué!', { onOpenMaJournee: !!onOpenMaJournee, currentUser });
           // Si onOpenMaJournee est fourni, ouvrir "Ma Journée" au lieu du widget
           if (onOpenMaJournee) {
+            console.log('[AssistantWidget] Appel onOpenMaJournee()');
             onOpenMaJournee()
             return
           }
           // Sinon, comportement par défaut: ouvrir le widget
+          console.log('[AssistantWidget] Ouverture widget classique');
           setIsOpen(true)
           if (messages.length === 0) {
             setMessages([{

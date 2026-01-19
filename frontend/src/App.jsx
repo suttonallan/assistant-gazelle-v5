@@ -244,6 +244,12 @@ function App() {
               <OrfordDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
+        } else if (currentView === 'chat') {
+          return (
+            <ErrorBoundary componentName="Chat Intelligent">
+              <ChatIntelligent currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
@@ -265,6 +271,12 @@ function App() {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
               <InventaireDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'chat') {
+          return (
+            <ErrorBoundary componentName="Chat Intelligent">
+              <ChatIntelligent currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
