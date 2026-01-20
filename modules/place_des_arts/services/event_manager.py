@@ -104,16 +104,27 @@ class EventManager:
     # ------------------------------------------------------------
     def _normalize_row(self, row: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
         errors: List[str] = []
+        warnings: List[str] = []
 
         def require(field: str):
+            """Champ critique - bloque l'import si manquant"""
             if not row.get(field):
                 errors.append(f"champ requis manquant: {field}")
 
+        def suggest(field: str, default_value: str = "À compléter"):
+            """Champ optionnel - ajoute un warning mais n'empêche pas l'import"""
+            if not row.get(field):
+                warnings.append(f"champ manquant: {field} (sera marqué '{default_value}')")
+                row[field] = default_value
+
+        # Champs critiques (bloquent l'import si manquants)
         require("id")
         require("request_date")
         require("appointment_date")
-        require("room")
-        # piano est optionnel (peut être vide si "à suivre")
+
+        # Champs complétables plus tard (n'empêchent pas l'import)
+        suggest("room", "Salle à confirmer")
+        # piano est déjà optionnel (peut être vide si "à suivre")
 
         status = (row.get("status") or "PENDING").strip().upper()
         if status not in ALLOWED_STATUS:
@@ -151,7 +162,16 @@ class EventManager:
             "updated_at": _parse_datetime(row.get("updated_at", "")),
             "created_by": row.get("created_by") or None,
         }
-        return normalized, errors
+
+        # Retourner SEULEMENT les erreurs critiques (qui bloquent l'import)
+        # Les warnings sont enregistrés dans le row normalisé via le champ 'notes'
+        if warnings and not errors:
+            # Ajouter warnings aux notes si pas d'erreurs critiques
+            existing_notes = normalized.get("notes") or ""
+            warning_text = " | ".join(warnings)
+            normalized["notes"] = f"{existing_notes}\n⚠️ {warning_text}".strip() if existing_notes else f"⚠️ {warning_text}"
+
+        return normalized, errors  # Retourner SEULEMENT les erreurs critiques
 
     # ------------------------------------------------------------
     # Public API
