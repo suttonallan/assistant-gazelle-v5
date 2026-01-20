@@ -355,6 +355,12 @@ function App() {
               </div>
             </ErrorBoundary>
           )
+        } else if (currentView === 'chat') {
+          return (
+            <ErrorBoundary componentName="Chat Intelligent">
+              <ChatIntelligent currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         }
         // Par défaut: Inventaire
         return (
