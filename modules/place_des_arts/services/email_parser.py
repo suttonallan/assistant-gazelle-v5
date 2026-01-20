@@ -508,19 +508,24 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
     # Format: "de la Salle D" / "Salle D" / "MS" / "WP"
     room_patterns = [
         (r'salle\s+([a-z])', r'\1'),  # Salle D → D
-        (r'\b(ms|wp|tm|tjd|5e|scl)\b', r'\1'),  # Codes standards
+        (r'\b(ms|wp|tm|tjd|5e|scl|cl)\b', r'\1'),  # Codes standards + CL (Claude-Léveillée)
         (r'maison\s+symphonique', 'MS'),
         (r'wilfrid[-\s]?pelletier', 'WP'),
         (r'théâtre\s+maisonneuve', 'TM'),
         (r'theater\s+maisonneuve', 'TM'),
         (r'jean[-\s]?duceppe', 'TJD'),
-        (r'claude[-\s]?léveillée', 'SCL')
+        (r'claude[-\s]?léveillée', 'SCL'),
+        (r'claude[-\s]?leveillee', 'SCL')  # Variante sans accent
     ]
     for pattern, replacement in room_patterns:
         match = re.search(pattern, text_lower)
         if match:
             if replacement.startswith(r'\1'):
-                result['room'] = match.group(1).upper()
+                room_code = match.group(1).upper()
+                # Normaliser CL → SCL
+                if room_code == 'CL':
+                    room_code = 'SCL'
+                result['room'] = room_code
             else:
                 result['room'] = replacement
             result['confidence'] += 0.15
@@ -677,6 +682,10 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
         # Salle
         room_found_at_idx = None
         for line_idx, line in enumerate(lines):
+            line_lower = line.lower()
+            # Skip si la ligne contient "piano" (pour éviter "C5" dans "Piano Yamaha C5")
+            if 'piano' in line_lower:
+                continue
             if any(kw.upper() in line.upper() for kw in room_keywords):
                 result['room'] = normalize_room(line)
                 result['confidence'] += 0.2
