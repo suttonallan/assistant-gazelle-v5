@@ -190,6 +190,7 @@ def normalize_room(room_text: str) -> str:
         'studio claude léveillée': 'SCL',
         'salle claude léveillée': 'SCL',
         'salle claude-léveillée': 'SCL',
+        'cl': 'SCL',  # Abréviation courante
 
         # Théâtre Jean-Duceppe
         'théâtre jean-duceppe': 'TJD',

@@ -113,7 +113,7 @@ class EventManager:
         require("request_date")
         require("appointment_date")
         require("room")
-        require("piano")
+        # piano est optionnel (peut être vide si "à suivre")
 
         status = (row.get("status") or "PENDING").strip().upper()
         if status not in ALLOWED_STATUS:
