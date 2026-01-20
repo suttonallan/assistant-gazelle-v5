@@ -9,8 +9,11 @@ from datetime import datetime, timedelta, time
 import re
 import pytz
 import asyncio
+import logging
 
 from core.supabase_storage import SupabaseStorage
+
+logger = logging.getLogger(__name__)
 from modules.assistant import ConversationHandler
 from .schemas import (
     ChatRequest,
@@ -296,10 +299,13 @@ class V5DataProvider:
                 client:client_external_id(
                     external_id,
                     company_name,
+                    first_name,
+                    last_name,
                     email,
                     phone,
                     city,
-                    postal_code
+                    postal_code,
+                    pianos:gazelle_pianos(external_id,make,model,type,dampp_chaser_installed)
                 )
             """)\
             .eq('appointment_date', date)\
@@ -453,14 +459,13 @@ class V5DataProvider:
             # Augmenter limite à 50 pour capturer vrais services (pas seulement emails)
             timeline_url = f"{self.storage.api_url}/gazelle_timeline_entries"
 
-            # PostgREST: Filtrer pour garder SEULEMENT les vrais services
-            # (pas les emails automatiques de type NOTE)
+            # PostgREST: Récupérer timeline (on filtrera après pour garder les notes importantes)
             timeline_params = {
                 "select": "occurred_at,entry_type,title,description,entry_date,event_type,metadata",
                 "client_external_id": f"eq.{client_id}",
-                # Filtrer: garder SERVICE_ENTRY_MANUAL, APPOINTMENT, PIANO_MEASUREMENT
-                "entry_type": "in.(SERVICE_ENTRY_MANUAL,APPOINTMENT,PIANO_MEASUREMENT)",
-                "order": "occurred_at.desc",  # Utiliser occurred_at au lieu de entry_date
+                # Inclure: SERVICE_ENTRY_MANUAL, APPOINTMENT, PIANO_MEASUREMENT, NOTE (pour "Prochain RV: ...")
+                "entry_type": "in.(SERVICE_ENTRY_MANUAL,APPOINTMENT,PIANO_MEASUREMENT,NOTE)",
+                "order": "occurred_at.desc",
                 "limit": 50
             }
 
@@ -472,10 +477,18 @@ class V5DataProvider:
                 all_entries = [self._map_to_timeline_entry(entry) for entry in timeline_raw]
 
                 # Filtrer les entrées inutiles (garder si summary OU details utiles)
-                timeline_entries = [
-                    entry for entry in all_entries
-                    if self._is_useful_note(entry.summary) or self._is_useful_note(entry.details)
-                ]
+                # NOTE: Ne pas réassigner timeline_entries = [] car ça crée une variable locale!
+                # On doit modifier la liste existante via une variable intermédiaire
+                filtered = []
+                for entry in all_entries:
+                    is_summary_useful = self._is_useful_note(entry.summary)
+                    is_details_useful = self._is_useful_note(entry.details)
+
+                    if is_summary_useful or is_details_useful:
+                        filtered.append(entry)
+
+                # Maintenant affecter la liste filtrée à la variable outer scope
+                timeline_entries = filtered
 
         # 3. Construire les objets
         overview = self._map_to_overview(apt_raw, apt_raw.get("appointment_date"))
@@ -495,44 +508,15 @@ class V5DataProvider:
             event_data=event_data
         )
 
-        # 4. Générer les résumés intelligents IA
+        # 4. Résumés IA: DÉSACTIVÉS (génèrent des stats bidons)
+        # Ne pas inventer "6x/an" ou "habituellement en décembre" sur 1 seul RV!
         client_smart_summary = None
         piano_smart_summary = None
 
-        if client and not is_personal_event:
-            from .smart_summaries import SmartSummaryGenerator
-
-            summary_generator = SmartSummaryGenerator(self.storage)
-
-            # Résumé client
-            comfort_dict = comfort.model_dump() if hasattr(comfort, 'model_dump') else comfort.dict()
-            timeline_dict = [entry.model_dump() if hasattr(entry, 'model_dump') else entry.dict() for entry in timeline_entries]
-
-            client_smart_summary = summary_generator.generate_client_summary(
-                client_id=client.get("external_id"),
-                timeline_entries=timeline_dict,
-                comfort_info=comfort_dict
-            )
-
-            # Résumé piano (si piano principal dans appointment)
-            piano_id = apt_raw.get("piano_external_id") or overview.piano_id
-            if piano_id:
-                # Récupérer infos piano
-                piano_url = f"{self.storage.api_url}/gazelle_pianos"
-                piano_params = {
-                    "select": "make,model,year,has_dampp_chaser,type",
-                    "external_id": f"eq.{piano_id}"
-                }
-                piano_response = requests.get(piano_url, headers=headers, params=piano_params)
-
-                if piano_response.status_code == 200 and piano_response.json():
-                    piano_info = piano_response.json()[0]
-
-                    piano_smart_summary = summary_generator.generate_piano_summary(
-                        piano_id=piano_id,
-                        timeline_entries=timeline_dict,
-                        piano_info=piano_info
-                    )
+        # NOTE: Les résumés IA ont été désactivés car ils inventent des statistiques
+        # non fiables ("accordé 6x/an", "habituellement en décembre") basées sur
+        # des données insuffisantes. Le tech a besoin de faits concrets, pas de
+        # suppositions algorithmiques trompeuses.
 
         return AppointmentDetail(
             overview=overview,
@@ -674,13 +658,28 @@ class V5DataProvider:
 
         text_lower = text.lower().strip()
 
+        # 🔥 PRIORITÉ: TOUJOURS garder les notes critiques du tech
+        critical_keywords = [
+            "prochain", "prochain rendez-vous", "à faire", "a faire",
+            "prioritaire", "important", "attention", "ne pas oublier",
+            "référé", "refere", "referral", "demander"
+        ]
+
+        for keyword in critical_keywords:
+            if keyword in text_lower:
+                return True  # GARDER impérativement
+
         # Patterns de notes inutiles (auto-générées par Gazelle)
         useless_patterns = [
             "note gazelle",
             "an appointment was created",
             "a new appointment was created",
             "appointment was completed",
-            "appointment for this client was completed"
+            "appointment for this client was completed",
+            "emailed", "opened", "clicked",  # Emails automatiques
+            "confirmé", "confirmer",  # Confirmations automatiques
+            "modification d'un rendez-vous",  # Logs système
+            "le statut du client"  # Changements de statut
         ]
 
         # Si la note contient un de ces patterns, elle est inutile
@@ -693,6 +692,54 @@ class V5DataProvider:
             return False
 
         return True
+
+    def get_display_name(self, client: Optional[Dict[str, Any]]) -> str:
+        """
+        Retourne le nom d'affichage d'un client selon la logique de priorité.
+
+        Logique (La Règle d'Or):
+        1. PRIORITÉ 1: company_name (si rempli ET différent de first+last) → "Place des Arts", "SEC-Cibèle"
+        2. PRIORITÉ 2: first_name + last_name → "Louise Brazeau", "Harry Kirschner"
+        3. PRIORITÉ 3: company_name (même si = first+last, pour compatibilité)
+        4. PRIORITÉ 4: email (si disponible)
+        5. FALLBACK: "Client Inconnu"
+
+        Args:
+            client: Dictionnaire client depuis Supabase (peut être None)
+
+        Returns:
+            Nom d'affichage du client
+        """
+        if not client:
+            return "Client Inconnu"
+
+        # PRIORITÉ 1: Nom d'entreprise/organisation (si différent du nom humain)
+        company_name = (client.get('company_name') or '').strip()
+        first_name = (client.get('first_name') or '').strip()
+        last_name = (client.get('last_name') or '').strip()
+
+        # Construire le nom complet si on a first/last
+        full_name_constructed = f"{first_name} {last_name}".strip()
+
+        # Si company_name existe ET est différent du nom construit → c'est une entreprise
+        if company_name and company_name != full_name_constructed:
+            return company_name
+
+        # PRIORITÉ 2: Prénom + Nom (humains)
+        if first_name or last_name:
+            return full_name_constructed
+
+        # PRIORITÉ 3: Company name (compatibilité anciennes données sans first/last)
+        if company_name:
+            return company_name
+
+        # PRIORITÉ 4: Email
+        email = (client.get('email') or '').strip()
+        if email:
+            return email
+
+        # FALLBACK
+        return "Client Inconnu"
 
     def _extract_contact_name(self, notes: str, location: str) -> Optional[str]:
         """
@@ -712,6 +759,14 @@ class V5DataProvider:
         """
         import re
 
+        # Liste de termes à ignorer (marques de piano, types d'instruments, termes Gazelle)
+        BLACKLIST = {
+            'yamaha upright', 'yamaha grand', 'kawai upright', 'steinway grand',
+            'piano upright', 'grand piano', 'baby grand', 'concert grand',
+            'piano kawai', 'piano yamaha', 'piano steinway', 'heintzman upright',
+            'requested services'  # Terme Gazelle pour RV sans détails complets
+        }
+
         # Pattern: Prénom Nom (2 mots capitalisés)
         # Ex: "Sophie Lambert", "Jean-Pierre Tremblay"
         contact_pattern = r'\b([A-Z][a-zé]+(?:-[A-Z][a-zé]+)?)\s+([A-Z][a-zé]+(?:-[A-Z][a-zé]+)?)\b'
@@ -723,7 +778,16 @@ class V5DataProvider:
         if match:
             first_name = match.group(1)
             last_name = match.group(2)
-            return f"{first_name} {last_name}"
+            full_name = f"{first_name} {last_name}"
+
+            logger.info(f"🔍 _extract_contact_name: found '{full_name}' in text")
+
+            # Vérifier que ce n'est pas dans la blacklist
+            if full_name.lower() not in BLACKLIST:
+                logger.info(f"  ✅ '{full_name}' NOT in blacklist, returning it")
+                return full_name
+            else:
+                logger.info(f"  ❌ '{full_name}' IS in blacklist, ignoring")
 
         return None
 
@@ -773,37 +837,64 @@ class V5DataProvider:
         """
         client = apt_raw.get("client") or {}
 
-        # Piano: récupérer depuis le client (pas de piano_external_id dans appointments)
-        piano = {}
-        if client and client.get("external_id"):
-            # Récupérer le(s) piano(s) du client
-            try:
-                client_id = client.get("external_id")
-                pianos_result = self.storage.client.table('gazelle_pianos')\
-                    .select('external_id,make,model,type,dampp_chaser_installed')\
-                    .eq('client_external_id', client_id)\
-                    .limit(1)\
-                    .execute()
+        # ═══════════════════════════════════════════════════════════════
+        # LOGIQUE SQL STRICTE - IDENTIFICATION PIANO (PAS DE NLP!)
+        # ═══════════════════════════════════════════════════════════════
+        # Ancre: client_external_id (donnée fiable)
+        # Cascade: 1 piano → direct | >1 piano → match serial | 0 → inconnu
+        # ═══════════════════════════════════════════════════════════════
 
-                if pianos_result.data:
-                    piano = pianos_result.data[0]
-                    # Debug log pour vérifier
-                    if piano.get('dampp_chaser_installed'):
-                        print(f"✅ PLS détecté pour client {client_id}: {piano.get('make')} {piano.get('model')}")
+        piano = {}
+        has_dampp_chaser = False
+        piano_match_method = None  # Pour debug
+
+        if client and client.get("pianos"):
+            pianos = client.get("pianos", [])
+
+            if len(pianos) == 1:
+                # ✅ CAS 1: UN SEUL PIANO → C'EST LUI (100% fiable)
+                piano = pianos[0]
+                has_dampp_chaser = piano.get('dampp_chaser_installed', False)
+                piano_match_method = "unique_piano"
+
+            elif len(pianos) > 1:
+                # ⚠️ CAS 2: PLUSIEURS PIANOS → Match par numéro de série
+                notes = apt_raw.get("notes") or ""
+                matched_piano = None
+
+                # Extraire tous les numéros de série des pianos du client
+                for p in pianos:
+                    serial = p.get('serial_number', '').strip()
+                    if serial and serial in notes:
+                        matched_piano = p
+                        piano_match_method = f"serial_match:{serial}"
+                        break
+
+                if matched_piano:
+                    # Match trouvé via numéro de série
+                    piano = matched_piano
+                    has_dampp_chaser = piano.get('dampp_chaser_installed', False)
                 else:
-                    print(f"⚠️  Aucun piano trouvé pour client {client_id}")
-            except Exception as e:
-                print(f"❌ Erreur récupération piano pour client {client.get('external_id')}: {e}")
-                import traceback
-                traceback.print_exc()
-                piano = {}
+                    # ⚠️ Aucun match: Prioriser piano avec PLS (heuristique acceptable)
+                    piano_with_pls = next((p for p in pianos if p.get('dampp_chaser_installed')), None)
+                    if piano_with_pls:
+                        piano = piano_with_pls
+                        has_dampp_chaser = True
+                        piano_match_method = "pls_priority"
+                    else:
+                        # Dernier recours: premier piano (mais on le signale)
+                        piano = pianos[0]
+                        piano_match_method = "fallback_first"
+                        print(f"⚠️ Client {client.get('company_name')} a {len(pianos)} pianos, aucun serial match")
+
+            # Log du match (debug)
+            if piano and piano_match_method:
+                print(f"🎹 Piano identifié ({piano_match_method}): {piano.get('make')} {piano.get('model')} pour {client.get('company_name')}")
+
         else:
-            # Debug: pourquoi pas de client?
-            if not client:
-                print(f"⚠️  Pas de client pour appointment {apt_raw.get('external_id')}")
-            elif not client.get("external_id"):
-                print(f"⚠️  Client sans external_id: {client}")
-            piano = apt_raw.get("piano") or {}
+            # CAS 3: Événement personnel ou pas de piano en DB
+            piano = {}
+            has_dampp_chaser = False
 
         # Time slot - Les données sont maintenant stockées en Eastern Time (pas UTC)
         time_raw = apt_raw.get("appointment_time")
@@ -816,29 +907,16 @@ class V5DataProvider:
 
         # Client info (ou titre si événement personnel)
         title = apt_raw.get("title") or ""
-        description = apt_raw.get("description") or ""
-        notes = apt_raw.get("notes") or ""
-        location = apt_raw.get("location") or ""
 
-        # Extraction du nom du contact (personne physique) depuis notes/location
-        # Pattern: Chercher un nom propre (Prénom Nom) au début des notes ou location
-        contact_name = self._extract_contact_name(notes, location)
-
-        # Client name (institution/entreprise)
-        institution_name = client.get("company_name") if client else None
-
-        # Logique d'affichage:
-        # 1. Si contact trouvé: afficher contact (institution en secondaire)
-        # 2. Sinon: afficher institution ou titre
-        if contact_name and institution_name and contact_name != institution_name:
-            # Cas: Contact différent du client (ex: Sophie Lambert chez SEC-Cibèle)
-            client_name = contact_name
-        elif institution_name:
-            # Cas: Pas de contact trouvé, afficher institution
-            client_name = institution_name
+        # 🆕 NOUVELLE LOGIQUE: Utiliser get_display_name() (La Règle d'Or)
+        # Priorité: company_name → first_name+last_name → email → "Client Inconnu"
+        if client:
+            client_name = self.get_display_name(client)
+            logger.info(f"🎯 get_display_name returned: '{client_name}' for client {client.get('external_id')}")
         else:
-            # Événement personnel: utiliser titre
+            # Événement personnel (pas de client associé)
             client_name = title if title else "Événement personnel"
+            logger.info(f"🎯 No client, using title: '{client_name}'")
 
         # Localisation AMÉLIORÉE avec mapping géographique
         location_text = apt_raw.get("location") or ""  # Pour événements personnels
@@ -860,11 +938,14 @@ class V5DataProvider:
             neighborhood = ""
             address_short = location_text[:50] if location_text else ""
 
-        # Piano
-        piano_brand = piano.get("make")
-        piano_model = piano.get("model")
-        piano_type = piano.get("type")
-        has_dampp_chaser = piano.get("dampp_chaser_installed", False)
+        # ═══════════════════════════════════════════════════════════════
+        # DONNÉES PIANO: UNIQUEMENT DEPUIS gazelle_pianos (SQL strict)
+        # ═══════════════════════════════════════════════════════════════
+        # JAMAIS de parsing NLP! Données structurées DB seulement.
+        # Si piano = {}, affichera None (géré par frontend)
+        piano_brand = piano.get("make")       # Ex: "Yamaha", "Steinway"
+        piano_model = piano.get("model")      # Ex: "b3PE-Silent SG2", "D"
+        piano_type = piano.get("type")        # Ex: "UPRIGHT", "GRAND"
 
         # Action items (extraire des notes)
         notes = apt_raw.get("notes") or ""
@@ -874,10 +955,9 @@ class V5DataProvider:
         last_visit_date = None
         days_since_last_visit = None
 
-        # Billing client: afficher seulement si différent du contact
+        # Billing client: TODO - logique à implémenter si nécessaire
+        # (contact_name et institution_name ne sont pas définis dans cette fonction)
         billing_client = None
-        if contact_name and institution_name and contact_name != institution_name:
-            billing_client = institution_name
 
         return AppointmentOverview(
             appointment_id=apt_raw.get("external_id"),

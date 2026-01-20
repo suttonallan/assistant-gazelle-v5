@@ -176,19 +176,25 @@ class GazelleToSupabaseSync:
                     status = client_data.get('status', 'active')
                     tags = client_data.get('tags', [])
 
-                    # Contact par défaut
+                    # Contact par défaut (pour first_name/last_name)
                     default_contact = client_data.get('defaultContact', {})
 
-                    # Si CompanyName vide, utiliser nom du contact
-                    if not company_name and default_contact:
+                    # Extraire first_name et last_name du contact
+                    first_name = ''
+                    last_name = ''
+                    if default_contact:
                         first_name_raw = default_contact.get('firstName')
                         last_name_raw = default_contact.get('lastName')
                         first_name = first_name_raw.strip() if first_name_raw else ''
                         last_name = last_name_raw.strip() if last_name_raw else ''
+
+                    # Si CompanyName vide, construire à partir du nom du contact (pour compatibilité)
+                    if not company_name and (first_name or last_name):
                         company_name = f"{first_name} {last_name}".strip()
 
-                    if not company_name:
-                        print(f"⚠️  Client {external_id} ignoré (nom vide)")
+                    # Vérifier qu'on a au moins un identifiant
+                    if not company_name and not first_name and not last_name:
+                        print(f"⚠️  Client {external_id} ignoré (aucun nom disponible)")
                         self.stats['clients']['errors'] += 1
                         continue
 
@@ -216,8 +222,9 @@ class GazelleToSupabaseSync:
                     client_record = {
                         'external_id': external_id,
                         'company_name': company_name,
+                        'first_name': first_name if first_name else None,  # 🆕 Nouveau champ
+                        'last_name': last_name if last_name else None,     # 🆕 Nouveau champ
                         'status': status,
-                        'tags': tags,
                         'email': email,
                         'phone': phone,
                         # Note: 'address' n'existe pas dans gazelle_clients, seulement city et postal_code
@@ -226,6 +233,11 @@ class GazelleToSupabaseSync:
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
+                    
+                    # ⚠️ IMPORTANT: Ne mettre à jour les tags QUE si l'API en retourne
+                    # pour éviter d'écraser les tags existants (ex: 'institutional')
+                    if tags:
+                        client_record['tags'] = tags
 
                     # UPSERT dans Supabase (via REST API avec on_conflict)
                     url = f"{self.storage.api_url}/gazelle_clients?on_conflict=external_id"

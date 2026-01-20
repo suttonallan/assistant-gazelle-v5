@@ -1,0 +1,26 @@
+🔧 Initialisation SupabaseStorage...
+✅ SupabaseStorage initialisé: https://beblgzvmjqkcillmcavk.supabase.co
+📊 RÉCUPÉRATION COMPLÈTE DES STATISTIQUES
+
+📈 TOTAL GLOBAL: 282,669 entrées
+
+📅 PAR ANNÉE:
+   2016: 9,943 entrées
+   2017: 21,917 entrées
+   2018: 25,447 entrées
+   2019: 29,722 entrées
+   2020: 26,417 entrées
+   2021: 27,989 entrées
+   2022: 32,012 entrées
+   2023: 28,313 entrées
+   2024: 26,034 entrées
+   2025: 52,428 entrées
+   2026: 2,411 entrées
+
+✅ TOTAL HISTORIQUE (2016-2024): 227,794 entrées
+
+📋 PAR TYPE:
+   APPOINTMENT: 1,000 (100.0%)
+
+💧 DONNÉES TECHNIQUES:
+   Entrées avec métadonnées: 20,140

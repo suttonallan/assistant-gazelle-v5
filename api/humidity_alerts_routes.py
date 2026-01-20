@@ -54,24 +54,18 @@ async def get_institutional_alerts():
     try:
         storage = SupabaseStorage()
 
-        # Clients institutionnels à surveiller (mots-clés partiels)
-        INSTITUTIONAL_CLIENTS = [
-            'Vincent',  # Matche "École de musique Vincent-d'Indy"
-            'Place des Arts',
-            'Orford'
+        # Clients institutionnels à surveiller (external_id)
+        # ⚠️ IMPORTANT: Utiliser client_id (external_id) PAS client_name !
+        # 3 INSTITUTIONS UNIQUEMENT: Vincent-d'Indy, Place des Arts, Orford
+        INSTITUTIONAL_CLIENT_IDS = [
+            'cli_9UMLkteep8EsISbG',  # École de musique Vincent-d'Indy
+            'cli_HbEwl9rN11pSuDEU',  # Place des Arts
+            'cli_PmqPUBTbPFeCMGmz',  # Orford Musique
         ]
 
-        # Utiliser le client Supabase Python pour filtrer par plusieurs client_name
-        # On fait plusieurs requêtes et on combine les résultats
-        all_alerts = []
-        for client_keyword in INSTITUTIONAL_CLIENTS:
-            try:
-                response = storage.client.table('humidity_alerts_active').select('*').ilike('client_name', f'%{client_keyword}%').order('observed_at', desc=True).execute()
-                if response.data:
-                    all_alerts.extend(response.data)
-            except Exception as e:
-                # Si une requête échoue, continuer avec les autres
-                print(f"⚠️ Erreur récupération alertes pour {client_keyword}: {e}")
+        # Requête UNIQUE avec IN clause sur client_id
+        response = storage.client.table('humidity_alerts_active').select('*').in_('client_id', INSTITUTIONAL_CLIENT_IDS).order('observed_at', desc=True).execute()
+        all_alerts = response.data if response.data else []
 
         # Calculer les statistiques
         total = len(all_alerts)

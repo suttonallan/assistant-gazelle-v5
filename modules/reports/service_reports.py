@@ -35,15 +35,61 @@ CLIENT_KEYWORDS = {
 }
 
 # Mots-clés pour l'onglet Alertes Maintenance (notes ou description)
+# Basés sur core/humidity_alert_detector.py - Filtrage strict pour alertes réelles
 MAINTENANCE_KEYWORDS = [
-    "prochain accord",
-    "entretien",
-    "rappel",
-    "maintenance",
-    "accordage",
-    "follow-up",
-    "suivi",
+    # Housse retirée (cover_removed)
+    "housse retirée",
+    "housse retiree",
+    "housse enlevée",
+    "housse enlevee",
+    "sans housse",
+    "pas de housse",
+    
+    # Dampp-Chaser / Alimentation (dampp_chaser)
+    "dampp chaser débranché",
+    "dampp-chaser débranché",
+    "dampp chaser off",
+    "dampp chaser éteint",
+    "dampp chaser ne fonctionne",
+    "dampp-chaser ne fonctionne",
+    "pls débranché",
+    "système débranché",
+    "systeme debranche",
+    "débranché",
+    "debranche",
+    "rebranché",
+    "rebranche",
+    "rallonge",
+    "besoin rallonge",
+    
+    # Réservoir (reservoir)
+    "réservoir vide",
+    "reservoir vide",
+    "tank empty",
+    "réservoir à remplir",
+    
+    # Environnement critique (environment) - SPÉCIFIQUE
+    "fenêtre ouverte",
+    "fenetre ouverte",
+    "température trop basse",
+    "trop froid",
+    "humidité trop élevée",
+    "humidité très basse",
+    "conditions inadéquates",
+    
+    # Humidité extrême (high/low_humidity)
+    "humidité haute",
+    "humidité élevée",
+    "très humide",
+    "trop humide",
+    "humidité basse",
+    "humidité faible",
+    "très sec",
+    "trop sec",
 ]
+
+# Clients institutionnels pour les Alertes Maintenance
+INSTITUTIONAL_CLIENTS = ["uqam", "vincent", "place des arts"]
 
 MAINTENANCE_TABLES_CANDIDATES = [
     "maintenance_alerts",
@@ -114,46 +160,68 @@ class ServiceReports:
         return {item.get("external_id"): item.get("company_name") for item in data if item.get("external_id")}
 
     def _fetch_timeline_entries(self, since: Optional[datetime]) -> List[Dict]:
-        """Récupère les timeline entries avec infos piano et user."""
+        """Récupère les timeline entries avec infos piano et user (avec pagination)."""
         from supabase import create_client
 
         supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
 
-        # Construire la requête avec relations
-        query = supabase.table('gazelle_timeline_entries').select('''
-            external_id,
-            description,
-            title,
-            entry_date,
-            occurred_at,
-            entity_id,
-            entity_type,
-            event_type,
-            entry_type,
-            piano_id,
-            user_id,
-            piano:gazelle_pianos(
-                make,
-                model,
-                serial_number,
-                type,
-                year,
-                location,
-                client_external_id
-            ),
-            user:users(
-                first_name,
-                last_name
-            )
-        ''') \
-        .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'PIANO_MEASUREMENT']) \
-        .order('occurred_at', desc=True)
+        all_entries = []
+        page_size = 1000
+        offset = 0
+        
+        print(f"📥 Récupération des timeline entries (pagination {page_size})...")
 
-        if since:
-            query = query.gte('occurred_at', since.isoformat())
+        while True:
+            # Construire la requête avec relations
+            query = supabase.table('gazelle_timeline_entries').select('''
+                external_id,
+                description,
+                title,
+                entry_date,
+                occurred_at,
+                entity_id,
+                entity_type,
+                event_type,
+                entry_type,
+                piano_id,
+                user_id,
+                piano:gazelle_pianos(
+                    make,
+                    model,
+                    serial_number,
+                    type,
+                    year,
+                    location,
+                    client_external_id
+                ),
+                user:users(
+                    first_name,
+                    last_name
+                )
+            ''') \
+            .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'PIANO_MEASUREMENT']) \
+            .order('occurred_at', desc=True) \
+            .range(offset, offset + page_size - 1)
 
-        result = query.execute()
-        return result.data or []
+            if since:
+                query = query.gte('occurred_at', since.isoformat())
+
+            result = query.execute()
+            batch = result.data or []
+            
+            if not batch:
+                break
+            
+            all_entries.extend(batch)
+            print(f"   Page {offset//page_size + 1}: {len(batch)} entrées (total: {len(all_entries)})")
+            
+            if len(batch) < page_size:
+                break
+            
+            offset += page_size
+
+        print(f"✅ Total récupéré: {len(all_entries)} entrées\n")
+        return all_entries
 
     def _fetch_maintenance_alerts(self) -> List[Dict]:
         """Tente de récupérer les alertes de maintenance depuis Supabase."""
@@ -202,6 +270,38 @@ class ServiceReports:
     @staticmethod
     def _normalize_text(*parts: Optional[str]) -> str:
         return " ".join([p or "" for p in parts]).lower()
+    
+    @staticmethod
+    def _format_piano_info(make: str, model: str, serial: str, piano_type: str, year: str) -> str:
+        """
+        Formate les infos du piano en une seule description lisible.
+        Exemple: "Steinway Model D #123456 (Grand, 1995)"
+        """
+        parts = []
+        
+        # Marque et modèle
+        if make and model:
+            parts.append(f"{make} {model}")
+        elif make:
+            parts.append(make)
+        elif model:
+            parts.append(model)
+        
+        # Numéro de série
+        if serial:
+            parts.append(f"#{serial}")
+        
+        # Type et année entre parenthèses
+        extras = []
+        if piano_type:
+            extras.append(piano_type)
+        if year:
+            extras.append(year)
+        
+        if extras:
+            parts.append(f"({', '.join(extras)})")
+        
+        return " ".join(parts) if parts else ""
 
     def _categories_for_entry(self, client_name: str, description: str) -> List[str]:
         """Détermine les onglets cibles pour une entrée."""
@@ -212,7 +312,11 @@ class ServiceReports:
             if any(keyword in text for keyword in keywords):
                 target_tabs.append(tab)
 
-        if any(keyword in text for keyword in MAINTENANCE_KEYWORDS):
+        # Alertes Maintenance: SEULEMENT pour clients institutionnels avec mots-clés spécifiques
+        is_institutional = any(inst_keyword in text for inst_keyword in INSTITUTIONAL_CLIENTS)
+        has_maintenance_issue = any(keyword in text for keyword in MAINTENANCE_KEYWORDS)
+        
+        if is_institutional and has_maintenance_issue:
             target_tabs.append("Alertes Maintenance")
 
         return target_tabs
@@ -245,17 +349,12 @@ class ServiceReports:
                     "DateEvenement",
                     "TypeEvenement",
                     "Description",
-                    "NomClient",
-                    "Marque",
-                    "Modele",
-                    "NumeroSerie",
-                    "TypePiano",
-                    "Annee",
+                    "Piano",  # Colonne unique regroupant marque, modèle, série, type, année
                     "Local",
                     "Technicien",
                     "MesureHumidite"
                 ]
-                ws.update("A1:L1", [headers])
+                ws.update("A1:G1", [headers])
         except Exception as e:
             print(f"⚠️ Impossible d'écrire l'en-tête sur {ws.title}: {e}")
 
@@ -413,11 +512,41 @@ class ServiceReports:
         rows_by_tab = {tab: [] for tab in CLIENT_KEYWORDS.keys()}
         rows_by_tab["Alertes Maintenance"] = []
 
+        # Dédupliquer les entrées : certaines ont été importées avec tle_ ET tme_ (deux IDs différents)
+        # Stratégie : Garder tme_ (préfixe plus récent) et éliminer tle_ si doublon
+        # NOTE: On utilise SEULEMENT (date, description) sans piano_id car les doublons peuvent avoir des piano_id différents
+        from collections import defaultdict
+        
+        # Grouper par signature (date, description SEULEMENT)
+        by_signature = defaultdict(list)
+        for entry in entries:
+            occurred_at = entry.get("occurred_at") or entry.get("entry_date") or ""
+            desc = entry.get("description") or entry.get("title") or ""
+            date_str = occurred_at[:10] if occurred_at and len(occurred_at) >= 10 else "no_date"
+            signature = f"{date_str}|||{desc[:200]}"
+            by_signature[signature].append(entry)
+        
+        # Pour chaque signature, garder SEULEMENT l'entrée tme_ si elle existe, sinon garder la première
+        deduplicated_entries = []
+        for signature, group in by_signature.items():
+            if len(group) == 1:
+                # Pas de doublon
+                deduplicated_entries.append(group[0])
+            else:
+                # Doublon : prioriser tme_ sur tle_
+                tme_entries = [e for e in group if e.get("external_id", "").startswith("tme_")]
+                if tme_entries:
+                    deduplicated_entries.append(tme_entries[0])  # Garder le premier tme_
+                else:
+                    deduplicated_entries.append(group[0])  # Fallback : garder le premier
+        
+        print(f"🔧 Déduplication: {len(entries)} → {len(deduplicated_entries)} entrées ({len(entries) - len(deduplicated_entries)} doublons éliminés)")
+
         # Séparer services et mesures
         services = []
         measurements = []
 
-        for entry in entries:
+        for entry in deduplicated_entries:
             entry_type = entry.get("entry_type") or ""
             if entry_type == "SERVICE_ENTRY_MANUAL":
                 services.append(entry)
@@ -523,16 +652,14 @@ class ServiceReports:
                     elif humidity_only:
                         mesure_humidite = humidity_only[0]
 
+            # Formater la description du piano en une seule colonne
+            piano_info = self._format_piano_info(marque, modele, numero_serie, type_piano, annee)
+            
             row = [
                 entry_date,          # DateEvenement
                 "Service",           # TypeEvenement
                 description,         # Description
-                client_name,         # NomClient
-                marque,              # Marque
-                modele,              # Modele
-                numero_serie,        # NumeroSerie
-                type_piano,          # TypePiano
-                annee,               # Annee
+                piano_info,          # Piano (regroupé)
                 local,               # Local
                 technicien,          # Technicien
                 mesure_humidite      # MesureHumidite
@@ -598,16 +725,14 @@ class ServiceReports:
             else:
                 mesure_humidite = ""
 
+            # Formater la description du piano en une seule colonne
+            piano_info = self._format_piano_info(marque, modele, numero_serie, type_piano, annee)
+            
             row = [
                 entry_date,          # DateEvenement
                 "Mesure",            # TypeEvenement (orpheline)
                 "",                  # Description vide
-                client_name,         # NomClient
-                marque,              # Marque
-                modele,              # Modele
-                numero_serie,        # NumeroSerie
-                type_piano,          # TypePiano
-                annee,               # Annee
+                piano_info,          # Piano (regroupé)
                 local,               # Local
                 technicien,          # Technicien
                 mesure_humidite      # MesureHumidite
@@ -636,17 +761,20 @@ class ServiceReports:
             )
             description = alert.get("description") or alert.get("notes") or ""
 
-            # Construire ligne avec 12 colonnes (alertes n'ont pas d'infos piano)
+            # Filtrer: seulement clients institutionnels avec mots-clés de maintenance
+            text = self._normalize_text(client_name, description)
+            is_institutional = any(inst_keyword in text for inst_keyword in INSTITUTIONAL_CLIENTS)
+            has_maintenance_issue = any(keyword in text for keyword in MAINTENANCE_KEYWORDS)
+            
+            if not (is_institutional and has_maintenance_issue):
+                continue  # Skip cette alerte
+
+            # Construire ligne avec 7 colonnes (alertes n'ont pas d'infos piano)
             row = [
                 self._to_montreal_date(date_str),  # DateEvenement
                 "Alerte",                          # TypeEvenement
                 description,                       # Description
-                client_name,                       # NomClient
-                "",                                # Marque
-                "",                                # Modele
-                "",                                # NumeroSerie
-                "",                                # TypePiano
-                "",                                # Annee
+                "",                                # Piano (vide pour les alertes)
                 "",                                # Local
                 "",                                # Technicien
                 ""                                 # MesureHumidite
@@ -664,12 +792,17 @@ class ServiceReports:
         """
         clients_map = self._fetch_clients_map()
         timeline_entries = self._fetch_timeline_entries(since=since)
-        alerts = self._fetch_maintenance_alerts()
+        
+        # NOTE: On n'utilise PLUS la table humidity_alerts pour éviter les doublons.
+        # Les alertes sont déjà détectées depuis les timeline entries via les mots-clés.
+        # alerts = self._fetch_maintenance_alerts()
 
         rows_by_tab = self._build_rows_from_timeline(timeline_entries, clients_map)
-        alert_rows = self._build_rows_from_alerts(alerts, clients_map) if alerts else []
-        if alert_rows:
-            rows_by_tab["Alertes Maintenance"].extend(alert_rows)
+        
+        # DÉSACTIVÉ: Évite les doublons car les alertes sont déjà dans timeline entries
+        # alert_rows = self._build_rows_from_alerts(alerts, clients_map) if alerts else []
+        # if alert_rows:
+        #     rows_by_tab["Alertes Maintenance"].extend(alert_rows)
 
         workbook = self._get_workbook()
         counts: Dict[str, int] = {}
@@ -691,9 +824,9 @@ class ServiceReports:
 
                 if rows:
                     try:
-                        # Insérer les nouvelles lignes après l'en-tête (ligne 2)
-                        # pour que les événements les plus récents apparaissent en premier
-                        ws.insert_rows(rows, row=2, value_input_option="RAW")
+                        # NOTE: Utiliser append_rows au lieu de insert_rows pour éviter les doublons
+                        # insert_rows avait un bug qui créait des doublons
+                        ws.append_rows(rows, value_input_option="RAW")
                         counts[tab] = len(rows)
                     except Exception as e:
                         print(f"❌ Erreur insert {tab}: {e}")

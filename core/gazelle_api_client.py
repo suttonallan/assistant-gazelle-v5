@@ -144,11 +144,14 @@ class GazelleAPIClient:
             response.raise_for_status()
             
             new_token_data = response.json()
-            
+
             # Préserver le refresh_token s'il n'est pas dans la réponse
             if 'refresh_token' not in new_token_data:
                 new_token_data['refresh_token'] = self.token_data.get('refresh_token')
-            
+
+            # Ajouter created_at pour tracking
+            new_token_data['created_at'] = int(time.time())
+
             self._save_token(new_token_data)
             print("✅ Token rafraîchi avec succès")
             
@@ -173,10 +176,22 @@ class GazelleAPIClient:
         # if self._is_token_expired(self.token_data):
         #     self._refresh_token()
 
-        headers = {
-            'Authorization': f"Bearer {self.token_data['access_token']}",
-            'Content-Type': 'application/json'
-        }
+        access_token = self.token_data['access_token']
+        
+        # Si le token est court (< 50 chars), c'est probablement une API Key
+        # Le navigateur l'envoie UNIQUEMENT via x-gazelle-api-key (pas de Bearer)
+        if len(access_token) < 50:
+            headers = {
+                'x-gazelle-api-key': access_token,
+                'Content-Type': 'application/json'
+            }
+            print(f"🔑 Utilisation de x-gazelle-api-key (API Key: {len(access_token)} chars)")
+        else:
+            # Token JWT standard (Bearer)
+            headers = {
+                'Authorization': f"Bearer {access_token}",
+                'Content-Type': 'application/json'
+            }
 
         payload = {
             'query': query,
@@ -186,12 +201,34 @@ class GazelleAPIClient:
         try:
             response = requests.post(API_URL, json=payload, headers=headers)
 
-            # Skip 401 handling - use token as-is per user request
-            # if response.status_code == 401:
-            #     print("⚠️ Token invalide, rafraîchissement...")
-            #     self._refresh_token()
-            #     headers['Authorization'] = f"Bearer {self.token_data['access_token']}"
-            #     response = requests.post(API_URL, json=payload, headers=headers)
+            # AUTO-REFRESH: Si 401, tenter de rafraîchir automatiquement
+            if response.status_code == 401:
+                print("⚠️  Token invalide (401), tentative de rafraîchissement automatique...")
+
+                # Essayer de rafraîchir avec refresh_token
+                try:
+                    self._refresh_token()
+                    print("✅ Token rafraîchi, nouvel essai...")
+
+                    # Recharger le token depuis Supabase
+                    self.token_data = self._load_token()
+                    new_access_token = self.token_data['access_token']
+                    
+                    # Reconstruire les headers selon le type de token
+                    if len(new_access_token) < 50:
+                        headers = {
+                            'x-gazelle-api-key': new_access_token,
+                            'Content-Type': 'application/json'
+                        }
+                    else:
+                        headers['Authorization'] = f"Bearer {new_access_token}"
+
+                    # Retry la requête
+                    response = requests.post(API_URL, json=payload, headers=headers)
+
+                except Exception as refresh_error:
+                    print(f"❌ Échec du refresh automatique: {refresh_error}")
+                    print("💡 Essayez: python3 scripts/auto_refresh_token.py --force")
 
             # DETAILED ERROR LOGGING: Log response status and body for debugging
             if response.status_code != 200:

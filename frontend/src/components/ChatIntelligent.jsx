@@ -13,7 +13,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  Divider,
   Badge,
   CircularProgress,
 } from '@mui/material';
@@ -23,11 +22,6 @@ import {
   Piano,
   Warning,
   Close,
-  InfoOutlined,
-  Pets,
-  VpnKey,
-  LocalParking,
-  Phone,
 } from '@mui/icons-material';
 
 // Utiliser le proxy Vite en développement, ou l'URL de production
@@ -53,14 +47,42 @@ export default function ChatIntelligent({ currentUser }) {
   // Déterminer rôle et ID Gazelle du technicien depuis currentUser
   const userRole = currentUser?.role || 'admin';
   const technicianGazelleId = currentUser?.id || null;  // ID Gazelle (dans users.id, pas gazelleId)
+  const userName = currentUser?.name || 'Utilisateur';
 
-  // Debug logging
-  console.log('[ChatIntelligent] currentUser:', {
-    name: currentUser?.name,
-    email: currentUser?.email,
-    id: currentUser?.id,
-    role: currentUser?.role
-  });
+  // Titre et suggestions selon le rôle
+  const getTitleByRole = () => {
+    if (userRole === 'admin') return '🎯 Vue d\'ensemble';
+    if (userRole === 'technician' || userName === 'Nick' || userName === 'JP') return '🎵 Mes journées, nos clients';
+    return '📋 Planification & Clients'; // Louise, Margot, autres assistants
+  };
+
+  const getQuickButtonsByRole = () => {
+    if (userRole === 'admin' || userRole === 'technician' || userName === 'Nick' || userName === 'JP') {
+      // Techniciens et admin: leurs propres RV
+      return [
+        { label: "Aujourd'hui", query: "aujourd'hui" },
+        { label: "Demain", query: "demain" },
+        { label: "Après-demain", query: "après-demain" }
+      ];
+    } else {
+      // Assistantes: RV des techniciens
+      return [
+        { label: "RV de Nick", query: "rv de nick demain" },
+        { label: "RV de JP", query: "rv de jean-philippe demain" },
+        { label: "Tous les RV demain", query: "tous les rv demain" }
+      ];
+    }
+  };
+
+  const getPlaceholderByRole = () => {
+    if (userRole === 'admin') {
+      return "Ex: Tous les RV demain, Stats du mois, Client Anne-Marie...";
+    } else if (userRole === 'technician' || userName === 'Nick' || userName === 'JP') {
+      return "Ex: Ma journée demain, Cette semaine, Client Anne-Marie...";
+    } else {
+      return "Ex: RV de Nick demain, Client Anne-Marie, Qui va à Place des Arts...";
+    }
+  };
 
   // Auto-load journée d'aujourd'hui au mount
   useEffect(() => {
@@ -137,36 +159,27 @@ export default function ChatIntelligent({ currentUser }) {
       {/* Header avec recherche */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold' }}>
-          🎵 Ma Journée
+          {getTitleByRole()}
         </Typography>
 
-        {/* Quick buttons */}
+        {/* Quick buttons - adaptés au rôle */}
         <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-          <Chip
-            label="Aujourd'hui"
-            onClick={() => handleQuickQuery("aujourd'hui")}
-            color="primary"
-            variant="outlined"
-          />
-          <Chip
-            label="Demain"
-            onClick={() => handleQuickQuery("demain")}
-            color="primary"
-            variant="outlined"
-          />
-          <Chip
-            label="Après-demain"
-            onClick={() => handleQuickQuery("après-demain")}
-            color="primary"
-            variant="outlined"
-          />
+          {getQuickButtonsByRole().map((btn, idx) => (
+            <Chip
+              key={idx}
+              label={btn.label}
+              onClick={() => handleQuickQuery(btn.query)}
+              color="primary"
+              variant="outlined"
+            />
+          ))}
         </Box>
 
         {/* Search bar */}
         <Box sx={{ display: 'flex', gap: 1 }}>
           <TextField
             fullWidth
-            placeholder="Ex: Ma journée de demain, Le 30 décembre..."
+            placeholder={getPlaceholderByRole()}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleQuery()}
@@ -422,6 +435,81 @@ function AppointmentDetailDrawer({ appointment, detail, loading, onClose }) {
 
   const { overview, comfort, timeline_summary, timeline_entries } = detail;
 
+  // Vérifier si le RV est passé (pour masquer description si futur)
+  const appointmentDate = new Date(overview.date);
+  const now = new Date();
+  const isPastAppointment = appointmentDate < now;
+
+  // Générer un briefing intelligent en texte fluide
+  const generateSmartBriefing = () => {
+    const sentences = [];
+
+    // 🔴 PRIORITÉ 1: Animaux
+    if (comfort.dog_name || comfort.cat_name) {
+      const pets = [];
+      if (comfort.dog_name) pets.push(`chien ${comfort.dog_name}${comfort.dog_breed ? ` (${comfort.dog_breed})` : ''}`);
+      if (comfort.cat_name) pets.push(`chat ${comfort.cat_name}`);
+      sentences.push(`🐾 ${pets.join(', ')}`);
+    }
+
+    // 🔴 PRIORITÉ 2: Accès
+    if (comfort.access_code) {
+      sentences.push(`🔑 Code: ${comfort.access_code}`);
+    }
+    if (comfort.access_instructions) {
+      sentences.push(comfort.access_instructions);
+    }
+    if (comfort.floor_number) {
+      sentences.push(`Étage ${comfort.floor_number}`);
+    }
+    if (comfort.parking_info) {
+      sentences.push(comfort.parking_info);
+    }
+
+    // Contact
+    if (comfort.contact_phone) {
+      sentences.push(`📞 ${comfort.contact_phone}`);
+    }
+
+    // Préférences piano
+    const pianoPrefs = [];
+    if (comfort.preferred_tuning_hz) pianoPrefs.push(`accordage ${comfort.preferred_tuning_hz}Hz`);
+    if (comfort.climate_sensitive) pianoPrefs.push('sensible au climat');
+    if (pianoPrefs.length > 0) {
+      sentences.push(`🎹 ${pianoPrefs.join(', ')}`);
+    }
+
+    // Client
+    if (comfort.preferred_language) {
+      sentences.push(`Langue: ${comfort.preferred_language}`);
+    }
+    if (comfort.temperament) {
+      sentences.push(`${comfort.temperament}`);
+    }
+
+    // ⚠️ Choses à surveiller
+    if (comfort.special_notes) {
+      sentences.push(`⚠️ ${comfort.special_notes}`);
+    }
+
+    // Résumés IA
+    if (detail.client_smart_summary) {
+      sentences.push(detail.client_smart_summary);
+    }
+    if (detail.piano_smart_summary && isPastAppointment) {
+      sentences.push(detail.piano_smart_summary);
+    }
+
+    // Historique
+    if (timeline_summary) {
+      sentences.push(timeline_summary);
+    }
+
+    return sentences.filter(s => s).join('. ');
+  };
+
+  const smartBriefing = generateSmartBriefing();
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -434,179 +522,23 @@ function AppointmentDetailDrawer({ appointment, detail, loading, onClose }) {
         </IconButton>
       </Box>
 
-      {/* SECTION 1: INFOS CONFORT (SUR PLACE) */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
-          <InfoOutlined /> Sur Place
-        </Typography>
-
-        {/* Animaux (Priorité visuelle) */}
-        {(comfort.dog_name || comfort.cat_name) && (
-          <Box sx={{ p: 1.5, mb: 2, bgcolor: 'warning.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'warning.main' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Pets fontSize="medium" color="warning" />
-              <Box>
-                {comfort.dog_name && (
-                  <Typography sx={{ fontWeight: 600 }}>
-                    🐕 Chien: {comfort.dog_name}
-                    {comfort.dog_breed && ` (${comfort.dog_breed})`}
-                  </Typography>
-                )}
-                {comfort.cat_name && (
-                  <Typography sx={{ fontWeight: 600 }}>
-                    🐱 Chat: {comfort.cat_name}
-                  </Typography>
-                )}
-              </Box>
-            </Box>
-          </Box>
-        )}
-
-        {/* Code d'accès */}
-        {comfort.access_code && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, p: 1, bgcolor: 'info.light', borderRadius: 1 }}>
-            <VpnKey fontSize="small" color="info" />
-            <Typography sx={{ fontWeight: 600, fontSize: '1rem' }}>
-              Code: {comfort.access_code}
-            </Typography>
-          </Box>
-        )}
-
-        {/* Instructions d'accès détaillées */}
-        {comfort.access_instructions && (
-          <Box sx={{ mb: 1.5 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, mb: 0.5 }}>
-              📝 Accès:
-            </Typography>
-            <Typography variant="body2" sx={{ p: 1, bgcolor: 'grey.100', borderRadius: 1, fontSize: '0.9rem' }}>
-              {comfort.access_instructions}
-            </Typography>
-          </Box>
-        )}
-
-        {/* Étage */}
-        {comfort.floor_number && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              🏢 Étage: <strong>{comfort.floor_number}</strong>
-            </Typography>
-          </Box>
-        )}
-
-        {/* Stationnement */}
-        {comfort.parking_info && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-            <LocalParking fontSize="small" />
-            <Typography variant="body2">{comfort.parking_info}</Typography>
-          </Box>
-        )}
-
-        {/* Contact téléphone */}
-        {comfort.contact_phone && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Phone fontSize="small" color="primary" />
-            <Typography sx={{ fontWeight: 600 }}>
-              <a href={`tel:${comfort.contact_phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                {comfort.contact_phone}
-              </a>
-            </Typography>
-          </Box>
-        )}
-
-        {/* Préférences techniques */}
-        {comfort.preferred_tuning_hz && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              🎵 Accordage: <strong>{comfort.preferred_tuning_hz} Hz</strong>
-            </Typography>
-          </Box>
-        )}
-
-        {comfort.climate_sensitive && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <Warning fontSize="small" color="warning" />
-            <Typography variant="body2" color="warning.main" sx={{ fontWeight: 600 }}>
-              Piano sensible au climat
-            </Typography>
-          </Box>
-        )}
-
-        {/* Notes Client: Langue et Tempérament */}
-        {(comfort.preferred_language || comfort.temperament) && (
-          <Box sx={{ mt: 2, p: 1.5, bgcolor: 'primary.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'primary.main' }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1, color: 'primary.dark' }}>
-              👤 Notes Client:
-            </Typography>
-            {comfort.preferred_language && (
-              <Typography variant="body2" sx={{ mb: 0.5 }}>
-                🌐 Langue: <strong>{comfort.preferred_language}</strong>
-              </Typography>
-            )}
-            {comfort.temperament && (
-              <Typography variant="body2">
-                💭 Tempérament: <strong>{comfort.temperament}</strong>
-              </Typography>
-            )}
-          </Box>
-        )}
-
-        {/* Notes spéciales (toujours à la fin, encadré) */}
-        {comfort.special_notes && (
-          <Box sx={{ mt: 2, p: 1.5, bgcolor: 'secondary.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'secondary.main' }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: 'secondary.dark' }}>
-              ⚠️ Choses à surveiller:
-            </Typography>
-            <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-              {comfort.special_notes}
-            </Typography>
-          </Box>
-        )}
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-
-      {/* RÉSUMÉS INTELLIGENTS IA */}
-      {(detail.client_smart_summary || detail.piano_smart_summary) && (
+      {/* BRIEFING INTELLIGENT: Texte fluide regroupant toutes les infos pertinentes */}
+      {smartBriefing && (
         <Box sx={{ mb: 3 }}>
-          <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
-            🤖 Résumé Intelligent
+          <Typography
+            variant="body1"
+            sx={{
+              p: 2,
+              bgcolor: 'grey.50',
+              borderRadius: 1,
+              lineHeight: 1.8,
+              fontSize: '1rem'
+            }}
+          >
+            {smartBriefing}
           </Typography>
-
-          {/* Résumé Client */}
-          {detail.client_smart_summary && (
-            <Box sx={{ mb: 2, p: 2, bgcolor: 'info.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'info.main' }}>
-              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
-                👤 Client:
-              </Typography>
-              <Typography variant="body2" sx={{ lineHeight: 1.8, color: 'text.primary' }}>
-                {detail.client_smart_summary}
-              </Typography>
-            </Box>
-          )}
-
-          {/* Résumé Piano */}
-          {detail.piano_smart_summary && (
-            <Box sx={{ p: 2, bgcolor: 'success.light', borderRadius: 1, borderLeft: '4px solid', borderColor: 'success.main' }}>
-              <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5, color: 'success.dark' }}>
-                🎹 Piano:
-              </Typography>
-              <Typography variant="body2" sx={{ lineHeight: 1.8, color: 'text.primary' }}>
-                {detail.piano_smart_summary}
-              </Typography>
-            </Box>
-          )}
         </Box>
       )}
-
-      {/* Timeline Summary - Résumé intelligent SEULEMENT */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" sx={{ mb: 1 }}>
-          📖 Historique
-        </Typography>
-        <Typography variant="body2" sx={{ p: 2, bgcolor: 'blue.50', borderRadius: 1, lineHeight: 1.6 }}>
-          {timeline_summary}
-        </Typography>
-      </Box>
     </Box>
   );
 }
