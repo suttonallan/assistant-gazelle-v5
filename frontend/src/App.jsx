@@ -482,6 +482,18 @@ function App() {
                       📦 Inventaire
                     </button>
 
+                    {/* Chat - Nick */}
+                    <button
+                      onClick={() => setCurrentView('chat')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'chat'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      📅 Ma Journée
+                    </button>
+
                     {/* Institutions - Nick - Dropdown */}
                     <div className="relative" data-dropdown="institutions">
                       <button
@@ -559,7 +571,19 @@ function App() {
                     >
                       📦 Inventaire
                     </button>
-                    
+
+                    {/* Chat - Jean-Philippe */}
+                    <button
+                      onClick={() => setCurrentView('chat')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'chat'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      📅 Ma Journée
+                    </button>
+
                     {/* Tournées - Jean-Philippe (vue technicien) */}
                     <button
                       onClick={() => setCurrentView('tournees')}
@@ -625,6 +649,20 @@ function App() {
                     >
                       📦 Inventaire
                     </button>
+
+                    {/* Chat - Louise et Margot */}
+                    {(effectiveRole === 'louise' || effectiveRole === 'margot') && (
+                      <button
+                        onClick={() => setCurrentView('chat')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'chat'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        📅 Ma Journée
+                      </button>
+                    )}
 
                     {/* Calculateur - admin, louise, margot, nick et jeanphilippe */}
                     {(effectiveRole === 'admin' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'nick' || effectiveRole === 'jeanphilippe') && (
