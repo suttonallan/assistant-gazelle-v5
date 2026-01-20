@@ -636,6 +636,56 @@ class GazelleToSupabaseSync:
 
             print(f"✅ {self.stats['appointments']['synced']} rendez-vous synchronisés")
 
+            # NETTOYAGE: Supprimer les rendez-vous qui n'existent plus dans Gazelle
+            try:
+                print("\n🧹 Nettoyage des rendez-vous supprimés/annulés dans Gazelle...")
+
+                # 1. Récupérer tous les external_id depuis Gazelle (pour la période synchronisée)
+                gazelle_ids = {appt.get('id') for appt in api_appointments if appt.get('id')}
+                print(f"   📋 {len(gazelle_ids)} rendez-vous actifs dans Gazelle")
+
+                # 2. Récupérer tous les external_id depuis Supabase pour la même période
+                # (on ne supprime que les RV de la fenêtre synchronisée, pas tout l'historique)
+                if start_date_override:
+                    date_filter = start_date_override
+                else:
+                    date_filter = start_dt.strftime('%Y-%m-%d')
+
+                url = f"{self.storage.api_url}/gazelle_appointments?appointment_date=gte.{date_filter}&select=external_id"
+                response = requests.get(url, headers=self.storage._get_headers())
+
+                if response.status_code == 200:
+                    supabase_appointments = response.json()
+                    supabase_ids = {appt['external_id'] for appt in supabase_appointments if appt.get('external_id')}
+                    print(f"   📋 {len(supabase_ids)} rendez-vous dans Supabase (période synchronisée)")
+
+                    # 3. Identifier les RV à supprimer (dans Supabase mais pas dans Gazelle)
+                    ids_to_delete = supabase_ids - gazelle_ids
+
+                    if ids_to_delete:
+                        print(f"   🗑️  {len(ids_to_delete)} rendez-vous à supprimer (annulés/supprimés dans Gazelle)")
+
+                        # 4. Supprimer les RV obsolètes
+                        deleted_count = 0
+                        for external_id in ids_to_delete:
+                            delete_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
+                            delete_response = requests.delete(delete_url, headers=self.storage._get_headers())
+
+                            if delete_response.status_code in [200, 204]:
+                                deleted_count += 1
+                            else:
+                                print(f"   ⚠️  Erreur suppression {external_id}: {delete_response.status_code}")
+
+                        print(f"   ✅ {deleted_count}/{len(ids_to_delete)} rendez-vous supprimés de Supabase")
+                    else:
+                        print(f"   ✅ Aucun rendez-vous obsolète à supprimer")
+                else:
+                    print(f"   ⚠️  Erreur récupération RV Supabase: {response.status_code}")
+
+            except Exception as e:
+                print(f"   ⚠️  Erreur lors du nettoyage: {e}")
+                # Ne pas faire échouer toute la synchro pour ça
+
             # Marquer l'import historique comme terminé si c'était un import complet
             if not start_date_override and (force_historical or not historical_done):
                 try:
