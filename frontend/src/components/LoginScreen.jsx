@@ -43,7 +43,7 @@ const USERS = [
     email: ROLES.margot.email,
     role: 'assistant',
     pin: '6341',
-    gazelleId: null  // Margot n'est pas technicienne
+    gazelleId: 'usr_bbt59aCUqUaDWA8n'  // Margot Charignon dans Gazelle
   },
 ]
 

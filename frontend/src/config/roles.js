@@ -55,8 +55,8 @@ export const ROLES = {
 
   margot: {
     name: 'Margot (Assistante)',
-    email: 'margot@piano-tek.com',
-    gazelleId: null, // Margot n'est pas encore dans Gazelle
+    email: 'margotcharignon@gmail.com',
+    gazelleId: 'usr_bbt59aCUqUaDWA8n', // Margot Charignon dans Gazelle
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier les quantités
