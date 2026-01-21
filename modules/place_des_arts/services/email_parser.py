@@ -498,8 +498,12 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             result['confidence'] += 0.2
             break
 
-    # 3. Détecter le diapason (440, 441, 442, etc.)
-    diapason_match = re.search(r'(?:à|a)\s*(\d{3})(?:\s*hz)?', text_lower)
+    # 3. Détecter le diapason (440 ou 442 uniquement)
+    # Format: "à 440", "a 442", "440 Hz", ou simplement "440" / "442" seul sur une ligne
+    diapason_match = re.search(r'(?:à|a)\s*(440|442)(?:\s*hz)?', text_lower)
+    if not diapason_match:
+        # Chercher 440 ou 442 seul sur une ligne
+        diapason_match = re.search(r'^(440|442)$', text, re.MULTILINE)
     if diapason_match:
         result['diapason'] = diapason_match.group(1)
         result['confidence'] += 0.15
@@ -552,10 +556,10 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
     # 6. Détecter l'heure
     # Format: "entre 8h00 et 9h00" / "avant 10h" / "à 14h30"
     time_patterns = [
-        r'entre\s+(\d{1,2}h\d{2})\s+et\s+(\d{1,2}h\d{2})',  # entre 8h00 et 9h00
-        r'avant\s+(\d{1,2}h\d{2})',  # avant 10h
-        r'(?:à|a)\s+(\d{1,2}h\d{2})',  # à 14h30
-        r'(\d{1,2}h\d{2})',  # 14h30
+        r'entre\s+(\d{1,2}h\d{0,2})\s+et\s+(\d{1,2}h\d{0,2})',  # entre 8h00 et 9h00 ou entre 8h et 9h
+        r'avant\s+(\d{1,2}h\d{0,2})',  # avant 10h00 ou avant 8h
+        r'(?:à|a)\s+(\d{1,2}h\d{0,2})',  # à 14h30 ou à 14h
+        r'(\d{1,2}h\d{0,2})',  # 14h30 ou 8h
     ]
     for pattern in time_patterns:
         match = re.search(pattern, text_lower)
@@ -569,9 +573,35 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             result['confidence'] += 0.15
             break
 
-    # 7. Détecter le demandeur (signature en fin de message)
-    # Chercher les noms connus en fin de texte
+    # 7. Détecter "pour qui" (artiste/événement) dans le format multi-lignes
+    # Dans le format: Date / Salle / Pour_qui / Diapason / Piano / Heure
+    # "Pour qui" est la ligne après la salle, si ce n'est pas un diapason, piano, ou heure
     lines = text.split('\n')
+    room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL', 'TJD']
+    piano_keywords = ['steinway', 'yamaha', 'kawai', 'bösendorfer', 'fazioli', 'baldwin', 'piano']
+
+    room_idx = None
+    for idx, line in enumerate(lines):
+        line_stripped = line.strip().upper()
+        if line_stripped in room_keywords:
+            room_idx = idx
+            break
+
+    if room_idx is not None and room_idx + 1 < len(lines):
+        candidate = lines[room_idx + 1].strip()
+        # Vérifier que ce n'est pas un diapason, piano, heure ou requester
+        if (candidate and
+            candidate not in ('440', '442') and
+            not re.search(r'\d{1,2}h', candidate, re.IGNORECASE) and
+            'avant' not in candidate.lower() and
+            'piano' not in candidate.lower() and
+            not any(kw in candidate.lower() for kw in piano_keywords) and
+            candidate.upper() not in ['IC', 'AJ', 'PT']):
+            result['for_who'] = candidate
+            result['confidence'] += 0.1
+
+    # 8. Détecter le demandeur (signature en fin de message)
+    # Chercher les noms connus en fin de texte
     for line in reversed(lines):
         line_stripped = line.strip()
         if not line_stripped or '@' in line_stripped:
@@ -661,7 +691,8 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             return bool(re.search(r'\d{1,2}h', line, re.IGNORECASE) or 'avant' in line.lower() or 'après' in line.lower() or 'apres' in line.lower())
 
         def is_diapason_line(line: str) -> bool:
-            return bool(re.match(r'^\d{3}$', line.strip()))
+            # Seulement 440 ou 442 - ce sont les seules valeurs de diapason possibles
+            return line.strip() in ('440', '442')
 
         def is_requester_line(line: str) -> bool:
             # Codes de requester valides (initiales connues)
@@ -770,10 +801,13 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
 
             # After structured data, names are requester (signature)
             # MAIS seulement si for_who n'est pas déjà rempli avec cette ligne
-            if (candidate_requester is None and 
-                has_structured_data and 
+            # ET que ce n'est pas la ligne juste après la salle (qui est toujours for_who)
+            is_line_after_room = (room_found_at_idx is not None and idx == room_found_at_idx + 1)
+            if (candidate_requester is None and
+                has_structured_data and
                 is_candidate_name(ls) and
-                candidate_for_who != ls):  # Ne pas capturer si c'est déjà dans for_who
+                candidate_for_who != ls and
+                not is_line_after_room):  # Ne pas capturer la ligne après la salle
                 candidate_requester = ls
 
             if not result.get('piano') and (has_brand or has_piano_word or is_concert_label):

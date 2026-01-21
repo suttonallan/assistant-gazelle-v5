@@ -9,6 +9,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [currentView, setCurrentView] = useState('demandes')
   
   const isRestrictedUser = currentUser?.role === 'nick' // Louise a accès complet aux demandes
+  const isAdmin = currentUser?.role === 'admin' // Seul l'admin peut nettoyer doublons et exporter CSV
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -620,6 +621,29 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       }
       const data = await resp.json()
       setPreview(data.preview || [])
+      // Reformater le texte collé : chaque bloc (séparé par une nouvelle date) devient une ligne avec virgules
+      // Pattern: une ligne qui commence par un nombre suivi d'un mois (ex: "30 janv", "31 janv")
+      const datePattern = /^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)/i
+      const lines = rawText.split('\n')
+      const blocks = []
+      let currentBlockLines = []
+
+      for (const line of lines) {
+        if (datePattern.test(line) && currentBlockLines.length > 0) {
+          // Nouvelle date = nouveau bloc
+          blocks.push(currentBlockLines.filter(l => l.trim()).join(', '))
+          currentBlockLines = [line.trim()]
+        } else if (line.trim()) {
+          currentBlockLines.push(line.trim())
+        }
+      }
+      // Dernier bloc
+      if (currentBlockLines.length > 0) {
+        blocks.push(currentBlockLines.filter(l => l.trim()).join(', '))
+      }
+
+      const formattedText = blocks.filter(b => b.length > 0).join('\n')
+      setRawText(formattedText)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -628,16 +652,29 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleImport = async () => {
-    if (!rawText.trim()) return
+    if (!rawText.trim() && preview.length === 0) return
     try {
       setImportLoading(true)
       setError(null)
       setInfoMessage(null)
-      const resp = await fetch(`${API_URL}/api/place-des-arts/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ raw_text: rawText, source: 'email' })
-      })
+
+      let resp
+      if (preview.length > 0) {
+        // Utiliser les données de la preview (avec les corrections manuelles)
+        resp = await fetch(`${API_URL}/api/place-des-arts/import-preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: preview })
+        })
+      } else {
+        // Import direct sans preview
+        resp = await fetch(`${API_URL}/api/place-des-arts/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw_text: rawText, source: 'email' })
+        })
+      }
+
       if (!resp.ok) {
         const msg = await resp.text()
         throw new Error(msg || `HTTP ${resp.status}`)
@@ -645,6 +682,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       const data = await resp.json()
       setInfoMessage(data.message || `Importé: ${data.imported || 0}`)
       setPreview([])
+      setRawText('')
       await fetchData()
     } catch (err) {
       setError(err.message)
@@ -892,13 +930,15 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           >
             {previewLoading ? 'Prévisualisation...' : 'Prévisualiser'}
           </button>
-          <button
-            onClick={handleImport}
-            disabled={!rawText.trim() || importLoading}
-            className="px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50"
-          >
-            {importLoading ? 'Import...' : 'Importer'}
-          </button>
+          {preview.length === 0 && (
+            <button
+              onClick={handleImport}
+              disabled={!rawText.trim() || importLoading}
+              className="px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50"
+            >
+              {importLoading ? 'Import...' : 'Importer'}
+            </button>
+          )}
           <button
             onClick={() => { setRawText(''); setPreview([]); setInfoMessage(null); setError(null) }}
             className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:bg-gray-50"
@@ -940,23 +980,34 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 />
               ))}
             </div>
+            <div className="bg-gray-50 px-3 py-3 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={handleImport}
+                disabled={importLoading}
+                className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50 font-medium"
+              >
+                {importLoading ? 'Import en cours...' : `Importer ${preview.length} demande${preview.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
           </div>
         )}
       </div>
 
       {/* Toolbar actions */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap items-center gap-2">
-        {!isRestrictedUser && (
+        {isAdmin && (
           <>
             <button
               onClick={handleDeleteDuplicates}
               className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              title="Admin uniquement"
             >
               🗑️ Nettoyer doublons
             </button>
             <button
               onClick={handleExport}
               className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              title="Admin uniquement"
             >
               📊 Export CSV
             </button>
@@ -970,14 +1021,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         </button>
         <button
           onClick={() => setCreating((v) => !v)}
-          className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+          className={`px-3 py-2 text-sm rounded-md ${
+            creating
+              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              : 'bg-white border border-gray-300 hover:bg-gray-50'
+          }`}
         >
-          {creating ? 'Fermer ajout' : '➕ Ajouter'}
+          {creating ? 'Fermer ajout' : '➕ Ajouter manuellement'}
         </button>
         {!isRestrictedUser && (
           <button
             onClick={handleSyncGazelle}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+            className="px-4 py-2 text-sm bg-gray-100 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-200"
           >
             🔄 Synchroniser tout
           </button>

@@ -538,13 +538,48 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
         Seulement pour alertes NON RÉSOLUES.
         Mention "Provenant du Mac" ajoutée.
         """
+        import requests
+
+        # Enrichir les données avec les informations complètes du client et piano
+        client_name = "N/A"
+        client_id = entry.get('client_external_id')
+        if client_id:
+            try:
+                url = f"{self.storage.api_url}/gazelle_clients"
+                params = {"select": "company_name", "external_id": f"eq.{client_id}"}
+                resp = requests.get(url, headers=self.storage._get_headers(), params=params)
+                if resp.status_code == 200 and resp.json():
+                    client_name = resp.json()[0].get('company_name', 'N/A')
+            except Exception as e:
+                print(f"⚠️ Erreur récupération client: {e}")
+
+        # Récupérer détails du piano
+        piano_info = "N/A"
+        local_info = "N/A"
+        piano_id = entry.get('piano_id')
+        if piano_id:
+            try:
+                url = f"{self.storage.api_url}/gazelle_pianos"
+                params = {"select": "make,model,location", "id": f"eq.{piano_id}"}
+                resp = requests.get(url, headers=self.storage._get_headers(), params=params)
+                if resp.status_code == 200 and resp.json():
+                    piano_data = resp.json()[0]
+                    make = piano_data.get('make', '')
+                    model = piano_data.get('model', '')
+                    piano_info = f"{make} {model}".strip() or "N/A"
+                    local_info = piano_data.get('location') or "N/A"
+            except Exception as e:
+                print(f"⚠️ Erreur récupération piano: {e}")
+
         message = (
             f"🚨 *ALERTE HUMIDITÉ DÉTECTÉE*\n"
             f"*Provenant du Mac*\n\n"
             f"Type: {alert_type.upper()}\n"
             f"Description: {description}\n"
-            f"Client: {entry.get('client_external_id', 'N/A')}\n"
-            f"Piano: {entry.get('piano_id', 'N/A')}\n"
+            f"Client: {client_name}\n"
+            f"📍 Local: {local_info}\n"
+            f"🎹 Piano: {piano_info}\n"
+            f"Problem: {entry.get('description', 'N/A')}\n"
             f"Date: {entry.get('occurred_at', 'N/A')}"
         )
 

@@ -80,6 +80,55 @@ def get_manager() -> EventManager:
     return _manager
 
 
+def normalize_text_for_comparison(text: str) -> str:
+    """Normalise un texte pour comparaison (minuscules, espaces normalisés)."""
+    import re
+    # Remplacer sauts de ligne et espaces multiples par un seul espace
+    normalized = re.sub(r'\s+', ' ', text.strip().lower())
+    return normalized
+
+
+def find_learned_correction(block_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Cherche si un texte similaire a déjà été corrigé manuellement.
+    Retourne les valeurs corrigées si trouvé, None sinon.
+    """
+    storage = get_storage()
+    normalized_input = normalize_text_for_comparison(block_text)
+
+    try:
+        # Récupérer toutes les corrections (on pourrait optimiser avec une recherche côté Supabase)
+        url = f"{storage.api_url}/parsing_corrections?select=*"
+        resp = requests.get(url, headers=storage._get_headers())
+
+        if resp.status_code != 200:
+            return None
+
+        corrections = resp.json()
+
+        for correction in corrections:
+            original = correction.get("original_text", "")
+            if normalize_text_for_comparison(original) == normalized_input:
+                # Trouvé ! Retourner les valeurs corrigées
+                return {
+                    "date": correction.get("corrected_date"),
+                    "room": correction.get("corrected_room"),
+                    "for_who": correction.get("corrected_for_who"),
+                    "diapason": correction.get("corrected_diapason"),
+                    "piano": correction.get("corrected_piano"),
+                    "time": correction.get("corrected_time"),
+                    "requester": correction.get("corrected_requester"),
+                    "confidence": 1.0,  # Confiance maximale car validé par humain
+                    "warnings": [],
+                    "learned": True  # Flag pour indiquer que c'est appris
+                }
+
+        return None
+    except Exception as e:
+        print(f"⚠️ Erreur recherche correction apprise: {e}")
+        return None
+
+
 def find_duplicate_candidates(row: Dict[str, Any]) -> List[str]:
     """
     Cherche des doublons potentiels dans place_des_arts_requests pour une ligne donnée.
@@ -639,7 +688,73 @@ async def preview_email(payload: PreviewRequest):
     """
     if not payload.raw_text:
         raise HTTPException(status_code=400, detail="raw_text requis")
-    parsed = parse_email_text(payload.raw_text)
+
+    # APPRENTISSAGE: Séparer le texte en blocs par date (chaque date = nouveau bloc)
+    # Pattern: une ligne qui commence par un nombre suivi d'un mois (ex: "30 janv", "31 janv")
+    import re
+    lines = payload.raw_text.strip().split('\n')
+    date_pattern = re.compile(r'^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)', re.IGNORECASE)
+
+    # Extraire le demandeur global (signature à la fin du texte complet)
+    # Le demandeur est le même pour toutes les demandes collées ensemble
+    requester_mapping = {
+        'isabelle': 'IC', 'isabelle clairoux': 'IC', 'clairoux': 'IC',
+        'patricia': 'PT', 'alain': 'AJ', 'annie': 'ANNIE JENKINS', 'annie jenkins': 'ANNIE JENKINS'
+    }
+    global_requester = None
+    for line in reversed(lines):
+        line_stripped = line.strip().lower()
+        if not line_stripped:
+            continue
+        for name, code in requester_mapping.items():
+            if name in line_stripped:
+                global_requester = code
+                break
+        if global_requester:
+            break
+
+    blocks = []
+    current_block_lines = []
+
+    for line in lines:
+        line_stripped = line.strip().lower()
+        # Ne pas inclure la ligne du demandeur dans les blocs
+        if global_requester and any(name in line_stripped for name in requester_mapping.keys()):
+            continue
+        # Si c'est une nouvelle date et qu'on a déjà des lignes, sauver le bloc précédent
+        if date_pattern.match(line) and current_block_lines:
+            block_text = '\n'.join(current_block_lines).strip()
+            if block_text:
+                blocks.append(block_text)
+            current_block_lines = [line]
+        else:
+            # Ignorer les lignes vides isolées mais garder le contenu
+            if line.strip():
+                current_block_lines.append(line)
+
+    # Ne pas oublier le dernier bloc
+    if current_block_lines:
+        block_text = '\n'.join(current_block_lines).strip()
+        if block_text:
+            blocks.append(block_text)
+
+    parsed = []
+    for block in blocks:
+        # Chercher si ce bloc a une correction apprise
+        learned = find_learned_correction(block)
+        if learned:
+            # Utiliser la correction apprise
+            parsed.append(learned)
+        else:
+            # Parser normalement ce bloc
+            block_parsed = parse_email_text(block)
+            parsed.extend(block_parsed)
+
+    # Appliquer le demandeur global à TOUTES les demandes (écrase les valeurs erronées)
+    # Car quand plusieurs demandes sont collées, c'est toujours le même demandeur
+    if global_requester:
+        for item in parsed:
+            item['requester'] = global_requester
 
     # Si aucune demande détectée
     if not parsed:
@@ -668,6 +783,9 @@ async def preview_email(payload: PreviewRequest):
         if is_unusual_format:
             needs_validation = True
 
+        # Vérifier si c'est une correction apprise
+        is_learned = item.get("learned", False)
+
         row = {
             "appointment_date": appt_val if isinstance(appt_val, str) else item.get("date"),
             "room": item.get("room"),
@@ -680,7 +798,8 @@ async def preview_email(payload: PreviewRequest):
             "notes": item.get("notes"),
             "confidence": confidence,
             "warnings": warnings,
-            "needs_validation": is_unusual_format  # Indique si ce champ nécessite validation
+            "needs_validation": is_unusual_format,  # Indique si ce champ nécessite validation
+            "learned": is_learned  # Indique si c'est une correction apprise
         }
         row["duplicate_of"] = find_duplicate_candidates(
             {
@@ -699,6 +818,104 @@ async def preview_email(payload: PreviewRequest):
         "needs_validation": needs_validation,
         "message": "Veuillez vérifier les champs détectés avant d'importer" if needs_validation else "Demandes détectées avec haute confiance"
     }
+
+
+class ImportPreviewRequest(BaseModel):
+    items: List[Dict[str, Any]]
+
+
+@router.post("/import-preview")
+async def import_preview(payload: ImportPreviewRequest):
+    """
+    Import depuis les données de preview (avec corrections manuelles).
+    Utilise directement les données passées sans re-parser.
+    """
+    try:
+        if not payload.items:
+            return {"success": True, "imported": 0, "message": "Aucune demande à importer"}
+
+        storage = get_storage()
+
+        def exists_duplicate(row: Dict[str, Any]) -> bool:
+            try:
+                params = [
+                    f"appointment_date=eq.{row.get('appointment_date')}",
+                    f"room=eq.{row.get('room') or ''}",
+                    f"for_who=eq.{row.get('for_who') or ''}",
+                    f"time=eq.{row.get('time') or ''}",
+                    "select=id",
+                    "limit=1"
+                ]
+                url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
+                resp = requests.get(url, headers=storage._get_headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return bool(data and isinstance(data, list) and len(data) > 0)
+                return False
+            except Exception as e:
+                logging.warning(f"Erreur vérification doublon: {e}")
+                return False
+
+        rows = []
+        duplicates = []
+        today_iso = datetime.now(timezone.utc).date().isoformat()
+
+        for idx, item in enumerate(payload.items, start=1):
+            try:
+                appointment_date = item.get("appointment_date")
+                if not appointment_date:
+                    continue
+
+                row = {
+                    "id": f"pda_preview_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
+                    "request_date": today_iso,
+                    "appointment_date": appointment_date,
+                    "room": item.get("room") or "",
+                    "room_original": item.get("room"),
+                    "for_who": item.get("for_who") or "",
+                    "diapason": item.get("diapason") or "",
+                    "requester": item.get("requester") or "",
+                    "piano": item.get("piano") or "",
+                    "time": item.get("time") or "",
+                    "technician_id": None,
+                    "status": "PENDING",
+                    "notes": item.get("notes") or "",
+                }
+
+                if exists_duplicate(row):
+                    duplicates.append(row)
+                else:
+                    rows.append(row)
+            except Exception as e:
+                logging.warning(f"Erreur traitement item {idx}: {e}")
+                continue
+
+        if not rows:
+            return {
+                "success": True,
+                "imported": 0,
+                "message": f"Aucune nouvelle demande ({len(duplicates)} doublon(s) détecté(s))"
+            }
+
+        manager = get_manager()
+        result = manager.import_csv(rows, on_conflict="update")
+
+        if result.get("errors"):
+            error_msg = result["errors"] if isinstance(result["errors"], str) else "; ".join(result["errors"]) if isinstance(result["errors"], list) else str(result["errors"])
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        return {
+            "success": True,
+            "imported": result.get("inserted", 0),
+            "message": f"{result.get('inserted', 0)} demande(s) importée(s)",
+            "duplicates_skipped": len(duplicates)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur import preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'import: {str(e)}")
 
 
 @router.post("/import")
@@ -810,22 +1027,43 @@ class SyncManualRequest(BaseModel):
 
 
 @router.post("/sync-manual")
-async def sync_manual():
+async def sync_manual(payload: SyncManualRequest):
     """
     Synchronisation manuelle: Met à jour le statut 'Créé Gazelle' pour les demandes
     qui ont un RV correspondant dans Gazelle.
-
-    NOTE: Cette fonctionnalité nécessite le module pda_validation qui n'est pas encore implémenté.
+    
+    Trouve automatiquement les RV Gazelle correspondant aux demandes Place des Arts
+    et lie les deux systèmes via le champ appointment_id.
     """
-    # TODO: Implémenter la synchronisation avec Gazelle
-    return {
-        "success": False,
-        "message": "Fonctionnalité de synchronisation non implémentée (pda_validation manquant)",
-        "updated": 0,
-        "checked": 0,
-        "warnings": [],
-        "has_warnings": False
-    }
+    try:
+        from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+        
+        storage = get_storage()
+        sync_service = GazelleSyncService(storage)
+        
+        # Synchroniser
+        result = sync_service.sync_requests_with_gazelle(
+            request_ids=payload.request_ids if payload else None,
+            dry_run=False
+        )
+        
+        return {
+            "success": result.get("success", True),
+            "message": result.get("message", "Synchronisation terminée"),
+            "updated": result.get("updated", 0),
+            "checked": result.get("checked", 0),
+            "matched": result.get("matched", 0),
+            "details": result.get("details", []),
+            "warnings": result.get("warnings", []),
+            "has_warnings": len(result.get("warnings", [])) > 0
+        }
+        
+    except Exception as e:
+        logging.error(f"Erreur synchronisation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la synchronisation: {str(e)}"
+        )
 
 
 @router.post("/validate-gazelle-rv")
