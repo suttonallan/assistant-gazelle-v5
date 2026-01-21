@@ -66,10 +66,15 @@ class ConversationalParser:
     }
 
     # Patterns de dates relatives
+    # NOTE: Les patterns composés (après-demain, avant-hier) utilisent un lookbehind négatif
+    # pour éviter les doubles matches
     DATE_PATTERNS = {
-        r'\bdemain\b': lambda: datetime.now() + timedelta(days=1),
+        r'\baprès[\s-]?demain\b': lambda: datetime.now() + timedelta(days=2),
+        r'\bapres[\s-]?demain\b': lambda: datetime.now() + timedelta(days=2),  # Sans accent
+        r'(?<!après[\s-])(?<!apres[\s-])(?<!après)(?<!apres)\bdemain\b': lambda: datetime.now() + timedelta(days=1),
         r'\baujourd\'?hui\b': lambda: datetime.now(),
-        r'\bhier\b': lambda: datetime.now() - timedelta(days=1),
+        r'\bavant[\s-]?hier\b': lambda: datetime.now() - timedelta(days=2),
+        r'(?<!avant[\s-])(?<!avant)\bhier\b': lambda: datetime.now() - timedelta(days=1),
         r'\bcette\s+semaine\b': lambda: datetime.now(),
         r'\bla\s+semaine\s+prochaine\b': lambda: datetime.now() + timedelta(weeks=1),
         r'\bce\s+mois\b': lambda: datetime.now(),

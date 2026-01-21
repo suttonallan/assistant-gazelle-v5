@@ -24,12 +24,13 @@ class GazelleQueries:
         """
         self.storage = storage or SupabaseStorage()
 
-        # Mapping email -> nom technicien dans Gazelle
+        # Mapping email -> ID technicien Gazelle (usr_xxx)
+        # Ces IDs correspondent aux users dans Gazelle
         self.technicien_mapping = {
-            'nicolas@pianotekinc.com': 'Nick',
-            'jp@pianotekinc.com': 'Jean-Philippe',
-            'asutton@piano-tek.com': 'Allan',  # Allan est admin ET technicien
-            'allan@pianotekinc.com': 'Allan'
+            'nicolas@pianotekinc.com': 'usr_HcCiFk7o0vZ9xAI0',  # Nick
+            'jp@pianotekinc.com': 'usr_ReUSmIJmBF86ilY1',        # Jean-Philippe
+            'asutton@piano-tek.com': 'usr_ofYggsCDt2JAVeNP',     # Allan (admin ET technicien)
+            'allan@pianotekinc.com': 'usr_ofYggsCDt2JAVeNP'      # Allan
         }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
@@ -82,8 +83,9 @@ class GazelleQueries:
                 date_str = date.strftime('%Y-%m-%d')
                 url += f"&appointment_date=eq.{date_str}"
 
-            # Note: on ne filtre plus par technicien ici, pour éviter les 0 résultat
-            # en cas de mismatch de mapping. Le frontend peut filtrer au besoin.
+            # Filtrer par technicien si spécifié (utilise l'ID Gazelle usr_xxx)
+            if technicien:
+                url += f"&technicien=eq.{technicien}"
 
             url += f"&limit={limit}"
             url += "&order=appointment_date.asc,appointment_time.asc"

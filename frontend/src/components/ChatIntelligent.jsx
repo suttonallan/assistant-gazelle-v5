@@ -48,16 +48,34 @@ export default function ChatIntelligent({ currentUser }) {
   const userRole = currentUser?.role || 'admin';
   const technicianGazelleId = currentUser?.id || null;  // ID Gazelle (dans users.id, pas gazelleId)
   const userName = currentUser?.name || 'Utilisateur';
+  const userEmail = currentUser?.email || '';
+
+  // Helper: détecter si l'utilisateur est un technicien
+  // Inclut Nick, JP (Jean-Philippe), et Allan
+  const isTechnician = () => {
+    if (userRole === 'technician') return true;
+    const nameLower = userName.toLowerCase();
+    const emailLower = userEmail.toLowerCase();
+    // Noms des techniciens (variantes)
+    if (nameLower === 'nick' || nameLower === 'nicolas') return true;
+    if (nameLower === 'jp' || nameLower === 'jean-philippe' || nameLower.includes('jean-philippe')) return true;
+    if (nameLower === 'allan') return true;
+    // Emails des techniciens
+    if (emailLower.includes('nicolas@') || emailLower.includes('nick@')) return true;
+    if (emailLower.includes('jp@') || emailLower.includes('jean-philippe@')) return true;
+    if (emailLower.includes('allan@') || emailLower.includes('asutton@')) return true;
+    return false;
+  };
 
   // Titre et suggestions selon le rôle
   const getTitleByRole = () => {
     if (userRole === 'admin') return '🎯 Vue d\'ensemble';
-    if (userRole === 'technician' || userName === 'Nick' || userName === 'JP') return '🎵 Mes journées, nos clients';
+    if (isTechnician()) return '🎵 Mes journées, nos clients';
     return '📋 Planification & Clients'; // Louise, Margot, autres assistants
   };
 
   const getQuickButtonsByRole = () => {
-    if (userRole === 'admin' || userRole === 'technician' || userName === 'Nick' || userName === 'JP') {
+    if (userRole === 'admin' || isTechnician()) {
       // Techniciens et admin: leurs propres RV
       return [
         { label: "Aujourd'hui", query: "aujourd'hui" },
@@ -77,7 +95,7 @@ export default function ChatIntelligent({ currentUser }) {
   const getPlaceholderByRole = () => {
     if (userRole === 'admin') {
       return "Ex: Tous les RV demain, Stats du mois, Client Anne-Marie...";
-    } else if (userRole === 'technician' || userName === 'Nick' || userName === 'JP') {
+    } else if (isTechnician()) {
       return "Ex: Ma journée demain, Cette semaine, Client Anne-Marie...";
     } else {
       return "Ex: RV de Nick demain, Client Anne-Marie, Qui va à Place des Arts...";
