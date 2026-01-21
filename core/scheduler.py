@@ -166,10 +166,10 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
 
         # Sync timeline - Utilise smart_import avec filtre anti-bruit (7 derniers jours)
         # Remplacé sync_timeline() par smart_import pour éviter le bruit (Mailchimp, emails)
-        from datetime import datetime, timedelta
         from scripts.smart_import_all_data import SmartImport
         
         # Calculer date de cutoff (7 jours en arrière, format ISO UTC)
+        # datetime et timedelta sont déjà importés en haut du fichier
         cutoff_date = datetime.now() - timedelta(days=7)
         since_date_iso = cutoff_date.strftime('%Y-%m-%dT%H:%M:%SZ')
         

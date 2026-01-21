@@ -61,22 +61,21 @@ class AppointmentChecker:
 
             date_str = target_date.isoformat()
 
-            # Construire la query Supabase
-            query = (
-                f"{self.storage.api_url}/gazelle_appointments?"
-                f"appointment_date=eq.{date_str}&"
-                f"confirmed=eq.false&"
-                f"select=*"
+            # Utiliser le client Supabase Python au lieu de requêtes HTTP manuelles
+            # La colonne 'confirmed' n'existe PAS - on filtre par status = 'ACTIVE'
+            appointments_raw = (
+                self.storage.client.table('gazelle_appointments')
+                .select('*')
+                .gte('start_datetime', f'{date_str}T00:00:00')
+                .lt('start_datetime', f'{date_str}T23:59:59')
+                .eq('status', 'ACTIVE')  # Seulement les RV actifs
+                .execute()
             )
 
-            import requests
-            response = requests.get(query, headers=self.storage._get_headers())
-
-            if response.status_code != 200:
-                print(f"⚠️ Erreur Supabase: {response.status_code}")
+            if not appointments_raw.data:
                 return {}
 
-            appointments = response.json()
+            appointments = appointments_raw.data
 
             # Filtrer par type (exclure PERSONAL, MEMO)
             filtered = []
@@ -88,7 +87,7 @@ class AppointmentChecker:
             # Grouper par technicien
             by_technician = {}
             for apt in filtered:
-                tech_id = apt.get('technician_external_id')
+                tech_id = apt.get('technicien')  # Colonne réelle dans gazelle_appointments
                 if tech_id:
                     if tech_id not in by_technician:
                         by_technician[tech_id] = []
@@ -101,14 +100,12 @@ class AppointmentChecker:
 
                     if client_id:
                         # Chercher le client dans Supabase
-                        client_query = f"{self.storage.api_url}/gazelle_clients?external_id=eq.{client_id}&select=company_name,email,phone"
-                        client_response = requests.get(client_query, headers=self.storage._get_headers())
-                        if client_response.status_code == 200:
-                            clients = client_response.json()
-                            if clients:
-                                client_name = clients[0].get('company_name', client_name)
-                                client_email = clients[0].get('email')
-                                client_phone = clients[0].get('phone')
+                        client_result = self.storage.client.table('gazelle_clients').select('company_name,email,phone').eq('external_id', client_id).limit(1).execute()
+                        if client_result.data:
+                            client_data = client_result.data[0]
+                            client_name = client_data.get('company_name', client_name)
+                            client_email = client_data.get('email')
+                            client_phone = client_data.get('phone')
 
                     by_technician[tech_id].append({
                         'appointment_id': apt.get('id'),
@@ -146,23 +143,23 @@ class AppointmentChecker:
             return self._user_cache[tech_id]
 
         try:
-            url = f"{self.storage.api_url}/users?gazelle_user_id=eq.{tech_id}&select=gazelle_user_id,full_name,email,username&limit=1"
-            import requests
-            resp = requests.get(url, headers=self.storage._get_headers())
-            if resp.status_code == 200:
-                data = resp.json() or []
-                if data:
-                    item = data[0]
-                    info = {
-                        "id": tech_id,
-                        "name": item.get("full_name") or item.get("username") or "Inconnu",
-                        "email": item.get("email"),
-                        "username": item.get("username"),
-                    }
-                    self._user_cache[tech_id] = info
-                    return info
-        except Exception:
-            pass
+            # Utiliser le client Supabase Python
+            # La colonne est 'external_id' pas 'gazelle_user_id'
+            user_result = self.storage.client.table('users').select('external_id,first_name,last_name,email').eq('external_id', tech_id).limit(1).execute()
+            
+            if user_result.data:
+                user = user_result.data[0]
+                full_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+                info = {
+                    "id": tech_id,
+                    "name": full_name or "Inconnu",
+                    "email": user.get("email"),
+                    "username": full_name,
+                }
+                self._user_cache[tech_id] = info
+                return info
+        except Exception as e:
+            print(f"⚠️ Erreur get_technician_info pour {tech_id}: {e}")
 
         return None
 

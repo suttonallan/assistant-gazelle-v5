@@ -158,6 +158,46 @@ class GazelleSyncService:
                     })
                     print()
             
+            # 4. Vérifier les demandes déjà liées pour mise à jour statut COMPLETED
+            completed_count = 0
+            if not request_ids:  # Seulement en mode "sync all"
+                linked_requests = self._get_linked_not_completed_requests()
+                if linked_requests:
+                    print(f"\n{'='*70}")
+                    print(f"🔍 VÉRIFICATION DES RV COMPLÉTÉS")
+                    print(f"{'='*70}")
+                    print(f"   {len(linked_requests)} demande(s) liées à vérifier\n")
+
+                    # Créer un index des RV Gazelle par external_id
+                    gazelle_by_id = {apt.get('external_id'): apt for apt in gazelle_appointments}
+
+                    for request in linked_requests:
+                        request_id = request.get('id')
+                        apt_id = request.get('appointment_id')
+                        appointment_date = request.get('appointment_date', '')[:10] if request.get('appointment_date') else ''
+                        room = request.get('room', '')
+
+                        # Trouver le RV Gazelle correspondant
+                        gazelle_apt = gazelle_by_id.get(apt_id)
+                        if gazelle_apt:
+                            gazelle_status = gazelle_apt.get('status', '').upper()
+                            if gazelle_status in ('COMPLETE', 'COMPLETED'):
+                                print(f"✅ RV complété trouvé:")
+                                print(f"   Demande: {appointment_date} - Salle {room}")
+                                print(f"   RV Gazelle: {apt_id}")
+
+                                if not dry_run:
+                                    success = self._update_request_status(request_id, 'COMPLETED')
+                                    if success:
+                                        completed_count += 1
+                                        print(f"   💾 Statut mis à jour: COMPLETED")
+                                    else:
+                                        warnings.append(f"Erreur mise à jour statut demande {request_id}")
+                                print()
+
+                    if completed_count > 0 or dry_run:
+                        print(f"   {completed_count} demande(s) marquée(s) comme complétée(s)\n")
+
             print(f"\n{'='*70}")
             print(f"📊 RÉSULTAT SYNCHRONISATION")
             print(f"{'='*70}")
@@ -165,14 +205,16 @@ class GazelleSyncService:
             print(f"   Correspondances trouvées: {matched_count}")
             if not dry_run:
                 print(f"   Demandes mises à jour: {updated_count}")
+                print(f"   Demandes complétées: {completed_count}")
             print(f"{'='*70}\n")
-            
+
             return {
                 "success": True,
                 "checked": len(requests),
                 "matched": matched_count,
                 "updated": updated_count if not dry_run else 0,
-                "message": f"{matched_count}/{len(requests)} correspondances trouvées",
+                "completed": completed_count if not dry_run else 0,
+                "message": f"{matched_count}/{len(requests)} correspondances, {completed_count} complétées",
                 "details": details,
                 "warnings": warnings,
                 "dry_run": dry_run
@@ -198,10 +240,26 @@ class GazelleSyncService:
                 .is_('appointment_id', 'null')\
                 .order('appointment_date', desc=False)\
                 .execute()
-            
+
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Erreur récupération demandes: {e}")
+            return []
+
+    def _get_linked_not_completed_requests(self) -> List[Dict]:
+        """Récupère les demandes liées à un RV Gazelle mais pas encore complétées."""
+        try:
+            result = self.storage.client.table('place_des_arts_requests')\
+                .select('*')\
+                .not_.is_('appointment_id', 'null')\
+                .neq('status', 'COMPLETED')\
+                .neq('status', 'BILLED')\
+                .order('appointment_date', desc=False)\
+                .execute()
+
+            return result.data if result.data else []
+        except Exception as e:
+            logger.error(f"Erreur récupération demandes liées: {e}")
             return []
     
     def _get_requests_by_ids(self, request_ids: List[str]) -> List[Dict]:
@@ -347,6 +405,24 @@ class GazelleSyncService:
             return bool(result.data)
         except Exception as e:
             logger.error(f"Erreur lien demande {request_id}: {e}")
+            return False
+
+    def _update_request_status(self, request_id: str, status: str) -> bool:
+        """Met à jour le statut d'une demande PDA."""
+        try:
+            update_data = {
+                'status': status,
+                'updated_at': datetime.now().isoformat()
+            }
+
+            result = self.storage.client.table('place_des_arts_requests')\
+                .update(update_data)\
+                .eq('id', request_id)\
+                .execute()
+
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"Erreur mise à jour statut demande {request_id}: {e}")
             return False
 
 

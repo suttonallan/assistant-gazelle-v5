@@ -11,8 +11,17 @@ Objectif: <50 items/jour au lieu de 5000
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from .gazelle_api_client import GazelleAPIClient
+
+
+def _ensure_tz_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    """Rend une datetime timezone-aware (UTC) si elle ne l'est pas."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 class GazelleAPIClientIncremental(GazelleAPIClient):
@@ -111,8 +120,9 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 if last_sync_date and node.get('createdAt'):
                     try:
                         created_at = datetime.fromisoformat(node['createdAt'].replace('Z', '+00:00'))
-                        if created_at < last_sync_date:
-                            print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_date})")
+                        last_sync_aware = _ensure_tz_aware(last_sync_date)
+                        if created_at < last_sync_aware:
+                            print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
                             early_exit = True
                             break
                     except Exception as e:
@@ -221,8 +231,9 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 if last_sync_date and node.get('createdAt'):
                     try:
                         created_at = datetime.fromisoformat(node['createdAt'].replace('Z', '+00:00'))
-                        if created_at < last_sync_date:
-                            print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_date})")
+                        last_sync_aware = _ensure_tz_aware(last_sync_date)
+                        if created_at < last_sync_aware:
+                            print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
                             early_exit = True
                             break
                     except Exception as e:
