@@ -824,10 +824,13 @@ class ServiceReports:
 
                 if rows:
                     try:
-                        # NOTE: Utiliser append_rows au lieu de insert_rows pour éviter les doublons
-                        # insert_rows avait un bug qui créait des doublons
-                        ws.append_rows(rows, value_input_option="RAW")
-                        counts[tab] = len(rows)
+                        # Trier par date décroissante (plus récentes en premier)
+                        # La colonne 0 est DateEvenement (format YYYY-MM-DD)
+                        rows_sorted = sorted(rows, key=lambda r: r[0] if r[0] else "", reverse=True)
+
+                        # Insérer après l'en-tête (ligne 2) pour garder les plus récentes en haut
+                        ws.insert_rows(rows_sorted, row=2, value_input_option="RAW")
+                        counts[tab] = len(rows_sorted)
                     except Exception as e:
                         print(f"❌ Erreur insert {tab}: {e}")
                         counts[tab] = 0
