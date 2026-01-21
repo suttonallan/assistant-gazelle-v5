@@ -3,13 +3,17 @@
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                     SCHEDULER CENTRALISÉ - ASSISTANT V5                    ║
 ║                   Tâches planifiées avec APScheduler                       ║
+║                   + Orchestration & Notifications                          ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
 Gère toutes les tâches planifiées de l'application:
-- 01:00: Sync Gazelle Totale (Pianos, Clients, Timeline)
-- 02:00: Génération Rapport Timeline Google Sheets
+- 01:00: Sync Gazelle Totale → Rapport Timeline (chaînées automatiquement)
 - 03:00: Backup SQL de la base de données
 - 16:00: Sync RV & Alertes (rendez-vous non confirmés)
+
+Orchestration:
+- Quand Sync Gazelle réussit → déclenche automatiquement Rapport Timeline
+- Notifications Slack automatiques en cas d'erreur
 
 Usage:
     from core.scheduler import get_scheduler, start_scheduler
@@ -130,11 +134,16 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
     - Timeline entries
     - Appointments
 
+    Si succès, déclenche automatiquement la génération du rapport Timeline.
+
     Exécution: Tous les jours à 01:00 (heure Montréal)
     """
     from core.scheduler_logger import get_logger
+    from core.notification_service import get_notification_service
 
     logger = get_logger()
+    notifier = get_notification_service()
+    
     log_id = logger.start_task(
         task_name='sync_gazelle',
         task_label='Sync Gazelle Totale',
@@ -187,31 +196,70 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
         print("✅ SYNC GAZELLE TOTALE - Terminé")
         print("="*70 + "\n")
 
+        stats = {
+            'clients': clients_count,
+            'contacts': contacts_count,
+            'pianos': pianos_count,
+            'timeline': timeline_count,
+            'appointments': appointments_count
+        }
+
         # Logger le succès
         logger.complete_task(
             log_id=log_id,
             status='success',
             message='Synchronisation complète réussie',
-            stats={
-                'clients': clients_count,
-                'contacts': contacts_count,
-                'pianos': pianos_count,
-                'timeline': timeline_count,
-                'appointments': appointments_count
-            }
+            stats=stats
         )
+
+        # 🔗 ORCHESTRATION: Déclencher le rapport Timeline automatiquement
+        print("\n🔗 Chaînage: Génération automatique du Rapport Timeline...")
+        try:
+            task_generate_rapport_timeline()
+            print("✅ Chaîne Gazelle → Timeline complétée avec succès\n")
+            
+            # Notifier le succès de la chaîne (optionnel, désactivé par défaut)
+            # notifier.notify_chain_completion(
+            #     chain_name="Gazelle → Timeline",
+            #     tasks=[
+            #         {'name': 'Sync Gazelle', 'status': 'success'},
+            #         {'name': 'Rapport Timeline', 'status': 'success'}
+            #     ]
+            # )
+        except Exception as timeline_error:
+            print(f"⚠️ Erreur lors de la génération du rapport Timeline: {timeline_error}")
+            # Notifier l'échec du rapport (mais le sync Gazelle a réussi)
+            notifier.notify_sync_error(
+                task_name='Rapport Timeline (auto après Gazelle)',
+                error_message=str(timeline_error),
+                send_slack=True,
+                send_email=False
+            )
+
+        return stats
 
     except Exception as e:
         print(f"\n❌ Erreur lors du sync Gazelle: {e}")
         import traceback
         traceback.print_exc()
 
+        error_msg = str(e)
+
         # Logger l'erreur
         logger.complete_task(
             log_id=log_id,
             status='error',
-            message=str(e)
+            message=error_msg
         )
+
+        # 📧 NOTIFICATION: Envoyer alerte Slack pour erreur de sync
+        notifier.notify_sync_error(
+            task_name='Sync Gazelle Totale',
+            error_message=error_msg,
+            send_slack=True,
+            send_email=False  # Email désactivé par défaut, Slack suffit
+        )
+
         raise
 
 
@@ -360,27 +408,16 @@ def configure_jobs(scheduler: BackgroundScheduler):
     """
     print("\n📅 Configuration des tâches planifiées...")
 
-    # 01:00 - Sync Gazelle Totale
+    # 01:00 - Sync Gazelle Totale → Timeline (chaînées)
     scheduler.add_job(
         task_sync_gazelle_totale,
         trigger=CronTrigger(hour=1, minute=0, timezone='America/Montreal'),
         id='sync_gazelle_totale',
-        name='Sync Gazelle Totale (01:00)',
+        name='Sync Gazelle → Timeline (01:00)',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 01:00 - Sync Gazelle Totale configurée")
-
-    # 02:00 - Rapport Timeline
-    scheduler.add_job(
-        task_generate_rapport_timeline,
-        trigger=CronTrigger(hour=2, minute=0, timezone='America/Montreal'),
-        id='rapport_timeline',
-        name='Rapport Timeline Google Sheets (02:00)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ 02:00 - Rapport Timeline configurée")
+    print("   ✅ 01:00 - Sync Gazelle → Timeline (chaînées)")
 
     # 03:00 - Backup Database
     scheduler.add_job(
@@ -405,6 +442,7 @@ def configure_jobs(scheduler: BackgroundScheduler):
     print("   ✅ 16:00 - Sync RV & Alertes configurée")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
+    print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
 
 
 def start_scheduler():

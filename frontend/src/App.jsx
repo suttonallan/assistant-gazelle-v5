@@ -5,6 +5,7 @@ import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import OrfordDashboard from './components/OrfordDashboard'
 import LoginScreen from './components/LoginScreen'
 import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
+import SystemHealthDashboard from './components/SystemHealthDashboard' // 🏥 Logs de Santé
 import InventaireDashboard from './components/InventaireDashboard'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
@@ -205,8 +206,9 @@ function App() {
     gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId // Alias pour compatibilité
   } : {
     ...currentUser,
-    // ⭐ FIX: Garantir que currentUser.id contient le gazelleId même sans simulation
-    id: currentUser?.gazelleId || ROLES[effectiveRole]?.gazelleId || currentUser?.id
+    // ⭐ FIX: Garantir que l'ID Gazelle est disponible pour le chat
+    id: currentUser?.gazelleId || ROLES[effectiveRole]?.gazelleId || currentUser?.id,
+    gazelleId: currentUser?.gazelleId || ROLES[effectiveRole]?.gazelleId  // Alias explicite
   }
 
   const handleLogin = (user) => {
@@ -413,6 +415,12 @@ function App() {
           return (
             <ErrorBoundary componentName="Chat Intelligent">
               <ChatIntelligent currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
+        } else if (currentView === 'system-health') {
+          return (
+            <ErrorBoundary componentName="Santé Système">
+              <SystemHealthDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
@@ -635,6 +643,20 @@ function App() {
                         }`}
                       >
                         ⚙️ Configuration
+                      </button>
+                    )}
+
+                    {/* Santé Système - admin seulement */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('system-health')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'system-health'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        🏥 Logs de Santé
                       </button>
                     )}
 

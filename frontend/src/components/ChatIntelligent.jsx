@@ -46,7 +46,8 @@ export default function ChatIntelligent({ currentUser }) {
 
   // Déterminer rôle et ID Gazelle du technicien depuis currentUser
   const userRole = currentUser?.role || 'admin';
-  const technicianGazelleId = currentUser?.id || null;  // ID Gazelle (dans users.id, pas gazelleId)
+  // Priorité: gazelleId explicite > id (qui peut contenir gazelleId via effectiveUser) > null
+  const technicianGazelleId = currentUser?.gazelleId || currentUser?.id || null;
   const userName = currentUser?.name || 'Utilisateur';
   const userEmail = currentUser?.email || '';
 
@@ -260,7 +261,7 @@ export default function ChatIntelligent({ currentUser }) {
 
       {response?.day_overview?.appointments.map((apt, index) => (
         <AppointmentCard
-          key={index}
+          key={apt.appointment_id || apt.external_id || `apt-${index}`}
           appointment={apt}
           onClick={() => handleCardClick(apt)}
         />

@@ -375,12 +375,15 @@ class V5DataProvider:
             description = apt_raw.get("description", "").lower()
 
             # LISTE BLANCHE: Événements liés au TRAVAIL (à afficher)
-            work_keywords = ["vd", "commande", "bolduc", "westend", "piano"]
+            work_keywords = ["vd", "commande", "bolduc", "westend", "piano", "uqam", "uqam", "grands", "ballets", "peladeau"]
             is_work_event = any(keyword in title or keyword in description for keyword in work_keywords)
 
             # LISTE NOIRE: Événements PRIVÉS (à filtrer)
-            private_keywords = ["admin", "épicerie", "boaz", "enfants", "médical", "suivi", "personnel"]
-            is_private_event = any(keyword in title or keyword in description for keyword in private_keywords)
+            # Note: "suivi" seul est trop général - on filtre seulement "suivi personnel" ou "suivi médical"
+            private_keywords = ["admin", "épicerie", "boaz", "enfants", "médical", "personnel"]
+            # Filtrer "suivi" seulement s'il est accompagné de "personnel" ou "médical"
+            has_suivi_personnel = "suivi" in title and ("personnel" in title or "médical" in title)
+            is_private_event = any(keyword in title or keyword in description for keyword in private_keywords) or has_suivi_personnel
 
             # Logique de décision:
             # - Si événement de travail détecté → afficher
@@ -854,7 +857,7 @@ class V5DataProvider:
             if len(pianos) == 1:
                 # ✅ CAS 1: UN SEUL PIANO → C'EST LUI (100% fiable)
                 piano = pianos[0]
-                has_dampp_chaser = piano.get('dampp_chaser_installed', False)
+                has_dampp_chaser = bool(piano.get('dampp_chaser_installed', False))
                 piano_match_method = "unique_piano"
 
             elif len(pianos) > 1:
@@ -873,7 +876,7 @@ class V5DataProvider:
                 if matched_piano:
                     # Match trouvé via numéro de série
                     piano = matched_piano
-                    has_dampp_chaser = piano.get('dampp_chaser_installed', False)
+                    has_dampp_chaser = bool(piano.get('dampp_chaser_installed', False))
                 else:
                     # ⚠️ Aucun match: Prioriser piano avec PLS (heuristique acceptable)
                     piano_with_pls = next((p for p in pianos if p.get('dampp_chaser_installed')), None)
@@ -884,6 +887,7 @@ class V5DataProvider:
                     else:
                         # Dernier recours: premier piano (mais on le signale)
                         piano = pianos[0]
+                        has_dampp_chaser = bool(piano.get('dampp_chaser_installed', False))
                         piano_match_method = "fallback_first"
                         print(f"⚠️ Client {client.get('company_name')} a {len(pianos)} pianos, aucun serial match")
 

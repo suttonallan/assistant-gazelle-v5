@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.supabase_storage import SupabaseStorage
-from core.slack_notifier import SlackNotifier
+from core.notification_service import get_notification_service
 
 
 class HumidityScanner:
@@ -42,18 +42,13 @@ class HumidityScanner:
             config_path: Chemin vers config.json (défaut: config/alerts/config.json)
         """
         self.storage = SupabaseStorage()
+        self.notifier = get_notification_service()
 
         # Charger configuration
         if config_path is None:
             config_path = Path(__file__).parent.parent.parent / "config" / "alerts" / "config.json"
 
         self.config = self._load_config(config_path)
-
-        # Webhooks Slack (Louise et Nicolas)
-        self.slack_webhooks = {
-            'louise': os.getenv('SLACK_WEBHOOK_LOUISE', 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL_HERE'),
-            'nicolas': os.getenv('SLACK_WEBHOOK_NICOLAS', 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL_HERE')
-        }
 
     def _load_config(self, config_path: Path) -> Dict[str, Any]:
         """Charge la configuration depuis JSON."""
@@ -533,10 +528,10 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
         entry: Dict[str, Any]
     ) -> bool:
         """
-        Envoie notification Slack (Louise + Nicolas).
+        Envoie notification Email (Nicolas) + Slack (Louise + Nicolas).
 
         Seulement pour alertes NON RÉSOLUES.
-        Mention "Provenant du Mac" ajoutée.
+        Utilise le nouveau NotificationService centralisé.
         """
         import requests
 
@@ -554,7 +549,7 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
                 print(f"⚠️ Erreur récupération client: {e}")
 
         # Récupérer détails du piano
-        piano_info = "N/A"
+        piano_info_name = "N/A"
         local_info = "N/A"
         piano_id = entry.get('piano_id')
         if piano_id:
@@ -566,34 +561,41 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
                     piano_data = resp.json()[0]
                     make = piano_data.get('make', '')
                     model = piano_data.get('model', '')
-                    piano_info = f"{make} {model}".strip() or "N/A"
+                    piano_info_name = f"{make} {model}".strip() or "N/A"
                     local_info = piano_data.get('location') or "N/A"
             except Exception as e:
                 print(f"⚠️ Erreur récupération piano: {e}")
 
-        message = (
-            f"🚨 *ALERTE HUMIDITÉ DÉTECTÉE*\n"
-            f"*Provenant du Mac*\n\n"
-            f"Type: {alert_type.upper()}\n"
-            f"Description: {description}\n"
-            f"Client: {client_name}\n"
-            f"📍 Local: {local_info}\n"
-            f"🎹 Piano: {piano_info}\n"
-            f"Problem: {entry.get('description', 'N/A')}\n"
-            f"Date: {entry.get('occurred_at', 'N/A')}"
+        # Préparer les données pour le notifier
+        piano_info = {
+            'nom': piano_info_name,
+            'client': client_name,
+            'lieu': local_info
+        }
+
+        # Déterminer le type d'alerte et la valeur d'humidité (si disponible)
+        humidity_value = 0  # Par défaut
+        # Essayer d'extraire la valeur d'humidité de la description
+        import re
+        humidity_match = re.search(r'(\d+)%', description)
+        if humidity_match:
+            humidity_value = float(humidity_match.group(1))
+
+        # Mapper le type d'alerte vers les valeurs attendues
+        alert_type_mapped = 'TROP_SEC' if 'sec' in alert_type.lower() or 'housse' in description.lower() else 'TROP_HUMIDE'
+
+        # Utiliser le service de notifications centralisé
+        # Envoie Email (Nicolas) + Slack (Louise + Nicolas)
+        results = self.notifier.notify_humidity_alert(
+            piano_info=piano_info,
+            humidity_value=humidity_value,
+            alert_type=alert_type_mapped,
+            send_email=True,  # Email à Nicolas
+            send_slack=True   # Slack à Louise + Nicolas
         )
 
-        success = True
-
-        # Envoyer à Louise
-        if not SlackNotifier.send_simple_message(self.slack_webhooks['louise'], message):
-            success = False
-
-        # Envoyer à Nicolas
-        if not SlackNotifier.send_simple_message(self.slack_webhooks['nicolas'], message):
-            success = False
-
-        return success
+        # Succès si au moins un canal a fonctionné
+        return results.get('email', False) or results.get('slack', False)
 
 
 # ============================================================

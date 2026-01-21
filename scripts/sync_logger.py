@@ -32,36 +32,67 @@ class SyncLogger:
         self,
         script_name: str,
         status: str,
+        task_type: str = 'sync',
+        message: str = None,
+        stats: dict = None,
+        error_details: str = None,
+        execution_time_seconds: float = None,
+        triggered_by: str = 'scheduler',
+        triggered_by_user: str = None,
+        # Rétrocompatibilité
         tables_updated: dict = None,
-        error_message: str = None,
-        execution_time_seconds: float = None
+        error_message: str = None
     ):
         """
         Enregistre un log de synchronisation.
 
         Args:
-            script_name: Nom du script (ex: 'GitHub_Timeline_Sync')
-            status: 'success', 'error', 'warning'
-            tables_updated: Dict des tables mises à jour (ex: {"timeline": 50})
-            error_message: Message d'erreur si status='error'
+            script_name: Nom du script (ex: 'Sync Gazelle Totale')
+            status: 'success', 'error', 'warning', 'running'
+            task_type: Type de tâche ('sync', 'report', 'chain', 'backup')
+            message: Message de succès ou description
+            stats: Dict des statistiques (ex: {"clients": 50, "pianos": 100})
+            error_details: Message d'erreur détaillé si status='error'
             execution_time_seconds: Durée d'exécution en secondes
+            triggered_by: Mode de déclenchement ('scheduler', 'manual', 'api')
+            triggered_by_user: Email utilisateur si manuel
+            tables_updated: (deprecated) Utilisez 'stats' à la place
+            error_message: (deprecated) Utilisez 'error_details' à la place
         """
         if not self.client:
             print("⚠️  Supabase client non initialisé, impossible de logger")
             return False
 
         try:
+            # Rétrocompatibilité
+            if tables_updated and not stats:
+                stats = tables_updated
+            if error_message and not error_details:
+                error_details = error_message
+
             data = {
                 'script_name': script_name,
+                'task_type': task_type,
                 'status': status,
-                'tables_updated': json.dumps(tables_updated) if tables_updated else None,
-                'error_message': error_message,
-                'execution_time_seconds': execution_time_seconds
+                'message': message,
+                'stats': stats or {},
+                'error_details': error_details,
+                'execution_time_seconds': execution_time_seconds,
+                'triggered_by': triggered_by,
+                'triggered_by_user': triggered_by_user,
+                'created_at': datetime.now().isoformat()
             }
 
             result = self.client.table('sync_logs').insert(data).execute()
 
-            print(f"✅ Log enregistré: {script_name} - {status}")
+            status_emoji = {
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️',
+                'running': '⏳'
+            }.get(status, '❓')
+
+            print(f"{status_emoji} Log enregistré: {script_name} - {status}")
             return True
 
         except Exception as e:
