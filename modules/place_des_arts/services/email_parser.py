@@ -480,12 +480,15 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             break
 
     # 2. Détecter le piano (marque + modèle)
-    # Format: "Steinway 9' D - New York" ou "Yamaha C7" ou "Baldwin 9'"
+    # Format: "Steinway 9' D - New York" ou "Yamaha C7" ou "Baldwin 9'" ou "Piano Baldwin (9')"
     piano_patterns = [
+        r'(piano\s+baldwin\s*\(?[\d\'\"]+\)?)',  # Piano Baldwin (9') ou Piano Baldwin 9'
+        r'(piano\s+steinway\s*\(?[\d\'\"a-z\s\-]*\)?)',  # Piano Steinway (9') ou Piano Steinway D
+        r'(piano\s+yamaha\s+[a-z]?\d*)',  # Piano Yamaha C7
         r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*-?\s*[a-z\s]*)',  # Steinway 9' D - New York
         r'(yamaha\s+[a-z]\d+)',  # Yamaha C7
         r'(kawai\s+[a-z]+\d*)',  # Kawai GX7
-        r'(baldwin\s+\d+[\'"]?)',  # Baldwin 9'
+        r'(baldwin\s*\(?[\d\'\"]+\)?)',  # Baldwin 9' ou Baldwin (9')
         r'(bösendorfer\s+\d+)',  # Bösendorfer 280
         r'(fazioli\s+[a-z]*\d+)'  # Fazioli F278
     ]
@@ -509,10 +512,11 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
         result['confidence'] += 0.15
 
     # 4. Détecter la salle
-    # Format: "de la Salle D" / "Salle D" / "MS" / "WP"
+    # Format: "de la Salle D" / "Salle D" / "MS" / "WP" / "5E salle"
     room_patterns = [
-        (r'salle\s+([a-z])', r'\1'),  # Salle D → D
+        (r'(5e)\s+salle', r'\1'),  # "5E salle" → 5E (DOIT être avant les autres patterns)
         (r'\b(ms|wp|tm|tjd|5e|scl|cl)\b', r'\1'),  # Codes standards + CL (Claude-Léveillée)
+        (r'salle\s+([a-z])(?:\s|,|$)', r'\1'),  # Salle D → D (lettre seule, pas début d'un mot)
         (r'maison\s+symphonique', 'MS'),
         (r'wilfrid[-\s]?pelletier', 'WP'),
         (r'théâtre\s+maisonneuve', 'TM'),
@@ -577,13 +581,14 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
     # Dans le format: Date / Salle / Pour_qui / Diapason / Piano / Heure
     # "Pour qui" est la ligne après la salle, si ce n'est pas un diapason, piano, ou heure
     lines = text.split('\n')
-    room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL', 'TJD']
+    room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', '5E SALLE', 'CL', 'TJD']
     piano_keywords = ['steinway', 'yamaha', 'kawai', 'bösendorfer', 'fazioli', 'baldwin', 'piano']
 
     room_idx = None
     for idx, line in enumerate(lines):
         line_stripped = line.strip().upper()
-        if line_stripped in room_keywords:
+        # Vérifier si la ligne correspond à un mot-clé de salle (exact ou commence par)
+        if line_stripped in room_keywords or any(line_stripped.startswith(kw + ' ') for kw in room_keywords):
             room_idx = idx
             break
 

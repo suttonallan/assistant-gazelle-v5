@@ -110,19 +110,24 @@ class GazelleSyncService:
                     apt_title = matched_apt.get('title', 'N/A')
                     # Le champ s'appelle 'technicien' dans gazelle_appointments (c'est l'ID Gazelle)
                     apt_technician = matched_apt.get('technicien')
+                    is_real_tech = apt_technician in self.REAL_TECHNICIAN_IDS
 
                     print(f"✅ Match trouvé:")
                     print(f"   Demande: {appointment_date} {time_str} - Salle {room}")
                     print(f"   RV Gazelle: {apt_id} - {apt_title}")
                     if apt_technician:
-                        print(f"   Technicien: {apt_technician}")
+                        if is_real_tech:
+                            print(f"   Technicien: {apt_technician}")
+                        else:
+                            print(f"   Technicien: À attribuer (pas encore assigné)")
 
                     details.append({
                         "request_id": request_id,
                         "appointment_id": apt_id,
                         "appointment_title": apt_title,
-                        "technician_id": apt_technician,
-                        "matched": True
+                        "technician_id": apt_technician if is_real_tech else None,
+                        "matched": True,
+                        "has_real_technician": is_real_tech
                     })
 
                     # Mettre à jour si pas dry_run
@@ -134,7 +139,10 @@ class GazelleSyncService:
                         )
                         if success:
                             updated_count += 1
-                            print(f"   💾 Lien enregistré" + (f" (tech: {apt_technician})" if apt_technician else ""))
+                            if is_real_tech:
+                                print(f"   💾 Statut: CREATED_IN_GAZELLE (tech: {apt_technician})")
+                            else:
+                                print(f"   💾 RV lié (en attente d'assignation technicien)")
                         else:
                             warnings.append(f"Erreur mise à jour demande {request_id}")
                     print()
@@ -303,6 +311,13 @@ class GazelleSyncService:
         
         return best_match
     
+    # IDs des vrais techniciens (pas "À attribuer")
+    REAL_TECHNICIAN_IDS = {
+        'usr_HcCiFk7o0vZ9xAI0',  # Nick
+        'usr_ofYggsCDt2JAVeNP',  # Allan
+        'usr_ReUSmIJmBF86ilY1',  # JP
+    }
+
     def _link_request_to_appointment(
         self,
         request_id: str,
@@ -311,14 +326,17 @@ class GazelleSyncService:
     ) -> bool:
         """Lie une demande PDA à un RV Gazelle et met à jour le technicien."""
         try:
+            # Vérifier si c'est un vrai technicien (pas "À attribuer")
+            is_real_technician = technician_id in self.REAL_TECHNICIAN_IDS
+
             update_data = {
                 'appointment_id': appointment_id,
-                'status': 'CREATED_IN_GAZELLE',  # Demande liée à un RV Gazelle
                 'updated_at': datetime.now().isoformat()
             }
 
-            # Ajouter le technicien si disponible
-            if technician_id:
+            # Ne marquer "CREATED_IN_GAZELLE" que si un vrai technicien est assigné
+            if is_real_technician:
+                update_data['status'] = 'CREATED_IN_GAZELLE'
                 update_data['technician_id'] = technician_id
 
             result = self.storage.client.table('place_des_arts_requests')\

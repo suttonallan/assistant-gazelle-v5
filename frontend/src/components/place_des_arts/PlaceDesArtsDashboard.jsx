@@ -703,11 +703,19 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_HcCiFk7o0vZ9xAI0': 'Nick',     // ID Gazelle pour Nicolas
     'usr_ofYggsCDt2JAVeNP': 'Allan',    // ID Gazelle pour Allan
     'usr_ReUSmIJmBF86ilY1': 'JP',       // ID Gazelle pour Jean-Philippe
+    'usr_HihJsEgkmpTEziJo': 'À attribuer', // Placeholder "À attribuer" dans Gazelle
     // Anciens IDs pour compatibilité (ne devraient plus être utilisés)
     'usr_U9E5bLxrFiXqTbE8': 'Nick (ancien ID)',
     'usr_allan': 'Allan (ancien ID)',
     'usr_jp': 'JP (ancien ID)'
   }
+
+  // IDs des vrais techniciens (pas "À attribuer")
+  const REAL_TECHNICIAN_IDS = new Set([
+    'usr_HcCiFk7o0vZ9xAI0',  // Nick
+    'usr_ofYggsCDt2JAVeNP',  // Allan
+    'usr_ReUSmIJmBF86ilY1',  // JP
+  ])
 
   const technicianOptions = useMemo(() => {
     return [
@@ -930,15 +938,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           >
             {previewLoading ? 'Prévisualisation...' : 'Prévisualiser'}
           </button>
-          {preview.length === 0 && (
-            <button
-              onClick={handleImport}
-              disabled={!rawText.trim() || importLoading}
-              className="px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50"
-            >
-              {importLoading ? 'Import...' : 'Importer'}
-            </button>
-          )}
           <button
             onClick={() => { setRawText(''); setPreview([]); setInfoMessage(null); setError(null) }}
             className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:bg-gray-50"
@@ -1208,11 +1207,15 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               {sortedItems.map((it) => {
                 // Déterminer si l'événement est terminé (statut COMPLETED)
                 const isCompleted = it.status === 'COMPLETED'
+                // Déterminer si c'est "À attribuer" (RV lié mais pas de vrai technicien)
+                const isAAttribuer = it.appointment_id && !REAL_TECHNICIAN_IDS.has(it.technician_id)
                 const rowClass = selectedIds.includes(it.id)
                   ? 'bg-blue-50'
-                  : isCompleted
-                    ? 'bg-green-50'
-                    : ''
+                  : isAAttribuer
+                    ? 'bg-red-50'
+                    : isCompleted
+                      ? 'bg-green-50'
+                      : ''
 
                 return (
                 <tr key={it.id} className={rowClass}>

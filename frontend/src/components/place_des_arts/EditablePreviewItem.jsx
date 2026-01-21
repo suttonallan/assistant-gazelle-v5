@@ -8,7 +8,8 @@ import { API_URL } from '../../utils/apiConfig'
  * Sinon, affiche juste la prévisualisation en lecture seule
  */
 export default function EditablePreviewItem({ item, index, rawText, currentUser, onCorrect }) {
-  const [isEditing, setIsEditing] = useState(item.confidence < 1.0)
+  // Toujours éditable directement - pas besoin de cliquer sur "Modifier"
+  const [isEditing, setIsEditing] = useState(true)
   const [editedFields, setEditedFields] = useState({
     appointment_date: item.appointment_date || '',
     room: item.room || '',
@@ -19,6 +20,16 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
     requester: item.requester || ''
   })
   const [saving, setSaving] = useState(false)
+
+  // Détecter si des champs ont été modifiés par rapport aux valeurs initiales
+  const hasChanges =
+    editedFields.appointment_date !== (item.appointment_date || '') ||
+    editedFields.room !== (item.room || '') ||
+    editedFields.for_who !== (item.for_who || '') ||
+    editedFields.diapason !== (item.diapason || '') ||
+    editedFields.piano !== (item.piano || '') ||
+    editedFields.time !== (item.time || '') ||
+    editedFields.requester !== (item.requester || '')
 
   const handleFieldChange = (field, value) => {
     setEditedFields(prev => ({ ...prev, [field]: value }))
@@ -86,14 +97,12 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
           <span className={`text-xs px-2 py-1 rounded ${confidenceColor}`}>
             {confidenceLabel} ({Math.round(item.confidence * 100)}%)
           </span>
-          {item.confidence < 1.0 && (
-            <button
-              onClick={() => setIsEditing(true)}
-              className="text-xs text-blue-600 hover:text-blue-800"
-            >
-              ✎ Modifier
-            </button>
-          )}
+          <button
+            onClick={() => setIsEditing(true)}
+            className="text-xs text-blue-600 hover:text-blue-800"
+          >
+            ✎ Modifier
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -179,11 +188,13 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
             <option value="">-- Sélectionner --</option>
             <option value="WP">WP - Wilfrid-Pelletier</option>
             <option value="TM">TM - Théâtre Maisonneuve</option>
-            <option value="MS">MS - Salle MS</option>
+            <option value="MS">MS - Maison Symphonique</option>
             <option value="SD">SD - Salle D</option>
-            <option value="C5">C5 - Cinquième Salle</option>
+            <option value="5E">5E - Cinquième Salle</option>
+            <option value="C5">C5 - Cinquième Salle (ancien)</option>
             <option value="SCL">SCL - Studio Claude-Léveillée</option>
-            <option value="ODM">ODM - Opera de Montreal</option>
+            <option value="TJD">TJD - Théâtre Jean-Duceppe</option>
+            <option value="ODM">ODM - Opéra de Montréal</option>
           </select>
         </div>
 
@@ -232,22 +243,17 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
         </div>
       </div>
 
-      <div className="flex gap-2 pt-2 border-t border-blue-200">
-        <button
-          onClick={handleSaveCorrection}
-          disabled={saving}
-          className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-        >
-          {saving ? 'Enregistrement...' : '✓ Valider et apprendre'}
-        </button>
-        <button
-          onClick={() => setIsEditing(false)}
-          disabled={saving}
-          className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50"
-        >
-          Annuler
-        </button>
-      </div>
+      {hasChanges && (
+        <div className="flex gap-2 pt-2 border-t border-blue-200">
+          <button
+            onClick={handleSaveCorrection}
+            disabled={saving}
+            className="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+          >
+            {saving ? 'Enregistrement...' : '✓ Valider et apprendre'}
+          </button>
+        </div>
+      )}
 
       {item.warnings && item.warnings.length > 0 && (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
