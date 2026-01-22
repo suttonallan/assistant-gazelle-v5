@@ -861,9 +861,11 @@ class GazelleAPIClient:
             Dictionnaire contenant l'entrée créée
         """
         from datetime import datetime
+        from core.timezone_utils import MONTREAL_TZ
 
         if not occurred_at:
-            occurred_at = datetime.now().isoformat()
+            # IMPORTANT: Utiliser l'heure de Montréal pour correspondre à l'heure locale de l'utilisateur
+            occurred_at = datetime.now(MONTREAL_TZ).isoformat()
 
         mutation = """
         mutation CreateTimelineEntry(
@@ -1035,9 +1037,12 @@ class GazelleAPIClient:
             Dictionnaire contenant l'événement créé
         """
         from datetime import datetime
-        
+        from core.timezone_utils import MONTREAL_TZ
+
         if not event_date:
-            event_date = datetime.now().isoformat()
+            # IMPORTANT: Utiliser l'heure de Montréal pour que la date affichée dans Gazelle
+            # corresponde à l'heure locale de l'utilisateur (pas UTC du serveur Render)
+            event_date = datetime.now(MONTREAL_TZ).isoformat()
         
         # Si client_id n'est pas fourni, récupérer celui du piano
         if not client_id:

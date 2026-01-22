@@ -130,12 +130,18 @@ class GazellePushService:
 
         # Utiliser la date de complétion si disponible, sinon maintenant
         from datetime import datetime
+        from core.timezone_utils import MONTREAL_TZ
+
+        # Fonction helper pour obtenir la date actuelle en timezone Montréal
+        def now_montreal():
+            return datetime.now(MONTREAL_TZ).isoformat()
+
         if completed_at:
             # Si completed_at est une string ISO, la convertir
             if isinstance(completed_at, str):
                 event_date = completed_at
             else:
-                event_date = completed_at.isoformat() if hasattr(completed_at, 'isoformat') else datetime.now().isoformat()
+                event_date = completed_at.isoformat() if hasattr(completed_at, 'isoformat') else now_montreal()
         else:
             # Fallback: utiliser updated_at si disponible, sinon maintenant
             updated_at = piano_data.get('updated_at')
@@ -143,9 +149,9 @@ class GazellePushService:
                 if isinstance(updated_at, str):
                     event_date = updated_at
                 else:
-                    event_date = updated_at.isoformat() if hasattr(updated_at, 'isoformat') else datetime.now().isoformat()
+                    event_date = updated_at.isoformat() if hasattr(updated_at, 'isoformat') else now_montreal()
             else:
-                event_date = datetime.now().isoformat()
+                event_date = now_montreal()
 
         if dry_run:
             return {
