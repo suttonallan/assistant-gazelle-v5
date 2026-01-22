@@ -67,7 +67,7 @@ HTTP Error 403: Forbidden
 ### 2. Vérifier les Permissions de la Clé API
 
 1. Settings → API Keys
-2. Trouver la clé qui commence par `YOUR_KEY...`
+2. Trouver la clé API correspondante
 3. Vérifier qu'elle a "Full Access" ou "Mail Send" permissions
 
 ### 3. Vérifier l'Authentification du Domaine
