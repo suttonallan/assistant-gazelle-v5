@@ -688,12 +688,18 @@ async def preview_email(payload: PreviewRequest):
     """
     if not payload.raw_text:
         raise HTTPException(status_code=400, detail="raw_text requis")
+    
+    # Log pour débogage
+    logging.info(f"🔍 Preview appelé avec texte ({len(payload.raw_text)} chars): {payload.raw_text[:200]}")
 
     # APPRENTISSAGE: Séparer le texte en blocs par date (chaque date = nouveau bloc)
     # Pattern: une ligne qui commence par un nombre suivi d'un mois (ex: "30 janv", "31 janv")
+    # OU une date dans le texte (format reformaté avec virgules)
     import re
-    lines = payload.raw_text.strip().split('\n')
-    date_pattern = re.compile(r'^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)', re.IGNORECASE)
+    raw_text = payload.raw_text.strip()
+    lines = raw_text.split('\n')
+    date_pattern_start = re.compile(r'^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)', re.IGNORECASE)
+    date_pattern_anywhere = re.compile(r'(\d{1,2}\s*(?:jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec))', re.IGNORECASE)
 
     # Extraire le demandeur global (signature à la fin du texte complet)
     # Le demandeur est le même pour toutes les demandes collées ensemble
@@ -714,29 +720,53 @@ async def preview_email(payload: PreviewRequest):
             break
 
     blocks = []
-    current_block_lines = []
+    
+    # Détecter si le texte est reformaté (tout sur une ou deux lignes avec virgules)
+    # Si oui, séparer par les dates trouvées dans le texte
+    all_dates = date_pattern_anywhere.findall(raw_text)
+    if len(all_dates) > 1 and len(lines) <= 2:
+        # Format reformaté: séparer par les dates
+        logging.info(f"📝 Format reformaté détecté ({len(all_dates)} dates sur {len(lines)} ligne(s))")
+        # Trouver les positions des dates
+        date_positions = []
+        for match in date_pattern_anywhere.finditer(raw_text):
+            date_positions.append((match.start(), match.group(0)))
+        
+        # Créer un bloc pour chaque date
+        for i, (start_pos, date_str) in enumerate(date_positions):
+            end_pos = date_positions[i + 1][0] if i + 1 < len(date_positions) else len(raw_text)
+            block_text = raw_text[start_pos:end_pos].strip()
+            # Nettoyer les virgules en début/fin et les espaces multiples
+            block_text = re.sub(r'^[,;\s]+|[,;\s]+$', '', block_text)
+            block_text = re.sub(r'\s+', ' ', block_text)
+            if block_text:
+                blocks.append(block_text)
+    else:
+        # Format multi-lignes: séparer par lignes qui commencent par une date
+        current_block_lines = []
+        for line in lines:
+            line_stripped = line.strip().lower()
+            # Ne pas inclure la ligne du demandeur dans les blocs
+            if global_requester and any(name in line_stripped for name in requester_mapping.keys()):
+                continue
+            # Si c'est une nouvelle date et qu'on a déjà des lignes, sauver le bloc précédent
+            if date_pattern_start.match(line) and current_block_lines:
+                block_text = '\n'.join(current_block_lines).strip()
+                if block_text:
+                    blocks.append(block_text)
+                current_block_lines = [line]
+            else:
+                # Ignorer les lignes vides isolées mais garder le contenu
+                if line.strip():
+                    current_block_lines.append(line)
 
-    for line in lines:
-        line_stripped = line.strip().lower()
-        # Ne pas inclure la ligne du demandeur dans les blocs
-        if global_requester and any(name in line_stripped for name in requester_mapping.keys()):
-            continue
-        # Si c'est une nouvelle date et qu'on a déjà des lignes, sauver le bloc précédent
-        if date_pattern.match(line) and current_block_lines:
+        # Ne pas oublier le dernier bloc
+        if current_block_lines:
             block_text = '\n'.join(current_block_lines).strip()
             if block_text:
                 blocks.append(block_text)
-            current_block_lines = [line]
-        else:
-            # Ignorer les lignes vides isolées mais garder le contenu
-            if line.strip():
-                current_block_lines.append(line)
-
-    # Ne pas oublier le dernier bloc
-    if current_block_lines:
-        block_text = '\n'.join(current_block_lines).strip()
-        if block_text:
-            blocks.append(block_text)
+    
+    logging.info(f"📦 {len(blocks)} bloc(s) créé(s) depuis le texte")
 
     parsed = []
     for block in blocks:
@@ -748,7 +778,25 @@ async def preview_email(payload: PreviewRequest):
         else:
             # Parser normalement ce bloc
             block_parsed = parse_email_text(block)
-            parsed.extend(block_parsed)
+            # Filtrer les résultats None (maintenant le parser ne devrait plus retourner None)
+            if block_parsed:
+                parsed.extend(block_parsed)
+            else:
+                # Si le parser ne retourne rien, créer un résultat minimal pour permettre l'édition manuelle
+                parsed.append({
+                    'date': None,
+                    'room': None,
+                    'for_who': None,
+                    'diapason': None,
+                    'requester': None,
+                    'piano': None,
+                    'time': None,
+                    'service': None,
+                    'notes': None,
+                    'confidence': 0.0,
+                    'warnings': ['Aucun champ détecté - Complétez manuellement'],
+                    'learned': False
+                })
 
     # Appliquer le demandeur global à TOUTES les demandes (écrase les valeurs erronées)
     # Car quand plusieurs demandes sont collées, c'est toujours le même demandeur
@@ -756,15 +804,27 @@ async def preview_email(payload: PreviewRequest):
         for item in parsed:
             item['requester'] = global_requester
 
-    # Si aucune demande détectée
+    # NOUVEAU: Toujours retourner un preview, même si vide ou partiel
+    # L'utilisateur pourra compléter manuellement
     if not parsed:
-        return {
-            "success": False,
-            "preview": [],
-            "count": 0,
-            "message": "Aucune demande détectée",
-            "needs_validation": False
-        }
+        logging.warning(f"⚠️ Aucune demande détectée après parsing. Blocs traités: {len(blocks)}")
+        for i, block in enumerate(blocks):
+            logging.warning(f"   Bloc {i+1}: {block[:100]}")
+        # Créer un preview minimal pour permettre l'édition manuelle
+        parsed = [{
+            'date': None,
+            'room': None,
+            'for_who': None,
+            'diapason': None,
+            'requester': None,
+            'piano': None,
+            'time': None,
+            'service': None,
+            'notes': None,
+            'confidence': 0.0,
+            'warnings': ['Aucun champ détecté automatiquement - Complétez manuellement'],
+            'learned': False
+        }]
 
     # Map vers format normalisé (mais sans id)
     preview = []
@@ -863,13 +923,19 @@ async def import_preview(payload: ImportPreviewRequest):
         for idx, item in enumerate(payload.items, start=1):
             try:
                 appointment_date = item.get("appointment_date")
-                if not appointment_date:
+                room = item.get("room") or ""
+                piano = item.get("piano") or ""
+                
+                # NOUVEAU: Permettre l'import si au moins un champ essentiel est présent
+                # (date, room, ou piano) - l'utilisateur peut compléter le reste plus tard
+                if not appointment_date and not room and not piano:
+                    logging.warning(f"Item {idx} ignoré: aucun champ essentiel (date, room, piano)")
                     continue
 
                 row = {
                     "id": f"pda_preview_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
                     "request_date": today_iso,
-                    "appointment_date": appointment_date,
+                    "appointment_date": appointment_date or None,  # Permettre None si pas de date
                     "room": item.get("room") or "",
                     "room_original": item.get("room"),
                     "for_who": item.get("for_who") or "",

@@ -606,21 +606,79 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handlePreview = async () => {
-    if (!rawText.trim()) return
+    console.log('🔍 handlePreview appelé', { rawText: rawText?.substring(0, 50), API_URL })
+    if (!rawText.trim()) {
+      console.log('⚠️ rawText vide, retour')
+      return
+    }
     try {
       setPreviewLoading(true)
       setInfoMessage(null)
+      setError(null)
+      console.log('📤 Envoi requête preview...', `${API_URL}/api/place-des-arts/preview`)
+      console.log('📝 Texte envoyé (preview):', {
+        length: rawText.length,
+        first200: rawText.substring(0, 200),
+        lines: rawText.split('\n').length,
+        fullText: rawText
+      })
       const resp = await fetch(`${API_URL}/api/place-des-arts/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw_text: rawText, source: 'email' })
       })
+      console.log('📥 Réponse reçue', resp.status, resp.statusText)
       if (!resp.ok) {
         const msg = await resp.text()
+        console.error('❌ Erreur HTTP', resp.status, msg)
         throw new Error(msg || `HTTP ${resp.status}`)
       }
       const data = await resp.json()
-      setPreview(data.preview || [])
+      console.log('✅ Données reçues', { 
+        success: data.success, 
+        count: data.count, 
+        previewLength: data.preview?.length,
+        preview: data.preview,
+        needs_validation: data.needs_validation,
+        message: data.message,
+        fullResponse: JSON.stringify(data, null, 2)
+      })
+      console.log('📝 Texte envoyé à l\'API:', rawText.substring(0, 200))
+      
+      // Mettre à jour le preview AVANT de reformater le texte
+      const previewItems = data.preview || []
+      console.log('📦 Mise à jour preview state', { previewItemsCount: previewItems.length })
+      setPreview(previewItems)
+      
+      if (previewItems.length === 0) {
+        // NOUVEAU: Créer un preview minimal pour permettre l'édition manuelle
+        const emptyPreview = [{
+          appointment_date: null,
+          room: null,
+          for_who: null,
+          diapason: null,
+          requester: null,
+          piano: null,
+          time: null,
+          service: null,
+          notes: null,
+          confidence: 0.0,
+          warnings: ['Aucun champ détecté automatiquement - Complétez manuellement'],
+          needs_validation: true,
+          learned: false,
+          duplicate_of: []
+        }]
+        setPreview(emptyPreview)
+        setInfoMessage('Aucun champ détecté automatiquement. Complétez les champs manuellement ci-dessous.')
+        setError(null)
+        console.log('⚠️ Aucun preview item détecté, création d\'un preview vide pour édition manuelle')
+      } else {
+        const infoMsg = `${previewItems.length} demande(s) détectée(s)${data.needs_validation ? ' - Vérification et complétion requises' : ''}`
+        setInfoMessage(infoMsg)
+        setError(null)
+        console.log('✅ Preview items à afficher:', previewItems.length)
+      }
+      
       // Reformater le texte collé : chaque bloc (séparé par une nouvelle date) devient une ligne avec virgules
       // Pattern: une ligne qui commence par un nombre suivi d'un mois (ex: "30 janv", "31 janv")
       const datePattern = /^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)/i
@@ -643,8 +701,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       }
 
       const formattedText = blocks.filter(b => b.length > 0).join('\n')
-      setRawText(formattedText)
+      if (formattedText !== rawText) {
+        setRawText(formattedText)
+        console.log('📝 Texte reformaté')
+      }
+      
+      console.log('✅ Preview terminé', { previewCount: previewItems.length })
     } catch (err) {
+      console.error('❌ Erreur handlePreview', err)
       setError(err.message)
     } finally {
       setPreviewLoading(false)
@@ -930,14 +994,37 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           placeholder="Collez le texte de l'email ici..."
           className="w-full min-h-[140px] border border-gray-300 rounded-md p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button
-            onClick={handlePreview}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              console.log('🖱️ Bouton Prévisualiser cliqué', { 
+                rawTextLength: rawText?.length, 
+                rawTextTrimmed: rawText?.trim().length,
+                previewLoading,
+                API_URL,
+                isDisabled: !rawText.trim() || previewLoading
+              })
+              if (!rawText.trim()) {
+                setError('Veuillez entrer du texte à prévisualiser')
+                return
+              }
+              if (previewLoading) {
+                console.log('⚠️ Preview déjà en cours, ignoré')
+                return
+              }
+              handlePreview()
+            }}
             disabled={!rawText.trim() || previewLoading}
-            className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-200 disabled:opacity-50"
+            className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400"
+            type="button"
           >
-            {previewLoading ? 'Prévisualisation...' : 'Prévisualiser'}
+            {previewLoading ? '⏳ Prévisualisation...' : '👁️ Prévisualiser'}
           </button>
+          {!rawText.trim() && (
+            <span className="text-xs text-gray-500">(Entrez du texte pour activer)</span>
+          )}
           <button
             onClick={() => { setRawText(''); setPreview([]); setInfoMessage(null); setError(null) }}
             className="px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:bg-gray-50"
@@ -946,19 +1033,35 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           </button>
         </div>
 
+        {error && (
+          <div className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded">
+            ❌ Erreur: {error}
+          </div>
+        )}
+
         {infoMessage && (
           <div className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded">
             {infoMessage}
           </div>
         )}
 
+        {previewLoading && (
+          <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded mt-3">
+            ⏳ Prévisualisation en cours...
+          </div>
+        )}
+
         {preview.length > 0 && (
-          <div className="border border-gray-200 rounded-md">
+          <div className="border border-gray-200 rounded-md mt-3">
             <div className="bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 flex items-center justify-between">
-              <span>Prévisualisation ({preview.length})</span>
+              <span>
+                {preview.some(p => p.confidence === 0.0) 
+                  ? '📝 Prévisualisation (complétez manuellement)' 
+                  : `✅ Prévisualisation (${preview.length} demande${preview.length > 1 ? 's' : ''})`}
+              </span>
               <span className="text-xs text-gray-500">
-                {preview.filter(p => p.confidence < 1.0).length > 0 && (
-                  `${preview.filter(p => p.confidence < 1.0).length} item(s) nécessitent une vérification`
+                {preview.filter(p => p.confidence < 1.0 || p.needs_validation).length > 0 && (
+                  `${preview.filter(p => p.confidence < 1.0 || p.needs_validation).length} item(s) nécessitent une vérification`
                 )}
               </span>
             </div>
@@ -979,13 +1082,16 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 />
               ))}
             </div>
-            <div className="bg-gray-50 px-3 py-3 border-t border-gray-200 flex justify-end">
+            <div className="bg-gray-50 px-3 py-3 border-t border-gray-200 flex justify-between items-center">
+              <div className="text-xs text-gray-600">
+                💡 <strong>Astuce:</strong> Complétez les champs manquants, puis cliquez sur "Valider et apprendre" pour améliorer le système, puis "Importer" pour enregistrer.
+              </div>
               <button
                 onClick={handleImport}
                 disabled={importLoading}
                 className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50 font-medium"
               >
-                {importLoading ? 'Import en cours...' : `Importer ${preview.length} demande${preview.length > 1 ? 's' : ''}`}
+                {importLoading ? 'Import en cours...' : `💾 Importer ${preview.length} demande${preview.length > 1 ? 's' : ''}`}
               </button>
             </div>
           </div>

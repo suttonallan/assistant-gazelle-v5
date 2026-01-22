@@ -540,10 +540,10 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             break
 
     # 5. Détecter la date
-    # Format: "le 20 janvier" / "20 janvier" / "janvier 20"
+    # Format: "le 20 janvier" / "20 janvier" / "janvier 20" / "7 fev" / "7 fév"
     date_patterns = [
         r'(?:le\s+)?(\d{1,2})\s+(janvier|février|fevrier|mars|avril|mai|juin|juillet|août|aout|septembre|octobre|novembre|décembre|decembre)',
-        r'(?:le\s+)?(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
+        r'(?:le\s+)?(\d{1,2})\s+(jan|janv|feb|fév|fev|fevr|févr|mar|mars|avr|avril|mai|jui|juin|jul|juil|juillet|aoû|aou|août|aout|sep|sept|septembre|oct|octobre|nov|novembre|déc|dec|décembre|decembre)',
         r'(\d{1,2})[-/](\w{3,})'
     ]
     for pattern in date_patterns:
@@ -631,13 +631,20 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
         if result['requester']:
             break
 
-    # Retourner None si aucun élément essentiel n'a été détecté
-    if not result['date'] and not result['piano'] and not result['room']:
-        return None
-
-    # TOUJOURS ajouter un avertissement pour le format naturel (même si confiance élevée)
-    # Cela permettra à l'utilisateur de valider et d'apprendre au système
-    result['warnings'].append("Format naturel détecté - Veuillez confirmer les champs")
+    # NOUVEAU: Toujours retourner un résultat même si partiel
+    # L'utilisateur pourra compléter manuellement les champs manquants
+    # Si aucun élément n'est détecté, retourner quand même un résultat vide pour permettre l'édition manuelle
+    if not result['date'] and not result['piano'] and not result['room'] and not result['time']:
+        # Créer un résultat minimal pour permettre l'édition manuelle
+        result['warnings'].append("Aucun champ détecté automatiquement - Veuillez compléter manuellement")
+        result['confidence'] = 0.0
+    else:
+        # TOUJOURS ajouter un avertissement pour le format naturel (même si confiance élevée)
+        # Cela permettra à l'utilisateur de valider et d'apprendre au système
+        if result['confidence'] < 0.5:
+            result['warnings'].append("Détection partielle - Veuillez vérifier et compléter les champs")
+        else:
+            result['warnings'].append("Format naturel détecté - Veuillez confirmer les champs")
 
     return result
 
@@ -687,7 +694,7 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             if len(parts) > 4:
                 result['notes'] = ' - '.join(parts[4:])
     else:
-        date_pattern = re.compile(r'^(\d{1,2})[-/\s]*(\w{3,})', re.IGNORECASE)
+        date_pattern = re.compile(r'^(\d{1,2})[-/\s]*(jan|janv|feb|fév|fev|fevr|févr|mar|mars|avr|avril|mai|jui|juin|jul|juil|juillet|aoû|aou|août|aout|sep|sept|septembre|oct|octobre|nov|novembre|déc|dec|décembre|decembre)', re.IGNORECASE)
         room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
         piano_keywords = ['Steinway', 'Yamaha', 'Kawai', 'Bösendorfer', 'Fazioli', 'Baldwin', 'Mason']
 
