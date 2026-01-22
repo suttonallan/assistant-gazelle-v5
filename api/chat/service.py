@@ -146,7 +146,8 @@ class ChatService:
 
         else:
             # Fallback: retourner journée d'aujourd'hui
-            today = datetime.now().strftime("%Y-%m-%d")
+            from core.timezone_utils import MONTREAL_TZ
+            today = datetime.now(MONTREAL_TZ).strftime("%Y-%m-%d")
             target_technician = request.technician_id
 
             day_overview = self.data_provider.get_day_overview(
@@ -178,39 +179,48 @@ class ChatService:
         # Supporte: "demain", "la semaine prochaine", "le 15 janvier", "dans 3 jours", etc.
         try:
             import dateparser
+            from core.timezone_utils import MONTREAL_TZ
+
+            # IMPORTANT: Utiliser l'heure de Montréal pour que "demain" soit correct
+            now_montreal = datetime.now(MONTREAL_TZ)
+
             parsed_date = dateparser.parse(
                 query,
                 languages=['fr', 'en'],
                 settings={
                     'PREFER_DATES_FROM': 'future',
-                    'RELATIVE_BASE': datetime.now()
+                    'RELATIVE_BASE': now_montreal
                 }
             )
             if parsed_date:
                 target_date = parsed_date.strftime("%Y-%m-%d")
                 # Vérifier si la date parsée n'est pas trop loin dans le passé/futur (validation)
-                days_diff = (parsed_date - datetime.now()).days
+                days_diff = (parsed_date.replace(tzinfo=None) - now_montreal.replace(tzinfo=None)).days
                 if -7 <= days_diff <= 365:  # Entre 7 jours passés et 1 an futur
                     return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
         except:
             pass  # Si dateparser n'est pas installé ou échoue, continuer avec patterns manuels
 
         # Fallback: Patterns manuels pour dates courantes
+        # IMPORTANT: Utiliser l'heure de Montréal pour que les dates soient correctes
+        from core.timezone_utils import MONTREAL_TZ
+        now_mtl = datetime.now(MONTREAL_TZ)
+
         if any(word in query_lower for word in ["demain", "tomorrow"]):
-            target_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            target_date = (now_mtl + timedelta(days=1)).strftime("%Y-%m-%d")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
         if any(word in query_lower for word in ["aujourd'hui", "today", "ma journée"]):
-            target_date = datetime.now().strftime("%Y-%m-%d")
+            target_date = now_mtl.strftime("%Y-%m-%d")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
         # Questions de suivi (nécessitent contexte de la journée)
         if any(word in query_lower for word in ["heure de départ", "quand partir", "partir à quelle heure"]):
-            target_date = date_override or datetime.now().strftime("%Y-%m-%d")
+            target_date = date_override or now_mtl.strftime("%Y-%m-%d")
             return ("departure_time", {"date": target_date, "requested_technician": requested_technician})
 
         if any(word in query_lower for word in ["distance totale", "combien de km", "kilométrage"]):
-            target_date = date_override or datetime.now().strftime("%Y-%m-%d")
+            target_date = date_override or now_mtl.strftime("%Y-%m-%d")
             return ("total_distance", {"date": target_date, "requested_technician": requested_technician})
 
         # Recherche de client/contact
@@ -230,7 +240,7 @@ class ChatService:
                 return ("appointment_detail", {"appointment_id": id_match.group(1)})
 
         # Default: journée du jour
-        target_date = date_override or datetime.now().strftime("%Y-%m-%d")
+        target_date = date_override or now_mtl.strftime("%Y-%m-%d")
         return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
     def _detect_technician_in_query(self, query_lower: str) -> Optional[str]:
@@ -820,7 +830,8 @@ class V5DataProvider:
             montreal_tz = pytz.timezone('America/Montreal')
 
             # Utiliser une date arbitraire (juste pour la conversion)
-            today = datetime.now().date()
+            from core.timezone_utils import MONTREAL_TZ
+            today = datetime.now(MONTREAL_TZ).date()
             utc_datetime = datetime.combine(today, utc_time)
             utc_datetime = utc_tz.localize(utc_datetime)
 
