@@ -15,21 +15,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
+from core.gazelle_api_client import GazelleAPIClient
 
 
 class AppointmentChecker:
     """Vérificateur de rendez-vous non confirmés."""
 
-    def __init__(self, storage: Optional[SupabaseStorage] = None):
+    def __init__(self, storage: Optional[SupabaseStorage] = None, gazelle_client: Optional[GazelleAPIClient] = None):
         """
         Initialise le vérificateur.
 
         Args:
             storage: Instance SupabaseStorage (créée si None)
+            gazelle_client: Instance GazelleAPIClient (créée si None)
         """
         self.storage = storage or SupabaseStorage()
+        self.gazelle_client = gazelle_client or GazelleAPIClient()
         # Cache simple en mémoire pour éviter de recharger les mêmes utilisateurs
         self._user_cache: Dict[str, Dict[str, str]] = {}
+        # Cache pour confirmedByClient depuis Gazelle
+        self._confirmed_cache: Dict[str, bool] = {}
 
     def get_unconfirmed_appointments(
         self,
@@ -47,7 +52,8 @@ class AppointmentChecker:
             dict: {technician_id: [list of unconfirmed appointments]}
         """
         if target_date is None:
-            target_date = (datetime.now() + timedelta(days=1)).date()
+            from core.timezone_utils import MONTREAL_TZ
+            target_date = (datetime.now(MONTREAL_TZ) + timedelta(days=1)).date()
 
         if exclude_types is None:
             exclude_types = ['PERSONAL', 'MEMO']
@@ -83,6 +89,28 @@ class AppointmentChecker:
                 apt_type = apt.get('type', 'APPOINTMENT')
                 if apt_type not in exclude_types:
                     filtered.append(apt)
+            
+            # VÉRIFICATION CRITIQUE: Vérifier confirmedByClient depuis Gazelle API
+            # Ne garder que les RV qui sont vraiment non confirmés
+            unconfirmed_filtered = []
+            for apt in filtered:
+                external_id = apt.get('external_id')
+                if not external_id:
+                    continue
+                
+                # Vérifier dans le cache d'abord
+                if external_id in self._confirmed_cache:
+                    is_confirmed = self._confirmed_cache[external_id]
+                else:
+                    # Récupérer depuis Gazelle API
+                    is_confirmed = self._check_confirmed_in_gazelle(external_id)
+                    self._confirmed_cache[external_id] = is_confirmed
+                
+                # Ne garder que les RV NON confirmés
+                if not is_confirmed:
+                    unconfirmed_filtered.append(apt)
+            
+            filtered = unconfirmed_filtered
 
             # Grouper par technicien
             by_technician = {}
@@ -162,6 +190,39 @@ class AppointmentChecker:
             print(f"⚠️ Erreur get_technician_info pour {tech_id}: {e}")
 
         return None
+
+    def _check_confirmed_in_gazelle(self, external_id: str) -> bool:
+        """
+        Vérifie si un RV est confirmé dans Gazelle en récupérant confirmedByClient depuis l'API.
+        
+        Args:
+            external_id: ID externe du rendez-vous (ex: evt_xxx)
+            
+        Returns:
+            True si le RV est confirmé OU s'il n'existe plus dans Gazelle (pour l'exclure des alertes)
+            False si le RV existe mais n'est pas confirmé
+        """
+        try:
+            # Récupérer les appointments depuis Gazelle
+            # Limite augmentée à 500 pour être sûr de trouver tous les RV
+            appointments = self.gazelle_client.get_appointments(limit=500)
+            
+            # Chercher le RV par external_id
+            for apt in appointments:
+                if apt.get('id') == external_id:
+                    confirmed = apt.get('confirmedByClient', False)
+                    # Si le RV existe dans Gazelle, retourner son statut de confirmation
+                    return bool(confirmed)
+            
+            # Si le RV n'est pas trouvé dans Gazelle, il a probablement été supprimé/annulé/déplacé
+            # On retourne True pour l'exclure des alertes (il n'existe plus)
+            print(f"   ℹ️ RV {external_id} non trouvé dans Gazelle - exclu des alertes")
+            return True  # Exclure des alertes car n'existe plus
+            
+        except Exception as e:
+            print(f"⚠️ Erreur vérification confirmedByClient pour {external_id}: {e}")
+            # En cas d'erreur, on exclut des alertes pour éviter les faux positifs
+            return True
 
     def format_alert_message(
         self,

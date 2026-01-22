@@ -63,13 +63,15 @@ async def get_unconfirmed_appointments() -> Dict[str, Any]:
     """
     try:
         storage = get_storage()
+        from core.timezone_utils import MONTREAL_TZ
 
-        # Date cible: dans 14 jours
-        today = datetime.now().date()
+        # Date cible: dans 14 jours (utiliser heure Montréal)
+        now_mtl = datetime.now(MONTREAL_TZ)
+        today = now_mtl.date()
         target_date = today + timedelta(days=14)
 
         # Date limite de création: il y a 120 jours
-        creation_cutoff = datetime.now() - timedelta(days=120)
+        creation_cutoff = now_mtl - timedelta(days=120)
 
         # Récupérer les RV qui correspondent aux critères
         response = storage.client.table('gazelle_appointments').select(

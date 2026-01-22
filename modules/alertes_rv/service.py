@@ -13,9 +13,22 @@ import requests
 from core.supabase_storage import SupabaseStorage
 from modules.alertes_rv.checker import AppointmentChecker
 from modules.alertes_rv.email_sender import EmailSender
+import os
 
 SUPABASE_TIMEOUT = 25
 ASSISTANTE_GAZELLE_ID = "usr_assistante"
+
+# Configuration des emails des techniciens (depuis .env)
+TECHNICIAN_EMAILS = {
+    'nicolas': os.getenv('EMAIL_NICOLAS', 'nicolas@pianotekinc.com'),
+    'allan': os.getenv('EMAIL_ALLAN', 'asutton@piano-tek.com'),
+    'jp': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
+    'jean-philippe': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
+    'jean philippe': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
+}
+
+# Email de Louise pour les alertes de relance de vieux rendez-vous
+LOUISE_EMAIL = os.getenv('LOUISE_EMAIL', 'info@piano-tek.com')
 
 
 class UnconfirmedAlertsService:
@@ -31,6 +44,168 @@ class UnconfirmedAlertsService:
         self.checker = checker or AppointmentChecker(self.storage)
         self.sender = sender or EmailSender(method="sendgrid")
 
+    def _identify_technician_and_route(
+        self,
+        tech_info: Optional[Dict[str, str]]
+    ) -> tuple[str, str]:
+        """
+        Identifie le technicien par nom et route vers l'email approprié.
+        
+        Args:
+            tech_info: Dict avec 'name' et 'email' du technicien
+            
+        Returns:
+            tuple: (technician_name, email_address)
+            Fallback: Si technicien non reconnu, retourne ('Nicolas', EMAIL_NICOLAS)
+        """
+        if not tech_info:
+            # Fallback: Nicolas par défaut
+            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nicolas@pianotekinc.com'))
+        
+        tech_name = tech_info.get("name", "").lower().strip()
+        tech_email = tech_info.get("email", "")
+        
+        # Identification par nom
+        if 'nicolas' in tech_name or 'nick' in tech_name:
+            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', tech_email))
+        elif 'allan' in tech_name or 'asutton' in tech_email.lower():
+            return ('Allan', TECHNICIAN_EMAILS.get('allan', tech_email))
+        elif 'jean-philippe' in tech_name or 'jean philippe' in tech_name or 'jp' in tech_name.lower():
+            return ('JP', TECHNICIAN_EMAILS.get('jp', tech_email))
+        else:
+            # Fallback: Nicolas par défaut si non reconnu
+            print(f"⚠️ Technicien non reconnu: {tech_name} - routage vers Nicolas par défaut")
+            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nicolas@pianotekinc.com'))
+
+    def _format_urgence_message(
+        self,
+        technician_name: str,
+        client_name: str
+    ) -> str:
+        """
+        Formate le message d'urgence personnalisé J-1.
+        
+        Args:
+            technician_name: Nom du technicien (Nicolas, Allan, JP)
+            client_name: Nom du client
+            
+        Returns:
+            str: Message HTML formaté
+        """
+        return f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #d9534f;">⚠️ Rendez-vous non confirmé</h2>
+            <p>Salut {technician_name},</p>
+            <p>Ton rendez-vous de demain chez <strong>{client_name}</strong> n'est toujours pas confirmé.</p>
+            <p style="margin-top: 20px; color: #777;">
+                Merci de contacter le client pour confirmer le rendez-vous.
+            </p>
+            <hr style="margin-top: 30px;">
+            <p style="color: #777; font-size: 12px;">
+                Cette alerte a été générée automatiquement par le système Assistant Gazelle V5.
+            </p>
+        </body>
+        </html>
+        """
+
+    def _cleanup_ghost_appointments(self, target_date: date) -> int:
+        """
+        Nettoie les RV fantômes : supprime ou marque comme annulé les RV qui n'existent plus dans Gazelle.
+        
+        IMPORTANT: Ne nettoie QUE les RV qui n'existent vraiment plus dans Gazelle.
+        Les RV sans technicien ou sans date dans Gazelle sont CONSERVÉS (ils existent toujours).
+        
+        Args:
+            target_date: Date à vérifier
+            
+        Returns:
+            Nombre de RV nettoyés
+        """
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            gazelle_client = GazelleAPIClient()
+            
+            # Récupérer tous les RV de la date dans Supabase
+            date_str = target_date.isoformat()
+            supabase_appointments = (
+                self.storage.client.table('gazelle_appointments')
+                .select('id, external_id, title, status')
+                .eq('appointment_date', date_str)
+                .eq('status', 'ACTIVE')
+                .execute()
+            )
+            
+            if not supabase_appointments.data:
+                return 0
+            
+            # Récupérer TOUS les RV depuis Gazelle (pas de filtre par date)
+            # Car certains RV peuvent exister sans startDate
+            # Limite augmentée à 500 pour être sûr de trouver tous les RV
+            gazelle_appointments = gazelle_client.get_appointments(limit=500)
+            gazelle_ids = {apt.get('id') for apt in gazelle_appointments if apt.get('id')}
+            
+            # Identifier les RV fantômes (dans Supabase mais vraiment absents de Gazelle)
+            ghost_count = 0
+            for supabase_apt in supabase_appointments.data:
+                external_id = supabase_apt.get('external_id')
+                if external_id and external_id not in gazelle_ids:
+                    # Vérifier une dernière fois que le RV n'existe vraiment pas
+                    # (même sans technicien ou date, s'il existe dans Gazelle, on le garde)
+                    exists_in_gazelle = any(apt.get('id') == external_id for apt in gazelle_appointments)
+                    
+                    if not exists_in_gazelle:
+                        # Le RV n'existe vraiment plus dans Gazelle - marquer comme annulé
+                        apt_id = supabase_apt.get('id')
+                        try:
+                            self.storage.client.table('gazelle_appointments').update({
+                                'status': 'CANCELLED'
+                            }).eq('id', apt_id).execute()
+                            ghost_count += 1
+                            print(f"   🧹 RV fantôme nettoyé: {supabase_apt.get('title', 'N/A')[:50]} ({external_id})")
+                        except Exception as e:
+                            print(f"   ⚠️ Erreur nettoyage RV {external_id}: {e}")
+                    else:
+                        # Le RV existe dans Gazelle (même sans technicien/date) - on le garde
+                        print(f"   ℹ️ RV {external_id} existe dans Gazelle (sans technicien/date) - conservé")
+            
+            if ghost_count > 0:
+                print(f"✅ {ghost_count} RV fantôme(s) nettoyé(s) pour {date_str}")
+            
+            return ghost_count
+            
+        except Exception as e:
+            print(f"⚠️ Erreur nettoyage RV fantômes: {e}")
+            return 0
+
+    def _verify_appointment_exists_in_gazelle(self, external_id: str) -> bool:
+        """
+        Vérifie une dernière fois si un RV existe dans Gazelle avant d'envoyer une alerte.
+        
+        Args:
+            external_id: ID externe du rendez-vous
+            
+        Returns:
+            True si le RV existe dans Gazelle, False sinon
+        """
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            gazelle_client = GazelleAPIClient()
+            
+            # Limite augmentée à 500 pour être sûr de trouver tous les RV
+            appointments = gazelle_client.get_appointments(limit=500)
+            
+            for apt in appointments:
+                if apt.get('id') == external_id:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Erreur vérification finale pour {external_id}: {e}")
+            # En cas d'erreur, on ne bloque pas l'envoi (mais on log l'erreur)
+            return True  # Permettre l'envoi en cas d'erreur API
+
     def send_alerts(
         self,
         target_date: Optional[date] = None,
@@ -38,11 +213,24 @@ class UnconfirmedAlertsService:
         triggered_by: str = "system@piano-tek.com",
     ) -> Dict[str, any]:
         """
-        Envoie les alertes et logge dans alert_logs.
+        Envoie les alertes J-1 avec routage ciblé par technicien.
+        - Nicolas → EMAIL_NICOLAS
+        - Allan → EMAIL_ALLAN
+        - JP → EMAIL_JP
+        - Fallback → Nicolas
+        
+        NETTOYAGE: Supprime les RV fantômes avant de vérifier.
+        FIABILITÉ: Vérifie une dernière fois dans Gazelle avant d'envoyer.
         """
         if target_date is None:
-            target_date = (datetime.now().date() + timedelta(days=1))
+            from core.timezone_utils import MONTREAL_TZ
+            target_date = (datetime.now(MONTREAL_TZ).date() + timedelta(days=1))
 
+        # 1. NETTOYAGE: Supprimer les RV fantômes
+        print(f"\n🧹 Nettoyage des RV fantômes pour {target_date.isoformat()}...")
+        ghost_count = self._cleanup_ghost_appointments(target_date)
+
+        # 2. Récupérer les RV non confirmés (après nettoyage)
         by_technician = self.checker.get_unconfirmed_appointments(target_date=target_date)
         if technician_ids:
             by_technician = {k: v for k, v in by_technician.items() if k in technician_ids}
@@ -53,46 +241,83 @@ class UnconfirmedAlertsService:
                 "message": "Aucun RV non confirmé",
                 "sent_count": 0,
                 "target_date": target_date.isoformat(),
+                "ghost_cleaned": ghost_count,
                 "details": [],
             }
 
         alerts_to_send: List[dict] = []
+        dashboard_alerts_to_create: List[dict] = []
+        
         for tech_id, appointments in by_technician.items():
             tech_info = self.checker.get_technician_info(tech_id)
-            if not tech_info:
-                continue
-
-            html_content = self.checker.format_alert_message(
-                technician_name=tech_info["name"],
-                appointments=appointments,
-                target_date=target_date,
-            )
-            date_str = target_date.strftime("%d/%m/%Y")
-            subject = f"⚠️ {len(appointments)} RV non confirmé(s) pour le {date_str}"
-
-            alerts_to_send.append(
-                {
-                    "to_email": tech_info["email"],
-                    "to_name": tech_info["name"],
-                    "subject": subject,
-                    "html_content": html_content,
+            
+            # Identification et routage ciblé
+            technician_name, technician_email = self._identify_technician_and_route(tech_info)
+            
+            # Envoyer un email par RV (message personnalisé)
+            for apt in appointments:
+                external_id = apt.get('external_id')
+                client_name = apt.get('client_name', 'Client inconnu')
+                
+                # 3. FIABILITÉ: Vérification finale dans Gazelle avant envoi
+                if not self._verify_appointment_exists_in_gazelle(external_id):
+                    print(f"   ⚠️ RV {external_id} n'existe plus dans Gazelle - alerte annulée")
+                    continue
+                
+                # Message personnalisé pour chaque RV
+                html_content = self._format_urgence_message(technician_name, client_name)
+                subject = f"⚠️ RV non confirmé demain chez {client_name}"
+                
+                alerts_to_send.append(
+                    {
+                        "to_email": technician_email,
+                        "to_name": technician_name,
+                        "subject": subject,
+                        "html_content": html_content,
+                        "technician_id": tech_id,
+                        "technician_name": technician_name,
+                        "appointment_count": 1,  # Un email par RV
+                        "appointments": [apt],  # Un seul RV par email
+                        "client_name": client_name,
+                    }
+                )
+                
+                # Préparer l'entrée dashboard_alerts
+                dashboard_alerts_to_create.append({
+                    "type": "URGENCE_CONFIRMATION",
+                    "severity": "warning",  # Rouge sur le Dashboard
+                    "title": f"RV non confirmé - {client_name}",
+                    "message": f"Rendez-vous de demain chez {client_name} non confirmé",
                     "technician_id": tech_id,
-                    "appointment_count": len(appointments),
-                    "appointments": appointments,
-                }
-            )
+                    "technician_name": technician_name,
+                    "appointment_id": apt.get("appointment_id") or apt.get("external_id"),
+                    "client_name": client_name,
+                    "appointment_date": target_date.isoformat(),
+                    "appointment_time": apt.get("appointment_time", "00:00"),
+                    "metadata": {
+                        "appointment_external_id": apt.get("external_id"),
+                        "triggered_by": triggered_by,
+                    }
+                })
 
+        # Envoyer les emails
         send_results = self.sender.send_batch_alerts(alerts_to_send)
+        
+        # Logger dans alert_logs (comme avant)
         self._log_alerts(target_date, alerts_to_send, send_results, triggered_by)
+        
+        # Créer les entrées dashboard_alerts
+        self._create_dashboard_alerts(dashboard_alerts_to_create, send_results)
 
         return {
             "success": True,
             "message": f"{len(alerts_to_send)} alerte(s) envoyée(s)",
             "sent_count": len(alerts_to_send),
             "target_date": target_date.isoformat(),
+            "ghost_cleaned": ghost_count,
             "technicians": [
                 {
-                    "name": alert["to_name"],
+                    "name": alert["technician_name"],
                     "email": alert["to_email"],
                     "appointment_count": alert["appointment_count"],
                 }
@@ -101,28 +326,31 @@ class UnconfirmedAlertsService:
         }
 
     # ------------------------------------------------------------------
-    # Rendez-vous longue durée (14 jours à venir, créés il y a >= 4 mois)
+    # RELANCE LOUISE (J-7) : 7 jours avant un RV créé il y a plus de 3 mois
     # ------------------------------------------------------------------
-    def check_long_term_appointments(self) -> Dict[str, any]:
+    def check_relance_louise(self) -> Dict[str, any]:
         """
-        Repère les RV dans 14 jours créés il y a 4 mois ou plus, et notifie Louise.
+        RELANCE LOUISE (J-7) : 7 jours avant un RV, si celui-ci a été créé il y a plus de 3 mois,
+        envoie une alerte à Louise (info@piano-tek.com).
         """
-        target_date = (datetime.now(timezone.utc).date() + timedelta(days=14))
-        cutoff_date = (datetime.now(timezone.utc).date() - timedelta(days=120))
+        from core.timezone_utils import MONTREAL_TZ
+        now_mtl = datetime.now(MONTREAL_TZ)
+        target_date = (now_mtl.date() + timedelta(days=7))
+        cutoff_date = (now_mtl.date() - timedelta(days=90))  # 3 mois
 
         appointments = self._fetch_long_term_appointments(target_date, cutoff_date)
         if not appointments:
-            return {"success": True, "count": 0, "message": "Aucun rendez-vous longue durée"}
+            return {"success": True, "count": 0, "message": "Aucun rendez-vous à relancer"}
 
-        assistant_info = self.checker.get_technician_info(ASSISTANTE_GAZELLE_ID)
-        assistant_email = assistant_info.get("email") if assistant_info else None
-        assistant_name = assistant_info.get("name") if assistant_info else "Louise"
+        # Utiliser LOUISE_EMAIL depuis .env (info@piano-tek.com)
+        assistant_email = LOUISE_EMAIL
+        assistant_name = "Louise"
 
         if not assistant_email:
-            return {"success": False, "message": "Email assistante introuvable dans users"}
+            return {"success": False, "message": "LOUISE_EMAIL non configuré dans .env"}
 
-        subject = "⚠️ Rappel : Rendez-vous longue durée dans 14 jours"
-        html_content = self._format_long_term_email(assistant_name, appointments, target_date, cutoff_date)
+        subject = "⚠️ Relance : Rendez-vous dans 7 jours (créé il y a plus de 3 mois)"
+        html_content = self._format_relance_email(assistant_name, appointments, target_date, cutoff_date)
 
         sent = self.sender.send_email(
             to_email=assistant_email,
@@ -158,7 +386,7 @@ class UnconfirmedAlertsService:
             return []
 
     @staticmethod
-    def _format_long_term_email(
+    def _format_relance_email(
         assistant_name: str,
         appointments: List[dict],
         target_date: date,
@@ -166,7 +394,7 @@ class UnconfirmedAlertsService:
     ) -> str:
         intro = (
             f"Bonjour {assistant_name},<br><br>"
-            f"Voici les rendez-vous planifiés il y a plus de 4 mois qui arrivent dans 2 semaines "
+            f"Voici les rendez-vous planifiés il y a plus de 3 mois qui arrivent dans 7 jours "
             f"({target_date.isoformat()}). Une confirmation manuelle est suggérée.<br><br>"
         )
 
@@ -263,6 +491,86 @@ class UnconfirmedAlertsService:
                 f"{self.storage.api_url}/alert_logs"
                 f"?appointment_id=eq.{appointment_id}"
                 f"&technician_id=eq.{technician_id}"
+                f"&acknowledged=eq.false"
+                f"&limit=1"
+            )
+            resp = requests.get(url, headers=self.storage._get_headers(), timeout=SUPABASE_TIMEOUT)
+            if resp.status_code != 200:
+                return False
+            data = resp.json() or []
+            return len(data) > 0
+        except Exception:
+            return False
+
+    def _create_dashboard_alerts(
+        self,
+        dashboard_alerts: List[dict],
+        send_results: dict
+    ) -> None:
+        """
+        Crée les entrées dans dashboard_alerts pour affichage sur le Dashboard.
+        
+        Args:
+            dashboard_alerts: Liste de dicts avec les données des alertes
+            send_results: Résultats de l'envoi des emails (pour marquer si échec)
+        """
+        if not dashboard_alerts:
+            return
+            
+        for i, alert_data in enumerate(dashboard_alerts):
+            # Vérifier si l'email a été envoyé avec succès
+            email_success = True
+            if i < len(send_results.get("details", [])):
+                email_success = send_results["details"][i].get("success", True)
+            
+            # Ne créer l'alerte dashboard que si l'email a été envoyé
+            if not email_success:
+                continue
+            
+            # Vérifier si l'alerte existe déjà (éviter doublons)
+            appointment_id = alert_data.get("appointment_id")
+            technician_id = alert_data.get("technician_id")
+            
+            if appointment_id and technician_id:
+                if self._dashboard_alert_exists(appointment_id, technician_id):
+                    continue
+            
+            try:
+                url = f"{self.storage.api_url}/dashboard_alerts"
+                headers = self.storage._get_headers()
+                headers["Prefer"] = "resolution=merge-duplicates"
+                
+                resp = requests.post(
+                    url,
+                    headers=headers,
+                    json=alert_data,
+                    timeout=SUPABASE_TIMEOUT
+                )
+                
+                if resp.status_code not in [200, 201]:
+                    print(f"⚠️ Erreur création dashboard_alert status {resp.status_code}: {resp.text}")
+                else:
+                    print(f"✅ Dashboard alert créée pour {alert_data.get('client_name')} - {alert_data.get('technician_name')}")
+            except Exception as e:
+                print(f"⚠️ Erreur création dashboard_alert: {e}")
+
+    def _dashboard_alert_exists(self, appointment_id: str, technician_id: str) -> bool:
+        """
+        Vérifie si une alerte dashboard existe déjà pour ce RV/technicien.
+        
+        Args:
+            appointment_id: ID du rendez-vous
+            technician_id: ID du technicien
+            
+        Returns:
+            bool: True si l'alerte existe déjà
+        """
+        try:
+            url = (
+                f"{self.storage.api_url}/dashboard_alerts"
+                f"?appointment_id=eq.{appointment_id}"
+                f"&technician_id=eq.{technician_id}"
+                f"&type=eq.URGENCE_CONFIRMATION"
                 f"&acknowledged=eq.false"
                 f"&limit=1"
             )
