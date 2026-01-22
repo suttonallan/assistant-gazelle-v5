@@ -20,8 +20,8 @@ class EmailNotifier:
         'louise': os.getenv('EMAIL_LOUISE', 'louise@example.com'),
     }
 
-    # Email expéditeur
-    FROM_EMAIL = os.getenv('EMAIL_FROM', 'noreply@assistant-gazelle.com')
+    # Email expéditeur (utilise info@piano-tek.com qui est vérifié dans SendGrid)
+    FROM_EMAIL = os.getenv('EMAIL_FROM', 'info@piano-tek.com')
     FROM_NAME = os.getenv('EMAIL_FROM_NAME', 'Assistant Gazelle')
 
     def __init__(self):

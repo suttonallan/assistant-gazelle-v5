@@ -9,7 +9,8 @@
 Gère toutes les tâches planifiées de l'application:
 - 01:00: Sync Gazelle Totale → Rapport Timeline (chaînées automatiquement)
 - 03:00: Backup SQL de la base de données
-- 16:00: Sync RV & Alertes (rendez-vous non confirmés)
+- 17:00: URGENCE TECHNIQUE (J-1) - Alertes aux techniciens pour RV non confirmés
+- 09:00: RELANCE LOUISE (J-7) - Relance pour RV créés il y a plus de 3 mois
 
 Orchestration:
 - Quand Sync Gazelle réussit → déclenche automatiquement Rapport Timeline
@@ -228,12 +229,12 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
             # )
         except Exception as timeline_error:
             print(f"⚠️ Erreur lors de la génération du rapport Timeline: {timeline_error}")
-            # Notifier l'échec du rapport (mais le sync Gazelle a réussi)
+            # Notifier l'échec du rapport (mais le sync Gazelle a réussi) → Email Allan
             notifier.notify_sync_error(
                 task_name='Rapport Timeline (auto après Gazelle)',
                 error_message=str(timeline_error),
                 send_slack=True,
-                send_email=False
+                send_email=True  # Email à Allan pour erreurs de chaîne
             )
 
         return stats
@@ -252,12 +253,12 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
             message=error_msg
         )
 
-        # 📧 NOTIFICATION: Envoyer alerte Slack pour erreur de sync
+        # 📧 NOTIFICATION: Envoyer alerte Slack + Email (Allan) pour erreur de sync
         notifier.notify_sync_error(
             task_name='Sync Gazelle Totale',
             error_message=error_msg,
             send_slack=True,
-            send_email=False  # Email désactivé par défaut, Slack suffit
+            send_email=True  # Email à Allan pour erreurs critiques
         )
 
         raise
@@ -334,31 +335,19 @@ def task_backup_database():
         raise
 
 
-def task_sync_rv_and_alerts():
+def task_urgence_technique_j1():
     """
-    16:00 - Sync RV & Alertes
+    URGENCE TECHNIQUE (J-1) : La veille à 17h, si un RV n'est pas 'Confirmed',
+    envoie une alerte au technicien concerné (Nicolas, Allan ou JP).
 
-    Importation ciblée des rendez-vous et détection des RV non confirmés
-    pour le lendemain. Envoie des alertes aux techniciens concernés.
-
-    Exécution: Tous les jours à 16:00 (heure Montréal)
+    Exécution: Tous les jours à 17:00 (heure Montréal)
     """
     print("\n" + "="*70)
-    print("📅 SYNC RV & ALERTES - Démarrage")
+    print("🚨 URGENCE TECHNIQUE (J-1) - Démarrage")
     print(f"   Heure: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*70)
 
     try:
-        # 1. Sync appointments depuis Gazelle
-        print("\n🔄 Étape 1/2: Synchronisation des appointments...")
-        from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
-
-        syncer = GazelleToSupabaseSync()
-        appointments_count = syncer.sync_appointments()
-        print(f"✅ Appointments synchronisés: {appointments_count}")
-
-        # 2. Vérifier et envoyer alertes pour RV non confirmés de demain
-        print("\n📧 Étape 2/2: Vérification et envoi d'alertes...")
         from modules.alertes_rv.service import UnconfirmedAlertsService
         from core.supabase_storage import SupabaseStorage
         from modules.alertes_rv.checker import AppointmentChecker
@@ -372,24 +361,69 @@ def task_sync_rv_and_alerts():
         # Date cible: demain
         target_date = (datetime.now() + timedelta(days=1)).date()
 
-        # Envoyer alertes automatiquement
+        # Envoyer alertes automatiquement aux techniciens
         result = service.send_alerts(
             target_date=target_date,
             technician_ids=None,  # Tous les techniciens avec RV non confirmés
-            triggered_by='scheduler'
+            triggered_by='scheduler_urgence_j1'
         )
 
-        print(f"\n✅ Alertes envoyées:")
-        print(f"   - Techniciens concernés: {result['total_technicians']}")
-        print(f"   - RV non confirmés: {result['total_appointments']}")
-        print(f"   - Emails envoyés: {result['emails_sent']}")
+        print(f"\n✅ Alertes URGENCE TECHNIQUE envoyées:")
+        print(f"   - Emails envoyés: {result.get('sent_count', 0)}")
+        if result.get('technicians'):
+            for tech in result['technicians']:
+                print(f"   - {tech['name']}: {tech['appointment_count']} RV non confirmé(s)")
 
         print("\n" + "="*70)
-        print("✅ SYNC RV & ALERTES - Terminé")
+        print("✅ URGENCE TECHNIQUE (J-1) - Terminé")
         print("="*70 + "\n")
 
     except Exception as e:
-        print(f"\n❌ Erreur lors du sync RV & alertes: {e}")
+        print(f"\n❌ Erreur lors de l'envoi des alertes URGENCE TECHNIQUE: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+def task_relance_louise_j7():
+    """
+    RELANCE LOUISE (J-7) : 7 jours avant un RV, si celui-ci a été créé il y a plus de 3 mois,
+    envoie une alerte à Louise (info@piano-tek.com).
+
+    Exécution: Tous les jours à 09:00 (heure Montréal)
+    """
+    print("\n" + "="*70)
+    print("📧 RELANCE LOUISE (J-7) - Démarrage")
+    print(f"   Heure: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*70)
+
+    try:
+        from modules.alertes_rv.service import UnconfirmedAlertsService
+        from core.supabase_storage import SupabaseStorage
+        from modules.alertes_rv.checker import AppointmentChecker
+        from modules.alertes_rv.email_sender import EmailSender
+
+        storage = SupabaseStorage()
+        checker = AppointmentChecker(storage)
+        sender = EmailSender(method='sendgrid')
+        service = UnconfirmedAlertsService(storage, checker, sender)
+
+        # Vérifier les RV dans 7 jours créés il y a plus de 3 mois
+        result = service.check_relance_louise()
+
+        if result.get('success'):
+            print(f"\n✅ Relance LOUISE envoyée:")
+            print(f"   - RV concernés: {result.get('count', 0)}")
+            print(f"   - Date cible: {result.get('target_date')}")
+        else:
+            print(f"\n⚠️ {result.get('message', 'Erreur inconnue')}")
+
+        print("\n" + "="*70)
+        print("✅ RELANCE LOUISE (J-7) - Terminé")
+        print("="*70 + "\n")
+
+    except Exception as e:
+        print(f"\n❌ Erreur lors de l'envoi de la relance LOUISE: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -430,16 +464,27 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 03:00 - Backup SQL configurée")
 
-    # 16:00 - Sync RV & Alertes
+    # 17:00 - URGENCE TECHNIQUE (J-1)
     scheduler.add_job(
-        task_sync_rv_and_alerts,
-        trigger=CronTrigger(hour=16, minute=0, timezone='America/Montreal'),
-        id='sync_rv_alerts',
-        name='Sync RV & Alertes (16:00)',
+        task_urgence_technique_j1,
+        trigger=CronTrigger(hour=17, minute=0, timezone='America/Montreal'),
+        id='urgence_technique_j1',
+        name='URGENCE TECHNIQUE (J-1) - 17:00',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 16:00 - Sync RV & Alertes configurée")
+    print("   ✅ 17:00 - URGENCE TECHNIQUE (J-1) configurée")
+
+    # 09:00 - RELANCE LOUISE (J-7)
+    scheduler.add_job(
+        task_relance_louise_j7,
+        trigger=CronTrigger(hour=9, minute=0, timezone='America/Montreal'),
+        id='relance_louise_j7',
+        name='RELANCE LOUISE (J-7) - 09:00',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 09:00 - RELANCE LOUISE (J-7) configurée")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
@@ -492,5 +537,6 @@ __all__ = [
     'task_sync_gazelle_totale',
     'task_generate_rapport_timeline',
     'task_backup_database',
-    'task_sync_rv_and_alerts'
+    'task_urgence_technique_j1',
+    'task_relance_louise_j7'
 ]

@@ -57,12 +57,12 @@ class NotificationService:
             
             results['slack'] = self.slack.notify_admin(slack_message)
 
-        # Email (optionnel, pour erreurs critiques)
+        # Email (optionnel, pour erreurs critiques) → Allan
         if send_email:
             results['email'] = self.email.send_sync_error_notification(
                 task_name=task_name,
                 error_message=error_message,
-                recipient='nicolas'
+                recipient='allan'  # Erreurs critiques → Allan
             )
 
         return results

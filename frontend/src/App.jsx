@@ -6,6 +6,7 @@ import OrfordDashboard from './components/OrfordDashboard'
 import LoginScreen from './components/LoginScreen'
 import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
 import SystemHealthDashboard from './components/SystemHealthDashboard' // 🏥 Logs de Santé
+import UnconfirmedAlertsDashboard from './components/UnconfirmedAlertsDashboard' // 📧 Alertes RV
 import InventaireDashboard from './components/InventaireDashboard'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
@@ -423,6 +424,12 @@ function App() {
               <SystemHealthDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
+        } else if (currentView === 'unconfirmed-alerts') {
+          return (
+            <ErrorBoundary componentName="Alertes RV Non Confirmés">
+              <UnconfirmedAlertsDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
@@ -657,6 +664,20 @@ function App() {
                         }`}
                       >
                         🏥 Logs de Santé
+                      </button>
+                    )}
+
+                    {/* Alertes RV - admin seulement */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('unconfirmed-alerts')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'unconfirmed-alerts'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        📧 Alertes RV
                       </button>
                     )}
 
