@@ -175,6 +175,26 @@ class ChatService:
         # Détecter si la requête concerne un autre technicien
         requested_technician = self._detect_technician_in_query(query_lower)
 
+        # PRIORITÉ: Patterns manuels fiables pour dates courantes AVANT dateparser
+        # (dateparser peut être incohérent sur certains serveurs)
+        from core.timezone_utils import MONTREAL_TZ
+        now_mtl = datetime.now(MONTREAL_TZ)
+
+        # après-demain (vérifié EN PREMIER car contient "demain")
+        if any(word in query_lower for word in ["après-demain", "après demain", "apres-demain", "apres demain"]):
+            target_date = (now_mtl + timedelta(days=2)).strftime("%Y-%m-%d")
+            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+
+        # demain
+        if any(word in query_lower for word in ["demain", "tomorrow"]):
+            target_date = (now_mtl + timedelta(days=1)).strftime("%Y-%m-%d")
+            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+
+        # aujourd'hui
+        if any(word in query_lower for word in ["aujourd'hui", "today", "ma journée"]):
+            target_date = now_mtl.strftime("%Y-%m-%d")
+            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+
         # Essayer de parser une date depuis la requête avec dateparser
         # Supporte: "demain", "la semaine prochaine", "le 15 janvier", "dans 3 jours", etc.
         try:
@@ -200,19 +220,6 @@ class ChatService:
                     return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
         except:
             pass  # Si dateparser n'est pas installé ou échoue, continuer avec patterns manuels
-
-        # Fallback: Patterns manuels pour dates courantes
-        # IMPORTANT: Utiliser l'heure de Montréal pour que les dates soient correctes
-        from core.timezone_utils import MONTREAL_TZ
-        now_mtl = datetime.now(MONTREAL_TZ)
-
-        if any(word in query_lower for word in ["demain", "tomorrow"]):
-            target_date = (now_mtl + timedelta(days=1)).strftime("%Y-%m-%d")
-            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
-
-        if any(word in query_lower for word in ["aujourd'hui", "today", "ma journée"]):
-            target_date = now_mtl.strftime("%Y-%m-%d")
-            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
         # Questions de suivi (nécessitent contexte de la journée)
         if any(word in query_lower for word in ["heure de départ", "quand partir", "partir à quelle heure"]):
