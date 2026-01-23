@@ -8,7 +8,10 @@ Point d'entrée unique pour toutes les fonctionnalités.
 import os
 import json
 import time
+import hmac
+import hashlib
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement depuis .env
@@ -198,6 +201,134 @@ app.include_router(scheduler_router, prefix="/api")
 app.include_router(sync_logs_router, prefix="/api")
 app.include_router(scheduler_logs_router, prefix="/api")
 app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos - DOIT ÊTRE EN DERNIER
+
+
+# ============================================================
+# Webhook Zoom pour SMS
+# ============================================================
+
+@app.post("/api/zoom/webhook")
+async def zoom_webhook(request: Request):
+    """
+    Webhook Zoom pour recevoir des SMS et déclencher des actions (emails, notifications).
+    
+    Gère:
+    - Validation de l'URL par Zoom (endpoint.url_validation) - OBLIGATOIRE
+    - Réception des SMS
+    - Envoi d'emails via SendGrid
+    """
+    try:
+        data = await request.json()
+        
+        # 1. Validation de l'URL par Zoom (obligatoire)
+        # Zoom envoie un défi (challenge) pour vérifier que le serveur vous appartient
+        if data and data.get('event') == 'endpoint.url_validation':
+            plain_token = data.get('payload', {}).get('plainToken')
+            if not plain_token:
+                raise HTTPException(status_code=400, detail="plainToken manquant dans le payload")
+            
+            # Récupérer le secret token depuis .env
+            secret_token = os.environ.get('ZOOM_SECRET_TOKEN')
+            if not secret_token:
+                print("⚠️ ZOOM_SECRET_TOKEN non configuré dans .env")
+                raise HTTPException(
+                    status_code=500,
+                    detail="ZOOM_SECRET_TOKEN non configuré. Ajoutez-le dans votre .env"
+                )
+            
+            # Générer la signature HMAC SHA256
+            mess = plain_token.encode('utf-8')
+            sec = secret_token.encode('utf-8')
+            hash_for_validate = hmac.new(sec, mess, hashlib.sha256).hexdigest()
+            
+            print(f"✅ Validation URL Zoom réussie pour token: {plain_token[:10]}...")
+            
+            return {
+                "plainToken": plain_token,
+                "encryptedToken": hash_for_validate
+            }
+
+        # 2. Traitement des SMS
+        event = data.get('event', '').lower()
+        if 'sms' in event:
+            payload = data.get('payload', {})
+            sms_object = payload.get('object', {})
+            
+            content = sms_object.get('message', '')
+            sender = sms_object.get('sender_number', 'Inconnu')
+            recipient = sms_object.get('recipient_number', 'Inconnu')
+            timestamp = sms_object.get('timestamp', datetime.now().isoformat())
+            
+            print(f"📩 SMS Reçu de {sender} → {recipient}: {content}")
+            
+            # Envoyer un email via SendGrid
+            try:
+                from core.email_notifier import EmailNotifier
+                email_notifier = EmailNotifier()
+                
+                if email_notifier.client:
+                    recipient_email = os.getenv('EMAIL_ALLAN', 'asutton@piano-tek.com')
+                    
+                    html_content = f"""
+                    <h2>📩 SMS Reçu via Zoom</h2>
+                    <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                        <p><strong>De:</strong> {sender}</p>
+                        <p><strong>À:</strong> {recipient}</p>
+                        <p><strong>Date:</strong> {timestamp}</p>
+                    </div>
+                    <div style="background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                        <p><strong>Message:</strong></p>
+                        <p style="white-space: pre-wrap;">{content}</p>
+                    </div>
+                    <hr>
+                    <p style="color: #666; font-size: 12px;">Reçu via Zoom Webhook - Assistant Gazelle V5</p>
+                    """
+                    
+                    plain_content = f"SMS Reçu de {sender} → {recipient}\nDate: {timestamp}\n\nMessage:\n{content}"
+                    
+                    success = email_notifier.send_email(
+                        to_emails=[recipient_email],
+                        subject=f"📩 SMS Reçu de {sender}",
+                        html_content=html_content,
+                        plain_content=plain_content
+                    )
+                    
+                    if success:
+                        print(f"✅ Email envoyé avec succès à {recipient_email}")
+                    else:
+                        print(f"⚠️ Échec de l'envoi d'email à {recipient_email}")
+                else:
+                    print("⚠️ SendGrid non configuré - email non envoyé")
+                    
+            except Exception as e:
+                print(f"❌ Erreur lors de l'envoi d'email: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            return {"status": "received", "message": "SMS traité avec succès"}
+
+        # Autres événements non gérés
+        print(f"ℹ️ Événement Zoom reçu (non traité): {data.get('event', 'unknown')}")
+        return {"status": "received", "message": "Événement reçu mais non traité"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Erreur lors du traitement du webhook Zoom: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
+
+
+@app.get("/api/zoom/webhook/health")
+async def zoom_webhook_health():
+    """Health check pour le webhook Zoom."""
+    return {
+        "status": "ok",
+        "service": "zoom-webhook",
+        "zoom_secret_token_configured": bool(os.getenv('ZOOM_SECRET_TOKEN')),
+        "email_notifier_configured": bool(os.getenv('SENDGRID_API_KEY'))
+    }
 
 
 @app.get("/")
