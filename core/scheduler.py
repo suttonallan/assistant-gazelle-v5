@@ -9,6 +9,7 @@
 Gère toutes les tâches planifiées de l'application:
 - 01:00: Sync Gazelle Totale → Rapport Timeline (chaînées automatiquement)
 - 03:00: Backup SQL de la base de données
+- 16:30: Sync Appointments - Capture les RV créés/modifiés dans la journée
 - 17:00: URGENCE TECHNIQUE (J-1) - Alertes aux techniciens pour RV non confirmés
 - 09:00: RELANCE LOUISE (J-7) - Relance pour RV créés il y a plus de 3 mois
 
@@ -429,6 +430,71 @@ def task_relance_louise_j7():
         raise
 
 
+def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
+    """
+    16:30 - Sync Appointments uniquement
+    
+    Synchronise uniquement les rendez-vous pour capturer ceux créés/modifiés
+    dans la journée (jusqu'à 16:30).
+    
+    Utile pour voir les rendez-vous ajoutés après la sync matinale (01:00).
+    """
+    from core.scheduler_logger import get_logger
+    from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
+
+    logger = get_logger()
+    log_id = logger.start_task(
+        task_name='sync_appointments_1630',
+        task_label='Sync Appointments (16:30)',
+        triggered_by=triggered_by,
+        triggered_by_user=user_email
+    )
+
+    try:
+        print("\n" + "="*70)
+        print("📅 SYNC APPOINTMENTS (16:30)")
+        print("="*70)
+
+        # Mode incrémental (7 derniers jours) pour performance
+        syncer = GazelleToSupabaseSync(incremental_mode=True)
+        
+        # Sync appointments uniquement
+        appointments_count = syncer.sync_appointments()
+        print(f"✅ Appointments synchronisés: {appointments_count}")
+
+        print("\n" + "="*70)
+        print("✅ SYNC APPOINTMENTS (16:30) - Terminé")
+        print("="*70 + "\n")
+
+        stats = {
+            'appointments': appointments_count
+        }
+
+        # Logger le succès
+        logger.complete_task(
+            log_id=log_id,
+            status='success',
+            message=f'{appointments_count} rendez-vous synchronisés',
+            stats=stats
+        )
+
+        return stats
+
+    except Exception as e:
+        print(f"\n❌ Erreur lors de la sync appointments (16:30): {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Logger l'erreur
+        logger.complete_task(
+            log_id=log_id,
+            status='error',
+            message=str(e),
+            stats={}
+        )
+        raise
+
+
 # ============================================================
 # CONFIGURATION DU SCHEDULER
 # ============================================================
@@ -485,6 +551,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 09:00 - RELANCE LOUISE (J-7) configurée")
+
+    # 16:30 - Sync Appointments (pour capturer les RV créés dans la journée)
+    scheduler.add_job(
+        task_sync_appointments_only,
+        trigger=CronTrigger(hour=16, minute=30, timezone='America/Montreal'),
+        id='sync_appointments_1630',
+        name='Sync Appointments (16:30)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 16:30 - Sync Appointments configurée")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
