@@ -220,6 +220,14 @@ async def zoom_webhook(request: Request):
     try:
         data = await request.json()
         
+        # DEBUG: Afficher le JSON complet pour comprendre la structure
+        import json
+        print("="*70)
+        print("📥 WEBHOOK ZOOM - JSON COMPLET REÇU")
+        print("="*70)
+        print(json.dumps(data, indent=2, default=str))
+        print("="*70)
+        
         # 1. Validation de l'URL par Zoom (obligatoire)
         # Zoom envoie un défi (challenge) pour vérifier que le serveur vous appartient
         if data and data.get('event') == 'endpoint.url_validation':
@@ -254,12 +262,67 @@ async def zoom_webhook(request: Request):
             payload = data.get('payload', {})
             sms_object = payload.get('object', {})
             
-            content = sms_object.get('message', '')
-            sender = sms_object.get('sender_number', 'Inconnu')
-            recipient = sms_object.get('recipient_number', 'Inconnu')
-            timestamp = sms_object.get('timestamp', datetime.now().isoformat())
+            # DEBUG: Afficher la structure du payload SMS
+            print("\n📋 STRUCTURE PAYLOAD SMS:")
+            print(f"   payload keys: {list(payload.keys())}")
+            print(f"   object keys: {list(sms_object.keys()) if sms_object else 'None'}")
             
-            print(f"📩 SMS Reçu de {sender} → {recipient}: {content}")
+            # Extraire le contenu du message (plusieurs chemins possibles)
+            content = (
+                sms_object.get('message') or 
+                sms_object.get('text') or 
+                sms_object.get('content') or 
+                payload.get('message') or 
+                payload.get('text') or 
+                ''
+            )
+            
+            # Extraire l'expéditeur (plusieurs chemins possibles selon structure Zoom)
+            sender = (
+                sms_object.get('sender_number') or
+                sms_object.get('from_number') or
+                sms_object.get('from') or
+                sms_object.get('sender') or
+                payload.get('sender_number') or
+                payload.get('from_number') or
+                payload.get('from') or
+                payload.get('sender') or
+                'Inconnu'
+            )
+            
+            # Extraire le destinataire (plusieurs chemins possibles)
+            recipient = (
+                sms_object.get('recipient_number') or
+                sms_object.get('receiver_number') or
+                sms_object.get('to_number') or
+                sms_object.get('to') or
+                sms_object.get('recipient') or
+                payload.get('recipient_number') or
+                payload.get('receiver_number') or
+                payload.get('to_number') or
+                payload.get('to') or
+                payload.get('recipient') or
+                'Inconnu'
+            )
+            
+            # Extraire le timestamp
+            timestamp = (
+                sms_object.get('timestamp') or
+                sms_object.get('time') or
+                sms_object.get('created_at') or
+                payload.get('timestamp') or
+                payload.get('time') or
+                data.get('event_ts') or
+                datetime.now().isoformat()
+            )
+            
+            print(f"\n📩 SMS EXTRACTION:")
+            print(f"   Expéditeur: {sender}")
+            print(f"   Destinataire: {recipient}")
+            print(f"   Message: {content[:100]}..." if len(content) > 100 else f"   Message: {content}")
+            print(f"   Timestamp: {timestamp}")
+            
+            print(f"\n📩 SMS Reçu de {sender} → {recipient}: {content}")
             
             # Envoyer un email via SendGrid
             try:
