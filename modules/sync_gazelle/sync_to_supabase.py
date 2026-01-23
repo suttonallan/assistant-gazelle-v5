@@ -1222,8 +1222,52 @@ def main():
     """Point d'entrée principal du script."""
     import time
     import sys
+    import os
+    import json
     start_time = time.time()
+    
+    print("\n" + "="*70)
+    print("🔍 VÉRIFICATION VARIABLES D'ENVIRONNEMENT SUPABASE")
+    print("="*70)
+    
+    # Vérifier les variables d'environnement Supabase
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    supabase_key_alt = os.getenv('SUPABASE_KEY')
+    
+    print(f"📋 SUPABASE_URL: {'✅ Défini' if supabase_url else '❌ MANQUANT'}")
+    if supabase_url:
+        print(f"   Valeur: {supabase_url[:50]}...")
+    
+    print(f"📋 SUPABASE_SERVICE_ROLE_KEY: {'✅ Défini' if supabase_key else '❌ MANQUANT'}")
+    if supabase_key:
+        print(f"   Longueur: {len(supabase_key)} caractères")
+        print(f"   Préfixe: {supabase_key[:10]}...")
+    
+    if not supabase_key and supabase_key_alt:
+        print(f"📋 SUPABASE_KEY (fallback): ✅ Défini ({len(supabase_key_alt)} caractères)")
+    
+    if not supabase_url or (not supabase_key and not supabase_key_alt):
+        print("\n❌ ERREUR: Variables d'environnement Supabase manquantes!")
+        print("   Le script ne pourra pas écrire dans sync_logs")
+        sys.exit(1)
+    
+    print("="*70 + "\n")
+    
+    # Initialiser le logger
     logger = SyncLogger()
+    
+    # Vérifier que le logger est bien initialisé
+    print("🔍 VÉRIFICATION SYNC LOGGER")
+    print("="*70)
+    if logger.client is None:
+        print("❌ SyncLogger.client est None - impossible d'écrire dans sync_logs")
+        print("   Vérifiez que SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY sont corrects")
+    else:
+        print("✅ SyncLogger.client initialisé correctement")
+        print(f"   URL: {logger.supabase_url}")
+        print(f"   Key préfixe: {logger.supabase_key[:10] if logger.supabase_key else 'N/A'}...")
+    print("="*70 + "\n")
 
     # Mode incrémental par défaut (--full pour mode complet)
     incremental_mode = True
@@ -1231,6 +1275,9 @@ def main():
         incremental_mode = False
         print("⚠️  Mode COMPLET activé (--full)")
 
+    result = None
+    sync_manager = None
+    
     try:
         sync_manager = GazelleToSupabaseSync(incremental_mode=incremental_mode)
         result = sync_manager.sync_all()
@@ -1238,59 +1285,169 @@ def main():
         # Logger le résultat dans sync_logs
         execution_time = time.time() - start_time
 
-        if result['success']:
-            # Construire le dictionnaire des tables mises à jour
+        print("\n" + "="*70)
+        print("📝 PRÉPARATION ÉCRITURE DANS sync_logs")
+        print("="*70)
+        
+        # Construire le dictionnaire des tables mises à jour (même si échec partiel)
+        tables_updated = {}
+        if result and 'stats' in result:
             tables_updated = {
-                'users': result['stats'].get('users', {}).get('synced', 0),
-                'clients': result['stats']['clients']['synced'],
-                'contacts': result['stats']['contacts']['synced'],
-                'pianos': result['stats']['pianos']['synced'],
-                'appointments': result['stats']['appointments']['synced'],
-                'timeline': result['stats']['timeline']['synced']
+                'users': result['stats'].get('users', {}).get('synced', 0) if 'users' in result['stats'] else 0,
+                'clients': result['stats'].get('clients', {}).get('synced', 0),
+                'contacts': result['stats'].get('contacts', {}).get('synced', 0),
+                'pianos': result['stats'].get('pianos', {}).get('synced', 0),
+                'appointments': result['stats'].get('appointments', {}).get('synced', 0),
+                'timeline': result['stats'].get('timeline', {}).get('synced', 0)
             }
-
-            # Vérifier s'il y a des erreurs
+        else:
+            # Si result n'a pas de stats, utiliser les stats du sync_manager
+            if sync_manager:
+                tables_updated = {
+                    'users': sync_manager.stats.get('users', {}).get('synced', 0) if 'users' in sync_manager.stats else 0,
+                    'clients': sync_manager.stats.get('clients', {}).get('synced', 0),
+                    'contacts': sync_manager.stats.get('contacts', {}).get('synced', 0),
+                    'pianos': sync_manager.stats.get('pianos', {}).get('synced', 0),
+                    'appointments': sync_manager.stats.get('appointments', {}).get('synced', 0),
+                    'timeline': sync_manager.stats.get('timeline', {}).get('synced', 0)
+                }
+        
+        print(f"📊 Tables mises à jour:")
+        print(f"   users: {tables_updated.get('users', 0)}")
+        print(f"   clients: {tables_updated.get('clients', 0)}")
+        print(f"   contacts: {tables_updated.get('contacts', 0)}")
+        print(f"   pianos: {tables_updated.get('pianos', 0)}")
+        print(f"   appointments: {tables_updated.get('appointments', 0)}")
+        print(f"   timeline: {tables_updated.get('timeline', 0)}")
+        
+        # Calculer les erreurs
+        total_errors = 0
+        if result and 'stats' in result:
             total_errors = sum(
-                result['stats'][key]['errors']
+                result['stats'][key].get('errors', 0)
                 for key in ['clients', 'contacts', 'pianos', 'appointments', 'timeline']
                 if key in result['stats']
             )
-
+        elif sync_manager:
+            total_errors = sum(
+                sync_manager.stats[key].get('errors', 0)
+                for key in ['clients', 'contacts', 'pianos', 'appointments', 'timeline']
+                if key in sync_manager.stats
+            )
+        
+        print(f"📊 Total erreurs: {total_errors}")
+        
+        # Déterminer le status
+        if result and result.get('success'):
             status = 'success' if total_errors == 0 else 'warning'
-            error_msg = f"{total_errors} erreurs" if total_errors > 0 else None
-
-            logger.log_sync(
-                script_name='GitHub_Full_Sync',
-                status=status,
-                tables_updated=tables_updated,
-                error_message=error_msg,
-                execution_time_seconds=round(execution_time, 2)
-            )
         else:
-            # Erreur complète
-            logger.log_sync(
-                script_name='GitHub_Full_Sync',
-                status='error',
-                error_message=result.get('error', 'Erreur inconnue'),
-                execution_time_seconds=round(execution_time, 2)
-            )
-
+            status = 'error'
+        
+        error_msg = None
+        if total_errors > 0:
+            error_msg = f"{total_errors} erreurs"
+        if result and not result.get('success'):
+            error_msg = result.get('error', 'Erreur inconnue')
+        
+        print(f"📊 Status: {status}")
+        if error_msg:
+            print(f"📊 Message d'erreur: {error_msg}")
+        
+        print(f"⏱️  Temps d'exécution: {execution_time:.2f} secondes")
+        
+        # Préparer les données pour le log
+        log_data = {
+            'script_name': 'GitHub_Full_Sync',
+            'status': status,
+            'tables_updated': tables_updated,
+            'error_message': error_msg,
+            'execution_time_seconds': round(execution_time, 2)
+        }
+        
+        print(f"\n📝 Données à écrire dans sync_logs:")
+        print(json.dumps(log_data, indent=2, default=str))
+        
+        print(f"\n🔍 Vérification finale SyncLogger:")
+        print(f"   logger.client: {logger.client}")
+        print(f"   logger.supabase_url: {logger.supabase_url}")
+        print(f"   logger.supabase_key: {'✅ Défini' if logger.supabase_key else '❌ MANQUANT'}")
+        
+        print("\n" + "="*70)
+        print("💾 TENTATIVE D'ÉCRITURE DANS sync_logs")
+        print("="*70)
+        
+        # FORCER l'écriture même si sync partielle
+        log_result = logger.log_sync(
+            script_name='GitHub_Full_Sync',
+            status=status,
+            tables_updated=tables_updated,
+            error_message=error_msg,
+            execution_time_seconds=round(execution_time, 2)
+        )
+        
+        print("\n" + "="*70)
+        if log_result:
+            print("✅ ÉCRITURE DANS sync_logs RÉUSSIE")
+        else:
+            print("❌ ÉCHEC ÉCRITURE DANS sync_logs")
+            print("   Vérifiez les logs ci-dessus pour identifier le problème")
+        print("="*70)
+        
         # Exit code selon succès
-        exit_code = 0 if result['success'] else 1
+        exit_code = 0 if result and result.get('success') else 1
         sys.exit(exit_code)
 
     except Exception as e:
-        # Logger l'exception
+        # Logger l'exception - FORCER l'écriture même en cas d'erreur
         execution_time = time.time() - start_time
-        logger.log_sync(
+        
+        print("\n" + "="*70)
+        print("❌ EXCEPTION CAPTURÉE - TENTATIVE LOG D'ERREUR")
+        print("="*70)
+        print(f"Erreur: {e}")
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Traceback:\n{error_traceback}")
+        
+        # Préparer les stats même en cas d'erreur
+        tables_updated = {}
+        if sync_manager:
+            tables_updated = {
+                'users': sync_manager.stats.get('users', {}).get('synced', 0) if 'users' in sync_manager.stats else 0,
+                'clients': sync_manager.stats.get('clients', {}).get('synced', 0),
+                'contacts': sync_manager.stats.get('contacts', {}).get('synced', 0),
+                'pianos': sync_manager.stats.get('pianos', {}).get('synced', 0),
+                'appointments': sync_manager.stats.get('appointments', {}).get('synced', 0),
+                'timeline': sync_manager.stats.get('timeline', {}).get('synced', 0)
+            }
+        
+        print(f"\n📝 Données à écrire (erreur):")
+        log_data_error = {
+            'script_name': 'GitHub_Full_Sync',
+            'status': 'error',
+            'tables_updated': tables_updated,
+            'error_message': f"{str(e)}\n\nTraceback:\n{error_traceback[:500]}",  # Limiter la taille
+            'execution_time_seconds': round(execution_time, 2)
+        }
+        print(json.dumps(log_data_error, indent=2, default=str))
+        
+        print("\n💾 TENTATIVE D'ÉCRITURE DANS sync_logs (erreur)...")
+        log_result = logger.log_sync(
             script_name='GitHub_Full_Sync',
             status='error',
-            error_message=str(e),
+            tables_updated=tables_updated,
+            error_message=f"{str(e)}\n\nTraceback:\n{error_traceback[:500]}",
             execution_time_seconds=round(execution_time, 2)
         )
+        
+        if log_result:
+            print("✅ Log d'erreur écrit avec succès")
+        else:
+            print("❌ ÉCHEC ÉCRITURE LOG D'ERREUR")
+        
+        print("="*70)
 
         print(f"\n❌ Erreur fatale: {e}")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
 

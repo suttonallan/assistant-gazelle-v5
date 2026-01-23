@@ -83,7 +83,44 @@ class SyncLogger:
                 'created_at': datetime.now().isoformat()
             }
 
+            # LOGS TRÈS DÉTAILLÉS AVANT ÉCRITURE
+            print("\n" + "="*70)
+            print("📝 SYNC_LOGGER - DÉTAILS AVANT ÉCRITURE")
+            print("="*70)
+            print(f"🔍 Client Supabase: {self.client}")
+            print(f"🔍 URL Supabase: {self.supabase_url}")
+            print(f"🔍 Key Supabase: {'✅ Défini' if self.supabase_key else '❌ MANQUANT'}")
+            if self.supabase_key:
+                print(f"   Longueur: {len(self.supabase_key)} caractères")
+                print(f"   Préfixe: {self.supabase_key[:10]}...")
+            
+            print(f"\n📋 Données à insérer:")
+            import json
+            print(json.dumps(data, indent=2, default=str))
+            
+            print(f"\n💾 Table cible: sync_logs")
+            print(f"💾 Méthode: insert()")
+            
+            print("\n🔄 Exécution de l'insertion...")
             result = self.client.table('sync_logs').insert(data).execute()
+            
+            print(f"\n📥 Réponse Supabase:")
+            print(f"   Type: {type(result)}")
+            if hasattr(result, 'data'):
+                print(f"   Data: {result.data}")
+            if hasattr(result, 'status_code'):
+                print(f"   Status code: {result.status_code}")
+            if hasattr(result, 'count'):
+                print(f"   Count: {result.count}")
+            
+            # Vérifier si l'insertion a réussi
+            success = False
+            if hasattr(result, 'data') and result.data:
+                success = True
+            elif hasattr(result, 'status_code') and result.status_code in [200, 201]:
+                success = True
+            elif result:  # Si result n'est pas None/False
+                success = True
 
             status_emoji = {
                 'success': '✅',
@@ -92,11 +129,25 @@ class SyncLogger:
                 'running': '⏳'
             }.get(status, '❓')
 
-            print(f"{status_emoji} Log enregistré: {script_name} - {status}")
-            return True
+            if success:
+                print(f"\n{status_emoji} Log enregistré avec succès: {script_name} - {status}")
+            else:
+                print(f"\n⚠️ Log peut-être enregistré (vérification incertaine): {script_name} - {status}")
+                print(f"   Réponse: {result}")
+            
+            print("="*70 + "\n")
+            return success
 
         except Exception as e:
-            print(f"❌ Erreur lors du logging: {e}")
+            print("\n" + "="*70)
+            print("❌ ERREUR LORS DU LOGGING DANS sync_logs")
+            print("="*70)
+            print(f"Type d'erreur: {type(e).__name__}")
+            print(f"Message: {str(e)}")
+            import traceback
+            print(f"Traceback complet:")
+            traceback.print_exc()
+            print("="*70 + "\n")
             return False
 
     def get_recent_logs(self, limit: int = 10):
