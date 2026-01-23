@@ -151,16 +151,25 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
 
     // Sauvegarder dans la DB
     try {
-      await fetch(`${API_URL}/api/inventaire/techniciens`, {
+      const response = await fetch(`${API_URL}/api/inventaire/stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_produit: codeProduit,
-          technicien: techUsername + '@example.com',
+          technicien: techUsername, // Utiliser le username directement, pas l'email
           quantite_stock: newQty,
-          emplacement: 'Atelier'
+          type_transaction: 'ajustement',
+          motif: 'Ajustement manuel depuis interface'
         })
       })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+        throw new Error(errorData.detail || `Erreur ${response.status}`)
+      }
+      
+      const result = await response.json()
+      console.log('✅ Stock mis à jour:', result)
     } catch (err) {
       console.error('Erreur sauvegarde:', err)
       // Recharger en cas d'erreur
