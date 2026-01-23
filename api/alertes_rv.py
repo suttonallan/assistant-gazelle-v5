@@ -236,10 +236,16 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
         storage = get_storage()
 
         # Query Supabase (alert_logs)
-        # Utiliser created_at au lieu de sent_at (colonne qui existe)
+        # Utiliser sent_at si disponible, sinon created_at (fallback)
         import requests
-        url = f"{storage.api_url}/alert_logs?order=created_at.desc&limit={limit}&offset={offset}"
+        # Essayer d'abord avec sent_at, si erreur 400 alors utiliser created_at
+        url = f"{storage.api_url}/alert_logs?order=sent_at.desc&limit={limit}&offset={offset}"
         response = requests.get(url, headers=storage._get_headers())
+        
+        # Si sent_at n'existe pas encore, utiliser created_at
+        if response.status_code == 400 and 'sent_at' in response.text:
+            url = f"{storage.api_url}/alert_logs?order=created_at.desc&limit={limit}&offset={offset}"
+            response = requests.get(url, headers=storage._get_headers())
 
         if response.status_code != 200:
             error_detail = response.text
@@ -247,20 +253,20 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
 
         alerts = response.json() or []
 
-        # Stats - utiliser les colonnes qui existent réellement
+        # Stats - utiliser les colonnes qui existent maintenant
         stats_by_user = {}
         stats_by_technician = {}
         total_appointments = 0
 
         for alert in alerts:
-            # Les colonnes réelles sont: id, created_at, count, status, appointment_id, technician_id, etc.
-            # Essayer de récupérer les infos depuis les colonnes disponibles
+            # Utiliser les nouvelles colonnes si disponibles
             tech_id = alert.get('technician_id', 'unknown')
-            apt_count = alert.get('count', 0)  # count existe dans la table
+            tech_name = alert.get('technician_name', 'unknown')
+            apt_count = alert.get('appointment_count') or alert.get('count', 1)  # appointment_count ou count
+            triggered_by = alert.get('triggered_by', 'unknown')
             
-            # Récupérer le nom du technicien depuis la table users si possible
-            tech_name = 'unknown'
-            if tech_id and tech_id != 'unknown':
+            # Si technician_name n'est pas disponible, essayer de le récupérer depuis users
+            if tech_name == 'unknown' and tech_id and tech_id != 'unknown':
                 try:
                     user_response = storage.client.table('users').select('first_name, last_name').eq('external_id', tech_id).limit(1).execute()
                     if user_response.data:
@@ -271,8 +277,9 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
                 except:
                     tech_name = tech_id
             
-            # Utiliser created_at comme triggered_by si triggered_by n'existe pas
-            triggered_by = alert.get('triggered_by', alert.get('created_at', 'unknown'))
+            # Si triggered_by n'est pas disponible, utiliser created_at comme fallback
+            if triggered_by == 'unknown':
+                triggered_by = alert.get('created_at', 'unknown')
 
             stats_by_user[triggered_by] = stats_by_user.get(triggered_by, 0) + 1
             stats_by_technician[tech_name] = stats_by_technician.get(tech_name, 0) + apt_count
