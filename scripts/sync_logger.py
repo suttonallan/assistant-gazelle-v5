@@ -77,11 +77,18 @@ class SyncLogger:
                 'message': message,
                 'stats': stats or {},
                 'error_details': error_details,
-                'execution_time_seconds': execution_time_seconds,
+                'execution_time_seconds': int(execution_time_seconds) if execution_time_seconds else None,
                 'triggered_by': triggered_by,
                 'triggered_by_user': triggered_by_user,
                 'created_at': datetime.now().isoformat()
             }
+            
+            # Rétrocompatibilité: Ajouter tables_updated et error_message pour le Dashboard
+            # Le Dashboard lit encore l'ancien format
+            if stats and not data.get('tables_updated'):
+                data['tables_updated'] = stats
+            if error_details and not data.get('error_message'):
+                data['error_message'] = error_details
 
             # LOGS TRÈS DÉTAILLÉS AVANT ÉCRITURE
             print("\n" + "="*70)
