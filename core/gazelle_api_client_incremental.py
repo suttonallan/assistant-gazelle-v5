@@ -141,12 +141,24 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                         created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
                         
-                        if created_at and last_sync_aware and created_at < last_sync_aware:
-                            print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
-                            early_exit = True
-                            break
+                        if created_at and last_sync_aware:
+                            # Vérifier que les deux sont aware avant comparaison
+                            if created_at.tzinfo is None or last_sync_aware.tzinfo is None:
+                                print(f"⚠️ Datetime naive détecté: created_at.tzinfo={created_at.tzinfo}, last_sync_aware.tzinfo={last_sync_aware.tzinfo}")
+                                # Forcer à être aware
+                                if created_at.tzinfo is None:
+                                    created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
+                                if last_sync_aware.tzinfo is None:
+                                    last_sync_aware = last_sync_aware.replace(tzinfo=ZoneInfo('UTC'))
+                            
+                            if created_at < last_sync_aware:
+                                print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
+                                early_exit = True
+                                break
                     except Exception as e:
                         print(f"⚠️ Erreur parsing createdAt: {e}")
+                        import traceback
+                        traceback.print_exc()
 
                 all_clients.append(node)
 
@@ -267,12 +279,24 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                         created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
                         
-                        if created_at and last_sync_aware and created_at < last_sync_aware:
-                            print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
-                            early_exit = True
-                            break
+                        if created_at and last_sync_aware:
+                            # Vérifier que les deux sont aware avant comparaison
+                            if created_at.tzinfo is None or last_sync_aware.tzinfo is None:
+                                print(f"⚠️ Datetime naive détecté: created_at.tzinfo={created_at.tzinfo}, last_sync_aware.tzinfo={last_sync_aware.tzinfo}")
+                                # Forcer à être aware
+                                if created_at.tzinfo is None:
+                                    created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
+                                if last_sync_aware.tzinfo is None:
+                                    last_sync_aware = last_sync_aware.replace(tzinfo=ZoneInfo('UTC'))
+                            
+                            if created_at < last_sync_aware:
+                                print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
+                                early_exit = True
+                                break
                     except Exception as e:
                         print(f"⚠️ Erreur parsing createdAt: {e}")
+                        import traceback
+                        traceback.print_exc()
 
                 all_pianos.append(node)
 
