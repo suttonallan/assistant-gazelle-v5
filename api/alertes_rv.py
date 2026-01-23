@@ -236,24 +236,43 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
         storage = get_storage()
 
         # Query Supabase (alert_logs)
+        # Utiliser created_at au lieu de sent_at (colonne qui existe)
         import requests
-        url = f"{storage.api_url}/alert_logs?order=sent_at.desc&limit={limit}&offset={offset}"
+        url = f"{storage.api_url}/alert_logs?order=created_at.desc&limit={limit}&offset={offset}"
         response = requests.get(url, headers=storage._get_headers())
 
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="Erreur Supabase")
+            error_detail = response.text
+            raise HTTPException(status_code=response.status_code, detail=f"Erreur Supabase: {error_detail}")
 
-        alerts = response.json()
+        alerts = response.json() or []
 
-        # Stats
+        # Stats - utiliser les colonnes qui existent réellement
         stats_by_user = {}
         stats_by_technician = {}
         total_appointments = 0
 
         for alert in alerts:
-            triggered_by = alert.get('triggered_by', 'unknown')
-            tech_name = alert.get('technician_name', 'unknown')
-            apt_count = alert.get('appointment_count', 0)
+            # Les colonnes réelles sont: id, created_at, count, status, appointment_id, technician_id, etc.
+            # Essayer de récupérer les infos depuis les colonnes disponibles
+            tech_id = alert.get('technician_id', 'unknown')
+            apt_count = alert.get('count', 0)  # count existe dans la table
+            
+            # Récupérer le nom du technicien depuis la table users si possible
+            tech_name = 'unknown'
+            if tech_id and tech_id != 'unknown':
+                try:
+                    user_response = storage.client.table('users').select('first_name, last_name').eq('external_id', tech_id).limit(1).execute()
+                    if user_response.data:
+                        user = user_response.data[0]
+                        tech_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or tech_id
+                    else:
+                        tech_name = tech_id
+                except:
+                    tech_name = tech_id
+            
+            # Utiliser created_at comme triggered_by si triggered_by n'existe pas
+            triggered_by = alert.get('triggered_by', alert.get('created_at', 'unknown'))
 
             stats_by_user[triggered_by] = stats_by_user.get(triggered_by, 0) + 1
             stats_by_technician[tech_name] = stats_by_technician.get(tech_name, 0) + apt_count
