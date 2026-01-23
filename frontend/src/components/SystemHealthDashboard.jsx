@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_URL } from '../utils/apiConfig';
 
 /**
  * Dashboard de Santé Système
@@ -23,13 +24,13 @@ function SystemHealthDashboard() {
       setError(null);
 
       // Récupérer les logs du scheduler
-      const schedulerResponse = await fetch('/api/scheduler-logs/recent?limit=30');
+      const schedulerResponse = await fetch(`${API_URL}/api/scheduler-logs/recent?limit=30`);
       if (!schedulerResponse.ok) throw new Error('Erreur récupération scheduler logs');
       const schedulerData = await schedulerResponse.json();
       setSchedulerLogs(schedulerData.logs || []);
 
       // Récupérer les logs de sync
-      const syncResponse = await fetch('/api/sync-logs/recent?limit=30');
+      const syncResponse = await fetch(`${API_URL}/api/sync-logs/recent?limit=30`);
       if (!syncResponse.ok) throw new Error('Erreur récupération sync logs');
       const syncData = await syncResponse.json();
       setSyncLogs(syncData.logs || []);
