@@ -63,9 +63,43 @@ async def get_institutional_alerts():
             'cli_PmqPUBTbPFeCMGmz',  # Orford Musique
         ]
 
-        # Requête UNIQUE avec IN clause sur client_id
-        response = storage.client.table('humidity_alerts_active').select('*').in_('client_id', INSTITUTIONAL_CLIENT_IDS).order('observed_at', desc=True).execute()
+        # Requête depuis la table humidity_alerts directement (pas la vue)
+        # pour inclure les alertes non résolues même si archivées
+        response = storage.client.table('humidity_alerts').select('*').in_('client_id', INSTITUTIONAL_CLIENT_IDS).eq('is_resolved', False).order('observed_at', desc=True).execute()
         all_alerts = response.data if response.data else []
+        
+        # Enrichir avec les informations client et piano (comme la vue)
+        enriched_alerts = []
+        for alert in all_alerts:
+            # Récupérer le nom du client
+            client_response = storage.client.table('gazelle_clients').select('company_name').eq('external_id', alert.get('client_id')).limit(1).execute()
+            client_name = client_response.data[0].get('company_name') if client_response.data else None
+            
+            # Récupérer les infos du piano
+            piano_response = storage.client.table('gazelle_pianos').select('make, model, location').eq('external_id', alert.get('piano_id')).limit(1).execute()
+            piano_make = piano_response.data[0].get('make') if piano_response.data else None
+            piano_model = piano_response.data[0].get('model') if piano_response.data else None
+            room_number = piano_response.data[0].get('location') if piano_response.data else None
+            
+            # Récupérer la note du technicien depuis timeline
+            technician_note = None
+            if alert.get('timeline_entry_id'):
+                timeline_response = storage.client.table('gazelle_timeline_entries').select('description, title').eq('external_id', alert.get('timeline_entry_id')).limit(1).execute()
+                if timeline_response.data:
+                    technician_note = timeline_response.data[0].get('description') or timeline_response.data[0].get('title')
+            
+            # Construire l'alerte enrichie
+            enriched_alert = {
+                **alert,
+                'client_name': client_name or alert.get('client_name'),
+                'piano_make': piano_make,
+                'piano_model': piano_model,
+                'room_number': room_number or 'N/A',
+                'technician_note': technician_note or alert.get('description')
+            }
+            enriched_alerts.append(enriched_alert)
+        
+        all_alerts = enriched_alerts
 
         # Calculer les statistiques
         total = len(all_alerts)
