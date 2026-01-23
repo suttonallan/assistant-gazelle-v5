@@ -119,7 +119,13 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 # (les clients sont triés par CREATED_AT_DESC)
                 if last_sync_date and node.get('createdAt'):
                     try:
-                        created_at = datetime.fromisoformat(node['createdAt'].replace('Z', '+00:00'))
+                        # Parser createdAt et s'assurer qu'il est timezone-aware
+                        created_at_str = node['createdAt']
+                        if created_at_str.endswith('Z'):
+                            created_at_str = created_at_str.replace('Z', '+00:00')
+                        created_at = datetime.fromisoformat(created_at_str)
+                        # S'assurer que created_at est aware (UTC si pas de timezone)
+                        created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
                         if created_at < last_sync_aware:
                             print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
@@ -230,7 +236,13 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 # (les pianos sont triés par CREATED_AT_DESC)
                 if last_sync_date and node.get('createdAt'):
                     try:
-                        created_at = datetime.fromisoformat(node['createdAt'].replace('Z', '+00:00'))
+                        # Parser createdAt et s'assurer qu'il est timezone-aware
+                        created_at_str = node['createdAt']
+                        if created_at_str.endswith('Z'):
+                            created_at_str = created_at_str.replace('Z', '+00:00')
+                        created_at = datetime.fromisoformat(created_at_str)
+                        # S'assurer que created_at est aware (UTC si pas de timezone)
+                        created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
                         if created_at < last_sync_aware:
                             print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
