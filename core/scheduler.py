@@ -614,6 +614,7 @@ __all__ = [
     'task_sync_gazelle_totale',
     'task_generate_rapport_timeline',
     'task_backup_database',
+    'task_sync_appointments_only',
     'task_urgence_technique_j1',
     'task_relance_louise_j7'
 ]
