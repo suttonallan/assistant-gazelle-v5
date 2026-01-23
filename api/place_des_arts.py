@@ -88,6 +88,187 @@ def normalize_text_for_comparison(text: str) -> str:
     return normalized
 
 
+def normalize_date_for_comparison(date_value) -> Optional[str]:
+    """Normalise une date pour comparaison (retourne ISO string ou None)."""
+    if date_value is None:
+        return None
+    if isinstance(date_value, datetime):
+        return date_value.date().isoformat()
+    if isinstance(date_value, str):
+        # Essayer de parser la date
+        try:
+            from dateutil import parser
+            parsed = parser.parse(date_value)
+            return parsed.date().isoformat()
+        except:
+            return date_value
+    return str(date_value)
+
+
+def normalize_room_for_comparison(room: Optional[str]) -> Optional[str]:
+    """Normalise un code de salle pour comparaison."""
+    if not room:
+        return None
+    # Normaliser les variations communes (espaces, casse)
+    normalized = room.strip().upper()
+    # Mapper les variations connues
+    room_mapping = {
+        'WP': 'WP', 'WILFRID-PELLETIER': 'WP', 'WILFRID PELLETIER': 'WP',
+        'TM': 'TM', 'THEATRE MAISONNEUVE': 'TM', 'THÉÂTRE MAISONNEUVE': 'TM',
+        'MS': 'MS', 'MAISON SYMPHONIQUE': 'MS',
+        'SD': 'SD', 'SALLE DES PROVINCES': 'SD',
+        'C5': 'C5', 'CINQUIEME SALLE': 'C5', 'CINQUIÈME SALLE': 'C5',
+        'SCL': 'SCL', 'STUDIO CLAUDE-LÉVEILLÉE': 'SCL',
+        'ODM': 'ODM', 'ODM': 'ODM',
+        '5E': '5E', '5E SALLE': '5E',
+        'CL': 'CL'
+    }
+    return room_mapping.get(normalized, normalized)
+
+
+def normalize_piano_for_comparison(piano: Optional[str]) -> Optional[str]:
+    """Normalise un type de piano pour comparaison."""
+    if not piano:
+        return None
+    # Extraire la marque principale (Steinway, Yamaha, etc.)
+    import re
+    piano_upper = piano.upper()
+    brands = ['STEINWAY', 'YAMAH', 'KAWAI', 'BÖSENDORFER', 'BOSENDORFER', 'FAZIOLI', 'BALDWIN', 'MASON']
+    for brand in brands:
+        if brand in piano_upper:
+            return brand
+    # Si pas de marque claire, retourner le texte normalisé
+    return normalize_text_for_comparison(piano)
+
+
+def normalize_time_for_comparison(time_value: Optional[str]) -> Optional[str]:
+    """Normalise une heure pour comparaison."""
+    if not time_value:
+        return None
+    import re
+    # Extraire l'heure (format HH ou HH:MM)
+    time_match = re.search(r'(\d{1,2})[:h](\d{2})?', str(time_value).lower())
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2)) if time_match.group(2) else 0
+        return f"{hour:02d}:{minute:02d}"
+    return None
+
+
+def merge_duplicate_requests(requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Fusionne intelligemment les demandes dupliquées.
+    
+    Règles:
+    - Si date ET room (lieu) sont identiques:
+      * Si l'heure OU le type de piano est différent → garder les deux demandes séparées
+      * Sinon → fusionner les informations dans une seule demande
+    
+    Args:
+        requests: Liste de demandes parsées
+        
+    Returns:
+        Liste de demandes fusionnées
+    """
+    if len(requests) <= 1:
+        return requests
+    
+    merged = []
+    processed_indices = set()
+    
+    for i, req1 in enumerate(requests):
+        if i in processed_indices:
+            continue
+        
+        # Normaliser les valeurs de comparaison
+        date1 = normalize_date_for_comparison(req1.get('date'))
+        room1 = normalize_room_for_comparison(req1.get('room'))
+        piano1 = normalize_piano_for_comparison(req1.get('piano'))
+        time1 = normalize_time_for_comparison(req1.get('time'))
+        
+        # Chercher des doublons potentiels
+        duplicates_to_merge = [i]
+        
+        for j in range(i + 1, len(requests)):
+            if j in processed_indices:
+                continue
+            
+            req2 = requests[j]
+            date2 = normalize_date_for_comparison(req2.get('date'))
+            room2 = normalize_room_for_comparison(req2.get('room'))
+            piano2 = normalize_piano_for_comparison(req2.get('piano'))
+            time2 = normalize_time_for_comparison(req2.get('time'))
+            
+            # Vérifier si date et room sont identiques
+            if date1 and date2 and date1 == date2 and room1 and room2 and room1 == room2:
+                # Date et lieu identiques → vérifier heure et piano
+                piano_different = piano1 != piano2 and piano1 and piano2
+                time_different = time1 != time2 and time1 and time2
+                
+                if piano_different or time_different:
+                    # Heure ou piano différent → garder séparé (ne pas fusionner)
+                    continue
+                else:
+                    # Même date, même lieu, même heure (ou pas d'heure), même piano (ou pas de piano)
+                    # → C'est un doublon, fusionner
+                    duplicates_to_merge.append(j)
+        
+        # Si on a trouvé des doublons à fusionner
+        if len(duplicates_to_merge) > 1:
+            # Fusionner les demandes
+            merged_req = requests[duplicates_to_merge[0]].copy()
+            
+            # Fusionner les champs manquants depuis les autres demandes
+            for idx in duplicates_to_merge[1:]:
+                req_other = requests[idx]
+                
+                # Pour chaque champ, prendre la valeur non-vide la plus complète
+                for field in ['room', 'for_who', 'diapason', 'piano', 'time', 'service', 'notes', 'requester']:
+                    value_other = req_other.get(field)
+                    value_current = merged_req.get(field)
+                    
+                    # Si le champ actuel est vide ou None, prendre celui de l'autre
+                    if not value_current and value_other:
+                        merged_req[field] = value_other
+                    # Si les deux ont des valeurs différentes et non vides, combiner intelligemment
+                    elif value_current and value_other and value_current != value_other:
+                        # Pour les notes, combiner avec séparateur
+                        if field == 'notes':
+                            merged_req[field] = f"{value_current}; {value_other}".strip()
+                        # Pour les autres champs, garder la valeur la plus longue (plus d'info)
+                        elif len(str(value_other)) > len(str(value_current)):
+                            merged_req[field] = value_other
+                
+                # Améliorer la confiance si plusieurs sources concordent
+                confidence_other = req_other.get('confidence', 0.0)
+                confidence_current = merged_req.get('confidence', 0.0)
+                merged_req['confidence'] = min(max(confidence_current, confidence_other) + 0.1, 1.0)
+                
+                # Combiner les warnings
+                warnings_current = merged_req.get('warnings', [])
+                warnings_other = req_other.get('warnings', [])
+                merged_req['warnings'] = list(set(warnings_current + warnings_other))
+            
+            # Ajouter un warning indiquant que des doublons ont été fusionnés
+            if 'warnings' not in merged_req:
+                merged_req['warnings'] = []
+            merged_req['warnings'].append(f"Fusionné avec {len(duplicates_to_merge) - 1} autre(s) demande(s) similaire(s)")
+            
+            merged.append(merged_req)
+            
+            # Marquer toutes les demandes fusionnées comme traitées
+            for idx in duplicates_to_merge:
+                processed_indices.add(idx)
+        else:
+            # Pas de doublon, garder la demande telle quelle
+            merged.append(req1)
+            processed_indices.add(i)
+    
+    logging.info(f"🔀 Fusion intelligente: {len(requests)} demandes → {len(merged)} demandes (fusionné {len(requests) - len(merged)} doublon(s))")
+    
+    return merged
+
+
 def find_learned_correction(block_text: str) -> Optional[Dict[str, Any]]:
     """
     Cherche si un texte similaire a déjà été corrigé manuellement.
@@ -803,6 +984,10 @@ async def preview_email(payload: PreviewRequest):
     if global_requester:
         for item in parsed:
             item['requester'] = global_requester
+
+    # FUSION INTELLIGENTE: Comparer les demandes et fusionner celles qui ont la même date et le même lieu
+    # Ne créer une deuxième demande que si l'heure ou le type de piano est explicitement différent
+    parsed = merge_duplicate_requests(parsed)
 
     # NOUVEAU: Toujours retourner un preview, même si vide ou partiel
     # L'utilisateur pourra compléter manuellement
