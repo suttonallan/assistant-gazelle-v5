@@ -23,8 +23,8 @@ class EmailSender:
             method: 'sendgrid' ou 'smtp'
         """
         self.method = method
-        # Utiliser info@piano-tek.com qui est vérifié dans SendGrid
-        self.from_email = os.getenv('ALERT_FROM_EMAIL', 'info@piano-tek.com')
+        # Utiliser asutton@piano-tek.com qui est vérifié dans SendGrid
+        self.from_email = os.getenv('ALERT_FROM_EMAIL', 'asutton@piano-tek.com')
         self.from_name = os.getenv('ALERT_FROM_NAME', 'Assistant Gazelle Alertes')
 
         if method == 'sendgrid':
