@@ -12,6 +12,7 @@ Objectif: <50 items/jour au lieu de 5000
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from .gazelle_api_client import GazelleAPIClient
 
 
@@ -20,7 +21,11 @@ def _ensure_tz_aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        # Si naive, assumer UTC
+        return dt.replace(tzinfo=ZoneInfo('UTC'))
+    # Si déjà aware, s'assurer qu'elle est en UTC
+    if dt.tzinfo != ZoneInfo('UTC'):
+        return dt.astimezone(ZoneInfo('UTC'))
     return dt
 
 
@@ -121,13 +126,22 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                     try:
                         # Parser createdAt et s'assurer qu'il est timezone-aware
                         created_at_str = node['createdAt']
+                        if not created_at_str:
+                            continue
+                        
+                        # Normaliser le format (Z → +00:00 pour fromisoformat)
                         if created_at_str.endswith('Z'):
                             created_at_str = created_at_str.replace('Z', '+00:00')
+                        elif '+' not in created_at_str and '-' not in created_at_str[-6:]:
+                            # Pas de timezone dans le string, ajouter UTC
+                            created_at_str = created_at_str + '+00:00'
+                        
                         created_at = datetime.fromisoformat(created_at_str)
-                        # S'assurer que created_at est aware (UTC si pas de timezone)
+                        # S'assurer que created_at est aware (UTC)
                         created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
-                        if created_at < last_sync_aware:
+                        
+                        if created_at and last_sync_aware and created_at < last_sync_aware:
                             print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
                             early_exit = True
                             break
@@ -238,13 +252,22 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                     try:
                         # Parser createdAt et s'assurer qu'il est timezone-aware
                         created_at_str = node['createdAt']
+                        if not created_at_str:
+                            continue
+                        
+                        # Normaliser le format (Z → +00:00 pour fromisoformat)
                         if created_at_str.endswith('Z'):
                             created_at_str = created_at_str.replace('Z', '+00:00')
+                        elif '+' not in created_at_str and '-' not in created_at_str[-6:]:
+                            # Pas de timezone dans le string, ajouter UTC
+                            created_at_str = created_at_str + '+00:00'
+                        
                         created_at = datetime.fromisoformat(created_at_str)
-                        # S'assurer que created_at est aware (UTC si pas de timezone)
+                        # S'assurer que created_at est aware (UTC)
                         created_at = _ensure_tz_aware(created_at)
                         last_sync_aware = _ensure_tz_aware(last_sync_date)
-                        if created_at < last_sync_aware:
+                        
+                        if created_at and last_sync_aware and created_at < last_sync_aware:
                             print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
                             early_exit = True
                             break
