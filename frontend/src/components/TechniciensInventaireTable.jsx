@@ -151,12 +151,20 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
 
     // Sauvegarder dans la DB
     try {
+      // Mapper username vers nom complet pour l'API
+      const technicienNameMap = {
+        'nicolas': 'Nicolas',
+        'allan': 'Allan',
+        'jeanphilippe': 'Jean-Philippe'
+      }
+      const technicienName = technicienNameMap[techUsername] || techUsername
+      
       const response = await fetch(`${API_URL}/api/inventaire/stock`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code_produit: codeProduit,
-          technicien: techUsername, // Utiliser le username directement, pas l'email
+          technicien: technicienName, // Nom complet: "Nicolas", "Allan", "Jean-Philippe"
           quantite_stock: newQty,
           type_transaction: 'ajustement',
           motif: 'Ajustement manuel depuis interface'
