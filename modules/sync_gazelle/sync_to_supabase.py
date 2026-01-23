@@ -100,7 +100,14 @@ class GazelleToSupabaseSync:
                 if results and len(results) > 0:
                     last_sync_str = results[0].get('value')
                     if last_sync_str:
-                        last_sync = datetime.fromisoformat(last_sync_str.replace('Z', '+00:00'))
+                        last_sync_str_clean = last_sync_str.replace('Z', '+00:00') if last_sync_str.endswith('Z') else last_sync_str
+                        last_sync = datetime.fromisoformat(last_sync_str_clean)
+                        # S'assurer que last_sync est timezone-aware (UTC)
+                        if last_sync.tzinfo is None:
+                            from core.timezone_utils import UTC_TZ
+                            last_sync = last_sync.replace(tzinfo=UTC_TZ)
+                        else:
+                            last_sync = last_sync.astimezone(UTC_TZ)
                         print(f"📅 Dernière sync: {last_sync.strftime('%Y-%m-%d %H:%M:%S')}")
                         return last_sync
 
@@ -496,12 +503,17 @@ class GazelleToSupabaseSync:
         if start_date_override:
             # Override manuel - convertir date Montreal → UTC pour filtre API
             from datetime import datetime as dt
+            from core.timezone_utils import MONTREAL_TZ
+            # Parser la date et s'assurer qu'elle est timezone-aware (Montreal)
             start_dt = dt.fromisoformat(start_date_override)
+            if start_dt.tzinfo is None:
+                start_dt = start_dt.replace(tzinfo=MONTREAL_TZ)
             effective_start_date = format_for_gazelle_filter(start_dt)
             print(f"🎯 Mode manuel: import depuis {start_date_override} Montreal → {effective_start_date} UTC")
         else:
             # TOUJOURS mode incrémental: 7 derniers jours (ignore le marqueur historical_done)
-            start_dt = datetime.now() - timedelta(days=7)
+            from core.timezone_utils import MONTREAL_TZ
+            start_dt = datetime.now(MONTREAL_TZ) - timedelta(days=7)
             effective_start_date = format_for_gazelle_filter(start_dt)
             print(f"🔄 Sync incrémental SÉCURISÉE: derniers 7 jours")
             print(f"   📍 Depuis: {start_dt.strftime('%Y-%m-%d')} Montreal → {effective_start_date} UTC")
@@ -737,16 +749,18 @@ class GazelleToSupabaseSync:
 
         try:
             from datetime import datetime, timedelta
+            from core.timezone_utils import UTC_TZ
 
             # Date de cutoff: 7 jours en arrière (fenêtre glissante)
-            now = datetime.now()
+            # IMPORTANT: Utiliser UTC pour garantir timezone-aware
+            now = datetime.now(UTC_TZ)
             cutoff_date = now - timedelta(days=7)
 
             # IMPORTANT: Convertir la date Montreal → UTC pour le filtre API
             cutoff_iso_utc = format_for_gazelle_filter(cutoff_date)
 
             print(f"📅 Fenêtre de synchronisation: 7 derniers jours seulement")
-            print(f"   📍 Cutoff: {cutoff_date.strftime('%Y-%m-%d')} Montreal → {cutoff_iso_utc} UTC")
+            print(f"   📍 Cutoff: {cutoff_date.strftime('%Y-%m-%d')} UTC → {cutoff_iso_utc} UTC")
             print(f"   ⚡ Performance optimisée: ~30 secondes")
 
             # Utiliser le filtre API pour récupérer SEULEMENT les 7 derniers jours
@@ -781,9 +795,8 @@ class GazelleToSupabaseSync:
                                 occurred_at_utc = format_for_supabase(dt_parsed)
 
                                 # Vérifier age (7 jours cutoff)
-                                from zoneinfo import ZoneInfo
-                                cutoff_aware = cutoff_date.replace(tzinfo=ZoneInfo('UTC'))
-                                if dt_parsed < cutoff_aware:
+                                # cutoff_date est déjà aware (UTC) depuis la ligne 743
+                                if dt_parsed < cutoff_date:
                                     # SKIP cette entrée (plus vieille que 7 jours)
                                     continue
                         except Exception as e:
@@ -898,7 +911,8 @@ class GazelleToSupabaseSync:
             import json
             
             # Récupérer les timeline entries récentes (7 jours) avec piano_id
-            cutoff_date = datetime.now() - timedelta(days=7)
+            from core.timezone_utils import UTC_TZ
+            cutoff_date = datetime.now(UTC_TZ) - timedelta(days=7)
             cutoff_iso = cutoff_date.isoformat()
             
             supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
@@ -967,7 +981,14 @@ class GazelleToSupabaseSync:
                         
                         # Chercher une mesure proche de la date de l'entrée (±1 jour)
                         try:
-                            entry_dt = datetime.fromisoformat(entry_date.replace('Z', '+00:00'))
+                            entry_dt_str = entry_date.replace('Z', '+00:00') if entry_date.endswith('Z') else entry_date
+                            entry_dt = datetime.fromisoformat(entry_dt_str)
+                            # S'assurer que entry_dt est timezone-aware (UTC)
+                            if entry_dt.tzinfo is None:
+                                from core.timezone_utils import UTC_TZ
+                                entry_dt = entry_dt.replace(tzinfo=UTC_TZ)
+                            else:
+                                entry_dt = entry_dt.astimezone(UTC_TZ)
                         except:
                             continue
                         
@@ -980,7 +1001,14 @@ class GazelleToSupabaseSync:
                                 continue
                             
                             try:
-                                measure_dt = datetime.fromisoformat(taken_on.replace('Z', '+00:00'))
+                                measure_dt_str = taken_on.replace('Z', '+00:00') if taken_on.endswith('Z') else taken_on
+                                measure_dt = datetime.fromisoformat(measure_dt_str)
+                                # S'assurer que measure_dt est timezone-aware (UTC)
+                                if measure_dt.tzinfo is None:
+                                    from core.timezone_utils import UTC_TZ
+                                    measure_dt = measure_dt.replace(tzinfo=UTC_TZ)
+                                else:
+                                    measure_dt = measure_dt.astimezone(UTC_TZ)
                                 diff = abs(entry_dt - measure_dt)
                                 if diff < min_diff:
                                     min_diff = diff
