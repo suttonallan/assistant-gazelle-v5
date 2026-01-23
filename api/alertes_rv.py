@@ -112,10 +112,14 @@ async def health_check():
     return {"status": "ok", "service": "alertes-rv"}
 
 
-@router.post("/check", response_model=Dict[str, Any])
-async def check_unconfirmed_appointments(request: CheckRequest):
+@router.get("/check", response_model=Dict[str, Any])
+async def check_unconfirmed_appointments(target_date: Optional[str] = None, exclude_types: Optional[str] = None):
     """
     Vérifie les RV non confirmés pour une date.
+
+    Args:
+        target_date: Date au format YYYY-MM-DD (demain par défaut)
+        exclude_types: Types à exclure, séparés par virgules (ex: "PERSONAL,MEMO")
 
     Returns:
         Dict avec les RV groupés par technicien
@@ -124,21 +128,28 @@ async def check_unconfirmed_appointments(request: CheckRequest):
         checker = get_checker()
 
         # Parse target_date
-        if request.target_date:
-            target_date = datetime.fromisoformat(request.target_date).date()
+        if target_date:
+            target_date_obj = datetime.fromisoformat(target_date).date()
         else:
-            target_date = (datetime.now() + timedelta(days=1)).date()
+            from core.timezone_utils import MONTREAL_TZ
+            target_date_obj = (datetime.now(MONTREAL_TZ) + timedelta(days=1)).date()
+
+        # Parse exclude_types
+        exclude_types_list = None
+        if exclude_types:
+            exclude_types_list = [t.strip() for t in exclude_types.split(',')]
 
         # Get unconfirmed appointments
         by_technician = checker.get_unconfirmed_appointments(
-            target_date=target_date,
-            exclude_types=request.exclude_types
+            target_date=target_date_obj,
+            exclude_types=exclude_types_list
         )
 
         # Enrichir avec infos techniciens
+        from core.timezone_utils import MONTREAL_TZ
         result = {
-            'target_date': target_date.isoformat(),
-            'checked_at': datetime.now().isoformat(),
+            'target_date': target_date_obj.isoformat(),
+            'checked_at': datetime.now(MONTREAL_TZ).isoformat(),
             'technicians': []
         }
 
