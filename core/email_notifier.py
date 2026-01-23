@@ -26,7 +26,9 @@ class EmailNotifier:
 
     def __init__(self):
         """Initialise le client SendGrid."""
-        self.api_key = os.getenv('SENDGRID_API_KEY')
+        api_key_raw = os.getenv('SENDGRID_API_KEY')
+        # Retirer les espaces et sauts de ligne (problème courant dans .env)
+        self.api_key = api_key_raw.strip() if api_key_raw else None
         if not self.api_key:
             print("⚠️ SENDGRID_API_KEY non configurée - emails désactivés")
             self.client = None

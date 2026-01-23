@@ -28,7 +28,9 @@ class EmailSender:
         self.from_name = os.getenv('ALERT_FROM_NAME', 'Assistant Gazelle Alertes')
 
         if method == 'sendgrid':
-            self.sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
+            sendgrid_api_key_raw = os.getenv('SENDGRID_API_KEY')
+            # Retirer les espaces et sauts de ligne (problème courant dans .env)
+            self.sendgrid_api_key = sendgrid_api_key_raw.strip() if sendgrid_api_key_raw else None
             if not self.sendgrid_api_key:
                 print("⚠️ SENDGRID_API_KEY non défini, bascule sur SMTP")
                 self.method = 'smtp'
