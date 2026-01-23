@@ -9,11 +9,14 @@ Le scope phone:write:sms doit être activé sur Zoom.
 import os
 import re
 import requests
+from pathlib import Path
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement
-load_dotenv()
+# Charger les variables d'environnement depuis .env à la racine du projet
+PROJECT_ROOT = Path(__file__).parent.parent
+env_path = PROJECT_ROOT / '.env'
+load_dotenv(env_path)
 
 # Configuration Zoom API
 ZOOM_API_BASE_URL = "https://api.zoom.us/v2"

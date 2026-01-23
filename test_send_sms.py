@@ -12,10 +12,17 @@ Exemples:
 """
 
 import sys
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement depuis .env à la racine du projet
+PROJECT_ROOT = Path(__file__).parent
+env_path = PROJECT_ROOT / '.env'
+load_dotenv(env_path)
 
 # Ajouter le projet au path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.zoom_sms import send_zoom_sms, format_phone_number
 
