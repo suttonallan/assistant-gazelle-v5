@@ -9,9 +9,11 @@
 Gère toutes les tâches planifiées de l'application:
 - 01:00: Sync Gazelle Totale → Rapport Timeline (chaînées automatiquement)
 - 03:00: Backup SQL de la base de données
+- 07:00-21:00 (toutes les heures): Sync Appointments - Détection des RV dernière minute
 - 16:30: Sync Appointments - Capture les RV créés/modifiés dans la journée
 - 17:00: URGENCE TECHNIQUE (J-1) - Alertes aux techniciens pour RV non confirmés
 - 09:00: RELANCE LOUISE (J-7) - Relance pour RV créés il y a plus de 3 mois
+- Toutes les 5 min: Traitement Late Assignment Queue (envoi emails)
 
 Orchestration:
 - Quand Sync Gazelle réussit → déclenche automatiquement Rapport Timeline
@@ -584,6 +586,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 16:30 - Sync Appointments configurée")
+
+    # Toutes les heures (heures ouvrables 7h-21h) - Sync Appointments pour détecter les RV dernière minute
+    scheduler.add_job(
+        task_sync_appointments_only,
+        trigger=CronTrigger(hour='7-21', minute=0, timezone='America/Montreal'),
+        id='sync_appointments_hourly',
+        name='Sync Appointments (horaire 7h-21h)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Toutes les heures (7h-21h) - Sync Appointments configurée")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
