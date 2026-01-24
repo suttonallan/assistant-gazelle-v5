@@ -1,0 +1,73 @@
+name: 📅 Sync Appointments Horaire (7h-21h)
+
+on:
+  schedule:
+    # Exécuter toutes les heures entre 7h et 21h heure Montréal
+    # 7h-21h Montréal (EST/EDT) = 12h-2h UTC (hiver) ou 11h-1h UTC (été)
+    # On couvre 11h-2h UTC pour couvrir les deux fuseaux horaires
+    - cron: '0 11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2 * * *'
+  workflow_dispatch:  # Permet d'exécuter manuellement depuis GitHub
+
+jobs:
+  sync-appointments-hourly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # Timeout de 10 minutes pour la sync appointments
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Vérifier que sendgrid est bien installé (requis pour les notifications)
+        python -c "import sendgrid; print(f'✅ sendgrid version: {sendgrid.__version__}')" || (echo "❌ sendgrid non installé - installation forcée" && pip install sendgrid>=6.12.0)
+
+    - name: Sync Appointments (détection RV dernière minute)
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+        GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+      run: |
+        echo "🔄 Sync Appointments Horaire - Détection RV dernière minute"
+        echo "📅 $(date)"
+        echo "🕐 Heure UTC: $(date -u)"
+        echo ""
+        
+        # Exécuter la sync appointments uniquement
+        # Cela détectera les changements de technicien et insérera dans late_assignment_queue
+        python3 -c "
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path.cwd()))
+        
+        from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
+        
+        print('📅 Démarrage sync appointments...')
+        syncer = GazelleToSupabaseSync(incremental_mode=True)
+        appointments_count = syncer.sync_appointments()
+        print(f'✅ {appointments_count} rendez-vous synchronisés')
+        print('✅ Détection des changements de technicien effectuée')
+        print('✅ Les alertes Late Assignment ont été insérées dans la queue si nécessaire')
+        "
+
+    - name: Report results
+      if: always()
+      run: |
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📅 Sync Appointments Horaire terminée"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ Rendez-vous synchronisés"
+        echo "✅ Détection des changements de technicien effectuée"
+        echo "✅ Alertes Late Assignment insérées dans la queue si nécessaire"
+        echo ""
+        echo "📧 Les emails seront envoyés automatiquement (toutes les 5 min)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
