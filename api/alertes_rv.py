@@ -370,11 +370,31 @@ async def get_stats():
         for alert in alerts:
             sent_at_str = alert.get('sent_at')
             if sent_at_str:
-                sent_at = datetime.fromisoformat(sent_at_str.replace('Z', '+00:00'))
-                if sent_at >= last_7_days:
-                    stats['alerts_last_7_days'] += 1
-                if sent_at >= last_30_days:
-                    stats['alerts_last_30_days'] += 1
+                try:
+                    # Normaliser le format de date pour fromisoformat
+                    # Gérer les formats: 'Z', '+00:00', ou déjà avec timezone
+                    date_str = sent_at_str.replace('Z', '+00:00')
+                    
+                    # Gérer les microsecondes non standard (5 chiffres au lieu de 6)
+                    # Format: 2026-01-24T21:00:15.23983+00:00 -> 2026-01-24T21:00:15.239830+00:00
+                    import re
+                    # Pattern pour trouver .XXXXX suivi de + ou - (5 chiffres de microsecondes)
+                    match = re.search(r'\.(\d{5})([+-]\d{2}:\d{2})', date_str)
+                    if match:
+                        # Ajouter un zéro pour avoir 6 chiffres
+                        microseconds = match.group(1) + '0'  # Ajouter 0 à la fin
+                        date_str = date_str.replace(match.group(0), f'.{microseconds}{match.group(2)}')
+                    
+                    sent_at = datetime.fromisoformat(date_str)
+                    if sent_at >= last_7_days:
+                        stats['alerts_last_7_days'] += 1
+                    if sent_at >= last_30_days:
+                        stats['alerts_last_30_days'] += 1
+                except Exception as e:
+                    # Si le parsing échoue, ignorer cette alerte pour les stats de dates
+                    # Mais continuer avec les autres stats
+                    print(f"⚠️  Erreur parsing date '{sent_at_str}': {e}")
+                    pass
 
             user = alert.get('triggered_by', 'unknown')
             stats['by_user'][user] = stats['by_user'].get(user, 0) + 1
