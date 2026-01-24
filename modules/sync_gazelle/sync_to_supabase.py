@@ -145,6 +145,101 @@ class GazelleToSupabaseSync:
         except Exception as e:
             print(f"⚠️ Erreur sauvegarde last_sync_date: {e}")
 
+    def _queue_late_assignment_alert(
+        self,
+        appointment_external_id: str,
+        technician_id: str,
+        appointment_date: str,
+        appointment_time: Optional[str] = None,
+        client_name: Optional[str] = None,
+        location: Optional[str] = None
+    ):
+        """
+        Insère une alerte dans la file d'attente late_assignment_queue.
+        
+        Gère le buffer de 5 minutes et les heures de repos (21h-07h → 07h05).
+        
+        Args:
+            appointment_external_id: ID externe du rendez-vous
+            technician_id: ID du technicien (Gazelle)
+            appointment_date: Date du rendez-vous (YYYY-MM-DD)
+            appointment_time: Heure du rendez-vous (HH:MM)
+            client_name: Nom du client
+            location: Lieu du rendez-vous
+        """
+        try:
+            from core.timezone_utils import MONTREAL_TZ
+            from datetime import time as time_class
+            
+            now = datetime.now(MONTREAL_TZ)
+            current_hour = now.hour
+            
+            # Calculer l'heure d'envoi
+            if current_hour >= 21 or current_hour < 7:
+                # Heures de repos: programmer pour 07h05 le matin même
+                if current_hour >= 21:
+                    # C'est le soir, programmer pour 07h05 demain
+                    tomorrow = now.date() + timedelta(days=1)
+                else:
+                    # C'est la nuit (00h-06h59), programmer pour 07h05 aujourd'hui
+                    tomorrow = now.date()
+                
+                scheduled_send_at = datetime.combine(tomorrow, time_class(7, 5), MONTREAL_TZ)
+            else:
+                # Heures normales: buffer de 5 minutes
+                scheduled_send_at = now + timedelta(minutes=5)
+            
+            # Vérifier si une entrée pending existe déjà pour ce RV+technicien
+            # Si oui, mettre à jour l'heure d'envoi (reset du timer)
+            check_url = f"{self.storage.api_url}/late_assignment_queue?appointment_external_id=eq.{appointment_external_id}&technician_id=eq.{technician_id}&status=eq.pending"
+            check_response = requests.get(check_url, headers=self.storage._get_headers())
+            
+            if check_response.status_code == 200:
+                existing = check_response.json()
+                if existing and len(existing) > 0:
+                    # Mettre à jour l'heure d'envoi (reset du timer)
+                    update_url = f"{self.storage.api_url}/late_assignment_queue?id=eq.{existing[0]['id']}"
+                    update_headers = self.storage._get_headers()
+                    update_headers["Prefer"] = "return=representation"
+                    
+                    update_data = {
+                        'scheduled_send_at': scheduled_send_at.isoformat(),
+                        'updated_at': now.isoformat()
+                    }
+                    
+                    update_response = requests.patch(update_url, headers=update_headers, json=update_data)
+                    if update_response.status_code in [200, 204]:
+                        print(f"🔄 Alerte mise à jour (reset timer) pour RV {appointment_external_id} → tech {technician_id}")
+                    return
+            
+            # Créer une nouvelle entrée
+            queue_entry = {
+                'appointment_external_id': appointment_external_id,
+                'technician_id': technician_id,
+                'appointment_date': appointment_date,
+                'appointment_time': appointment_time,
+                'client_name': client_name,
+                'location': location,
+                'scheduled_send_at': scheduled_send_at.isoformat(),
+                'status': 'pending'
+            }
+            
+            url = f"{self.storage.api_url}/late_assignment_queue"
+            headers = self.storage._get_headers()
+            headers["Prefer"] = "resolution=merge-duplicates"
+            
+            response = requests.post(url, headers=headers, json=queue_entry)
+            
+            if response.status_code in [200, 201]:
+                send_time_str = scheduled_send_at.strftime('%Y-%m-%d %H:%M')
+                print(f"📧 Alerte programmée pour RV {appointment_external_id} → tech {technician_id} (envoi: {send_time_str})")
+            else:
+                print(f"⚠️  Erreur insertion queue alerte {appointment_external_id}: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            print(f"⚠️  Erreur queue alerte {appointment_external_id}: {e}")
+            # Ne pas faire échouer la sync pour ça
+
     def sync_clients(self) -> int:
         """
         Synchronise les clients depuis l'API vers Supabase.
@@ -625,6 +720,19 @@ class GazelleToSupabaseSync:
                         'updated_at': format_for_supabase(datetime.now())
                     }
 
+                    # Détecter changement de technicien AVANT l'UPSERT
+                    # Récupérer l'ancien record pour comparer
+                    old_record = None
+                    try:
+                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date"
+                        check_response = requests.get(check_url, headers=self.storage._get_headers())
+                        if check_response.status_code == 200:
+                            old_data = check_response.json()
+                            if old_data and len(old_data) > 0:
+                                old_record = old_data[0]
+                    except Exception as e:
+                        print(f"⚠️  Erreur récupération ancien record {external_id}: {e}")
+
                     # UPSERT avec on_conflict
                     url = f"{self.storage.api_url}/gazelle_appointments?on_conflict=external_id"
                     headers = self.storage._get_headers()
@@ -641,6 +749,74 @@ class GazelleToSupabaseSync:
                     else:
                         print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text}")
                         self.stats['appointments']['errors'] += 1
+                        continue  # Skip la détection de changement si l'UPSERT a échoué
+
+                    # DÉTECTION DE CHANGEMENT DE TECHNICIEN pour alerte "Late Assignment"
+                    if technicien and appointment_date:
+                        try:
+                            from core.timezone_utils import MONTREAL_TZ
+                            from datetime import date as date_class
+                            
+                            # Vérifier si la date est aujourd'hui ou demain
+                            today = datetime.now(MONTREAL_TZ).date()
+                            tomorrow = today + timedelta(days=1)
+                            
+                            # Parser la date du rendez-vous
+                            appt_date = None
+                            if isinstance(appointment_date, str):
+                                try:
+                                    appt_date = date_class.fromisoformat(appointment_date)
+                                except:
+                                    pass
+                            elif isinstance(appointment_date, date_class):
+                                appt_date = appointment_date
+                            
+                            # Vérifier si c'est aujourd'hui ou demain
+                            is_today_or_tomorrow = appt_date and (appt_date == today or appt_date == tomorrow)
+                            
+                            if is_today_or_tomorrow:
+                                old_technicien = old_record.get('technicien') if old_record else None
+                                last_notified = old_record.get('last_notified_tech_id') if old_record else None
+                                
+                                # Déclencher alerte si:
+                                # 1. Nouveau RV (pas d'ancien technicien) OU
+                                # 2. Technicien a changé ET ce n'est pas le même que celui déjà notifié
+                                should_alert = False
+                                
+                                if not old_technicien:
+                                    # Nouveau RV assigné
+                                    should_alert = True
+                                elif old_technicien != technicien:
+                                    # Technicien a changé
+                                    # Ne pas alerter si on a déjà notifié ce technicien (anti-doublon)
+                                    if last_notified != technicien:
+                                        should_alert = True
+                                
+                                if should_alert:
+                                    # Insérer dans la file d'attente
+                                    self._queue_late_assignment_alert(
+                                        appointment_external_id=external_id,
+                                        technician_id=technicien,
+                                        appointment_date=appointment_date,
+                                        appointment_time=appointment_time,
+                                        client_name=client_obj.get('name', '') if client_obj else None,
+                                        location=location
+                                    )
+                                    
+                                    # Mettre à jour last_notified_tech_id (sera confirmé après envoi)
+                                    # On le met à jour maintenant pour éviter les doublons si plusieurs syncs rapides
+                                    update_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
+                                    update_headers = self.storage._get_headers()
+                                    update_headers["Prefer"] = "return=representation"
+                                    requests.patch(
+                                        update_url,
+                                        headers=update_headers,
+                                        json={'last_notified_tech_id': technicien}
+                                    )
+                                    
+                        except Exception as e:
+                            print(f"⚠️  Erreur détection changement technicien {external_id}: {e}")
+                            # Ne pas faire échouer la sync pour ça
 
                 except Exception as e:
                     print(f"❌ Erreur appointment {appt_data.get('id', 'unknown')}: {e}")

@@ -301,6 +301,39 @@ async def get_alerts_history(limit: int = 50, offset: int = 0):
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération: {str(e)}")
 
 
+@router.get("/late-assignment", response_model=Dict[str, Any])
+async def get_late_assignment_alerts(limit: int = 50):
+    """
+    Récupère les alertes "dernière minute" (assignations tardives < 24h).
+    
+    Args:
+        limit: Nombre maximum d'alertes à retourner
+        
+    Returns:
+        Liste des alertes dernière minute avec infos enrichies
+    """
+    try:
+        storage = get_storage()
+        
+        # Récupérer depuis la vue late_assignment_alerts
+        response = storage.client.table('late_assignment_alerts').select('*').limit(limit).order('created_at', desc=True).execute()
+        
+        alerts = response.data if response.data else []
+        
+        return {
+            'alerts': alerts,
+            'count': len(alerts),
+            'pending': len([a for a in alerts if a.get('status') == 'pending']),
+            'sent': len([a for a in alerts if a.get('status') == 'sent']),
+            'failed': len([a for a in alerts if a.get('status') == 'failed'])
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+
+
 @router.get("/stats", response_model=Dict[str, Any])
 async def get_stats():
     """Retourne des statistiques sur les alertes de RV."""

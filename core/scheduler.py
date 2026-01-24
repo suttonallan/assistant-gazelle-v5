@@ -541,6 +541,28 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 17:00 - URGENCE TECHNIQUE (J-1) configurée")
 
+    # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
+    scheduler.add_job(
+        task_process_late_assignment_queue,
+        trigger=CronTrigger(hour=7, minute=5, timezone='America/Montreal'),
+        id='late_assignment_morning',
+        name='Traitement Late Assignment (07:05)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 07:05 - Traitement Late Assignment (matin) configurée")
+
+    # Toutes les 5 minutes - Traitement file d'attente Late Assignment (buffer 5 min)
+    scheduler.add_job(
+        task_process_late_assignment_queue,
+        trigger=CronTrigger(minute='*/5', timezone='America/Montreal'),
+        id='late_assignment_frequent',
+        name='Traitement Late Assignment (toutes les 5 min)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Toutes les 5 min - Traitement Late Assignment configurée")
+
     # 09:00 - RELANCE LOUISE (J-7)
     scheduler.add_job(
         task_relance_louise_j7,
@@ -615,6 +637,7 @@ __all__ = [
     'task_generate_rapport_timeline',
     'task_backup_database',
     'task_sync_appointments_only',
+    'task_process_late_assignment_queue',
     'task_urgence_technique_j1',
     'task_relance_louise_j7'
 ]

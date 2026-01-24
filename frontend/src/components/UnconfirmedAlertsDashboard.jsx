@@ -4,20 +4,22 @@ import axios from 'axios';
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 /**
- * Dashboard des Alertes RV Non Confirmés
+ * Dashboard des Alertes RV
  * 
  * Affiche :
- * - Les alertes envoyées (historique)
  * - Les RV non confirmés actuels
+ * - Les alertes dernière minute (assignations tardives < 24h)
+ * - Les alertes envoyées (historique)
  * - Statistiques par technicien
  */
 function UnconfirmedAlertsDashboard() {
   const [alerts, setAlerts] = useState([]);
   const [unconfirmed, setUnconfirmed] = useState(null);
+  const [lateAssignment, setLateAssignment] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('current'); // 'current' ou 'history'
+  const [activeTab, setActiveTab] = useState('current'); // 'current', 'late', ou 'history'
 
   useEffect(() => {
     fetchData();
@@ -39,6 +41,10 @@ function UnconfirmedAlertsDashboard() {
       // Récupérer les stats
       const statsRes = await axios.get(`${API_BASE}/api/alertes-rv/stats`);
       setStats(statsRes.data);
+
+      // Récupérer les alertes dernière minute
+      const lateRes = await axios.get(`${API_BASE}/api/alertes-rv/late-assignment?limit=50`);
+      setLateAssignment(lateRes.data);
 
     } catch (err) {
       setError(err.message);
@@ -107,10 +113,10 @@ function UnconfirmedAlertsDashboard() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          📧 Alertes RV Non Confirmés
+          📧 Alertes RV
         </h1>
         <p className="text-gray-600">
-          Gestion des alertes envoyées aux techniciens pour les rendez-vous non confirmés
+          Gestion des alertes envoyées aux techniciens (RV non confirmés et assignations tardives)
         </p>
       </div>
 
@@ -153,6 +159,21 @@ function UnconfirmedAlertsDashboard() {
             {unconfirmed && unconfirmed.total_appointments > 0 && (
               <span className="ml-2 bg-red-100 text-red-800 text-xs px-2 py-1 rounded">
                 {unconfirmed.total_appointments}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('late')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'late'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            ⚠️ Alertes Dernière Minute
+            {lateAssignment && lateAssignment.count > 0 && (
+              <span className="ml-2 bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded">
+                {lateAssignment.count}
               </span>
             )}
           </button>
@@ -204,6 +225,84 @@ function UnconfirmedAlertsDashboard() {
           ) : (
             <div className="text-center py-12 text-gray-500">
               ✅ Aucun RV non confirmé pour le moment
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Late Assignment */}
+      {activeTab === 'late' && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          {lateAssignment && lateAssignment.alerts && lateAssignment.alerts.length > 0 ? (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date RV</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Heure</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Technicien</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lieu</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Programmé pour</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Envoyé le</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {lateAssignment.alerts.map((alert, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {alert.appointment_date ? new Date(alert.appointment_date).toLocaleDateString('fr-CA') : 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {alert.appointment_time || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {alert.technician_name || 'N/A'}
+                      {alert.technician_email && (
+                        <div className="text-xs text-gray-500">{alert.technician_email}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {alert.client_name || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {alert.location || 'N/A'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {alert.status === 'pending' && (
+                        <span className="px-2 py-1 text-xs font-medium rounded bg-yellow-100 text-yellow-800">
+                          ⏳ En attente
+                        </span>
+                      )}
+                      {alert.status === 'sent' && (
+                        <span className="px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-800">
+                          ✅ Envoyé
+                        </span>
+                      )}
+                      {alert.status === 'failed' && (
+                        <span className="px-2 py-1 text-xs font-medium rounded bg-red-100 text-red-800">
+                          ❌ Échec
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {alert.scheduled_send_at ? formatDate(alert.scheduled_send_at) : 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {alert.sent_at ? formatDate(alert.sent_at) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              ✅ Aucune alerte dernière minute pour le moment
+            </div>
+          )}
+          {lateAssignment && (
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 text-sm text-gray-600">
+              <strong>Statistiques:</strong> {lateAssignment.pending || 0} en attente, {lateAssignment.sent || 0} envoyé(s), {lateAssignment.failed || 0} échec(s)
             </div>
           )}
         </div>
