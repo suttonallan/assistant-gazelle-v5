@@ -27,12 +27,14 @@ CREATE TABLE IF NOT EXISTS late_assignment_queue (
     status VARCHAR(50) DEFAULT 'pending', -- 'pending', 'sent', 'failed'
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    
-    -- Contrainte: un seul pending par appointment+technician
-    CONSTRAINT unique_pending_appointment_tech UNIQUE (appointment_external_id, technician_id, status)
-        WHERE status = 'pending'
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Index unique partiel: un seul pending par appointment+technician
+-- (Doit être créé après la table, pas comme contrainte inline)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_late_assignment_queue_unique_pending 
+    ON late_assignment_queue(appointment_external_id, technician_id) 
+    WHERE status = 'pending';
 
 -- Index pour les requêtes fréquentes
 CREATE INDEX IF NOT EXISTS idx_late_assignment_queue_scheduled_send 
