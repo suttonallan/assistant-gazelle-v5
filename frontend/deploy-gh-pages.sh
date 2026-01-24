@@ -27,8 +27,15 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-# Build
-echo "🔨 Build du projet..."
+# Build avec mode production explicite
+echo "🔨 Build du projet (mode production)..."
+# S'assurer que VITE_API_URL est défini pour le build
+export NODE_ENV=production
+# Charger .env.production si disponible
+if [ -f .env.production ]; then
+    echo "📋 Chargement de .env.production..."
+    export $(cat .env.production | grep -v '^#' | xargs)
+fi
 npm run build
 
 # Copier le build dans un répertoire temporaire
