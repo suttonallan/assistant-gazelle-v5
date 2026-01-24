@@ -1,5 +1,14 @@
 -- Script SQL pour le système d'alerte "Late Assignment"
 -- Alerte les techniciens lorsqu'un RV leur est assigné/réassigné moins de 24h avant
+--
+-- IMPORTANT - PRÉREQUIS:
+-- Assurez-vous que tous les techniciens ont leur ID Gazelle dans la colonne
+-- external_id de la table users. Ce lien est essentiel pour:
+-- 1. Récupérer l'email du technicien lors de l'envoi de l'alerte
+-- 2. Afficher le nom du technicien dans la vue late_assignment_alerts
+--
+-- Vérification: SELECT external_id, email, first_name, last_name FROM users;
+-- Tous les techniciens doivent avoir un external_id non NULL correspondant à leur ID Gazelle.
 
 -- ============================================================
 -- 1. Table de file d'attente pour les alertes
@@ -58,7 +67,21 @@ COMMENT ON COLUMN gazelle_appointments.last_notified_tech_id IS
 
 
 -- ============================================================
--- 3. Vue pour les alertes dernière minute (pour le frontend)
+-- 3. Index sur users.external_id (si pas déjà existant)
+-- ============================================================
+
+-- IMPORTANT: Assurez-vous que tous les techniciens ont leur ID Gazelle
+-- dans la colonne external_id de la table users.
+-- Ce lien est essentiel pour récupérer l'email du technicien.
+
+CREATE INDEX IF NOT EXISTS idx_users_external_id ON users(external_id);
+
+COMMENT ON INDEX idx_users_external_id IS 
+    'Index pour optimiser la recherche de techniciens par ID Gazelle (technician_id)';
+
+
+-- ============================================================
+-- 4. Vue pour les alertes dernière minute (pour le frontend)
 -- ============================================================
 
 CREATE OR REPLACE VIEW late_assignment_alerts AS
@@ -74,15 +97,18 @@ SELECT
     q.sent_at,
     q.status,
     q.created_at,
+    -- Lien avec users via external_id = technician_id (ID Gazelle)
     u.first_name || ' ' || u.last_name AS technician_name,
     u.email AS technician_email,
     a.title AS appointment_title,
     a.description AS appointment_description
 FROM late_assignment_queue q
+-- JOIN avec users: technician_id (Gazelle) = external_id (Supabase)
 LEFT JOIN users u ON u.external_id = q.technician_id
 LEFT JOIN gazelle_appointments a ON a.external_id = q.appointment_external_id
 WHERE q.status IN ('pending', 'sent')
 ORDER BY q.created_at DESC;
 
 COMMENT ON VIEW late_assignment_alerts IS 
-    'Vue enrichie des alertes dernière minute pour affichage frontend';
+    'Vue enrichie des alertes dernière minute pour affichage frontend. '
+    'Fait le lien entre technician_id (Gazelle) et users.external_id pour récupérer email/nom.';
