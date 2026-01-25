@@ -346,7 +346,6 @@ class GazelleToSupabaseSync:
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
-                    import requests
                     response = requests.post(url, headers=headers, json=client_record)
 
                     if response.status_code in [200, 201]:
@@ -534,7 +533,6 @@ class GazelleToSupabaseSync:
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
-                    import requests
                     response = requests.post(url, headers=headers, json=piano_record)
 
                     if response.status_code in [200, 201]:
@@ -738,7 +736,6 @@ class GazelleToSupabaseSync:
                     headers = self.storage._get_headers()
                     headers["Prefer"] = "resolution=merge-duplicates"
 
-                    import requests
                     response = requests.post(url, headers=headers, json=appointment_record)
 
                     if response.status_code in [200, 201]:
@@ -1213,8 +1210,7 @@ class GazelleToSupabaseSync:
                             # Mettre à jour dans Supabase
                             update_url = f"{self.storage.api_url}/gazelle_timeline_entries?id=eq.{entry['id']}"
                             update_headers = self.storage._get_headers()
-                            
-                            import requests
+
                             update_resp = requests.patch(
                                 update_url,
                                 headers=update_headers,

@@ -7,6 +7,7 @@ import LoginScreen from './components/LoginScreen'
 import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
 import SystemHealthDashboard from './components/SystemHealthDashboard' // 🏥 Logs de Santé
 import UnconfirmedAlertsDashboard from './components/UnconfirmedAlertsDashboard' // 📧 Alertes RV
+import SyncDashboard from './components/SyncDashboard' // 📊 Dashboard Sync V6
 import InventaireDashboard from './components/InventaireDashboard'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
@@ -430,6 +431,12 @@ function App() {
               <UnconfirmedAlertsDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
+        } else if (currentView === 'sync-dashboard') {
+          return (
+            <ErrorBoundary componentName="Dashboard Sync V6">
+              <SyncDashboard currentUser={effectiveUser} />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
@@ -678,6 +685,20 @@ function App() {
                         }`}
                       >
                         📧 Alertes RV
+                      </button>
+                    )}
+
+                    {/* Sync Dashboard V6 - admin seulement */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('sync-dashboard')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'sync-dashboard'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        📊 Sync Logs
                       </button>
                     )}
 

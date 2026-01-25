@@ -4,6 +4,7 @@ Routes API pour les logs de synchronisation
 
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List
+from datetime import datetime, timedelta, timezone
 from core.supabase_storage import SupabaseStorage
 
 router = APIRouter(prefix="/sync-logs", tags=["sync-logs"])
