@@ -12,6 +12,7 @@ import JeanPhilippeDashboard from './components/dashboards/JeanPhilippeDashboard
 import PlaceDesArtsDashboard from './components/place_des_arts/PlaceDesArtsDashboard'
 import AssistantWidget from './components/AssistantWidget'
 import ChatIntelligent from './components/ChatIntelligent'
+import MaJournee from './components/MaJournee' // 🧠 Briefings Intelligents V2
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -246,8 +247,8 @@ function App() {
           )
         } else if (currentView === 'chat') {
           return (
-            <ErrorBoundary componentName="Chat Intelligent">
-              <ChatIntelligent currentUser={effectiveUser} />
+            <ErrorBoundary componentName="Ma Journée">
+              <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
@@ -275,8 +276,8 @@ function App() {
           )
         } else if (currentView === 'chat') {
           return (
-            <ErrorBoundary componentName="Chat Intelligent">
-              <ChatIntelligent currentUser={effectiveUser} />
+            <ErrorBoundary componentName="Ma Journée">
+              <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
@@ -357,8 +358,8 @@ function App() {
           )
         } else if (currentView === 'chat') {
           return (
-            <ErrorBoundary componentName="Chat Intelligent">
-              <ChatIntelligent currentUser={effectiveUser} />
+            <ErrorBoundary componentName="Ma Journée">
+              <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         }
@@ -402,8 +403,8 @@ function App() {
           )
         } else if (currentView === 'chat') {
           return (
-            <ErrorBoundary componentName="Chat Intelligent">
-              <ChatIntelligent currentUser={effectiveUser} />
+            <ErrorBoundary componentName="Ma Journée">
+              <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {

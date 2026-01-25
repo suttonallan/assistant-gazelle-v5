@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""
+API Routes pour les Briefings Intelligents - "Ma Journée" V2
+
+Endpoints:
+- GET /briefing/daily - Briefings du jour pour un technicien
+- GET /briefing/client/{id} - Briefing détaillé d'un client
+- POST /briefing/feedback - Sauvegarder une correction (Allan only)
+"""
+
+import sys
+from pathlib import Path
+from datetime import datetime
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from modules.briefing.client_intelligence_service import (
+    ClientIntelligenceService,
+    save_feedback
+)
+
+router = APIRouter(prefix="/briefing", tags=["briefing"])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MODÈLES
+# ═══════════════════════════════════════════════════════════════════════
+
+class FeedbackRequest(BaseModel):
+    """Requête pour sauvegarder une correction"""
+    client_id: str
+    category: str  # 'profile', 'technical', 'piano', 'general'
+    field_name: str
+    original_value: Optional[str] = None
+    corrected_value: str
+    created_by: str = "asutton@piano-tek.com"
+
+
+class BriefingCard(BaseModel):
+    """Format simplifié pour affichage mobile"""
+    time: str
+    client_name: str
+    icons: List[str]
+    piano: str
+    warnings: List[str]
+    last_recommendation: Optional[str]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.get("/health")
+async def health_check():
+    """Health check"""
+    return {"status": "ok", "service": "briefing"}
+
+
+@router.get("/daily", response_model=Dict[str, Any])
+async def get_daily_briefings(
+    technician_id: Optional[str] = Query(None, description="ID du technicien"),
+    date: Optional[str] = Query(None, description="Date YYYY-MM-DD (défaut: aujourd'hui)")
+):
+    """
+    Récupère les briefings pour les RV du jour.
+
+    Retourne une liste de briefings avec les 3 piliers:
+    - Profile: Langue, animaux, courtoisies
+    - Technical: Recommandations des dernières visites
+    - Piano: Fiche et avertissements
+    """
+    try:
+        service = ClientIntelligenceService()
+        briefings = service.get_daily_briefings(
+            technician_id=technician_id,
+            target_date=date
+        )
+
+        # Générer aussi les cartes formatées
+        cards = []
+        for b in briefings:
+            card = _format_card(b)
+            cards.append(card)
+
+        return {
+            "date": date or datetime.now().strftime('%Y-%m-%d'),
+            "technician_id": technician_id,
+            "count": len(briefings),
+            "briefings": briefings,
+            "cards": cards  # Version simplifiée pour mobile
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/client/{client_id}", response_model=Dict[str, Any])
+async def get_client_briefing(client_id: str):
+    """
+    Génère un briefing détaillé pour un client spécifique.
+    """
+    try:
+        service = ClientIntelligenceService()
+        briefing = service.generate_briefing(client_id)
+
+        if "error" in briefing:
+            raise HTTPException(status_code=404, detail=briefing["error"])
+
+        return briefing
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/feedback", response_model=Dict[str, Any])
+async def submit_feedback(request: FeedbackRequest):
+    """
+    Sauvegarde une correction de briefing.
+
+    ⚠️ SUPER-UTILISATEUR SEULEMENT (Allan)
+    Ces corrections sont utilisées pour améliorer l'IA.
+    """
+    # Vérifier que c'est Allan
+    if request.created_by != "asutton@piano-tek.com":
+        raise HTTPException(
+            status_code=403,
+            detail="Seul asutton@piano-tek.com peut soumettre des corrections"
+        )
+
+    # Valider la catégorie
+    valid_categories = ['profile', 'technical', 'piano', 'general']
+    if request.category not in valid_categories:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Catégorie invalide. Valeurs acceptées: {valid_categories}"
+        )
+
+    try:
+        success = save_feedback(
+            client_id=request.client_id,
+            category=request.category,
+            field_name=request.field_name,
+            original_value=request.original_value or "",
+            corrected_value=request.corrected_value,
+            created_by=request.created_by
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": "Correction enregistrée",
+                "client_id": request.client_id,
+                "field": f"{request.category}.{request.field_name}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Erreur sauvegarde")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/card/{client_id}", response_model=Dict[str, Any])
+async def get_briefing_card(client_id: str):
+    """
+    Retourne un briefing au format carte (10 secondes de lecture).
+    Optimisé pour affichage mobile.
+    """
+    try:
+        service = ClientIntelligenceService()
+        briefing = service.generate_briefing(client_id)
+
+        if "error" in briefing:
+            raise HTTPException(status_code=404, detail=briefing["error"])
+
+        card = _format_card(briefing)
+        text = service.format_briefing_card(briefing)
+
+        return {
+            "card": card,
+            "text_format": text,
+            "client_id": client_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+def _format_card(briefing: Dict) -> Dict:
+    """Formate un briefing en carte simplifiée"""
+    profile = briefing.get('profile', {})
+    piano = briefing.get('piano', {})
+    history = briefing.get('technical_history', [])
+    appt = briefing.get('appointment', {})
+
+    # Icônes
+    icons = []
+    lang = profile.get('language', 'FR')
+    if lang == 'EN':
+        icons.append('🇬🇧')
+    elif lang == 'BI':
+        icons.append('🇬🇧🇫🇷')
+
+    if profile.get('pets'):
+        icons.append('🐕')
+
+    courtesies = profile.get('courtesies', [])
+    if 'enlever chaussures' in courtesies:
+        icons.append('👟❌')
+    if 'offre café' in courtesies:
+        icons.append('☕')
+    if 'appeler avant' in courtesies:
+        icons.append('📞')
+
+    # Piano string
+    piano_str = ""
+    if piano:
+        piano_str = f"{piano.get('make', '')} {piano.get('model', '')}"
+        if piano.get('year'):
+            piano_str += f" ({piano.get('year')})"
+
+    # Last recommendation
+    last_rec = None
+    if history and history[0].get('recommendations'):
+        last_rec = history[0]['recommendations'][0]
+
+    return {
+        "time": appt.get('time', ''),
+        "client_name": briefing.get('client_name', 'Client'),
+        "icons": icons,
+        "piano": piano_str.strip(),
+        "warnings": piano.get('warnings', []),
+        "last_recommendation": last_rec,
+        "confidence": briefing.get('confidence_score', 0)
+    }

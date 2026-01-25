@@ -41,6 +41,7 @@ from api.scheduler_routes import router as scheduler_router
 from api.sync_logs_routes import router as sync_logs_router
 from api.scheduler_logs_routes import router as scheduler_logs_router
 from api.humidity_alerts_routes import router as humidity_alerts_router
+from api.briefing_routes import router as briefing_router  # 🧠 Briefings Intelligents "Ma Journée"
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
 
 app = FastAPI(
@@ -178,6 +179,7 @@ app.include_router(conversation_router)  # Assistant conversationnel intelligent
 app.include_router(scheduler_router)
 app.include_router(sync_logs_router)
 app.include_router(scheduler_logs_router)
+app.include_router(briefing_router)  # 🧠 Briefings Intelligents "Ma Journée"
 app.include_router(institutions_router)  # Route dynamique /{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 # Routes AVEC /api (pour production sans proxy)
@@ -200,6 +202,7 @@ app.include_router(conversation_router, prefix="/api")  # Assistant conversation
 app.include_router(scheduler_router, prefix="/api")
 app.include_router(sync_logs_router, prefix="/api")
 app.include_router(scheduler_logs_router, prefix="/api")
+app.include_router(briefing_router, prefix="/api")  # 🧠 Briefings Intelligents "Ma Journée"
 app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 
