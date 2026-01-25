@@ -4,10 +4,7 @@ import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
 import OrfordDashboard from './components/OrfordDashboard'
 import LoginScreen from './components/LoginScreen'
-import TableauDeBord from './components/TableauDeBord' // 🆕 Dashboard unifié
-import SystemHealthDashboard from './components/SystemHealthDashboard' // 🏥 Logs de Santé
-import UnconfirmedAlertsDashboard from './components/UnconfirmedAlertsDashboard' // 📧 Alertes RV
-import SyncDashboard from './components/SyncDashboard' // 📊 Dashboard Sync V6
+import SyncDashboard from './components/SyncDashboard' // 📊 Dashboard Unifié V6
 import InventaireDashboard from './components/InventaireDashboard'
 import NickDashboard from './components/dashboards/NickDashboard'
 import LouiseDashboard from './components/dashboards/LouiseDashboard'
@@ -17,7 +14,6 @@ import AssistantWidget from './components/AssistantWidget'
 import ChatIntelligent from './components/ChatIntelligent'
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
-import MaintenanceAlertsCard from './components/MaintenanceAlertsCard'
 import ErrorBoundary from './components/ErrorBoundary'
 import { getUserRole, ROLES } from './config/roles'
 
@@ -81,7 +77,7 @@ function FestiveDecor({ show }) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('tableau-de-bord') // DÉFAUT: tableau-de-bord unifié
+  const [currentView, setCurrentView] = useState('sync-dashboard') // DÉFAUT: Dashboard Unifié V6
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
@@ -379,20 +375,11 @@ function App() {
         )
       case 'admin':
       default:
-        // Dashboard admin unifié
-        if (currentView === 'tableau-de-bord' || currentView === 'dashboard') {
+        // Dashboard admin unifié V6
+        if (currentView === 'sync-dashboard' || currentView === 'tableau-de-bord' || currentView === 'dashboard') {
           return (
             <ErrorBoundary componentName="Tableau de Bord">
-              <TableauDeBord currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'configuration') {
-          return (
-            <ErrorBoundary componentName="Configuration">
-              <div className="max-w-7xl mx-auto px-4 py-6">
-                <h1 className="text-2xl font-bold text-gray-800 mb-6">⚙️ Configuration</h1>
-                <MaintenanceAlertsCard />
-              </div>
+              <SyncDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'inventaire') {
@@ -417,24 +404,6 @@ function App() {
           return (
             <ErrorBoundary componentName="Chat Intelligent">
               <ChatIntelligent currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'system-health') {
-          return (
-            <ErrorBoundary componentName="Santé Système">
-              <SystemHealthDashboard currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'unconfirmed-alerts') {
-          return (
-            <ErrorBoundary componentName="Alertes RV Non Confirmés">
-              <UnconfirmedAlertsDashboard currentUser={effectiveUser} />
-            </ErrorBoundary>
-          )
-        } else if (currentView === 'sync-dashboard') {
-          return (
-            <ErrorBoundary componentName="Dashboard Sync V6">
-              <SyncDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
         } else if (currentView === 'calculateur-frais') {
@@ -632,73 +601,17 @@ function App() {
                   </>
                 ) : (
                   <>
-                    {/* Tableau de Bord - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('tableau-de-bord')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'tableau-de-bord' || currentView === 'dashboard'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        📊 Tableau de bord
-                      </button>
-                    )}
-
-                    {/* Configuration - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('configuration')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'configuration'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        ⚙️ Configuration
-                      </button>
-                    )}
-
-                    {/* Santé Système - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('system-health')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'system-health'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        🏥 Logs de Santé
-                      </button>
-                    )}
-
-                    {/* Alertes RV - admin seulement */}
-                    {effectiveRole === 'admin' && (
-                      <button
-                        onClick={() => setCurrentView('unconfirmed-alerts')}
-                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'unconfirmed-alerts'
-                            ? 'bg-blue-100 text-blue-700 font-medium'
-                            : 'text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        📧 Alertes RV
-                      </button>
-                    )}
-
-                    {/* Sync Dashboard V6 - admin seulement */}
+                    {/* Tableau de Bord Unifié V6 - admin seulement */}
                     {effectiveRole === 'admin' && (
                       <button
                         onClick={() => setCurrentView('sync-dashboard')}
                         className={`px-4 py-2 text-sm rounded-lg transition-colors ${
-                          currentView === 'sync-dashboard'
+                          currentView === 'sync-dashboard' || currentView === 'tableau-de-bord' || currentView === 'dashboard'
                             ? 'bg-blue-100 text-blue-700 font-medium'
                             : 'text-gray-600 hover:bg-gray-100'
                         }`}
                       >
-                        📊 Sync Logs
+                        📊 Tableau de Bord
                       </button>
                     )}
 
