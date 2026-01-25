@@ -804,9 +804,85 @@ class GazelleToSupabaseSync:
                                 elif last_notified is None and technicien:
                                     # Cas spécial: technicien assigné mais jamais notifié
                                     # Cela peut arriver si le technicien a été changé entre deux syncs
-                                    # et que old_record a déjà le nouveau technicien
-                                    print(f"   ✅ Technicien assigné mais jamais notifié (last_notified=None) → alerte déclenchée")
-                                    should_alert = True
+                                    # MAIS on ne veut alerter que si le RV a été mis à jour récemment (dans les 24h)
+                                    # pour éviter d'alerter pour des RV créés avec un technicien dès le début
+                                    from datetime import timedelta
+                                    rv_updated = None
+                                    
+                                    # Vérifier si le RV a été mis à jour récemment (pas créé, mais mis à jour)
+                                    # car un update récent indique un changement de technicien
+                                    if old_record:
+                                        updated_str = old_record.get('updated_at') if isinstance(old_record, dict) else None
+                                        try:
+                                            if updated_str:
+                                                if isinstance(updated_str, str):
+                                                    rv_updated = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
+                                                else:
+                                                    rv_updated = updated_str
+                                        except:
+                                            pass
+                                    
+                                    # Si pas de date dans old_record, vérifier dans appointment_record
+                                    if not rv_updated:
+                                        updated_str = appointment_record.get('updated_at')
+                                        try:
+                                            if updated_str:
+                                                if isinstance(updated_str, str):
+                                                    rv_updated = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
+                                        except:
+                                            pass
+                                    
+                                    # Vérifier si mis à jour dans les dernières 24h
+                                    # ET que la date de mise à jour est différente de la date de création
+                                    # (pour éviter d'alerter pour des RV créés récemment avec technicien dès le début)
+                                    now = datetime.now(MONTREAL_TZ)
+                                    recent_threshold = now - timedelta(hours=24)
+                                    
+                                    should_alert_recent = False
+                                    if rv_updated:
+                                        rv_updated_mtl = rv_updated.astimezone(MONTREAL_TZ) if rv_updated.tzinfo else rv_updated.replace(tzinfo=MONTREAL_TZ)
+                                        
+                                        # Vérifier si mis à jour récemment
+                                        if rv_updated_mtl >= recent_threshold:
+                                            # Vérifier si la date de mise à jour est différente de la date de création
+                                            # (si updated_at == created_at, c'est probablement un nouveau RV, pas un changement)
+                                            rv_created = None
+                                            if old_record:
+                                                created_str = old_record.get('created_at') if isinstance(old_record, dict) else None
+                                                try:
+                                                    if created_str:
+                                                        if isinstance(created_str, str):
+                                                            rv_created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                                                except:
+                                                    pass
+                                            
+                                            if not rv_created:
+                                                created_str = appointment_record.get('created_at')
+                                                try:
+                                                    if created_str:
+                                                        if isinstance(created_str, str):
+                                                            rv_created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
+                                                except:
+                                                    pass
+                                            
+                                            # Si pas de date de création ou si updated != created (avec tolérance de 1h)
+                                            # alors c'est probablement un changement récent
+                                            if not rv_created:
+                                                should_alert_recent = True
+                                                print(f"   ✅ RV mis à jour récemment ({rv_updated_mtl.strftime('%Y-%m-%d %H:%M')}) sans date création → alerte déclenchée")
+                                            else:
+                                                rv_created_mtl = rv_created.astimezone(MONTREAL_TZ) if rv_created.tzinfo else rv_created.replace(tzinfo=MONTREAL_TZ)
+                                                time_diff = abs((rv_updated_mtl - rv_created_mtl).total_seconds() / 3600)
+                                                if time_diff > 1:  # Mis à jour plus d'1h après création = changement
+                                                    should_alert_recent = True
+                                                    print(f"   ✅ RV mis à jour récemment ({rv_updated_mtl.strftime('%Y-%m-%d %H:%M')}, {time_diff:.1f}h après création) → alerte déclenchée")
+                                                else:
+                                                    print(f"   ⏭️  RV créé et mis à jour en même temps ({time_diff:.1f}h) → pas d'alerte (nouveau RV)")
+                                    
+                                    if should_alert_recent:
+                                        should_alert = True
+                                    else:
+                                        print(f"   ⏭️  RV pas mis à jour récemment ou créé récemment avec technicien → pas d'alerte")
                                 else:
                                     print(f"   ⏭️  Technicien n'a pas changé et déjà notifié → pas d'alerte")
                                 
