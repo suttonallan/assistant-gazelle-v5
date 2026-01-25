@@ -41,12 +41,17 @@ class LateAssignmentNotifier:
         print("\n📧 Traitement de la file d'attente late_assignment_queue...")
         
         now = datetime.now(MONTREAL_TZ)
+        # Convertir en UTC pour la comparaison (scheduled_send_at est stocké en UTC)
+        from datetime import timezone
+        now_utc = now.astimezone(timezone.utc)
+        # Formater en ISO sans timezone pour Supabase (qui attend UTC)
+        now_utc_str = now_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
         
         # Récupérer les alertes à envoyer (scheduled_send_at <= now, status = pending)
         try:
             url = (
                 f"{self.storage.api_url}/late_assignment_queue"
-                f"?scheduled_send_at=lte.{now.isoformat()}"
+                f"?scheduled_send_at=lte.{now_utc_str}"
                 f"&status=eq.pending"
                 f"&order=scheduled_send_at.asc"
             )
