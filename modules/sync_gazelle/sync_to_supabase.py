@@ -775,19 +775,40 @@ class GazelleToSupabaseSync:
                                 old_technicien = old_record.get('technicien') if old_record else None
                                 last_notified = old_record.get('last_notified_tech_id') if old_record else None
                                 
+                                # Log de debug pour comprendre la détection
+                                print(f"🔍 Détection Late Assignment pour {external_id}:")
+                                print(f"   old_technicien: {old_technicien}")
+                                print(f"   technicien: {technicien}")
+                                print(f"   last_notified: {last_notified}")
+                                print(f"   date: {appointment_date}")
+                                
                                 # Déclencher alerte si:
                                 # 1. Nouveau RV (pas d'ancien technicien) OU
                                 # 2. Technicien a changé ET ce n'est pas le même que celui déjà notifié
+                                # 3. Technicien assigné mais jamais notifié (last_notified est None) - cas où le technicien a été changé entre deux syncs
                                 should_alert = False
                                 
                                 if not old_technicien:
                                     # Nouveau RV assigné
+                                    print(f"   ✅ Nouveau RV assigné → alerte déclenchée")
                                     should_alert = True
                                 elif old_technicien != technicien:
                                     # Technicien a changé
+                                    print(f"   ✅ Technicien changé ({old_technicien} → {technicien})")
                                     # Ne pas alerter si on a déjà notifié ce technicien (anti-doublon)
                                     if last_notified != technicien:
+                                        print(f"   ✅ last_notified ({last_notified}) != technicien ({technicien}) → alerte déclenchée")
                                         should_alert = True
+                                    else:
+                                        print(f"   ⏭️  last_notified == technicien → pas d'alerte (anti-doublon)")
+                                elif last_notified is None and technicien:
+                                    # Cas spécial: technicien assigné mais jamais notifié
+                                    # Cela peut arriver si le technicien a été changé entre deux syncs
+                                    # et que old_record a déjà le nouveau technicien
+                                    print(f"   ✅ Technicien assigné mais jamais notifié (last_notified=None) → alerte déclenchée")
+                                    should_alert = True
+                                else:
+                                    print(f"   ⏭️  Technicien n'a pas changé et déjà notifié → pas d'alerte")
                                 
                                 if should_alert:
                                     # Insérer dans la file d'attente
