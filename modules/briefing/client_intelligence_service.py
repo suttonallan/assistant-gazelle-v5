@@ -155,21 +155,53 @@ class ClientIntelligenceService:
         return list(set(pets))
 
     def _detect_courtesies(self, text: str) -> List[str]:
-        """Détecte les préférences de courtoisie"""
+        """
+        Détecte les préférences de courtoisie.
+
+        IMPORTANT: Ne détecte QUE les patterns explicites pour éviter
+        les faux positifs (ex: "théâtre" ne doit pas matcher "thé").
+        """
         courtesies = []
         text_lower = text.lower()
 
+        # Patterns avec regex pour éviter les faux positifs
+        # Chaque pattern doit être explicite et sans ambiguïté
         patterns = {
-            'enlever chaussures': ['enlève', 'chaussures', 'shoes off', 'remove shoes'],
-            'offre café': ['café', 'coffee', 'thé', 'tea', 'offre'],
-            'stationnement arrière': ['stationn', 'parking', 'arrière', 'back'],
-            'sonnette ne fonctionne pas': ['sonnette', 'doorbell', 'cogner', 'knock'],
-            'appeler avant': ['appeler', 'call before', 'téléphoner', 'confirmer'],
+            'enlever chaussures': [
+                r'\benlever?\s+(?:les\s+)?chaussures\b',
+                r'\bshoes?\s+off\b',
+                r'\bremove\s+shoes\b',
+                r'\bsans\s+chaussures\b',
+            ],
+            'offre café': [
+                r'\boffre\s+(?:un\s+)?(?:café|thé)\b',
+                r'\boffers?\s+(?:coffee|tea)\b',
+                r'\bcafé\s+offert\b',
+            ],
+            'stationnement arrière': [
+                r'\bstationn\w*\s+(?:en\s+)?arrière\b',
+                r'\bparking\s+(?:in\s+)?(?:the\s+)?back\b',
+                r'\bse\s+garer\s+(?:en\s+)?arrière\b',
+            ],
+            'sonnette ne fonctionne pas': [
+                r'\bsonnette\s+(?:ne\s+)?(?:fonctionne|marche)\s*(?:pas|plus)?\b',
+                r'\bdoorbell\s+(?:does\s*n.t|broken)\b',
+                r'\bcogner\b',
+                r'\bknock\b',
+            ],
+            'appeler avant': [
+                r'\bappeler\s+avant\b',
+                r'\btéléphoner\s+avant\b',
+                r'\bcall\s+before\b',
+                r'\bconfirmer\s+(?:le\s+)?(?:rv|rendez)\b',
+            ],
         }
 
-        for courtesy, keywords in patterns.items():
-            if any(kw in text_lower for kw in keywords):
-                courtesies.append(courtesy)
+        for courtesy, regex_list in patterns.items():
+            for pattern in regex_list:
+                if re.search(pattern, text_lower):
+                    courtesies.append(courtesy)
+                    break  # Une seule détection par courtoisie
 
         return courtesies
 
@@ -447,12 +479,14 @@ class ClientIntelligenceService:
     # ═══════════════════════════════════════════════════════════════════
 
     def get_daily_briefings(self, technician_id: str = None,
+                            exclude_technician_id: str = None,
                             target_date: str = None) -> List[Dict]:
         """
         Récupère les briefings pour les RV du jour.
 
         Args:
             technician_id: Filtrer par technicien (optionnel)
+            exclude_technician_id: Exclure ce technicien (optionnel)
             target_date: Date cible YYYY-MM-DD (défaut: aujourd'hui)
 
         Returns:
@@ -472,6 +506,11 @@ class ClientIntelligenceService:
                                                   order_by='appointment_time.asc')
         except:
             appointments = []
+
+        # Exclure un technicien si demandé
+        if exclude_technician_id:
+            appointments = [a for a in appointments
+                           if a.get('technicien') != exclude_technician_id]
 
         briefings = []
         for appt in appointments:

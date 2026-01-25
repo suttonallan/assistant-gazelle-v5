@@ -210,6 +210,12 @@ function App() {
     gazelleId: currentUser?.gazelleId || ROLES[effectiveRole]?.gazelleId  // Alias explicite
   }
 
+  // Debug: voir effectiveUser quand rôle simulé
+  if (simulatedRole) {
+    console.log('[App.jsx] simulatedRole:', simulatedRole, 'ROLES[simulatedRole]:', ROLES[simulatedRole])
+    console.log('[App.jsx] effectiveUser.gazelleId:', effectiveUser.gazelleId)
+  }
+
   const handleLogin = (user) => {
     setCurrentUser(user)
   }

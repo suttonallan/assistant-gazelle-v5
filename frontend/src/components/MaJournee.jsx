@@ -24,6 +24,9 @@ export default function MaJournee({ currentUser }) {
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
   const [showAllTechs, setShowAllTechs] = useState(false) // Mode admin: voir tous les RV
 
+  // Debug: voir quel technicianId est utilisé
+  console.log('[MaJournee] currentUser:', currentUser?.email, 'gazelleId:', currentUser?.gazelleId, 'id:', currentUser?.id, '→ technicianId:', technicianId)
+
   useEffect(() => {
     loadBriefings()
   }, [selectedDate, technicianId, showAllTechs])
@@ -34,9 +37,14 @@ export default function MaJournee({ currentUser }) {
 
     try {
       let url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
-      // Filtrer par technicien (sauf mode "voir tous" pour Allan)
-      if (technicianId && !(isAllan && showAllTechs)) {
-        url += `&technician_id=${technicianId}`
+      // Mes RV: filtrer par mon ID
+      // Autres techs: exclure mon ID
+      if (technicianId) {
+        if (isAllan && showAllTechs) {
+          url += `&exclude_technician_id=${technicianId}`
+        } else {
+          url += `&technician_id=${technicianId}`
+        }
       }
 
       const response = await fetch(url)
@@ -147,7 +155,7 @@ export default function MaJournee({ currentUser }) {
                     : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Tous les techs
+                Autres techs
               </button>
             </div>
           )}

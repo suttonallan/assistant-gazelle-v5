@@ -62,6 +62,7 @@ async def health_check():
 @router.get("/daily", response_model=Dict[str, Any])
 async def get_daily_briefings(
     technician_id: Optional[str] = Query(None, description="ID du technicien"),
+    exclude_technician_id: Optional[str] = Query(None, description="Exclure ce technicien"),
     date: Optional[str] = Query(None, description="Date YYYY-MM-DD (défaut: aujourd'hui)")
 ):
     """
@@ -76,6 +77,7 @@ async def get_daily_briefings(
         service = ClientIntelligenceService()
         briefings = service.get_daily_briefings(
             technician_id=technician_id,
+            exclude_technician_id=exclude_technician_id,
             target_date=date
         )
 
