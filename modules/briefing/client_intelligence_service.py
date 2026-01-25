@@ -222,8 +222,15 @@ class ClientIntelligenceService:
     # GÉNÉRATION DE BRIEFING
     # ═══════════════════════════════════════════════════════════════════
 
-    def generate_briefing(self, client_external_id: str) -> Dict[str, Any]:
-        """Génère un briefing complet pour un client"""
+    def generate_briefing(self, client_external_id: str,
+                          appointment_context: Dict = None) -> Dict[str, Any]:
+        """
+        Génère un briefing complet pour un client.
+
+        Args:
+            client_external_id: ID externe du client
+            appointment_context: Contexte du RV (title, description, notes) pour matcher le bon piano
+        """
 
         # 1. Récupérer les données client
         client = self._get_client(client_external_id)
@@ -262,7 +269,8 @@ class ClientIntelligenceService:
         # PILIER 3: Fiche Piano
         piano_info = {}
         if pianos:
-            p = pianos[0]  # Piano principal
+            # Matcher le piano mentionné dans le RV (si contexte fourni)
+            p = self._match_piano_from_context(pianos, appointment_context)
             year = p.get('year') or 0
             age = datetime.now().year - year if year > 1800 else 0
 
@@ -302,6 +310,64 @@ class ClientIntelligenceService:
         self._save_intelligence(client_external_id, briefing)
 
         return briefing
+
+    def _match_piano_from_context(self, pianos: List[Dict],
+                                    appointment_context: Dict = None) -> Dict:
+        """
+        Trouve le piano correspondant au RV basé sur la description/titre.
+
+        Recherche le nom de marque (make) dans le texte du RV.
+        Si un client a 2 pianos (Yamaha N-2, Fuchs & Mohr) et le RV dit
+        "Piano à queue Fuchs & Mohr", retourne le Fuchs & Mohr.
+
+        Args:
+            pianos: Liste des pianos du client
+            appointment_context: {'title': ..., 'description': ..., 'notes': ...}
+
+        Returns:
+            Le piano matché ou le premier par défaut
+        """
+        if not pianos:
+            return {}
+
+        if len(pianos) == 1:
+            return pianos[0]
+
+        # Pas de contexte = premier piano
+        if not appointment_context:
+            return pianos[0]
+
+        # Construire le texte de recherche depuis le contexte du RV
+        search_text = " ".join([
+            appointment_context.get('title', ''),
+            appointment_context.get('description', ''),
+            appointment_context.get('notes', ''),
+        ]).lower()
+
+        if not search_text.strip():
+            return pianos[0]
+
+        # Chercher chaque piano par marque (make)
+        for piano in pianos:
+            make = (piano.get('make') or '').lower()
+            if make and len(make) > 2 and make in search_text:
+                return piano
+
+        # Chercher par modèle aussi
+        for piano in pianos:
+            model = (piano.get('model') or '').lower()
+            if model and len(model) > 2 and model in search_text:
+                return piano
+
+        # Chercher "grand" ou "queue" pour piano à queue
+        if 'queue' in search_text or 'grand' in search_text:
+            for piano in pianos:
+                ptype = (piano.get('type') or '').lower()
+                if ptype in ['grand', 'queue', 'baby grand']:
+                    return piano
+
+        # Fallback: premier piano
+        return pianos[0]
 
     def _get_client(self, client_id: str) -> Optional[Dict]:
         """Récupère les infos client"""
@@ -413,14 +479,22 @@ class ClientIntelligenceService:
             if not client_id:
                 continue
 
-            # Générer ou récupérer le briefing
-            briefing = self.generate_briefing(client_id)
+            # Contexte du RV pour matcher le bon piano
+            appointment_context = {
+                'title': appt.get('title', ''),
+                'description': appt.get('description', ''),
+                'notes': appt.get('notes', ''),
+            }
+
+            # Générer le briefing avec le contexte du RV
+            briefing = self.generate_briefing(client_id, appointment_context)
 
             # Ajouter les infos du RV
             briefing['appointment'] = {
                 'id': appt.get('external_id'),
                 'time': appt.get('appointment_time', '')[:5],
                 'title': appt.get('title', ''),
+                'description': appt.get('description', ''),
                 'technician_id': appt.get('technicien'),
             }
 

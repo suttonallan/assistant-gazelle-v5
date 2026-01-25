@@ -22,10 +22,11 @@ export default function MaJournee({ currentUser }) {
 
   const technicianId = currentUser?.gazelleId || currentUser?.id || null
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
+  const [showAllTechs, setShowAllTechs] = useState(false) // Mode admin: voir tous les RV
 
   useEffect(() => {
     loadBriefings()
-  }, [selectedDate, technicianId])
+  }, [selectedDate, technicianId, showAllTechs])
 
   const loadBriefings = async () => {
     setLoading(true)
@@ -33,8 +34,8 @@ export default function MaJournee({ currentUser }) {
 
     try {
       let url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
-      // Pour les techniciens (non-admin), filtrer par leur ID
-      if (technicianId && !isAllan) {
+      // Filtrer par technicien (sauf mode "voir tous" pour Allan)
+      if (technicianId && !(isAllan && showAllTechs)) {
         url += `&technician_id=${technicianId}`
       }
 
@@ -108,20 +109,48 @@ export default function MaJournee({ currentUser }) {
         </button>
       </div>
 
-      {/* Stats rapides */}
-      {!loading && briefings.length > 0 && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl px-4 py-3 mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-blue-600">{briefings.length}</span>
-            <span className="text-gray-600">rendez-vous</span>
+      {/* Stats rapides + Toggle admin */}
+      {!loading && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl px-4 py-3 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold text-blue-600">{briefings.length}</span>
+              <span className="text-gray-600">rendez-vous</span>
+            </div>
+            <button
+              onClick={loadBriefings}
+              disabled={loading}
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            >
+              🔄 Actualiser
+            </button>
           </div>
-          <button
-            onClick={loadBriefings}
-            disabled={loading}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            🔄 Actualiser
-          </button>
+
+          {/* Toggle pour Allan: Mes RV / Tous les RV */}
+          {isAllan && (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => setShowAllTechs(false)}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  !showAllTechs
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                Mes RV
+              </button>
+              <button
+                onClick={() => setShowAllTechs(true)}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  showAllTechs
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                Tous les techs
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -160,7 +189,7 @@ export default function MaJournee({ currentUser }) {
         <div className="space-y-4">
           {briefings.map((briefing, idx) => (
             <BriefingCard
-              key={briefing.client_id || idx}
+              key={briefing.appointment?.id || `${briefing.client_id}-${idx}`}
               briefing={briefing}
               currentUser={currentUser}
               onFeedbackSaved={loadBriefings}
