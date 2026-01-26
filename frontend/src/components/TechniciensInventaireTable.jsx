@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { TECHNICIENS_LISTE } from '../../../config/techniciens.config'
 
 import { API_URL } from '../utils/apiConfig'
@@ -21,6 +21,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
   const [comment, setComment] = useState('')
   const [updateFeedback, setUpdateFeedback] = useState({})
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const updateTimeoutRef = useRef({})
 
   // Map email addresses to TECHNICIENS usernames
   const getUsernameFromEmail = (email) => {
@@ -128,8 +129,9 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     }
   }
 
-  const updateQuantity = async (codeProduit, techUsername, newValue) => {
+  const updateQuantity = async (codeProduit, techUsername, newValue, immediate = false) => {
     const newQty = parseInt(newValue) || 0
+    const feedbackKey = codeProduit + techUsername
 
     // Mise à jour optimiste de l'UI
     setProducts(prev => prev.map(p =>
@@ -139,7 +141,6 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     ))
 
     // Feedback visuel
-    const feedbackKey = codeProduit + techUsername
     setUpdateFeedback(prev => ({ ...prev, [feedbackKey]: true }))
     setTimeout(() => {
       setUpdateFeedback(prev => {
@@ -149,39 +150,63 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
       })
     }, 500)
 
-    // Sauvegarder dans la DB
-    try {
-      // Mapper username vers nom complet pour l'API
-      const technicienNameMap = {
-        'nicolas': 'Nicolas',
-        'allan': 'Allan',
-        'jeanphilippe': 'Jean-Philippe'
-      }
-      const technicienName = technicienNameMap[techUsername] || techUsername
-      
-      const response = await fetch(`${API_URL}/api/inventaire/stock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code_produit: codeProduit,
-          technicien: technicienName, // Nom complet: "Nicolas", "Allan", "Jean-Philippe"
-          quantite_stock: newQty,
-          type_transaction: 'ajustement',
-          motif: 'Ajustement manuel depuis interface'
+    // Debounce: annuler la requête précédente si elle existe
+    if (updateTimeoutRef.current[feedbackKey]) {
+      clearTimeout(updateTimeoutRef.current[feedbackKey])
+    }
+
+    // Si immediate (onBlur), sauvegarder tout de suite
+    // Sinon, attendre 500ms après la dernière modification (debounce)
+    const saveToDB = async () => {
+      try {
+        // Mapper username vers nom complet pour l'API
+        const technicienNameMap = {
+          'nicolas': 'Nicolas',
+          'allan': 'Allan',
+          'jeanphilippe': 'Jean-Philippe'
+        }
+        const technicienName = technicienNameMap[techUsername] || techUsername
+        
+        const response = await fetch(`${API_URL}/api/inventaire/stock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code_produit: codeProduit,
+            technicien: technicienName, // Nom complet: "Nicolas", "Allan", "Jean-Philippe"
+            quantite_stock: newQty,
+            type_transaction: 'ajustement',
+            motif: 'Ajustement manuel depuis interface'
+          })
         })
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
-        throw new Error(errorData.detail || `Erreur ${response.status}`)
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Erreur inconnue' }))
+          throw new Error(errorData.detail || `Erreur ${response.status}`)
+        }
+        
+        const result = await response.json()
+        console.log('✅ Stock mis à jour:', result)
+        
+        // IMPORTANT: Recharger l'inventaire après chaque modification réussie
+        // pour s'assurer que l'UI reflète l'état réel de la DB
+        // Cela évite les problèmes de race condition si l'utilisateur fait plusieurs modifications rapides
+        await loadInventory()
+      } catch (err) {
+        console.error('Erreur sauvegarde:', err)
+        // Recharger en cas d'erreur pour restaurer l'état correct
+        await loadInventory()
+      } finally {
+        // Nettoyer la référence du timeout
+        delete updateTimeoutRef.current[feedbackKey]
       }
-      
-      const result = await response.json()
-      console.log('✅ Stock mis à jour:', result)
-    } catch (err) {
-      console.error('Erreur sauvegarde:', err)
-      // Recharger en cas d'erreur
-      await loadInventory()
+    }
+
+    if (immediate) {
+      // Sauvegarder immédiatement (onBlur)
+      await saveToDB()
+    } else {
+      // Debounce: attendre 500ms après la dernière modification
+      updateTimeoutRef.current[feedbackKey] = setTimeout(saveToDB, 500)
     }
   }
 
@@ -305,7 +330,13 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
                         type="number"
                         min="0"
                         value={qty}
-                        onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value)}
+                        onChange={(e) => updateQuantity(product.code_produit, tech.username, e.target.value, false)}
+                        onBlur={(e) => {
+                          // Sauvegarder immédiatement quand l'utilisateur quitte le champ
+                          // pour s'assurer que la valeur est bien persistée
+                          const newQty = parseInt(e.target.value) || 0
+                          updateQuantity(product.code_produit, tech.username, newQty, true)
+                        }}
                         onFocus={(e) => e.target.select()}
                         onClick={(e) => e.target.select()}
                         className={`${isMobile ? 'w-14 text-sm' : 'w-20 text-sm'} px-2 py-1 text-center border rounded ${
