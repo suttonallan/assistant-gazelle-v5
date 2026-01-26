@@ -971,15 +971,36 @@ def parse_email_text(email_text: str) -> List[Dict]:
     months = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|f[eé]v|fev|avr|mai|juin|juil|aou|ao[uû]t|sept|oct|nov|d[eé]c|mars)"
     date_pattern = re.compile(rf'^(\d{{1,2}})[-/\s]+{months}\b', re.IGNORECASE)
     current_block_lines: List[str] = []
+    last_parsed_date = None  # Garder la date du dernier bloc parsé pour éviter les doublons
+    
     for line in cleaned_lines:
-        if date_pattern.search(line) and current_block_lines:
+        # Vérifier si cette ligne contient une date
+        date_match = date_pattern.search(line)
+        if date_match and current_block_lines:
+            # Essayer de parser la date de cette ligne
+            try:
+                potential_date = parse_date_flexible(date_match.group(0), current_date)
+                # Si la date est identique à la dernière date parsée, c'est probablement la même demande
+                # Ne pas créer un nouveau bloc, continuer à accumuler les lignes
+                if last_parsed_date and potential_date.date() == last_parsed_date.date():
+                    # Même date = même demande, continuer à accumuler
+                    current_block_lines.append(line)
+                    continue
+            except Exception:
+                # Erreur de parsing, traiter comme une nouvelle date
+                pass
+            
+            # Date différente ou erreur: parser le bloc actuel et commencer un nouveau
             block_text = '\n'.join(current_block_lines)
             parsed = parse_email_block(block_text, current_date)
             if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
                 requests.append(parsed)
+                last_parsed_date = parsed.get('date')
             current_block_lines = [line]
         else:
             current_block_lines.append(line)
+    
+    # Parser le dernier bloc
     if current_block_lines:
         block_text = '\n'.join(current_block_lines)
         parsed = parse_email_block(block_text, current_date)
