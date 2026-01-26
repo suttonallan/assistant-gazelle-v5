@@ -1135,12 +1135,47 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           {creating ? 'Fermer ajout' : '➕ Ajouter manuellement'}
         </button>
         {!isRestrictedUser && (
-          <button
-            onClick={handleSyncGazelle}
-            className="px-4 py-2 text-sm bg-gray-100 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-200"
-          >
-            🔄 Synchroniser tout
-          </button>
+          <>
+            <button
+              onClick={handleSyncGazelle}
+              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-200"
+            >
+              🔄 Synchroniser tout
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  setError(null)
+                  setInfoMessage('🔍 Vérification des RV complétés en cours...')
+                  
+                  const resp = await fetch(`${API_URL}/api/place-des-arts/check-completed`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                  })
+                  
+                  if (!resp.ok) {
+                    throw new Error(`Erreur: ${resp.status}`)
+                  }
+                  
+                  const data = await resp.json()
+                  
+                  await fetchData()
+                  
+                  if (data.updated > 0) {
+                    setInfoMessage(`✅ ${data.updated} demande(s) mise(s) à jour (${data.found_completed} complétées, ${data.found_unlinked} liées et complétées, ${data.found_not_created} liées)`)
+                  } else {
+                    setInfoMessage(`✅ Aucune mise à jour nécessaire (${data.checked} demandes vérifiées)`)
+                  }
+                } catch (err) {
+                  setError(err.message)
+                }
+              }}
+              className="px-4 py-2 text-sm bg-blue-100 text-blue-700 border border-blue-300 rounded-md hover:bg-blue-200"
+              title="Vérifie toutes les demandes pour trouver les RV complétés dans Gazelle"
+            >
+              ✅ Vérifier RV complétés
+            </button>
+          </>
         )}
 
         {/* Filtres - Sélecteur de mois accessible à tous */}

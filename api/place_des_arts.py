@@ -1270,16 +1270,170 @@ async def sync_manual(payload: SyncManualRequest):
         )
 
 
-@router.post("/validate-gazelle-rv")
-async def validate_gazelle_rv():
+@router.post("/check-completed")
+async def check_completed_requests():
     """
-    Valide qu'un RV existe dans Gazelle pour une demande Place des Arts.
-    Retourne {"found": true/false, "appointment": {...}} si trouvé.
-
-    NOTE: Cette fonctionnalité nécessite le module pda_validation qui n'est pas encore implémenté.
+    Vérifie toutes les demandes PDA pour trouver les RV complétés dans Gazelle
+    qui ne sont pas encore marqués comme complétés.
+    
+    Cette fonction vérifie :
+    - Les demandes déjà liées avec RV complétés
+    - Les demandes non liées mais avec RV complétés correspondants
+    - Les demandes avec RV trouvés mais pas encore marqués "créé gazelle"
     """
-    # TODO: Implémenter la validation Gazelle RV
-    return {"found": False, "error": "Fonctionnalité non implémentée (pda_validation manquant)"}
+    try:
+        from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+        
+        storage = get_storage()
+        sync_service = GazelleSyncService(storage)
+        
+        # Récupérer toutes les demandes non complétées
+        try:
+            result = storage.client.table('place_des_arts_requests')\
+                .select('*')\
+                .neq('status', 'COMPLETED')\
+                .neq('status', 'BILLED')\
+                .order('appointment_date', desc=False)\
+                .execute()
+            
+            all_requests = result.data if result.data else []
+        except Exception as e:
+            logging.error(f"Erreur récupération demandes: {e}")
+            raise HTTPException(status_code=500, detail=f"Erreur récupération: {str(e)}")
+        
+        if not all_requests:
+            return {
+                "success": True,
+                "checked": 0,
+                "found_completed": 0,
+                "found_unlinked": 0,
+                "found_not_created": 0,
+                "updated": 0,
+                "message": "Aucune demande à vérifier"
+            }
+        
+        # Récupérer tous les RV Gazelle
+        gazelle_appointments = sync_service._get_gazelle_appointments()
+        gazelle_by_id = {apt.get('external_id'): apt for apt in gazelle_appointments}
+        
+        found_completed = []
+        found_unlinked = []
+        found_not_created = []
+        
+        for request in all_requests:
+            request_id = request.get('id')
+            appointment_id = request.get('appointment_id')
+            status = request.get('status', '')
+            
+            # Si déjà liée, vérifier le statut du RV
+            if appointment_id:
+                gazelle_apt = gazelle_by_id.get(appointment_id)
+                if gazelle_apt:
+                    gazelle_status = gazelle_apt.get('status', '').upper()
+                    if gazelle_status in ('COMPLETE', 'COMPLETED'):
+                        found_completed.append({
+                            'request_id': request_id,
+                            'appointment_id': appointment_id,
+                            'appointment_date': request.get('appointment_date', '')[:10],
+                            'room': request.get('room', ''),
+                            'for_who': request.get('for_who', ''),
+                            'current_status': status
+                        })
+            else:
+                # Pas de lien, chercher un RV correspondant
+                matched_apt = sync_service._find_matching_appointment(
+                    request,
+                    gazelle_appointments
+                )
+                
+                if matched_apt:
+                    apt_id = matched_apt.get('external_id')
+                    gazelle_status = matched_apt.get('status', '').upper()
+                    
+                    if gazelle_status in ('COMPLETE', 'COMPLETED'):
+                        found_unlinked.append({
+                            'request_id': request_id,
+                            'appointment_id': apt_id,
+                            'appointment_date': request.get('appointment_date', '')[:10],
+                            'room': request.get('room', ''),
+                            'for_who': request.get('for_who', ''),
+                            'current_status': status
+                        })
+                    elif status != 'CREATED_IN_GAZELLE':
+                        found_not_created.append({
+                            'request_id': request_id,
+                            'appointment_id': apt_id,
+                            'appointment_date': request.get('appointment_date', '')[:10],
+                            'room': request.get('room', ''),
+                            'for_who': request.get('for_who', ''),
+                            'current_status': status
+                        })
+        
+        # Mettre à jour les statuts
+        updated_count = 0
+        
+        # Mettre à jour les demandes avec RV complété (déjà liées)
+        for item in found_completed:
+            success = sync_service._update_request_status(item['request_id'], 'COMPLETED')
+            if success:
+                updated_count += 1
+        
+        # Lier et mettre à jour les demandes avec RV complété (pas liées)
+        for item in found_unlinked:
+            apt_technician = None
+            # Récupérer le technicien du RV
+            gazelle_apt = gazelle_by_id.get(item['appointment_id'])
+            if gazelle_apt:
+                apt_technician = gazelle_apt.get('technicien')
+            
+            link_success = sync_service._link_request_to_appointment(
+                item['request_id'],
+                item['appointment_id'],
+                apt_technician
+            )
+            
+            if link_success:
+                status_success = sync_service._update_request_status(item['request_id'], 'COMPLETED')
+                if status_success:
+                    updated_count += 1
+        
+        # Lier et mettre à jour les demandes avec RV trouvé mais pas "créé gazelle"
+        for item in found_not_created:
+            apt_technician = None
+            gazelle_apt = gazelle_by_id.get(item['appointment_id'])
+            if gazelle_apt:
+                apt_technician = gazelle_apt.get('technicien')
+            
+            link_success = sync_service._link_request_to_appointment(
+                item['request_id'],
+                item['appointment_id'],
+                apt_technician
+            )
+            
+            if link_success:
+                updated_count += 1
+        
+        return {
+            "success": True,
+            "checked": len(all_requests),
+            "found_completed": len(found_completed),
+            "found_unlinked": len(found_unlinked),
+            "found_not_created": len(found_not_created),
+            "updated": updated_count,
+            "details": {
+                "completed": found_completed,
+                "unlinked": found_unlinked,
+                "not_created": found_not_created
+            },
+            "message": f"{updated_count} demande(s) mise(s) à jour ({len(found_completed)} complétées, {len(found_unlinked)} liées et complétées, {len(found_not_created)} liées)"
+        }
+        
+    except Exception as e:
+        logging.error(f"Erreur vérification complétés: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la vérification: {str(e)}"
+        )
 
 
 @router.get("/diagnostic")
