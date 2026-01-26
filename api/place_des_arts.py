@@ -651,11 +651,15 @@ async def list_requests(
                         request["gazelle_technician_id"] = tech_from_gazelle
                     
                     # Vérifier incohérence : technicien PDA différent de Gazelle
+                    # IMPORTANT: "À attribuer" = "À attribuer" n'est PAS une incohérence, c'est un état normal
+                    A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
                     if current_tech and tech_from_gazelle and current_tech != tech_from_gazelle:
-                        # Incohérence détectée : PDA a un technicien mais Gazelle en a un autre (ou "À attribuer")
-                        request["technician_mismatch"] = True
-                        request["gazelle_technician_id"] = tech_from_gazelle
-                        logging.warning(f"Incohérence détectée pour demande {request.get('id')}: PDA={current_tech}, Gazelle={tech_from_gazelle}")
+                        # Ne pas marquer comme incohérence si les deux sont "À attribuer"
+                        if not (current_tech == A_ATTRIBUER_ID and tech_from_gazelle == A_ATTRIBUER_ID):
+                            # Incohérence détectée : PDA a un technicien mais Gazelle en a un autre
+                            request["technician_mismatch"] = True
+                            request["gazelle_technician_id"] = tech_from_gazelle
+                            logging.warning(f"Incohérence détectée pour demande {request.get('id')}: PDA={current_tech}, Gazelle={tech_from_gazelle}")
                     
                     # Gazelle est la source de vérité : toujours mettre à jour le technicien depuis Gazelle
                     if tech_from_gazelle:

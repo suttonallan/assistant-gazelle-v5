@@ -1542,9 +1542,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
                         className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer ${
                           isAAttribuer(it.technician_id) 
-                            ? 'bg-orange-50 border-orange-300 text-orange-700' 
+                            ? 'bg-yellow-50 border-yellow-300 text-yellow-700'  // Jaune pour attirer l'attention qu'il faut assigner un technicien
                             : it.technician_mismatch
-                              ? 'bg-yellow-50 border-yellow-300 text-yellow-700'
+                              ? 'bg-yellow-50 border-yellow-300 text-yellow-700'  // Jaune pour incohérence
                               : 'bg-white'
                         }`}
                         title={
@@ -1557,7 +1557,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         <option value="">—</option>
                         {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle (appointment_id existe) avec ce technicien */}
                         {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || (it.technician_from_gazelle && it.technician_id === A_ATTRIBUER_ID) || it.gazelle_technician_id === A_ATTRIBUER_ID) && (
-                          <option value={A_ATTRIBUER_ID} className="text-orange-700 font-medium">
+                          <option value={A_ATTRIBUER_ID} className="text-yellow-700 font-medium">
                             ⚠️ À attribuer
                           </option>
                         )}
@@ -1567,7 +1567,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                       </select>
                       {/* Afficher un indicateur si c'est "À attribuer" */}
                       {isAAttribuer(it.technician_id) && it.appointment_id && (
-                        <span className="text-xs text-orange-600" title="RV créé dans Gazelle mais technicien à attribuer">
+                        <span className="text-xs text-yellow-600" title="RV créé dans Gazelle mais technicien à attribuer - Assignez un technicien dans Gazelle">
                           ⚠️
                         </span>
                       )}

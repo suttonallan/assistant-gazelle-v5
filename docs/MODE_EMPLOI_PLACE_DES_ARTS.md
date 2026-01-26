@@ -88,19 +88,21 @@ Chaque ligne du tableau des demandes a une couleur qui indique son état :
 Dans la colonne **"Qui le fait"**, vous verrez :
 
 - **Dropdown normal (blanc)** : Technicien assigné correctement
-- **Dropdown orange** : Technicien "À attribuer" dans Gazelle
-- **Dropdown jaune** : ⚠️ **Incohérence détectée** entre PDA et Gazelle
+- **Dropdown jaune** : Technicien "À attribuer" dans Gazelle (pour attirer l'attention qu'il faut assigner un technicien)
+- **Dropdown jaune avec icône 🔄** : ⚠️ **Incohérence détectée** entre PDA et Gazelle (techniciens différents)
 
 ### Cas particuliers
 
-#### 🔶 Technicien "À attribuer"
+#### 🟡 Technicien "À attribuer" (fond jaune)
 - **Quand** : Le RV existe dans Gazelle mais aucun technicien actif n'est encore assigné
-- **Affichage** : Dropdown orange avec "⚠️ À attribuer"
-- **Action** : Assignez un technicien (Nick, Allan ou JP) dans Gazelle, puis synchronisez
+- **Affichage** : Dropdown jaune avec "⚠️ À attribuer" (pour attirer l'attention)
+- **Important** : Ce n'est **PAS** une incohérence, c'est un état normal quand le RV est créé avec "À attribuer" dans Gazelle
+- **Action** : Assignez un technicien (Nick, Allan ou JP) dans Gazelle, puis synchronisez. Le dropdown redeviendra blanc une fois un technicien assigné.
 
-#### ⚠️ Incohérence détectée (fond jaune)
-- **Quand** : Le technicien dans PDA ne correspond pas à celui dans Gazelle
-- **Exemple** : PDA indique "Allan" mais Gazelle a "À attribuer"
+#### ⚠️ Incohérence détectée (fond jaune + icône 🔄)
+- **Quand** : Le technicien dans PDA ne correspond pas à celui dans Gazelle (et ce n'est pas "À attribuer" dans les deux)
+- **Exemple** : PDA indique "Allan" mais Gazelle a "Nick"
+- **Affichage** : Dropdown jaune avec icône **🔄** à côté
 - **Action** : 
   1. Cliquez sur l'icône **🔄** à côté du dropdown
   2. Confirmez la synchronisation
