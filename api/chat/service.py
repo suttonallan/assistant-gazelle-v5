@@ -180,19 +180,23 @@ class ChatService:
         from core.timezone_utils import MONTREAL_TZ
         now_mtl = datetime.now(MONTREAL_TZ)
 
-        # après-demain (vérifié EN PREMIER car contient "demain")
+        # aujourd'hui (vérifié EN PREMIER pour éviter les faux positifs)
+        if any(word in query_lower for word in ["aujourd'hui", "today", "ma journée"]):
+            target_date = now_mtl.strftime("%Y-%m-%d")
+            # Log pour debug
+            print(f"🔍 [Chat] Requête 'aujourd'hui' → date calculée: {target_date} (heure Montréal: {now_mtl.strftime('%Y-%m-%d %H:%M:%S %Z')})")
+            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+
+        # après-demain (vérifié EN DEUXIÈME car contient "demain")
         if any(word in query_lower for word in ["après-demain", "après demain", "apres-demain", "apres demain"]):
             target_date = (now_mtl + timedelta(days=2)).strftime("%Y-%m-%d")
+            print(f"🔍 [Chat] Requête 'après-demain' → date calculée: {target_date}")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
         # demain
         if any(word in query_lower for word in ["demain", "tomorrow"]):
             target_date = (now_mtl + timedelta(days=1)).strftime("%Y-%m-%d")
-            return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
-
-        # aujourd'hui
-        if any(word in query_lower for word in ["aujourd'hui", "today", "ma journée"]):
-            target_date = now_mtl.strftime("%Y-%m-%d")
+            print(f"🔍 [Chat] Requête 'demain' → date calculée: {target_date}")
             return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
 
         # Essayer de parser une date depuis la requête avec dateparser
@@ -301,6 +305,12 @@ class V5DataProvider:
             technician_id: ID Gazelle du technicien (ex: "usr_HcCiFk7o0vZ9xAI0")
             user_role: Rôle de l'utilisateur ("admin", "assistant", "technicien")
         """
+        # Log pour debug
+        from core.timezone_utils import MONTREAL_TZ
+        from datetime import datetime
+        now_mtl = datetime.now(MONTREAL_TZ)
+        print(f"🔍 [get_day_overview] Date demandée: {date}, Heure actuelle (MTL): {now_mtl.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        
         # Construire la requête avec le client Supabase (gère correctement les JOINs)
         query = self.storage.client.table('gazelle_appointments')\
             .select("""
