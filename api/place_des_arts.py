@@ -1004,11 +1004,16 @@ async def preview_email(payload: PreviewRequest):
     if preview:
         logging.info(f"   Première demande preview - appointment_date={preview[0].get('appointment_date')}, room={preview[0].get('room')}, piano={preview[0].get('piano')}, for_who={preview[0].get('for_who')}")
     
+    # Le frontend attend "preview" et "needs_validation" dans la réponse
+    needs_validation = any(req.get('needs_validation', False) for req in preview)
+    
     return {
         "success": True,
-        "requests": preview,
+        "preview": preview,  # Frontend attend "preview" (ligne 649 de PlaceDesArtsDashboard.jsx)
+        "requests": preview,  # Garder aussi "requests" pour compatibilité
         "count": len(preview),
         "warnings": all_warnings if all_warnings else [],
+        "needs_validation": needs_validation,
         "message": f"{len(preview)} demande(s) détectée(s)"
     }
 
