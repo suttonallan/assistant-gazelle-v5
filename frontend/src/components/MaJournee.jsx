@@ -18,7 +18,15 @@ export default function MaJournee({ currentUser }) {
   const [briefings, setBriefings] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  // Calculer la date d'aujourd'hui en heure locale (pas UTC) pour éviter les décalages
+  const getTodayLocal = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const day = String(now.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  const [selectedDate, setSelectedDate] = useState(getTodayLocal())
 
   const technicianId = currentUser?.gazelleId || currentUser?.id || null
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
@@ -69,7 +77,8 @@ export default function MaJournee({ currentUser }) {
     setSelectedDate(current.toISOString().split('T')[0])
   }
 
-  const isToday = selectedDate === new Date().toISOString().split('T')[0]
+  // Utiliser la même fonction pour comparer
+  const isToday = selectedDate === getTodayLocal()
 
   const formatDateDisplay = (dateStr) => {
     const date = new Date(dateStr)
@@ -183,7 +192,7 @@ export default function MaJournee({ currentUser }) {
           </div>
           {!isToday && (
             <button
-              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+              onClick={() => setSelectedDate(getTodayLocal())}
               className="mt-4 text-blue-600 hover:text-blue-800 font-medium"
             >
               Retour à aujourd'hui
