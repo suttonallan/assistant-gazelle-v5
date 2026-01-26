@@ -281,15 +281,13 @@ class SupabaseStorage:
             
             if upsert:
                 # Mode UPSERT : insère ou met à jour
-                # Pour inventaire_techniciens, utiliser on_conflict avec la clé composite
+                headers["Prefer"] = "resolution=merge-duplicates"
+                url = f"{self.api_url}/{table_name}"
+                # Pour inventaire_techniciens sans id, utiliser on_conflict sur la clé composite
                 if table_name == "inventaire_techniciens" and "id" not in data:
-                    # Pas d'id = nouveau stock, utiliser on_conflict sur (code_produit, technicien, emplacement)
-                    headers["Prefer"] = "resolution=merge-duplicates"
                     # Utiliser on_conflict via query param (Supabase PostgREST)
+                    # La contrainte unique doit être (code_produit, technicien, emplacement)
                     url = f"{self.api_url}/{table_name}?on_conflict=code_produit,technicien,emplacement"
-                else:
-                    headers["Prefer"] = "resolution=merge-duplicates"
-                    url = f"{self.api_url}/{table_name}"
                 response = requests.post(url, headers=headers, json=data)
             else:
                 # Mode UPDATE uniquement : requiert que l'enregistrement existe
