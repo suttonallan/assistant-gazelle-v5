@@ -850,6 +850,24 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                   <p className="text-sm text-gray-500 mt-1">
                     Demandes importées (limite 200, tri date RDV desc)
                   </p>
+                  {/* Description des couleurs pour Louise et Nick */}
+                  <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-md text-xs">
+                    <p className="font-semibold text-gray-700 mb-2">📋 Légende des couleurs (Louise & Nick) :</p>
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-red-50 border border-red-200 rounded"></div>
+                        <span className="text-gray-600"><strong>Rouge</strong> : Pas encore de RV donné à un technicien actif</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-green-50 border border-green-200 rounded"></div>
+                        <span className="text-gray-600"><strong>Vert</strong> : RV complété</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-blue-50 border border-blue-200 rounded"></div>
+                        <span className="text-gray-600"><strong>Bleu</strong> : Ligne sélectionnée</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex gap-3">
                   <div className="flex items-center gap-1 bg-gray-100 text-gray-700 px-3 py-1 rounded-md text-sm">
@@ -1346,16 +1364,19 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {sortedItems.map((it) => {
-                // Déterminer si l'événement est terminé (statut COMPLETED)
+                // Déterminer si l'événement est complété (statut COMPLETED)
                 const isCompleted = it.status === 'COMPLETED'
-                // Déterminer si c'est "À attribuer" (RV lié mais pas de vrai technicien)
-                const isAAttribuer = it.appointment_id && !REAL_TECHNICIAN_IDS.has(it.technician_id)
+                // Rouge : Pas encore de RV donné à un technicien actif
+                // Conditions : pas de appointment_id OU (appointment_id mais pas de technicien actif)
+                const hasActiveTechnician = it.technician_id && REAL_TECHNICIAN_IDS.has(it.technician_id)
+                const needsAttention = !it.appointment_id || (it.appointment_id && !hasActiveTechnician)
+                
                 const rowClass = selectedIds.includes(it.id)
                   ? 'bg-blue-50'
-                  : isAAttribuer
-                    ? 'bg-red-50'
-                    : isCompleted
-                      ? 'bg-green-50'
+                  : isCompleted
+                    ? 'bg-green-50'
+                    : needsAttention
+                      ? 'bg-red-50'
                       : ''
 
                 return (
