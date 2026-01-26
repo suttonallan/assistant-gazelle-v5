@@ -591,7 +591,9 @@ async def gazelle_check_appointments():
 if __name__ == "__main__":
     import uvicorn
     # Utilise PORT de l'environnement (Render) ou 8000 par défaut
-    port = int(os.getenv('PORT', 8000))
+    # Render fournit PORT automatiquement, mais on peut aussi le lire depuis os.environ
+    port = int(os.environ.get('PORT', os.getenv('PORT', 8000)))
     print(f"🚀 Démarrage Uvicorn sur port {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"   PORT env: {os.environ.get('PORT', 'non défini')}")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
