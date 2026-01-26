@@ -1513,34 +1513,56 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     ) : (it.time || '—')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    <select
-                      value={it.technician_id || ''}
-                      onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                      className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer ${
-                        isAAttribuer(it.technician_id) 
-                          ? 'bg-orange-50 border-orange-300 text-orange-700' 
-                          : 'bg-white'
-                      }`}
-                      title={techMap[it.technician_id] || 'Choisir technicien'}
-                      style={{ width: '90px' }}
-                    >
-                      <option value="">—</option>
-                      {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle (appointment_id existe) avec ce technicien */}
-                      {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || (it.technician_from_gazelle && it.technician_id === A_ATTRIBUER_ID)) && (
-                        <option value={A_ATTRIBUER_ID} className="text-orange-700 font-medium">
-                          ⚠️ À attribuer
-                        </option>
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={it.technician_id || ''}
+                        onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
+                        className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer ${
+                          isAAttribuer(it.technician_id) 
+                            ? 'bg-orange-50 border-orange-300 text-orange-700' 
+                            : it.technician_mismatch
+                              ? 'bg-yellow-50 border-yellow-300 text-yellow-700'
+                              : 'bg-white'
+                        }`}
+                        title={
+                          it.technician_mismatch 
+                            ? `⚠️ Incohérence: PDA=${techMap[it.technician_id] || it.technician_id}, Gazelle=${techMap[it.gazelle_technician_id] || it.gazelle_technician_id || 'À attribuer'}`
+                            : techMap[it.technician_id] || 'Choisir technicien'
+                        }
+                        style={{ width: '90px' }}
+                      >
+                        <option value="">—</option>
+                        {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle (appointment_id existe) avec ce technicien */}
+                        {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || (it.technician_from_gazelle && it.technician_id === A_ATTRIBUER_ID) || it.gazelle_technician_id === A_ATTRIBUER_ID) && (
+                          <option value={A_ATTRIBUER_ID} className="text-orange-700 font-medium">
+                            ⚠️ À attribuer
+                          </option>
+                        )}
+                        {technicianOptions.map(tech => (
+                          <option key={tech.id} value={tech.id}>{tech.label}</option>
+                        ))}
+                      </select>
+                      {/* Afficher un indicateur si c'est "À attribuer" */}
+                      {isAAttribuer(it.technician_id) && it.appointment_id && (
+                        <span className="text-xs text-orange-600" title="RV créé dans Gazelle mais technicien à attribuer">
+                          ⚠️
+                        </span>
                       )}
-                      {technicianOptions.map(tech => (
-                        <option key={tech.id} value={tech.id}>{tech.label}</option>
-                      ))}
-                    </select>
-                    {/* Afficher un indicateur si c'est "À attribuer" */}
-                    {isAAttribuer(it.technician_id) && it.appointment_id && (
-                      <span className="text-xs text-orange-600 ml-1" title="RV créé dans Gazelle mais technicien à attribuer">
-                        ⚠️
-                      </span>
-                    )}
+                      {/* Afficher un avertissement si incohérence entre PDA et Gazelle */}
+                      {it.technician_mismatch && it.gazelle_technician_id && (
+                        <span 
+                          className="text-xs text-yellow-600 cursor-help" 
+                          title={`⚠️ Incohérence: Dans Gazelle, le technicien est "${techMap[it.gazelle_technician_id] || it.gazelle_technician_id || 'À attribuer'}" mais PDA a "${techMap[it.technician_id] || it.technician_id}". Cliquez pour synchroniser avec Gazelle.`}
+                          onClick={async () => {
+                            if (confirm(`Synchroniser avec Gazelle ? Le technicien sera changé pour "${techMap[it.gazelle_technician_id] || it.gazelle_technician_id || 'À attribuer'}"`)) {
+                              await handleCellUpdate(it.id, 'technician_id', it.gazelle_technician_id)
+                            }
+                          }}
+                        >
+                          🔄
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (

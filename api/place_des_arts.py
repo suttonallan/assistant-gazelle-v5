@@ -616,6 +616,7 @@ async def list_requests(
     # Enrichir avec le technicien du RV Gazelle si appointment_id existe
     # Inclure aussi "À attribuer" (usr_HihJsEgkmpTEziJo) si présent dans Gazelle
     # Mettre à jour le statut à CREATED_IN_GAZELLE si le RV existe dans Gazelle
+    # Vérifier les incohérences entre PDA et Gazelle
     appointment_ids = [r.get("appointment_id") for r in requests_data if r.get("appointment_id")]
     if appointment_ids:
         try:
@@ -639,16 +640,36 @@ async def list_requests(
                         request["status"] = "CREATED_IN_GAZELLE"
                         logging.debug(f"Statut mis à jour à CREATED_IN_GAZELLE pour demande {request.get('id')} (RV trouvé dans Gazelle)")
                     
-                    # Enrichir le technicien depuis Gazelle (même si c'est "À attribuer")
+                    # Récupérer le technicien réel dans Gazelle
                     tech_from_gazelle = tech_by_appt.get(appointment_id)
+                    current_tech = request.get("technician_id")
+                    
+                    # Toujours inclure le technicien de Gazelle pour comparaison
                     if tech_from_gazelle:
-                        # Enrichir seulement si pas de technicien dans la demande, ou si c'est "À attribuer" dans Gazelle
-                        current_tech = request.get("technician_id")
-                        if not current_tech or tech_from_gazelle == 'usr_HihJsEgkmpTEziJo':
+                        request["gazelle_technician_id"] = tech_from_gazelle
+                    
+                    # Vérifier incohérence : technicien PDA différent de Gazelle
+                    if current_tech and tech_from_gazelle and current_tech != tech_from_gazelle:
+                        # Incohérence détectée : PDA a un technicien mais Gazelle en a un autre (ou "À attribuer")
+                        request["technician_mismatch"] = True
+                        request["gazelle_technician_id"] = tech_from_gazelle
+                        logging.warning(f"Incohérence détectée pour demande {request.get('id')}: PDA={current_tech}, Gazelle={tech_from_gazelle}")
+                    
+                    # Enrichir le technicien depuis Gazelle si :
+                    # - Pas de technicien dans PDA, OU
+                    # - Le technicien dans Gazelle est "À attribuer" (priorité à l'état réel de Gazelle)
+                    if tech_from_gazelle:
+                        if not current_tech:
+                            # Pas de technicien dans PDA, utiliser celui de Gazelle
                             request["technician_id"] = tech_from_gazelle
-                            # Marquer que le technicien vient de Gazelle pour affichage
                             request["technician_from_gazelle"] = True
                             logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
+                        elif tech_from_gazelle == 'usr_HihJsEgkmpTEziJo':
+                            # Gazelle a "À attribuer", mettre à jour PDA pour refléter l'état réel
+                            request["technician_id"] = tech_from_gazelle
+                            request["technician_from_gazelle"] = True
+                            request["technician_mismatch"] = False  # Pas d'incohérence, on a corrigé
+                            logging.debug(f"Mis à jour demande {request.get('id')} avec 'À attribuer' depuis Gazelle")
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     
