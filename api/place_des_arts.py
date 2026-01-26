@@ -919,6 +919,10 @@ async def preview_email(payload: PreviewRequest):
     logging.info(f"📝 Utilisation de parse_email_text() pour parsing unifié (évite les doublons)")
     parsed = parse_email_text(payload.raw_text)
     
+    logging.info(f"🔍 Parsing résultat: {len(parsed)} demande(s) détectée(s)")
+    if parsed:
+        logging.info(f"   Première demande - champs: date={parsed[0].get('date')}, room={parsed[0].get('room')}, piano={parsed[0].get('piano')}, for_who={parsed[0].get('for_who')}")
+    
     if not parsed:
         return {
             "success": True,
@@ -942,6 +946,10 @@ async def preview_email(payload: PreviewRequest):
             all_warnings.extend(formatted_req['warnings'])
         formatted_requests.append(formatted_req)
     
+    logging.info(f"📤 Après formatage: {len(formatted_requests)} demande(s)")
+    if formatted_requests:
+        logging.info(f"   Première demande formatée - champs: date={formatted_requests[0].get('date')}, room={formatted_requests[0].get('room')}, piano={formatted_requests[0].get('piano')}")
+    
     # Appliquer le demandeur global si détecté (signature en fin de texte)
     if global_requester:
         for req in formatted_requests:
@@ -952,34 +960,49 @@ async def preview_email(payload: PreviewRequest):
     # Ne créer une deuxième demande que si l'heure ou le type de piano est explicitement différent
     formatted_requests = merge_duplicate_requests(formatted_requests)
     
+    logging.info(f"🔄 Après merge: {len(formatted_requests)} demande(s)")
+    if formatted_requests:
+        logging.info(f"   Première demande après merge - champs: date={formatted_requests[0].get('date')}, room={formatted_requests[0].get('room')}, piano={formatted_requests[0].get('piano')}")
+    
     # Convertir en format preview attendu par le frontend
     preview = []
     for req in formatted_requests:
         # Extraire la date (peut être string ISO ou datetime)
         appt_date = req.get('date')
-        if isinstance(appt_date, str):
-            # Si c'est déjà une string ISO, l'utiliser telle quelle
-            appt_date_iso = appt_date
-        elif hasattr(appt_date, 'date'):
-            # Si c'est un datetime, extraire la date
-            appt_date_iso = appt_date.date().isoformat()
-        else:
-            appt_date_iso = None
+        appt_date_iso = None
+        
+        if appt_date:
+            if isinstance(appt_date, str):
+                # Si c'est une string ISO avec heure (ex: "2026-02-07T00:00:00"), extraire juste la date
+                if 'T' in appt_date:
+                    appt_date_iso = appt_date.split('T')[0]  # Prendre juste YYYY-MM-DD
+                else:
+                    # Déjà au format YYYY-MM-DD
+                    appt_date_iso = appt_date
+            elif hasattr(appt_date, 'date'):
+                # Si c'est un datetime, extraire la date
+                appt_date_iso = appt_date.date().isoformat()
+            else:
+                appt_date_iso = str(appt_date)
         
         preview.append({
             "appointment_date": appt_date_iso,
-            "room": req.get('room'),
-            "for_who": req.get('for_who'),
-            "diapason": req.get('diapason'),
-            "requester": req.get('requester'),
-            "piano": req.get('piano'),
-            "time": req.get('time'),
-            "service": req.get('service', 'Accord standard'),
-            "notes": req.get('notes'),
+            "room": req.get('room') or None,
+            "for_who": req.get('for_who') or None,
+            "diapason": req.get('diapason') or None,
+            "requester": req.get('requester') or None,
+            "piano": req.get('piano') or None,
+            "time": req.get('time') or None,
+            "service": req.get('service', 'Accord standard') or None,
+            "notes": req.get('notes') or None,
             "confidence": req.get('confidence', 0.0),
             "warnings": req.get('warnings', []),
             "needs_validation": req.get('confidence', 0.0) < 1.0 or len(req.get('warnings', [])) > 0
         })
+    
+    logging.info(f"✅ Format preview final: {len(preview)} demande(s)")
+    if preview:
+        logging.info(f"   Première demande preview - appointment_date={preview[0].get('appointment_date')}, room={preview[0].get('room')}, piano={preview[0].get('piano')}, for_who={preview[0].get('for_who')}")
     
     return {
         "success": True,
