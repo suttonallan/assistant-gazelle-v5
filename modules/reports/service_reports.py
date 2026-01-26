@@ -774,19 +774,26 @@ class ServiceReports:
 
         return rows_by_tab
 
+    @staticmethod
+    def _extract_date_only(date_str: str) -> str:
+        """Extrait la date (YYYY-MM-DD) sans conversion de timezone.
+
+        Pour les demandes PdA, les dates sont des dates calendrier,
+        pas des instants précis - donc on ne convertit pas la timezone.
+        """
+        if not date_str:
+            return ""
+        # Prendre juste les 10 premiers caractères (YYYY-MM-DD)
+        return date_str[:10] if len(date_str) >= 10 else date_str
+
     def _build_rows_from_pda_requests(self, requests: List[Dict]) -> List[List[str]]:
         """Construit les lignes pour l'onglet Demandes PdA."""
         rows: List[List[str]] = []
 
         for req in requests:
-            # Formater les dates
-            request_date = req.get("request_date") or req.get("created_at") or ""
-            if request_date:
-                request_date = self._to_montreal_date(request_date)
-
-            appointment_date = req.get("appointment_date") or ""
-            if appointment_date:
-                appointment_date = self._to_montreal_date(appointment_date)
+            # Extraire les dates SANS conversion timezone (dates calendrier)
+            request_date = self._extract_date_only(req.get("request_date") or req.get("created_at") or "")
+            appointment_date = self._extract_date_only(req.get("appointment_date") or "")
 
             row = [
                 request_date,                           # DateDemande

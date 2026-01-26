@@ -617,22 +617,39 @@ async def export_csv():
     """
     Export CSV simple (toutes les demandes, limit 2000, tri date desc).
     """
+    import csv
+    import io
+
     storage = get_storage()
-    params = [
-        "select=*",
-        "order=appointment_date.desc",
-        "limit=2000",
-        "format=csv"
-    ]
-    url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
-    hdrs = storage._get_headers().copy()
-    hdrs["Accept"] = "text/csv"
-    resp = requests.get(url, headers=hdrs, stream=True)
+
+    # Récupérer les données en JSON
+    url = f"{storage.api_url}/place_des_arts_requests?select=*&order=appointment_date.desc&limit=2000"
+    resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    return StreamingResponse(resp.iter_content(chunk_size=8192),
-                             media_type="text/csv",
-                             headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"})
+
+    data = resp.json()
+    if not data:
+        return StreamingResponse(
+            iter(["Aucune donnée"]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"}
+        )
+
+    # Convertir en CSV
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer.writeheader()
+    writer.writerows(data)
+
+    csv_content = output.getvalue()
+    output.close()
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"}
+    )
 
 
 @router.get("/stats")
