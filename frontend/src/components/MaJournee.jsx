@@ -72,9 +72,12 @@ export default function MaJournee({ currentUser }) {
 
   // Navigation entre les jours
   const changeDate = (delta) => {
-    const current = new Date(selectedDate)
+    const current = new Date(selectedDate + 'T00:00:00') // Ajouter l'heure pour éviter les problèmes de timezone
     current.setDate(current.getDate() + delta)
-    setSelectedDate(current.toISOString().split('T')[0])
+    const year = current.getFullYear()
+    const month = String(current.getMonth() + 1).padStart(2, '0')
+    const day = String(current.getDate()).padStart(2, '0')
+    setSelectedDate(`${year}-${month}-${day}`)
   }
 
   // Utiliser la même fonction pour comparer
