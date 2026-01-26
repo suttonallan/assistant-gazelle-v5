@@ -201,29 +201,32 @@ class ChatService:
 
         # Essayer de parser une date depuis la requête avec dateparser
         # Supporte: "demain", "la semaine prochaine", "le 15 janvier", "dans 3 jours", etc.
-        try:
-            import dateparser
-            from core.timezone_utils import MONTREAL_TZ
+        # IMPORTANT: Ne pas parser si on a déjà détecté "aujourd'hui", "demain", "après-demain" (patterns manuels prioritaires)
+        if not any(word in query_lower for word in ["aujourd'hui", "today", "ma journée", "demain", "tomorrow", "après-demain", "après demain", "apres-demain", "apres demain"]):
+            try:
+                import dateparser
+                from core.timezone_utils import MONTREAL_TZ
 
-            # IMPORTANT: Utiliser l'heure de Montréal pour que "demain" soit correct
-            now_montreal = datetime.now(MONTREAL_TZ)
+                # IMPORTANT: Utiliser l'heure de Montréal pour que "demain" soit correct
+                now_montreal = datetime.now(MONTREAL_TZ)
 
-            parsed_date = dateparser.parse(
-                query,
-                languages=['fr', 'en'],
-                settings={
-                    'PREFER_DATES_FROM': 'future',
-                    'RELATIVE_BASE': now_montreal
-                }
-            )
-            if parsed_date:
-                target_date = parsed_date.strftime("%Y-%m-%d")
-                # Vérifier si la date parsée n'est pas trop loin dans le passé/futur (validation)
-                days_diff = (parsed_date.replace(tzinfo=None) - now_montreal.replace(tzinfo=None)).days
-                if -7 <= days_diff <= 365:  # Entre 7 jours passés et 1 an futur
-                    return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
-        except:
-            pass  # Si dateparser n'est pas installé ou échoue, continuer avec patterns manuels
+                parsed_date = dateparser.parse(
+                    query,
+                    languages=['fr', 'en'],
+                    settings={
+                        'PREFER_DATES_FROM': 'future',
+                        'RELATIVE_BASE': now_montreal
+                    }
+                )
+                if parsed_date:
+                    target_date = parsed_date.strftime("%Y-%m-%d")
+                    # Vérifier si la date parsée n'est pas trop loin dans le passé/futur (validation)
+                    days_diff = (parsed_date.replace(tzinfo=None) - now_montreal.replace(tzinfo=None)).days
+                    if -7 <= days_diff <= 365:  # Entre 7 jours passés et 1 an futur
+                        print(f"🔍 [Chat] Date parsée par dateparser: {target_date} (depuis query: '{query}')")
+                        return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
+            except:
+                pass  # Si dateparser n'est pas installé ou échoue, continuer avec patterns manuels
 
         # Questions de suivi (nécessitent contexte de la journée)
         if any(word in query_lower for word in ["heure de départ", "quand partir", "partir à quelle heure"]):
