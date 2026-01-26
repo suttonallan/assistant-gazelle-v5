@@ -970,33 +970,47 @@ def parse_email_text(email_text: str) -> List[Dict]:
     # Détection de début de bloc: date avec mois reconnu (FR/EN)
     months = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|f[eé]v|fev|avr|mai|juin|juil|aou|ao[uû]t|sept|oct|nov|d[eé]c|mars)"
     date_pattern = re.compile(rf'^(\d{{1,2}})[-/\s]+{months}\b', re.IGNORECASE)
+    # Pattern pour détecter une date n'importe où dans une ligne (pour le bloc en cours)
+    date_anywhere_pattern = re.compile(rf'(\d{{1,2}})[-/\s]+{months}', re.IGNORECASE)
     current_block_lines: List[str] = []
-    last_parsed_date = None  # Garder la date du dernier bloc parsé pour éviter les doublons
-    
+    current_block_date = None  # Date du bloc en cours de construction
+
     for line in cleaned_lines:
-        # Vérifier si cette ligne contient une date
+        # Vérifier si cette ligne COMMENCE par une date
         date_match = date_pattern.search(line)
         if date_match and current_block_lines:
             # Essayer de parser la date de cette ligne
             try:
                 potential_date = parse_date_flexible(date_match.group(0), current_date)
-                # Si la date est identique à la dernière date parsée, c'est probablement la même demande
-                # Ne pas créer un nouveau bloc, continuer à accumuler les lignes
-                if last_parsed_date and potential_date.date() == last_parsed_date.date():
+
+                # Si on n'a pas encore de date pour le bloc en cours, essayer de l'extraire
+                if current_block_date is None:
+                    block_text_so_far = '\n'.join(current_block_lines)
+                    # Chercher une date dans le bloc actuel
+                    date_in_block = date_anywhere_pattern.search(block_text_so_far)
+                    if date_in_block:
+                        try:
+                            current_block_date = parse_date_flexible(date_in_block.group(0), current_date)
+                        except Exception:
+                            pass
+
+                # Comparer les dates (jour/mois/année seulement)
+                if current_block_date and potential_date.date() == current_block_date.date():
                     # Même date = même demande, continuer à accumuler
                     current_block_lines.append(line)
                     continue
             except Exception:
                 # Erreur de parsing, traiter comme une nouvelle date
                 pass
-            
+
             # Date différente ou erreur: parser le bloc actuel et commencer un nouveau
             block_text = '\n'.join(current_block_lines)
             parsed = parse_email_block(block_text, current_date)
             if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
                 requests.append(parsed)
-                last_parsed_date = parsed.get('date')
+            # Réinitialiser pour le nouveau bloc
             current_block_lines = [line]
+            current_block_date = None  # Sera extrait du nouveau bloc
         else:
             current_block_lines.append(line)
     
