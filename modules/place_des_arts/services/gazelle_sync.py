@@ -374,21 +374,59 @@ class GazelleSyncService:
         if not same_day_appointments:
             return None
         
-        # Si plusieurs RV le même jour, affiner avec l'heure et la salle
+        # Si plusieurs RV le même jour, affiner avec l'heure, la salle et le titre
         best_match = None
         best_score = 0
+        
+        request_for_who = (request.get('for_who', '') or '').upper().strip()
+        request_room = request.get('room', '').upper().strip()
         
         for apt in same_day_appointments:
             score = 1  # Base: même jour
             
-            # Bonus pour salle
-            apt_location = apt.get('location', '').upper().strip()
+            apt_title = (apt.get('title', '') or '').upper()
+            apt_location = (apt.get('location', '') or '').upper().strip()
+            
+            # CRITÈRE 1: Titre contient "Place des Arts" (priorité haute)
+            if 'PLACE DES ARTS' in apt_title:
+                score += 10
+            
+            # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
+            if request_for_who:
+                # Extraire les mots significatifs (plus de 3 caractères)
+                for_who_words = [w for w in request_for_who.split() if len(w) > 3]
+                for word in for_who_words:
+                    if word in apt_title:
+                        score += 3
+                        break  # Un seul mot suffit
+            
+            # CRITÈRE 3: Salle correspond
             if request_room and apt_location:
                 if request_room in apt_location or apt_location in request_room:
-                    score += 2
+                    score += 5
+                # Aussi vérifier dans le titre
+                if request_room in apt_title:
+                    score += 3
             
-            # Bonus pour heure (TODO: parser les heures et comparer)
-            # Pour l'instant on prend le premier match du jour
+            # CRITÈRE 4: Heure correspond (si disponible)
+            request_time = request.get('time', '')
+            if request_time:
+                apt_datetime_str = apt.get('start_datetime')
+                if apt_datetime_str:
+                    try:
+                        apt_datetime = datetime.fromisoformat(apt_datetime_str.replace('Z', '+00:00'))
+                        apt_hour = apt_datetime.hour
+                        
+                        # Parser l'heure de la demande (format "8h", "18h", "avant 9h", etc.)
+                        import re
+                        time_match = re.search(r'(\d{1,2})h?', request_time.upper())
+                        if time_match:
+                            request_hour = int(time_match.group(1))
+                            # Tolérance de ±2h
+                            if abs(apt_hour - request_hour) <= 2:
+                                score += 4
+                    except:
+                        pass
             
             if score > best_score:
                 best_score = score
