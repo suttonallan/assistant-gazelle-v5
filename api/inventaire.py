@@ -304,13 +304,25 @@ async def mettre_a_jour_stock(maj: MiseAJourStock):
         storage = get_supabase_storage()
 
         # Récupérer la quantité actuelle
+        # IMPORTANT: Filtrer aussi par emplacement pour éviter les doublons
         inventaire = storage.get_data(
             "inventaire_techniciens",
             filters={
                 "code_produit": maj.code_produit,
-                "technicien": maj.technicien
+                "technicien": maj.technicien,
+                "emplacement": "Atelier"  # Par défaut, utiliser "Atelier"
             }
         )
+        
+        # Si pas trouvé avec emplacement, chercher sans emplacement (compatibilité)
+        if not inventaire:
+            inventaire = storage.get_data(
+                "inventaire_techniciens",
+                filters={
+                    "code_produit": maj.code_produit,
+                    "technicien": maj.technicien
+                }
+            )
 
         quantite_actuelle = 0
         if inventaire:

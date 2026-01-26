@@ -275,13 +275,21 @@ class SupabaseStorage:
 
             headers = self._get_headers()
 
-            # DEBUG: Afficher les données avant envoi
-            print(f"DEBUG SUPABASE DATA (update_data): {json.dumps(data, indent=2, default=str)}")
+            # DEBUG: Afficher les données avant envoi (seulement pour inventaire_techniciens)
+            if table_name == "inventaire_techniciens":
+                print(f"DEBUG SUPABASE DATA (update_data): {json.dumps(data, indent=2, default=str)}")
             
             if upsert:
                 # Mode UPSERT : insère ou met à jour
-                headers["Prefer"] = "resolution=merge-duplicates"
-                url = f"{self.api_url}/{table_name}"
+                # Pour inventaire_techniciens, utiliser on_conflict avec la clé composite
+                if table_name == "inventaire_techniciens" and "id" not in data:
+                    # Pas d'id = nouveau stock, utiliser on_conflict sur (code_produit, technicien, emplacement)
+                    headers["Prefer"] = "resolution=merge-duplicates"
+                    # Utiliser on_conflict via query param (Supabase PostgREST)
+                    url = f"{self.api_url}/{table_name}?on_conflict=code_produit,technicien,emplacement"
+                else:
+                    headers["Prefer"] = "resolution=merge-duplicates"
+                    url = f"{self.api_url}/{table_name}"
                 response = requests.post(url, headers=headers, json=data)
             else:
                 # Mode UPDATE uniquement : requiert que l'enregistrement existe
@@ -520,11 +528,18 @@ class SupabaseStorage:
                 "derniere_verification": datetime.now().isoformat()
             }
 
-            # Ajouter l'id si l'inventaire existe déjà
+            # Pour inventaire_techniciens, on utilise une clé composite (code_produit + technicien + emplacement)
+            # Si l'inventaire existe, on fait un UPDATE via PATCH
+            # Sinon, on fait un INSERT via POST avec upsert
             if inventaire_id:
+                # UPDATE: utiliser PATCH avec id
                 data_inventaire["id"] = inventaire_id
-
-            success = self.update_data("inventaire_techniciens", data_inventaire)
+                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=False)
+            else:
+                # INSERT: utiliser POST avec upsert=True
+                # Supabase utilisera la contrainte unique (code_produit, technicien, emplacement) si elle existe
+                # Sinon, on force l'insertion
+                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=True)
 
             if not success:
                 return False
