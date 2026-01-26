@@ -655,21 +655,21 @@ async def list_requests(
                         request["gazelle_technician_id"] = tech_from_gazelle
                         logging.warning(f"Incohérence détectée pour demande {request.get('id')}: PDA={current_tech}, Gazelle={tech_from_gazelle}")
                     
-                    # Enrichir le technicien depuis Gazelle si :
-                    # - Pas de technicien dans PDA, OU
-                    # - Le technicien dans Gazelle est "À attribuer" (priorité à l'état réel de Gazelle)
+                    # Gazelle est la source de vérité : toujours mettre à jour le technicien depuis Gazelle
                     if tech_from_gazelle:
-                        if not current_tech:
-                            # Pas de technicien dans PDA, utiliser celui de Gazelle
+                        # Si le technicien dans Gazelle est différent de PDA, mettre à jour
+                        if current_tech != tech_from_gazelle:
                             request["technician_id"] = tech_from_gazelle
                             request["technician_from_gazelle"] = True
-                            logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
-                        elif tech_from_gazelle == 'usr_HihJsEgkmpTEziJo':
-                            # Gazelle a "À attribuer", mettre à jour PDA pour refléter l'état réel
-                            request["technician_id"] = tech_from_gazelle
+                            if current_tech:
+                                # Il y avait une incohérence, on l'a corrigée
+                                request["technician_mismatch"] = False
+                                logging.info(f"Corrigé technicien pour demande {request.get('id')}: {current_tech} → {tech_from_gazelle} (depuis Gazelle)")
+                            else:
+                                logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
+                        else:
+                            # Déjà synchronisé, pas besoin de mettre à jour
                             request["technician_from_gazelle"] = True
-                            request["technician_mismatch"] = False  # Pas d'incohérence, on a corrigé
-                            logging.debug(f"Mis à jour demande {request.get('id')} avec 'À attribuer' depuis Gazelle")
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     
