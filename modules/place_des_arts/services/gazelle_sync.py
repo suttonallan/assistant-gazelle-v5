@@ -306,15 +306,16 @@ class GazelleSyncService:
         """Récupère tous les RV Gazelle pour Place des Arts."""
         try:
             # Récupérer les RV des 60 derniers jours
+            # Utiliser appointment_date (pas start_datetime qui peut être NULL)
             from datetime import datetime, timedelta
             cutoff_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
-            
+
             result = self.storage.client.table('gazelle_appointments')\
                 .select('*')\
-                .gte('start_datetime', f'{cutoff_date}T00:00:00')\
-                .order('start_datetime')\
+                .gte('appointment_date', cutoff_date)\
+                .order('appointment_date')\
                 .execute()
-            
+
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Erreur récupération RV Gazelle: {e}")
@@ -327,70 +328,75 @@ class GazelleSyncService:
     ) -> Optional[Dict]:
         """
         Trouve un RV Gazelle correspondant à une demande PDA.
-        
-        Critères de matching:
-        1. Même date (jour)
-        2. Même heure (si disponible, tolérance ±2h)
-        3. Même salle/location (si disponible)
+
+        Critères de matching (scoring):
+        1. OBLIGATOIRE: Même jour
+        2. +10 pts: "Place des Arts" dans le titre
+        3. +3 pts: Mots-clés de for_who dans le titre
+        4. +5 pts: Salle correspond dans location ou description
+        5. +3 pts: Salle dans le titre
+        6. +4 pts: Heure correspond (±2h)
         """
+        import re
+
         request_date_str = request.get('appointment_date')
         if not request_date_str:
             return None
-        
-        try:
-            # Parser la date de la demande
-            if isinstance(request_date_str, str):
-                if 'T' in request_date_str:
-                    request_date = datetime.fromisoformat(request_date_str.replace('Z', '+00:00'))
-                else:
-                    request_date = datetime.fromisoformat(request_date_str)
-            else:
-                request_date = request_date_str
-            
-            request_date = request_date.date() if hasattr(request_date, 'date') else request_date
-        except Exception as e:
-            logger.warning(f"Erreur parsing date demande: {e}")
-            return None
-        
+
+        # Normaliser la date de la demande en YYYY-MM-DD
+        request_date = request_date_str[:10] if isinstance(request_date_str, str) else str(request_date_str)[:10]
+
         request_time = request.get('time', '')
-        request_room = request.get('room', '').upper().strip()
-        
+        request_room = (request.get('room', '') or '').upper().strip()
+        request_for_who = (request.get('for_who', '') or '').upper().strip()
+
         # Filtrer les RV du même jour
+        # Note: Les RV Gazelle ont appointment_date (YYYY-MM-DD) ET appointment_time séparés
         same_day_appointments = []
         for apt in gazelle_appointments:
-            apt_datetime_str = apt.get('start_datetime')
-            if not apt_datetime_str:
-                continue
-            
-            try:
-                apt_datetime = datetime.fromisoformat(apt_datetime_str.replace('Z', '+00:00'))
-                apt_date = apt_datetime.date()
-                
-                if apt_date == request_date:
-                    same_day_appointments.append(apt)
-            except Exception as e:
-                continue
-        
+            # Utiliser appointment_date (pas start_datetime qui peut être NULL)
+            apt_date_str = apt.get('appointment_date')
+            if not apt_date_str:
+                # Fallback sur start_datetime si disponible
+                apt_datetime_str = apt.get('start_datetime')
+                if apt_datetime_str:
+                    apt_date_str = apt_datetime_str[:10]
+                else:
+                    continue
+
+            # Normaliser en YYYY-MM-DD
+            apt_date_str = apt_date_str[:10] if apt_date_str else ''
+
+            if apt_date_str == request_date:
+                # Extraire l'heure
+                apt_hour = 0
+                apt_time_str = apt.get('appointment_time', '')
+                if apt_time_str:
+                    try:
+                        apt_hour = int(apt_time_str.split(':')[0])
+                    except:
+                        pass
+                same_day_appointments.append((apt, apt_hour))
+
         if not same_day_appointments:
             return None
-        
-        # Si plusieurs RV le même jour, affiner avec l'heure, la salle et le titre
+
+        # Scorer chaque RV candidat
         best_match = None
         best_score = 0
-        
-        request_for_who = (request.get('for_who', '') or '').upper().strip()
-        request_room = request.get('room', '').upper().strip()
-        
-        for apt in same_day_appointments:
+
+        for apt, apt_hour in same_day_appointments:
             score = 1  # Base: même jour
-            
+
             apt_title = (apt.get('title', '') or '').upper()
             apt_location = (apt.get('location', '') or '').upper().strip()
-            
+            apt_description = (apt.get('description', '') or '').upper()
+            apt_notes = (apt.get('notes', '') or '').upper()
+
             # CRITÈRE 1: Titre contient "Place des Arts" (priorité haute)
             if 'PLACE DES ARTS' in apt_title:
                 score += 10
-            
+
             # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
             if request_for_who:
                 # Extraire les mots significatifs (plus de 3 caractères)
@@ -399,39 +405,31 @@ class GazelleSyncService:
                     if word in apt_title:
                         score += 3
                         break  # Un seul mot suffit
-            
+
             # CRITÈRE 3: Salle correspond
-            if request_room and apt_location:
-                if request_room in apt_location or apt_location in request_room:
+            # Vérifier dans location, description, notes
+            all_text = apt_location + ' ' + apt_description + ' ' + apt_notes
+            if request_room:
+                if request_room in all_text:
                     score += 5
                 # Aussi vérifier dans le titre
                 if request_room in apt_title:
                     score += 3
-            
+
             # CRITÈRE 4: Heure correspond (si disponible)
-            request_time = request.get('time', '')
-            if request_time:
-                apt_datetime_str = apt.get('start_datetime')
-                if apt_datetime_str:
-                    try:
-                        apt_datetime = datetime.fromisoformat(apt_datetime_str.replace('Z', '+00:00'))
-                        apt_hour = apt_datetime.hour
-                        
-                        # Parser l'heure de la demande (format "8h", "18h", "avant 9h", etc.)
-                        import re
-                        time_match = re.search(r'(\d{1,2})h?', request_time.upper())
-                        if time_match:
-                            request_hour = int(time_match.group(1))
-                            # Tolérance de ±2h
-                            if abs(apt_hour - request_hour) <= 2:
-                                score += 4
-                    except:
-                        pass
-            
+            if request_time and apt_hour > 0:
+                # Parser l'heure de la demande (format "8h", "18h", "avant 9h", etc.)
+                time_match = re.search(r'(\d{1,2})h?', str(request_time).upper())
+                if time_match:
+                    request_hour = int(time_match.group(1))
+                    # Tolérance de ±2h
+                    if abs(apt_hour - request_hour) <= 2:
+                        score += 4
+
             if score > best_score:
                 best_score = score
                 best_match = apt
-        
+
         return best_match
     
     # IDs des vrais techniciens (pas "À attribuer")
