@@ -388,40 +388,66 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleSyncGazelle = async () => {
-    // Synchroniser TOUTES les demandes (pas de sélection)
+    // Synchronisation complète : lier les RV ET vérifier les complétés
     try {
       setError(null)
-      setInfoMessage('🔄 Synchronisation de toutes les demandes en cours...')
+      setInfoMessage('🔄 Synchronisation complète en cours... (1/2)')
 
-      // Envoyer TOUS les IDs (filteredItems)
+      // Étape 1: Synchroniser les demandes avec les RV Gazelle
       const allIds = filteredItems.map(item => item.id)
-
-      const resp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
+      const syncResp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_ids: allIds })
       })
 
-      if (!resp.ok) {
-        throw new Error(`Erreur sync: ${resp.status}`)
+      if (!syncResp.ok) {
+        throw new Error(`Erreur sync: ${syncResp.status}`)
       }
 
-      const data = await resp.json()
+      const syncData = await syncResp.json()
+      
+      // Étape 2: Vérifier les RV complétés
+      setInfoMessage('🔄 Vérification des RV complétés... (2/2)')
+      
+      const checkResp = await fetch(`${API_URL}/api/place-des-arts/check-completed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+
+      if (!checkResp.ok) {
+        throw new Error(`Erreur vérification complétés: ${checkResp.status}`)
+      }
+
+      const checkData = await checkResp.json()
 
       // Recharger les données
       await fetchData()
 
-      // Afficher le résultat
-      if (data.has_warnings && data.warnings && data.warnings.length > 0) {
-        // Construire le message d'alerte pour les RV non trouvés
-        const warningList = data.warnings.map(w =>
+      // Afficher le résultat combiné
+      const messages = []
+      if (syncData.updated > 0) {
+        messages.push(`${syncData.updated} demande(s) liée(s) à un RV Gazelle`)
+      }
+      if (checkData.updated > 0) {
+        messages.push(`${checkData.updated} demande(s) marquée(s) comme complétée(s)`)
+      }
+      if (syncData.completed > 0) {
+        messages.push(`${syncData.completed} demande(s) complétée(s) lors de la sync`)
+      }
+
+      if (messages.length > 0) {
+        setInfoMessage(`✅ Synchronisation terminée: ${messages.join(', ')}`)
+      } else {
+        setInfoMessage('✅ Synchronisation terminée - Aucune mise à jour nécessaire')
+      }
+
+      // Afficher les warnings s'il y en a
+      if (syncData.has_warnings && syncData.warnings && syncData.warnings.length > 0) {
+        const warningList = syncData.warnings.map(w =>
           `⚠️ ${w.error_code || 'RV_NOT_FOUND'}\n   ${w.date} - ${w.room} - ${w.for_who || '(sans nom)'}`
         ).join('\n\n')
-
-        const errorMsg = `✅ ${data.updated} demande(s) passée(s) à "Créé Gazelle"\n\n❌ ${data.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nCes demandes restent en statut "Assigné". Vérifiez qu'elles ont bien été créées dans Gazelle.`
-        setError(errorMsg)
-      } else {
-        setInfoMessage(`✅ ${data.message} - Toutes les demandes assignées ont un RV dans Gazelle!`)
+        setError(`⚠️ ${syncData.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}`)
       }
 
     } catch (err) {
@@ -1193,47 +1219,13 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           {creating ? 'Fermer ajout' : '➕ Ajouter manuellement'}
         </button>
         {!isRestrictedUser && (
-          <>
-            <button
-              onClick={handleSyncGazelle}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-200"
-            >
-              🔄 Synchroniser tout
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  setError(null)
-                  setInfoMessage('🔍 Vérification des RV complétés en cours...')
-                  
-                  const resp = await fetch(`${API_URL}/api/place-des-arts/check-completed`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                  })
-                  
-                  if (!resp.ok) {
-                    throw new Error(`Erreur: ${resp.status}`)
-                  }
-                  
-                  const data = await resp.json()
-                  
-                  await fetchData()
-                  
-                  if (data.updated > 0) {
-                    setInfoMessage(`✅ ${data.updated} demande(s) mise(s) à jour (${data.found_completed} complétées, ${data.found_unlinked} liées et complétées, ${data.found_not_created} liées)`)
-                  } else {
-                    setInfoMessage(`✅ Aucune mise à jour nécessaire (${data.checked} demandes vérifiées)`)
-                  }
-                } catch (err) {
-                  setError(err.message)
-                }
-              }}
-              className="px-4 py-2 text-sm bg-blue-100 text-blue-700 border border-blue-300 rounded-md hover:bg-blue-200"
-              title="Vérifie toutes les demandes pour trouver les RV complétés dans Gazelle"
-            >
-              ✅ Vérifier RV complétés
-            </button>
-          </>
+          <button
+            onClick={handleSyncGazelle}
+            className="px-4 py-2 text-sm bg-blue-600 text-white border border-blue-700 rounded-md hover:bg-blue-700 font-medium"
+            title="Synchronise toutes les demandes avec Gazelle : lie les RV, met à jour les statuts et vérifie les complétés"
+          >
+            🔄 Synchroniser tout avec Gazelle
+          </button>
         )}
 
         {/* Filtres - Sélecteur de mois accessible à tous */}
@@ -1407,19 +1399,26 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 // Déterminer si l'événement est complété (statut COMPLETED)
                 const isCompleted = it.status === 'COMPLETED'
                 
-                // Vérifier si un technicien actif est assigné
-                // Le technicien peut être dans la demande PDA (technician_id) ou dans le RV Gazelle
+                // FLUX DES COULEURS pour Louise et Nicolas (vue d'ensemble d'un coup d'œil) :
+                // 1. 🔴 ROUGE : Nouveau (pas de RV) OU RV créé avec "À attribuer" → Action requise
+                // 2. ⚪ BLANC : RV assigné à un technicien actif (Nick, Allan, JP) → Tout OK, en attente
+                // 3. 🟢 VERT : RV complété → Terminé
+                
                 const hasActiveTechnician = it.technician_id && REAL_TECHNICIAN_IDS.has(it.technician_id)
                 const isAAttribuerTech = isAAttribuer(it.technician_id)
                 
-                // Rouge : Pas encore de RV donné à un technicien actif
-                // Conditions :
-                // - Pas de appointment_id (pas de RV créé)
+                // 🔴 ROUGE : Besoin d'attention (Louise voit d'un coup d'œil)
+                // - Pas de appointment_id (nouveau, pas encore de RV dans Gazelle)
                 // OU
-                // - appointment_id existe mais technicien est "À attribuer" ou pas de technicien actif
-                // ET statut n'est pas COMPLETED (les complétés sont toujours verts)
-                // Blanc (pas de couleur) : RV créé avec technicien actif mais pas complété
-                const needsAttention = !isCompleted && (!it.appointment_id || (it.appointment_id && (isAAttribuerTech || !hasActiveTechnician)))
+                // - appointment_id existe mais technicien est "À attribuer" (Nicolas doit assigner un vrai technicien)
+                // OU
+                // - appointment_id existe mais pas de technicien actif assigné
+                // ⚪ BLANC (pas de couleur) : RV créé + technicien actif assigné (Nick, Allan, JP) → Tout OK
+                const needsAttention = !isCompleted && (
+                  !it.appointment_id ||  // Étape 1: Nouveau (pas de RV)
+                  (it.appointment_id && isAAttribuerTech) ||  // Étape 2: RV créé mais "À attribuer"
+                  (it.appointment_id && !hasActiveTechnician)  // RV créé mais pas de technicien actif
+                )
                 
                 const rowClass = selectedIds.includes(it.id)
                   ? 'bg-blue-50'
