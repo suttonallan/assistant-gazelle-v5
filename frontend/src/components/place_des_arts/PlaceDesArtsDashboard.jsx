@@ -789,9 +789,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     ]
   }, [])
 
-  const statusBadge = (item) => {
-    // Utiliser getDisplayStatus pour avoir le statut cohérent avec l'état réel
-    const meta = getDisplayStatus(item)
+  const statusBadge = (status) => {
+    const meta = statusMeta[status] || { label: status || 'N/A', cls: 'bg-gray-100 text-gray-800' }
     return <span className={`px-2 py-1 rounded text-xs font-medium ${meta.cls}`}>{meta.label}</span>
   }
 
