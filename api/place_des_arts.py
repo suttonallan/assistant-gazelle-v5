@@ -590,6 +590,7 @@ async def list_requests(
     """
     Liste des demandes Place des Arts (limité à 500).
     Filtres simples: status, month (AAAA-MM), technician_id, room.
+    Enrichit les demandes avec le technicien du RV Gazelle si appointment_id existe.
     """
     storage = get_storage()
     params = ["select=*"]
@@ -609,7 +610,33 @@ async def list_requests(
     resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    return resp.json()
+    
+    requests_data = resp.json()
+    
+    # Enrichir avec le technicien du RV Gazelle si appointment_id existe mais technician_id manquant
+    appointment_ids = [r.get("appointment_id") for r in requests_data if r.get("appointment_id") and not r.get("technician_id")]
+    if appointment_ids:
+        try:
+            # Récupérer les RV Gazelle correspondants
+            gazelle_appts = storage.client.table('gazelle_appointments')\
+                .select('external_id,technicien')\
+                .in_('external_id', appointment_ids)\
+                .execute()
+            
+            # Créer un index par external_id
+            tech_by_appt = {apt.get('external_id'): apt.get('technicien') for apt in (gazelle_appts.data or []) if apt.get('technicien')}
+            
+            # Enrichir les demandes
+            for request in requests_data:
+                if not request.get("technician_id") and request.get("appointment_id"):
+                    tech_from_gazelle = tech_by_appt.get(request.get("appointment_id"))
+                    if tech_from_gazelle:
+                        request["technician_id"] = tech_from_gazelle
+                        logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
+        except Exception as e:
+            logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
+    
+    return requests_data
 
 
 @router.get("/export")

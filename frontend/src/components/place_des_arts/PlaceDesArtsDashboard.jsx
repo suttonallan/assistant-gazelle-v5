@@ -789,8 +789,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     ]
   }, [])
 
-  const statusBadge = (status) => {
-    const meta = statusMeta[status] || { label: status || 'N/A', cls: 'bg-gray-100 text-gray-800' }
+  const statusBadge = (item) => {
+    // Utiliser getDisplayStatus pour avoir le statut cohérent avec l'état réel
+    const meta = getDisplayStatus(item)
     return <span className={`px-2 py-1 rounded text-xs font-medium ${meta.cls}`}>{meta.label}</span>
   }
 
@@ -1366,10 +1367,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               {sortedItems.map((it) => {
                 // Déterminer si l'événement est complété (statut COMPLETED)
                 const isCompleted = it.status === 'COMPLETED'
-                // Rouge : Pas encore de RV donné à un technicien actif
-                // Conditions : pas de appointment_id OU (appointment_id mais pas de technicien actif)
+                
+                // Vérifier si un technicien actif est assigné
+                // Le technicien peut être dans la demande PDA (technician_id) ou dans le RV Gazelle
                 const hasActiveTechnician = it.technician_id && REAL_TECHNICIAN_IDS.has(it.technician_id)
-                const needsAttention = !it.appointment_id || (it.appointment_id && !hasActiveTechnician)
+                
+                // Rouge : Pas encore de RV donné à un technicien actif
+                // Conditions :
+                // - Pas de appointment_id (pas de RV créé)
+                // OU
+                // - appointment_id existe mais pas de technicien actif assigné
+                // ET statut n'est pas COMPLETED (les complétés sont toujours verts)
+                const needsAttention = !isCompleted && (!it.appointment_id || (it.appointment_id && !hasActiveTechnician))
                 
                 const rowClass = selectedIds.includes(it.id)
                   ? 'bg-blue-50'
