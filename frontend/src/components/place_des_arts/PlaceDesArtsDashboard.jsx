@@ -819,6 +819,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_ofYggsCDt2JAVeNP': 'Allan',    // ID Gazelle pour Allan
     'usr_ReUSmIJmBF86ilY1': 'JP',       // ID Gazelle pour Jean-Philippe
     'usr_HihJsEgkmpTEziJo': 'À attribuer', // Placeholder "À attribuer" dans Gazelle
+    'usr_QmEpdeM2xMgZVkDS': 'JP',       // ID alternatif pour JP (si différent dans Gazelle)
     // Anciens IDs pour compatibilité (ne devraient plus être utilisés)
     'usr_U9E5bLxrFiXqTbE8': 'Nick (ancien ID)',
     'usr_allan': 'Allan (ancien ID)',
@@ -826,11 +827,23 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   // IDs des vrais techniciens (pas "À attribuer")
+  // Inclure aussi les IDs alternatifs qui correspondent aux mêmes techniciens
   const REAL_TECHNICIAN_IDS = new Set([
     'usr_HcCiFk7o0vZ9xAI0',  // Nick
     'usr_ofYggsCDt2JAVeNP',  // Allan
     'usr_ReUSmIJmBF86ilY1',  // JP
+    'usr_QmEpdeM2xMgZVkDS',  // JP (ID alternatif si différent dans Gazelle)
   ])
+  
+  // Fonction pour normaliser l'ID technicien (convertir les IDs alternatifs)
+  const normalizeTechnicianId = (techId) => {
+    if (!techId) return null
+    // Si c'est un ID alternatif de JP, convertir vers l'ID standard
+    if (techId === 'usr_QmEpdeM2xMgZVkDS') {
+      return 'usr_ReUSmIJmBF86ilY1'  // ID standard de JP
+    }
+    return techId
+  }
 
   // ID du technicien "À attribuer" dans Gazelle
   const A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'

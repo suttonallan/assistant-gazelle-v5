@@ -397,11 +397,24 @@ class GazelleSyncService:
         return best_match
     
     # IDs des vrais techniciens (pas "À attribuer")
+    # Inclure aussi les IDs alternatifs qui correspondent aux mêmes techniciens
     REAL_TECHNICIAN_IDS = {
         'usr_HcCiFk7o0vZ9xAI0',  # Nick
         'usr_ofYggsCDt2JAVeNP',  # Allan
-        'usr_ReUSmIJmBF86ilY1',  # JP
+        'usr_ReUSmIJmBF86ilY1',  # JP (ID standard)
+        'usr_QmEpdeM2xMgZVkDS',  # JP (ID alternatif si différent dans Gazelle)
     }
+    
+    # Mapping pour normaliser les IDs alternatifs vers les IDs standards
+    TECH_ID_NORMALIZATION = {
+        'usr_QmEpdeM2xMgZVkDS': 'usr_ReUSmIJmBF86ilY1',  # ID alternatif JP → ID standard JP
+    }
+    
+    def _normalize_technician_id(self, tech_id: Optional[str]) -> Optional[str]:
+        """Normalise un ID technicien (convertit les IDs alternatifs vers les standards)."""
+        if not tech_id:
+            return None
+        return self.TECH_ID_NORMALIZATION.get(tech_id, tech_id)
 
     def _link_request_to_appointment(
         self,
