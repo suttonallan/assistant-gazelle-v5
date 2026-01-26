@@ -636,7 +636,9 @@ async def list_requests(
                 appointment_id = request.get("appointment_id")
                 if appointment_id:
                     # Si le RV existe dans Gazelle, mettre à jour le statut à CREATED_IN_GAZELLE
-                    if appointment_id in found_appt_ids and request.get("status") != "CREATED_IN_GAZELLE":
+                    # MAIS ne pas écraser COMPLETED ou BILLED
+                    current_status = request.get("status")
+                    if appointment_id in found_appt_ids and current_status not in ("CREATED_IN_GAZELLE", "COMPLETED", "BILLED"):
                         request["status"] = "CREATED_IN_GAZELLE"
                         logging.debug(f"Statut mis à jour à CREATED_IN_GAZELLE pour demande {request.get('id')} (RV trouvé dans Gazelle)")
                     
