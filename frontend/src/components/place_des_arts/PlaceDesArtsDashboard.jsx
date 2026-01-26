@@ -889,7 +889,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     <div className="flex flex-wrap gap-4">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-red-50 border border-red-200 rounded"></div>
-                        <span className="text-gray-600"><strong>Rouge</strong> : Pas encore de RV donné à un technicien actif</span>
+                        <span className="text-gray-600"><strong>Rouge</strong> : Nouveau ou RV créé avec "À attribuer" (action requise)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-white border border-gray-200 rounded"></div>
+                        <span className="text-gray-600"><strong>Blanc</strong> : RV assigné à un technicien actif (Nick, Allan, JP) - Tout OK</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-green-50 border border-green-200 rounded"></div>
@@ -900,6 +904,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         <span className="text-gray-600"><strong>Bleu</strong> : Ligne sélectionnée</span>
                       </div>
                     </div>
+                    <p className="text-gray-500 mt-2 text-xs italic">
+                      Flux : Rouge (nouveau) → Rouge (créé Gazelle "À attribuer") → Blanc (technicien assigné) → Vert (complété)
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-3">
