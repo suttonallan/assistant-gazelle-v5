@@ -24,7 +24,7 @@ jobs:
 
       - name: 📦 Install dependencies
         run: |
-          pip install requests python-dotenv
+          pip install -r requirements.txt
 
       - name: 🔍 Scan alertes humidité
         env:
