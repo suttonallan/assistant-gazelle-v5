@@ -890,17 +890,11 @@ async def preview_email(payload: PreviewRequest):
     # Log pour débogage
     logging.info(f"🔍 Preview appelé avec texte ({len(payload.raw_text)} chars): {payload.raw_text[:200]}")
 
-    # APPRENTISSAGE: Séparer le texte en blocs par date (chaque date = nouveau bloc)
-    # Pattern: une ligne qui commence par un nombre suivi d'un mois (ex: "30 janv", "31 janv")
-    # OU une date dans le texte (format reformaté avec virgules)
+    # Extraire le demandeur global (signature à la fin du texte complet)
+    # Le demandeur est le même pour toutes les demandes collées ensemble
     import re
     raw_text = payload.raw_text.strip()
     lines = raw_text.split('\n')
-    date_pattern_start = re.compile(r'^\s*\d{1,2}\s*(jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec)', re.IGNORECASE)
-    date_pattern_anywhere = re.compile(r'(\d{1,2}\s*(?:jan|fév|fev|mar|avr|mai|juin|juil|aoû|aou|sep|oct|nov|déc|dec))', re.IGNORECASE)
-
-    # Extraire le demandeur global (signature à la fin du texte complet)
-    # Le demandeur est le même pour toutes les demandes collées ensemble
     requester_mapping = {
         'isabelle': 'IC', 'isabelle clairoux': 'IC', 'clairoux': 'IC',
         'patricia': 'PT', 'alain': 'AJ', 'annie': 'ANNIE JENKINS', 'annie jenkins': 'ANNIE JENKINS'
@@ -917,168 +911,82 @@ async def preview_email(payload: PreviewRequest):
         if global_requester:
             break
 
-    blocks = []
+    # UTILISER DIRECTEMENT parse_email_text() qui a déjà la logique corrigée pour éviter les doublons
+    # Cette fonction gère déjà :
+    # - La détection de blocs par date
+    # - La comparaison de dates pour éviter les doublons (même date = même bloc)
+    # - Le parsing de tous les formats (tabulaire, compact, langage naturel)
+    logging.info(f"📝 Utilisation de parse_email_text() pour parsing unifié (évite les doublons)")
+    parsed = parse_email_text(payload.raw_text)
     
-    # Détecter si le texte est reformaté (tout sur une ou deux lignes avec virgules)
-    # Si oui, séparer par les dates trouvées dans le texte
-    all_dates = date_pattern_anywhere.findall(raw_text)
-    if len(all_dates) > 1 and len(lines) <= 2:
-        # Format reformaté: séparer par les dates
-        logging.info(f"📝 Format reformaté détecté ({len(all_dates)} dates sur {len(lines)} ligne(s))")
-        # Trouver les positions des dates
-        date_positions = []
-        for match in date_pattern_anywhere.finditer(raw_text):
-            date_positions.append((match.start(), match.group(0)))
-        
-        # Créer un bloc pour chaque date
-        for i, (start_pos, date_str) in enumerate(date_positions):
-            end_pos = date_positions[i + 1][0] if i + 1 < len(date_positions) else len(raw_text)
-            block_text = raw_text[start_pos:end_pos].strip()
-            # Nettoyer les virgules en début/fin et les espaces multiples
-            block_text = re.sub(r'^[,;\s]+|[,;\s]+$', '', block_text)
-            block_text = re.sub(r'\s+', ' ', block_text)
-            if block_text:
-                blocks.append(block_text)
-    else:
-        # Format multi-lignes: séparer par lignes qui commencent par une date
-        current_block_lines = []
-        for line in lines:
-            line_stripped = line.strip().lower()
-            # Ne pas inclure la ligne du demandeur dans les blocs
-            if global_requester and any(name in line_stripped for name in requester_mapping.keys()):
-                continue
-            # Si c'est une nouvelle date et qu'on a déjà des lignes, sauver le bloc précédent
-            if date_pattern_start.match(line) and current_block_lines:
-                block_text = '\n'.join(current_block_lines).strip()
-                if block_text:
-                    blocks.append(block_text)
-                current_block_lines = [line]
-            else:
-                # Ignorer les lignes vides isolées mais garder le contenu
-                if line.strip():
-                    current_block_lines.append(line)
-
-        # Ne pas oublier le dernier bloc
-        if current_block_lines:
-            block_text = '\n'.join(current_block_lines).strip()
-            if block_text:
-                blocks.append(block_text)
-    
-    logging.info(f"📦 {len(blocks)} bloc(s) créé(s) depuis le texte")
-
-    parsed = []
-    for block in blocks:
-        # Chercher si ce bloc a une correction apprise
-        learned = find_learned_correction(block)
-        if learned:
-            # Utiliser la correction apprise
-            parsed.append(learned)
-        else:
-            # Parser normalement ce bloc
-            block_parsed = parse_email_text(block)
-            # Filtrer les résultats None (maintenant le parser ne devrait plus retourner None)
-            if block_parsed:
-                parsed.extend(block_parsed)
-            else:
-                # Si le parser ne retourne rien, créer un résultat minimal pour permettre l'édition manuelle
-                parsed.append({
-                    'date': None,
-                    'room': None,
-                    'for_who': None,
-                    'diapason': None,
-                    'requester': None,
-                    'piano': None,
-                    'time': None,
-                    'service': None,
-                    'notes': None,
-                    'confidence': 0.0,
-                    'warnings': ['Aucun champ détecté - Complétez manuellement'],
-                    'learned': False
-                })
-
-    # Appliquer le demandeur global à TOUTES les demandes (écrase les valeurs erronées)
-    # Car quand plusieurs demandes sont collées, c'est toujours le même demandeur
-    if global_requester:
-        for item in parsed:
-            item['requester'] = global_requester
-
-    # FUSION INTELLIGENTE: Comparer les demandes et fusionner celles qui ont la même date et le même lieu
-    # Ne créer une deuxième demande que si l'heure ou le type de piano est explicitement différent
-    parsed = merge_duplicate_requests(parsed)
-
-    # NOUVEAU: Toujours retourner un preview, même si vide ou partiel
-    # L'utilisateur pourra compléter manuellement
     if not parsed:
-        logging.warning(f"⚠️ Aucune demande détectée après parsing. Blocs traités: {len(blocks)}")
-        for i, block in enumerate(blocks):
-            logging.warning(f"   Bloc {i+1}: {block[:100]}")
-        # Créer un preview minimal pour permettre l'édition manuelle
-        parsed = [{
-            'date': None,
-            'room': None,
-            'for_who': None,
-            'diapason': None,
-            'requester': None,
-            'piano': None,
-            'time': None,
-            'service': None,
-            'notes': None,
-            'confidence': 0.0,
-            'warnings': ['Aucun champ détecté automatiquement - Complétez manuellement'],
-            'learned': False
-        }]
-
-    # Map vers format normalisé (mais sans id)
-    preview = []
-    needs_validation = False  # Flag pour formats inhabituels
-
-    for idx, item in enumerate(parsed, start=1):
-        appt_val = item.get("date")
-        if isinstance(appt_val, datetime):
-            appt_val = appt_val.date().isoformat()
-
-        # Détecter si c'est un format inhabituel (confiance < 1.0 ou warnings présents)
-        confidence = item.get("confidence", 0.0)
-        warnings = item.get("warnings", [])
-        is_unusual_format = confidence < 1.0 or len(warnings) > 0
-
-        if is_unusual_format:
-            needs_validation = True
-
-        # Vérifier si c'est une correction apprise
-        is_learned = item.get("learned", False)
-
-        row = {
-            "appointment_date": appt_val if isinstance(appt_val, str) else item.get("date"),
-            "room": item.get("room"),
-            "for_who": item.get("for_who"),
-            "diapason": item.get("diapason"),
-            "requester": item.get("requester"),
-            "piano": item.get("piano"),
-            "time": item.get("time"),
-            "service": item.get("service"),
-            "notes": item.get("notes"),
-            "confidence": confidence,
-            "warnings": warnings,
-            "needs_validation": is_unusual_format,  # Indique si ce champ nécessite validation
-            "learned": is_learned  # Indique si c'est une correction apprise
+        return {
+            "success": True,
+            "requests": [],
+            "count": 0,
+            "warnings": ["Aucune demande détectée dans le texte"],
+            "message": "Aucune demande détectée. Vérifiez le format du texte."
         }
-        row["duplicate_of"] = find_duplicate_candidates(
-            {
-                "appointment_date": row.get("appointment_date"),
-                "room": row.get("room"),
-                "piano": row.get("piano"),
-                "for_who": row.get("for_who"),
-            }
-        )
-        preview.append(row)
-
+    
+    # Convertir les datetime en strings pour la réponse JSON
+    formatted_requests = []
+    all_warnings = []
+    for req in parsed:
+        formatted_req = req.copy()
+        if formatted_req.get('date'):
+            formatted_req['date'] = formatted_req['date'].isoformat() if hasattr(formatted_req['date'], 'isoformat') else str(formatted_req['date'])
+        if formatted_req.get('request_date'):
+            formatted_req['request_date'] = formatted_req['request_date'].isoformat() if hasattr(formatted_req['request_date'], 'isoformat') else str(formatted_req['request_date'])
+        # Collecter les warnings
+        if formatted_req.get('warnings'):
+            all_warnings.extend(formatted_req['warnings'])
+        formatted_requests.append(formatted_req)
+    
+    # Appliquer le demandeur global si détecté (signature en fin de texte)
+    if global_requester:
+        for req in formatted_requests:
+            if not req.get('requester'):
+                req['requester'] = global_requester
+    
+    # Fusion intelligente: comparer les demandes et fusionner celles qui ont la même date et le même lieu
+    # Ne créer une deuxième demande que si l'heure ou le type de piano est explicitement différent
+    formatted_requests = merge_duplicate_requests(formatted_requests)
+    
+    # Convertir en format preview attendu par le frontend
+    preview = []
+    for req in formatted_requests:
+        # Extraire la date (peut être string ISO ou datetime)
+        appt_date = req.get('date')
+        if isinstance(appt_date, str):
+            # Si c'est déjà une string ISO, l'utiliser telle quelle
+            appt_date_iso = appt_date
+        elif hasattr(appt_date, 'date'):
+            # Si c'est un datetime, extraire la date
+            appt_date_iso = appt_date.date().isoformat()
+        else:
+            appt_date_iso = None
+        
+        preview.append({
+            "appointment_date": appt_date_iso,
+            "room": req.get('room'),
+            "for_who": req.get('for_who'),
+            "diapason": req.get('diapason'),
+            "requester": req.get('requester'),
+            "piano": req.get('piano'),
+            "time": req.get('time'),
+            "service": req.get('service', 'Accord standard'),
+            "notes": req.get('notes'),
+            "confidence": req.get('confidence', 0.0),
+            "warnings": req.get('warnings', []),
+            "needs_validation": req.get('confidence', 0.0) < 1.0 or len(req.get('warnings', [])) > 0
+        })
+    
     return {
         "success": True,
-        "preview": preview,
+        "requests": preview,
         "count": len(preview),
-        "needs_validation": needs_validation,
-        "message": "Veuillez vérifier les champs détectés avant d'importer" if needs_validation else "Demandes détectées avec haute confiance"
+        "warnings": all_warnings if all_warnings else [],
+        "message": f"{len(preview)} demande(s) détectée(s)"
     }
 
 
