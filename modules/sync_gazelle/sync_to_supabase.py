@@ -806,7 +806,7 @@ class GazelleToSupabaseSync:
                                     # Cela peut arriver si le technicien a été changé entre deux syncs
                                     # MAIS on ne veut alerter que si le RV a été mis à jour récemment (dans les 24h)
                                     # pour éviter d'alerter pour des RV créés avec un technicien dès le début
-                                    from datetime import timedelta
+                                    # Note: timedelta est importé au niveau du module (ligne 21)
                                     rv_updated = None
                                     
                                     # Vérifier si le RV a été mis à jour récemment (pas créé, mais mis à jour)
