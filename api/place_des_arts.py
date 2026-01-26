@@ -1297,6 +1297,71 @@ async def sync_manual(payload: SyncManualRequest):
         )
 
 
+@router.post("/requests/{request_id}/verify-technician")
+async def verify_technician_in_gazelle(
+    request_id: str,
+    payload: Dict[str, Any]
+):
+    """
+    Vérifie que le technicien spécifié est bien assigné au RV dans Gazelle.
+    Retourne {"confirmed": true/false} selon si le technicien correspond.
+    """
+    try:
+        storage = get_storage()
+        technician_id = payload.get('technician_id')
+        
+        if not technician_id:
+            return {"confirmed": False, "error": "technician_id requis"}
+        
+        # Récupérer la demande
+        request = storage.get_data(
+            "place_des_arts_requests",
+            filters={"id": request_id},
+            limit=1
+        )
+        
+        if not request:
+            return {"confirmed": False, "error": "Demande non trouvée"}
+        
+        request = request[0]
+        appointment_id = request.get('appointment_id')
+        
+        if not appointment_id:
+            return {"confirmed": False, "error": "Pas de RV lié à cette demande"}
+        
+        # Vérifier le technicien dans le RV Gazelle
+        try:
+            gazelle_apt = storage.client.table('gazelle_appointments')\
+                .select('external_id,technicien')\
+                .eq('external_id', appointment_id)\
+                .single()\
+                .execute()
+            
+            if gazelle_apt.data:
+                gazelle_technician = gazelle_apt.data.get('technicien')
+                confirmed = gazelle_technician == technician_id
+                
+                return {
+                    "confirmed": confirmed,
+                    "gazelle_technician": gazelle_technician,
+                    "requested_technician": technician_id,
+                    "message": "Confirmé" if confirmed else f"Le RV dans Gazelle a le technicien: {gazelle_technician}"
+                }
+            else:
+                return {"confirmed": False, "error": "RV non trouvé dans Gazelle"}
+                
+        except Exception as e:
+            logging.error(f"Erreur vérification technicien Gazelle: {e}")
+            return {"confirmed": False, "error": str(e)}
+            
+    except Exception as e:
+        logging.error(f"Erreur verify_technician: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la vérification: {str(e)}"
+        )
+
+
 @router.post("/check-completed")
 async def check_completed_requests():
     """

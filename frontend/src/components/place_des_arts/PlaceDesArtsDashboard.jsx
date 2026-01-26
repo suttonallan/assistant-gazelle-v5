@@ -522,10 +522,35 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         const item = items.find(it => it.id === targetId)
         if (!item) continue
 
+        // Si changement de technicien, vérifier dans Gazelle d'abord
+        if (field === 'technician_id' && value && value !== A_ATTRIBUER_ID) {
+          // Vérifier que le RV dans Gazelle a vraiment ce technicien
+          if (item.appointment_id) {
+            try {
+              const verifyResp = await fetch(`${API_URL}/api/place-des-arts/requests/${targetId}/verify-technician`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ technician_id: value })
+              })
+              
+              if (verifyResp.ok) {
+                const verifyData = await verifyResp.json()
+                if (!verifyData.confirmed) {
+                  setError(`⚠️ Le RV dans Gazelle n'a pas encore ce technicien. Vérifiez dans Gazelle d'abord.`)
+                  return
+                }
+              }
+            } catch (err) {
+              console.warn('Erreur vérification technicien dans Gazelle:', err)
+              // Continuer quand même si l'endpoint n'existe pas encore
+            }
+          }
+        }
+
         await updateCellRaw(targetId, field, value)
         
-        if (field === 'technician_id' && value) {
-          // Auto: passer en "Assigné" dès qu'un technicien est défini
+        if (field === 'technician_id' && value && value !== A_ATTRIBUER_ID) {
+          // Auto: passer en "Assigné" dès qu'un vrai technicien est défini (pas "À attribuer")
           await updateCellRaw(targetId, 'status', 'ASSIGN_OK')
         }
 
@@ -781,6 +806,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_ReUSmIJmBF86ilY1',  // JP
   ])
 
+  // ID du technicien "À attribuer" dans Gazelle
+  const A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
+  
   const technicianOptions = useMemo(() => {
     return [
       { id: 'usr_HcCiFk7o0vZ9xAI0', label: 'Nick' },
@@ -788,6 +816,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' }
     ]
   }, [])
+  
+  // Fonction pour vérifier si un technicien est "À attribuer"
+  const isAAttribuer = (techId) => {
+    return techId === A_ATTRIBUER_ID
+  }
 
   const statusBadge = (status) => {
     const meta = statusMeta[status] || { label: status || 'N/A', cls: 'bg-gray-100 text-gray-800' }
@@ -1370,14 +1403,16 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 // Vérifier si un technicien actif est assigné
                 // Le technicien peut être dans la demande PDA (technician_id) ou dans le RV Gazelle
                 const hasActiveTechnician = it.technician_id && REAL_TECHNICIAN_IDS.has(it.technician_id)
+                const isAAttribuerTech = isAAttribuer(it.technician_id)
                 
                 // Rouge : Pas encore de RV donné à un technicien actif
                 // Conditions :
                 // - Pas de appointment_id (pas de RV créé)
                 // OU
-                // - appointment_id existe mais pas de technicien actif assigné
+                // - appointment_id existe mais technicien est "À attribuer" ou pas de technicien actif
                 // ET statut n'est pas COMPLETED (les complétés sont toujours verts)
-                const needsAttention = !isCompleted && (!it.appointment_id || (it.appointment_id && !hasActiveTechnician))
+                // Blanc (pas de couleur) : RV créé avec technicien actif mais pas complété
+                const needsAttention = !isCompleted && (!it.appointment_id || (it.appointment_id && (isAAttribuerTech || !hasActiveTechnician)))
                 
                 const rowClass = selectedIds.includes(it.id)
                   ? 'bg-blue-50'
@@ -1481,15 +1516,31 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     <select
                       value={it.technician_id || ''}
                       onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                      className="w-full border border-gray-200 rounded px-1 py-1 text-xs bg-white font-medium hover:bg-gray-50 cursor-pointer"
+                      className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer ${
+                        isAAttribuer(it.technician_id) 
+                          ? 'bg-orange-50 border-orange-300 text-orange-700' 
+                          : 'bg-white'
+                      }`}
                       title={techMap[it.technician_id] || 'Choisir technicien'}
                       style={{ width: '90px' }}
                     >
                       <option value="">—</option>
+                      {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle avec ce technicien */}
+                      {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || it.technician_from_gazelle) && (
+                        <option value={A_ATTRIBUER_ID} className="text-orange-700 font-medium">
+                          ⚠️ À attribuer
+                        </option>
+                      )}
                       {technicianOptions.map(tech => (
                         <option key={tech.id} value={tech.id}>{tech.label}</option>
                       ))}
                     </select>
+                    {/* Afficher un indicateur si c'est "À attribuer" */}
+                    {isAAttribuer(it.technician_id) && it.appointment_id && (
+                      <span className="text-xs text-orange-600 ml-1" title="RV créé dans Gazelle mais technicien à attribuer">
+                        ⚠️
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {editMode ? (
