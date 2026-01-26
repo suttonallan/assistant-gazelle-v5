@@ -613,8 +613,10 @@ async def list_requests(
     
     requests_data = resp.json()
     
-    # Enrichir avec le technicien du RV Gazelle si appointment_id existe mais technician_id manquant
-    appointment_ids = [r.get("appointment_id") for r in requests_data if r.get("appointment_id") and not r.get("technician_id")]
+    # Enrichir avec le technicien du RV Gazelle si appointment_id existe
+    # Inclure aussi "À attribuer" (usr_HihJsEgkmpTEziJo) si présent dans Gazelle
+    # Mettre à jour le statut à CREATED_IN_GAZELLE si le RV existe dans Gazelle
+    appointment_ids = [r.get("appointment_id") for r in requests_data if r.get("appointment_id")]
     if appointment_ids:
         try:
             # Récupérer les RV Gazelle correspondants
@@ -623,16 +625,30 @@ async def list_requests(
                 .in_('external_id', appointment_ids)\
                 .execute()
             
-            # Créer un index par external_id
+            # Créer un index par external_id (inclure "À attribuer" aussi)
             tech_by_appt = {apt.get('external_id'): apt.get('technicien') for apt in (gazelle_appts.data or []) if apt.get('technicien')}
+            # Liste des appointment_id trouvés dans Gazelle (même sans technicien)
+            found_appt_ids = {apt.get('external_id') for apt in (gazelle_appts.data or [])}
             
             # Enrichir les demandes
             for request in requests_data:
-                if not request.get("technician_id") and request.get("appointment_id"):
-                    tech_from_gazelle = tech_by_appt.get(request.get("appointment_id"))
+                appointment_id = request.get("appointment_id")
+                if appointment_id:
+                    # Si le RV existe dans Gazelle, mettre à jour le statut à CREATED_IN_GAZELLE
+                    if appointment_id in found_appt_ids and request.get("status") != "CREATED_IN_GAZELLE":
+                        request["status"] = "CREATED_IN_GAZELLE"
+                        logging.debug(f"Statut mis à jour à CREATED_IN_GAZELLE pour demande {request.get('id')} (RV trouvé dans Gazelle)")
+                    
+                    # Enrichir le technicien depuis Gazelle (même si c'est "À attribuer")
+                    tech_from_gazelle = tech_by_appt.get(appointment_id)
                     if tech_from_gazelle:
-                        request["technician_id"] = tech_from_gazelle
-                        logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
+                        # Enrichir seulement si pas de technicien dans la demande, ou si c'est "À attribuer" dans Gazelle
+                        current_tech = request.get("technician_id")
+                        if not current_tech or tech_from_gazelle == 'usr_HihJsEgkmpTEziJo':
+                            request["technician_id"] = tech_from_gazelle
+                            # Marquer que le technicien vient de Gazelle pour affichage
+                            request["technician_from_gazelle"] = True
+                            logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     

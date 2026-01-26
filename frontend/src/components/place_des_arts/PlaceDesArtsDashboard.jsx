@@ -1525,8 +1525,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                       style={{ width: '90px' }}
                     >
                       <option value="">—</option>
-                      {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle avec ce technicien */}
-                      {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || it.technician_from_gazelle) && (
+                      {/* Afficher "À attribuer" seulement si c'est créé dans Gazelle (appointment_id existe) avec ce technicien */}
+                      {it.appointment_id && (it.technician_id === A_ATTRIBUER_ID || (it.technician_from_gazelle && it.technician_id === A_ATTRIBUER_ID)) && (
                         <option value={A_ATTRIBUER_ID} className="text-orange-700 font-medium">
                           ⚠️ À attribuer
                         </option>
