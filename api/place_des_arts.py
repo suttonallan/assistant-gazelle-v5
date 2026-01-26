@@ -1498,7 +1498,7 @@ async def check_completed_requests():
                             'current_status': status
                         })
         
-        # Mettre à jour les statuts
+        # Mettre à jour les statuts ET les techniciens en base de données
         updated_count = 0
         
         # Mettre à jour les demandes avec RV complété (déjà liées)
@@ -1541,6 +1541,45 @@ async def check_completed_requests():
             
             if link_success:
                 updated_count += 1
+        
+        # IMPORTANT: Synchroniser aussi les techniciens pour toutes les demandes liées
+        # pour corriger les incohérences (Gazelle = source de vérité)
+        linked_request_ids = [r.get('id') for r in all_requests if r.get('appointment_id')]
+        if linked_request_ids:
+            try:
+                # Récupérer les techniciens depuis Gazelle pour toutes les demandes liées
+                linked_appt_ids = [r.get('appointment_id') for r in all_requests if r.get('appointment_id')]
+                if linked_appt_ids:
+                    linked_gazelle_appts = storage.client.table('gazelle_appointments')\
+                        .select('external_id,technicien')\
+                        .in_('external_id', linked_appt_ids)\
+                        .execute()
+                    
+                    tech_by_appt_linked = {apt.get('external_id'): apt.get('technicien') 
+                                         for apt in (linked_gazelle_appts.data or []) if apt.get('technicien')}
+                    
+                    # Mettre à jour les techniciens en base pour correspondre à Gazelle
+                    for request in all_requests:
+                        request_id = request.get('id')
+                        appointment_id = request.get('appointment_id')
+                        current_tech = request.get('technician_id')
+                        gazelle_tech = tech_by_appt_linked.get(appointment_id) if appointment_id else None
+                        
+                        if gazelle_tech and current_tech != gazelle_tech:
+                            # Incohérence détectée, mettre à jour en base
+                            try:
+                                storage.client.table('place_des_arts_requests')\
+                                    .update({
+                                        'technician_id': gazelle_tech,
+                                        'updated_at': datetime.now().isoformat()
+                                    })\
+                                    .eq('id', request_id)\
+                                    .execute()
+                                logging.info(f"Technicien synchronisé en base pour demande {request_id}: {current_tech} → {gazelle_tech}")
+                            except Exception as e:
+                                logging.warning(f"Erreur mise à jour technicien en base pour {request_id}: {e}")
+            except Exception as e:
+                logging.warning(f"Erreur synchronisation techniciens en base: {e}")
         
         return {
             "success": True,

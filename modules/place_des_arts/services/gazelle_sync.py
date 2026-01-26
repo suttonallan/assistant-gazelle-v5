@@ -142,7 +142,7 @@ class GazelleSyncService:
                             if is_real_tech:
                                 print(f"   💾 Statut: CREATED_IN_GAZELLE (tech: {apt_technician})")
                             else:
-                                print(f"   💾 RV lié (en attente d'assignation technicien)")
+                                print(f"   💾 RV lié avec 'À attribuer' (statut: CREATED_IN_GAZELLE)")
                         else:
                             warnings.append(f"Erreur mise à jour demande {request_id}")
                     print()
@@ -159,12 +159,14 @@ class GazelleSyncService:
                     print()
             
             # 4. Vérifier les demandes déjà liées pour mise à jour statut COMPLETED
+            # ET synchroniser les techniciens depuis Gazelle (source de vérité)
             completed_count = 0
+            tech_sync_count = 0
             if not request_ids:  # Seulement en mode "sync all"
                 linked_requests = self._get_linked_not_completed_requests()
                 if linked_requests:
                     print(f"\n{'='*70}")
-                    print(f"🔍 VÉRIFICATION DES RV COMPLÉTÉS")
+                    print(f"🔍 VÉRIFICATION DES RV COMPLÉTÉS ET SYNCHRONISATION TECHNICIENS")
                     print(f"{'='*70}")
                     print(f"   {len(linked_requests)} demande(s) liées à vérifier\n")
 
@@ -176,11 +178,32 @@ class GazelleSyncService:
                         apt_id = request.get('appointment_id')
                         appointment_date = request.get('appointment_date', '')[:10] if request.get('appointment_date') else ''
                         room = request.get('room', '')
+                        current_tech = request.get('technician_id')
 
                         # Trouver le RV Gazelle correspondant
                         gazelle_apt = gazelle_by_id.get(apt_id)
                         if gazelle_apt:
                             gazelle_status = gazelle_apt.get('status', '').upper()
+                            gazelle_tech = gazelle_apt.get('technicien')
+                            
+                            # Synchroniser le technicien depuis Gazelle (source de vérité)
+                            if gazelle_tech and current_tech != gazelle_tech:
+                                if not dry_run:
+                                    try:
+                                        self.storage.client.table('place_des_arts_requests')\
+                                            .update({
+                                                'technician_id': gazelle_tech,
+                                                'updated_at': datetime.now().isoformat()
+                                            })\
+                                            .eq('id', request_id)\
+                                            .execute()
+                                        tech_sync_count += 1
+                                        tech_name = 'À attribuer' if gazelle_tech == 'usr_HihJsEgkmpTEziJo' else gazelle_tech
+                                        print(f"🔄 Technicien synchronisé: {appointment_date} - {room} → {tech_name}")
+                                    except Exception as e:
+                                        logger.warning(f"Erreur sync technicien pour {request_id}: {e}")
+                            
+                            # Vérifier si complété
                             if gazelle_status in ('COMPLETE', 'COMPLETED'):
                                 print(f"✅ RV complété trouvé:")
                                 print(f"   Demande: {appointment_date} - Salle {room}")
@@ -195,8 +218,12 @@ class GazelleSyncService:
                                         warnings.append(f"Erreur mise à jour statut demande {request_id}")
                                 print()
 
-                    if completed_count > 0 or dry_run:
-                        print(f"   {completed_count} demande(s) marquée(s) comme complétée(s)\n")
+                    if completed_count > 0 or tech_sync_count > 0 or dry_run:
+                        if tech_sync_count > 0:
+                            print(f"   {tech_sync_count} technicien(s) synchronisé(s) depuis Gazelle")
+                        if completed_count > 0:
+                            print(f"   {completed_count} demande(s) marquée(s) comme complétée(s)")
+                        print()
 
             print(f"\n{'='*70}")
             print(f"📊 RÉSULTAT SYNCHRONISATION")
@@ -392,10 +419,12 @@ class GazelleSyncService:
                 'updated_at': datetime.now().isoformat()
             }
 
-            # Ne marquer "CREATED_IN_GAZELLE" que si un vrai technicien est assigné
-            if is_real_technician:
-                update_data['status'] = 'CREATED_IN_GAZELLE'
+            # Toujours mettre à jour le technicien depuis Gazelle (source de vérité)
+            if technician_id:
                 update_data['technician_id'] = technician_id
+            
+            # Marquer "CREATED_IN_GAZELLE" si le RV existe (même avec "À attribuer")
+            update_data['status'] = 'CREATED_IN_GAZELLE'
 
             result = self.storage.client.table('place_des_arts_requests')\
                 .update(update_data)\
