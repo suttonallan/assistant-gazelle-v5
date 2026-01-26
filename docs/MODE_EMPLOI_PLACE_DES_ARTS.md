@@ -22,7 +22,7 @@
 Le module **Place des Arts** permet de gérer toutes les demandes de service pour les pianos de la Place des Arts. Il synchronise automatiquement avec Gazelle pour suivre les rendez-vous et les techniciens assignés.
 
 ### Accès
-- Allez dans le menu principal → **Place des Arts**
+- Allez dans le menu « institutions » → **Place des Arts**
 - Deux onglets disponibles : **Demandes** et **Inventaire Pianos**
 
 ---
@@ -108,10 +108,7 @@ Dans la colonne **"Qui le fait"**, vous verrez :
 
 ### Changer un technicien
 
-1. Activez le **"Mode édition"** (bouton en haut)
-2. Cliquez sur le dropdown **"Qui le fait"** de la ligne concernée
-3. Sélectionnez le nouveau technicien
-4. Le système vérifie automatiquement dans Gazelle si le changement est valide
+**Important** : Les techniciens doivent être assignés directement dans Gazelle. Une fois assigné dans Gazelle, cliquez sur **"🔄 Synchroniser tout avec Gazelle"** pour mettre à jour automatiquement les techniciens dans PDA. Le système synchronisera automatiquement les changements depuis Gazelle.
 
 ---
 
@@ -136,28 +133,33 @@ Nouveau → Créé Gazelle → Assigné → Complété → Facturé
 ## 🔄 Synchronisation avec Gazelle
 
 ### Synchronisation automatique
-Le système synchronise automatiquement :
+
+La synchronisation automatique se fait en arrière-plan avec les autres synchronisations du système. Elle met à jour :
 - Les RV créés dans Gazelle
 - Les techniciens assignés
 - Les statuts "Complété"
 
+**Note** : Pour une mise à jour immédiate, utilisez la synchronisation manuelle ci-dessous.
+
 ### Synchronisation manuelle
 
-#### Bouton "🔄 Synchroniser tout"
-- Synchronise **toutes** les demandes avec Gazelle
-- Trouve les RV correspondants
-- Met à jour les statuts et techniciens
+#### Bouton "🔄 Synchroniser tout avec Gazelle"
+Ce bouton unique effectue toutes les synchronisations nécessaires :
+- Trouve et lie les RV correspondants dans Gazelle
+- Met à jour les statuts (y compris "Complété" si le RV est complété dans Gazelle)
+- Synchronise tous les techniciens depuis Gazelle (source de vérité)
+- Corrige les incohérences entre PDA et Gazelle
 
-#### Bouton "✅ Vérifier RV complétés"
-- Vérifie toutes les demandes pour trouver les RV complétés dans Gazelle
-- Met à jour automatiquement les statuts à "Complété"
-- Utile pour mettre à jour les demandes après que les techniciens aient terminé leur travail
+**Quand l'utiliser** :
+- Après avoir créé des RV dans Gazelle
+- Après qu'un technicien ait complété un service
+- Si vous voyez des incohérences entre PDA et Gazelle
 
 ### Quand synchroniser ?
 
-- **Après avoir créé des RV dans Gazelle** : Cliquez sur "🔄 Synchroniser tout"
-- **Après qu'un technicien ait complété un service** : Cliquez sur "✅ Vérifier RV complétés"
-- **Si vous voyez des incohérences** : Utilisez l'icône 🔄 sur la ligne concernée
+- **Après avoir créé des RV dans Gazelle** : Cliquez sur "🔄 Synchroniser tout avec Gazelle"
+- **Après qu'un technicien ait complété un service** : Cliquez sur "🔄 Synchroniser tout avec Gazelle"
+- **Si vous voyez des incohérences** : Utilisez l'icône 🔄 sur la ligne concernée ou synchronisez tout
 
 ---
 
@@ -172,18 +174,14 @@ Le système synchronise automatiquement :
 
 Une fois des lignes sélectionnées, vous pouvez :
 
-- **Changer le statut** : Utilisez le dropdown "Changer statut..."
-- **Changer l'année** : Entrez une année et cliquez sur "Changer l'année"
-- **Facturer** : Cliquez sur "Facturer"
+- **Facturer** : Cliquez sur "Facturer" pour marquer les demandes comme facturées
 - **Supprimer** : Cliquez sur "Supprimer" (⚠️ Attention : action irréversible)
+
+**Note** : Les actions de changement de statut et d'année sont réservées à l'administration du système.
 
 ### Actions rapides par statut
 
-- **Statut: Nouveau** : Remet les demandes à l'état initial
-- **Statut: Assigné** : Marque comme assigné (demande de choisir un technicien)
-- **Statut: Créé Gazelle** : Marque comme créé dans Gazelle
-- **Statut: Complété** : Marque comme complété
-- **Facturer** : Passe au statut "Facturé"
+- **Facturer** : Passe les demandes sélectionnées au statut "Facturé"
 
 ---
 
@@ -194,25 +192,25 @@ Une fois des lignes sélectionnées, vous pouvez :
 1. **Toujours prévisualiser** avant d'importer une demande
 2. **Vérifier les champs détectés** automatiquement et les corriger si nécessaire
 3. **Synchroniser régulièrement** avec Gazelle, surtout après avoir créé des RV
-4. **Utiliser "Vérifier RV complétés"** une fois par jour pour mettre à jour les statuts
+4. **Utiliser "Synchroniser tout avec Gazelle"** une fois par jour pour mettre à jour les statuts et techniciens
 5. **Vérifier les incohérences** (lignes jaunes) et les corriger avec l'icône 🔄
 
 ### ❌ À éviter
 
 1. **Ne pas ignorer les lignes rouges** : Elles indiquent qu'une action est requise
-2. **Ne pas changer un technicien** sans vérifier dans Gazelle d'abord
+2. **Ne pas changer un technicien directement dans PDA** : Assignez-le dans Gazelle, puis synchronisez
 3. **Ne pas supprimer** des demandes sans être certain (action irréversible)
 
 ### 🔍 Dépannage
 
 #### "Ma demande est rouge mais le RV existe dans Gazelle"
-→ Cliquez sur "🔄 Synchroniser tout" pour lier le RV
+→ Cliquez sur "🔄 Synchroniser tout avec Gazelle" pour lier le RV
 
 #### "Le technicien est différent entre PDA et Gazelle"
-→ Cliquez sur l'icône 🔄 à côté du dropdown pour synchroniser
+→ Cliquez sur l'icône 🔄 à côté du dropdown pour synchroniser, ou utilisez "🔄 Synchroniser tout avec Gazelle"
 
 #### "Le statut ne passe pas à 'Complété'"
-→ Cliquez sur "✅ Vérifier RV complétés" pour mettre à jour
+→ Cliquez sur "🔄 Synchroniser tout avec Gazelle" pour mettre à jour les statuts
 
 #### "Je ne vois pas 'À attribuer' dans le dropdown"
 → C'est normal ! "À attribuer" n'apparaît que si le RV existe dans Gazelle avec ce technicien
