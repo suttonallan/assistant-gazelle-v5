@@ -1417,7 +1417,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                 // 2. ⚪ BLANC : RV assigné à un technicien actif (Nick, Allan, JP) → Tout OK, en attente
                 // 3. 🟢 VERT : RV complété → Terminé
                 
-                const hasActiveTechnician = it.technician_id && REAL_TECHNICIAN_IDS.has(it.technician_id)
+                // Normaliser l'ID technicien (convertir les IDs alternatifs)
+                const normalizedTechId = normalizeTechnicianId(it.technician_id)
+                
+                // Vérifier si un technicien actif est assigné (avec ID normalisé)
+                const hasActiveTechnician = normalizedTechId && REAL_TECHNICIAN_IDS.has(normalizedTechId)
                 const isAAttribuerTech = isAAttribuer(it.technician_id)
                 
                 // 🔴 ROUGE : Besoin d'attention (Louise voit d'un coup d'œil)
