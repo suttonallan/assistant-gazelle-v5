@@ -96,6 +96,20 @@ MAINTENANCE_TABLES_CANDIDATES = [
     "gazelle_maintenance_alerts",
 ]
 
+# Colonnes pour l'onglet Demandes PdA
+PDA_REQUESTS_HEADERS = [
+    "DateDemande",
+    "DateRV",
+    "Heure",
+    "Salle",
+    "Piano",
+    "Artiste",
+    "Service",
+    "Demandeur",
+    "Statut",
+    "Notes"
+]
+
 
 class ServiceReports:
     """Service principal pour générer les rapports Timeline v5."""
@@ -240,6 +254,20 @@ class ServiceReports:
                     return data
         return []
 
+    def _fetch_pda_requests(self) -> List[Dict]:
+        """Récupère les demandes Place des Arts depuis Supabase."""
+        from supabase import create_client
+
+        try:
+            supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
+            result = supabase.table('place_des_arts_requests').select('*').order('appointment_date', desc=True).execute()
+            data = result.data or []
+            print(f"📥 {len(data)} demandes Place des Arts récupérées")
+            return data
+        except Exception as e:
+            print(f"⚠️ Erreur récupération demandes PdA: {e}")
+            return []
+
     # ------------------------------------------------------------------
     # Utilitaires
     # ------------------------------------------------------------------
@@ -341,20 +369,23 @@ class ServiceReports:
             return workbook.add_worksheet(title=title, rows=200, cols=10)
 
     @staticmethod
-    def _ensure_headers(ws):
+    def _ensure_headers(ws, headers: Optional[List[str]] = None):
         """Ajoute l'en-tête si la feuille est vide."""
         try:
             if not ws.acell("A1").value:
-                headers = [
-                    "DateEvenement",
-                    "TypeEvenement",
-                    "Description",
-                    "Piano",  # Colonne unique regroupant marque, modèle, série, type, année
-                    "Local",
-                    "Technicien",
-                    "MesureHumidite"
-                ]
-                ws.update("A1:G1", [headers])
+                if headers is None:
+                    headers = [
+                        "DateEvenement",
+                        "TypeEvenement",
+                        "Description",
+                        "Piano",  # Colonne unique regroupant marque, modèle, série, type, année
+                        "Local",
+                        "Technicien",
+                        "MesureHumidite"
+                    ]
+                # Construire la plage dynamiquement (A1:X1 où X dépend du nombre de colonnes)
+                end_col = chr(ord('A') + len(headers) - 1)
+                ws.update(f"A1:{end_col}1", [headers])
         except Exception as e:
             print(f"⚠️ Impossible d'écrire l'en-tête sur {ws.title}: {e}")
 
@@ -743,6 +774,36 @@ class ServiceReports:
 
         return rows_by_tab
 
+    def _build_rows_from_pda_requests(self, requests: List[Dict]) -> List[List[str]]:
+        """Construit les lignes pour l'onglet Demandes PdA."""
+        rows: List[List[str]] = []
+
+        for req in requests:
+            # Formater les dates
+            request_date = req.get("request_date") or req.get("created_at") or ""
+            if request_date:
+                request_date = self._to_montreal_date(request_date)
+
+            appointment_date = req.get("appointment_date") or ""
+            if appointment_date:
+                appointment_date = self._to_montreal_date(appointment_date)
+
+            row = [
+                request_date,                           # DateDemande
+                appointment_date,                       # DateRV
+                req.get("time") or "",                  # Heure
+                req.get("room") or "",                  # Salle
+                req.get("piano") or "",                 # Piano
+                req.get("for_who") or "",               # Artiste
+                req.get("service") or "",               # Service
+                req.get("requester") or "",             # Demandeur
+                req.get("status") or "",                # Statut
+                (req.get("notes") or "")[:200]          # Notes (tronquées)
+            ]
+            rows.append(row)
+
+        return rows
+
     def _build_rows_from_alerts(
         self,
         alerts: List[Dict],
@@ -792,17 +853,21 @@ class ServiceReports:
         """
         clients_map = self._fetch_clients_map()
         timeline_entries = self._fetch_timeline_entries(since=since)
-        
+
         # NOTE: On n'utilise PLUS la table humidity_alerts pour éviter les doublons.
         # Les alertes sont déjà détectées depuis les timeline entries via les mots-clés.
         # alerts = self._fetch_maintenance_alerts()
 
         rows_by_tab = self._build_rows_from_timeline(timeline_entries, clients_map)
-        
+
         # DÉSACTIVÉ: Évite les doublons car les alertes sont déjà dans timeline entries
         # alert_rows = self._build_rows_from_alerts(alerts, clients_map) if alerts else []
         # if alert_rows:
         #     rows_by_tab["Alertes Maintenance"].extend(alert_rows)
+
+        # Récupérer les demandes Place des Arts
+        pda_requests = self._fetch_pda_requests()
+        pda_rows = self._build_rows_from_pda_requests(pda_requests)
 
         workbook = self._get_workbook()
         counts: Dict[str, int] = {}
@@ -838,6 +903,46 @@ class ServiceReports:
                     counts[tab] = 0
             else:
                 counts[tab] = 0
+
+        # === ONGLET DEMANDES PDA ===
+        pda_tab = "Demandes PdA"
+        ws_pda = self._get_or_create_ws(workbook, pda_tab)
+        if not append:
+            try:
+                ws_pda.clear()
+            except Exception as e:
+                print(f"⚠️ Impossible de nettoyer l'onglet {pda_tab}: {e}")
+
+        # En-têtes spécifiques pour les demandes PdA
+        self._ensure_headers(ws_pda, PDA_REQUESTS_HEADERS)
+
+        if pda_rows:
+            # Filtrer les doublons si append=True
+            if append:
+                existing_signatures = self._get_existing_row_signatures(ws_pda)
+                # Pour PdA, la signature est DateRV + Salle + Artiste (colonnes 1, 3, 5)
+                pda_rows_filtered = []
+                for row in pda_rows:
+                    sig = f"{row[1]}|||{row[3]}|||{row[5]}"  # DateRV + Salle + Artiste
+                    if sig not in existing_signatures:
+                        pda_rows_filtered.append(row)
+                    existing_signatures.add(sig)
+                pda_rows = pda_rows_filtered
+
+            if pda_rows:
+                try:
+                    # Trier par DateRV décroissante (colonne 1)
+                    rows_sorted = sorted(pda_rows, key=lambda r: r[1] if r[1] else "", reverse=True)
+                    ws_pda.insert_rows(rows_sorted, row=2, value_input_option="RAW")
+                    counts[pda_tab] = len(rows_sorted)
+                    print(f"✅ {len(rows_sorted)} demandes PdA ajoutées à l'onglet '{pda_tab}'")
+                except Exception as e:
+                    print(f"❌ Erreur insert {pda_tab}: {e}")
+                    counts[pda_tab] = 0
+            else:
+                counts[pda_tab] = 0
+        else:
+            counts[pda_tab] = 0
 
         # Sauvegarder la date de dernière génération pour éviter les doublons
         try:
