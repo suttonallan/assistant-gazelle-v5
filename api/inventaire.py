@@ -304,17 +304,35 @@ async def mettre_a_jour_stock(maj: MiseAJourStock):
         storage = get_supabase_storage()
 
         # Récupérer la quantité actuelle
-        # IMPORTANT: Filtrer aussi par emplacement pour éviter les doublons
+        # IMPORTANT: Chercher d'abord avec emplacement, puis sans, puis avec NULL
+        inventaire = None
+        inventaire_id = None
+        
+        # 1. Chercher avec emplacement "Atelier"
         inventaire = storage.get_data(
             "inventaire_techniciens",
             filters={
                 "code_produit": maj.code_produit,
                 "technicien": maj.technicien,
-                "emplacement": "Atelier"  # Par défaut, utiliser "Atelier"
+                "emplacement": "Atelier"
             }
         )
         
-        # Si pas trouvé avec emplacement, chercher sans emplacement (compatibilité)
+        # 2. Si pas trouvé, chercher avec emplacement NULL
+        if not inventaire:
+            try:
+                result = storage.client.table("inventaire_techniciens")\
+                    .select("*")\
+                    .eq("code_produit", maj.code_produit)\
+                    .eq("technicien", maj.technicien)\
+                    .is_("emplacement", "null")\
+                    .execute()
+                if result.data:
+                    inventaire = result.data
+            except Exception as e:
+                logging.warning(f"Erreur recherche emplacement NULL: {e}")
+        
+        # 3. Si toujours pas trouvé, chercher sans filtre emplacement (compatibilité)
         if not inventaire:
             inventaire = storage.get_data(
                 "inventaire_techniciens",
@@ -325,23 +343,30 @@ async def mettre_a_jour_stock(maj: MiseAJourStock):
             )
 
         quantite_actuelle = 0
+        emplacement_existant = "Atelier"  # Par défaut
         if inventaire:
             quantite_actuelle = int(inventaire[0].get("quantite_stock", 0))
+            inventaire_id = inventaire[0].get("id")
+            # Utiliser l'emplacement existant s'il existe, sinon "Atelier"
+            emplacement_existant = inventaire[0].get("emplacement") or "Atelier"
 
         # Calculer l'ajustement
         quantite_ajustement = maj.quantite_stock - quantite_actuelle
 
         # Effectuer l'ajustement
+        # Utiliser l'emplacement existant si trouvé, sinon "Atelier"
         success = storage.update_stock(
             code_produit=maj.code_produit,
             technicien=maj.technicien,
             quantite_ajustement=quantite_ajustement,
-            emplacement="Atelier",
+            emplacement=emplacement_existant,  # Utiliser l'emplacement existant
             motif=maj.motif,
-            created_by="interface"
+            created_by="interface",
+            inventaire_id=inventaire_id  # Passer l'ID si trouvé pour forcer UPDATE
         )
 
         if success:
+            logging.info(f"✅ Stock mis à jour: {maj.code_produit} - {maj.technicien} - {quantite_actuelle} → {maj.quantite_stock}")
             return {
                 "success": True,
                 "old_quantity": quantite_actuelle,
@@ -349,10 +374,16 @@ async def mettre_a_jour_stock(maj: MiseAJourStock):
                 "message": f"Stock mis à jour pour {maj.technicien}"
             }
         else:
-            raise HTTPException(status_code=500, detail="Échec de la mise à jour du stock")
+            error_msg = f"Échec de la mise à jour du stock pour {maj.code_produit} - {maj.technicien}"
+            logging.error(error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur: {str(e)}")
+        error_msg = f"Erreur lors de la mise à jour du stock: {str(e)}"
+        logging.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.post("/stock/ajuster", response_model=Dict[str, Any])
