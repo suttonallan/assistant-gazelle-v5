@@ -280,14 +280,34 @@ class SupabaseStorage:
                 print(f"DEBUG SUPABASE DATA (update_data): {json.dumps(data, indent=2, default=str)}")
             
             if upsert:
-                # Mode UPSERT : insère ou met à jour
+                # Pour inventaire_techniciens, utiliser le client Supabase natif avec upsert()
+                # Cela gère correctement les conflits sur la clé composite
+                if table_name == "inventaire_techniciens" and self.client:
+                    try:
+                        # Retirer l'id des données pour l'UPSERT basé sur clé composite
+                        data_for_upsert = {k: v for k, v in data.items() if k != "id"}
+                        print(f"DEBUG SUPABASE UPSERT (client natif): {json.dumps(data_for_upsert, indent=2, default=str)}")
+
+                        result = self.client.table(table_name).upsert(
+                            data_for_upsert,
+                            on_conflict="code_produit,technicien,emplacement"
+                        ).execute()
+
+                        if result.data:
+                            print(f"✅ Données sauvegardées dans {table_name} via client natif")
+                            return True
+                        else:
+                            print(f"❌ Pas de data retournée par upsert: {result}")
+                            return False
+                    except Exception as e:
+                        print(f"❌ Erreur client Supabase upsert: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        return False
+
+                # Mode UPSERT standard pour autres tables : insère ou met à jour
                 headers["Prefer"] = "resolution=merge-duplicates"
                 url = f"{self.api_url}/{table_name}"
-                # Pour inventaire_techniciens sans id, utiliser on_conflict sur la clé composite
-                if table_name == "inventaire_techniciens" and "id" not in data:
-                    # Utiliser on_conflict via query param (Supabase PostgREST)
-                    # La contrainte unique doit être (code_produit, technicien, emplacement)
-                    url = f"{self.api_url}/{table_name}?on_conflict=code_produit,technicien,emplacement"
                 response = requests.post(url, headers=headers, json=data)
             else:
                 # Mode UPDATE uniquement : requiert que l'enregistrement existe
@@ -579,10 +599,11 @@ class SupabaseStorage:
             # Si l'inventaire existe, on fait un UPDATE via PATCH
             # Sinon, on fait un INSERT via POST avec upsert
             if inventaire_id:
-                # UPDATE: utiliser PATCH avec id
+                # UPDATE: utiliser UPSERT avec id pour garantir la persistance
+                # (PATCH avec upsert=False peut échouer silencieusement)
                 data_inventaire["id"] = inventaire_id
                 print(f"🔄 UPDATE inventaire_techniciens: id={inventaire_id}, quantite={nouveau_stock}, emplacement={emplacement_existant}")
-                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=False)
+                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=True)
             else:
                 # INSERT: utiliser POST avec upsert=True
                 # Supabase utilisera la contrainte unique (code_produit, technicien, emplacement) si elle existe

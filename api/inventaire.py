@@ -11,8 +11,10 @@ from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from core.supabase_storage import SupabaseStorage
 from core.slack_notifier import SlackNotifier
+from core.email_notifier import get_email_notifier
 from core.gazelle_api_client import GazelleAPIClient
 import difflib
+import logging
 from datetime import datetime, timedelta
 
 # Import du script de vérification de stock
@@ -427,8 +429,8 @@ async def ajuster_stock(ajustement: AjustementStock):
 @router.post("/comment", response_model=Dict[str, Any])
 async def envoyer_commentaire(commentaire: CommentaireInventaire):
     """
-    Envoie un commentaire rapide sur l'inventaire (notification Slack admin).
-    Format V4: Le technicien peut envoyer une demande/observation à l'admin via Slack.
+    Envoie un commentaire rapide sur l'inventaire (email au CTO).
+    Format V4: Le technicien peut envoyer une demande/observation au CTO par email.
 
     Body:
         - text: Texte du commentaire (ex: "Besoin urgent de coupelles brunes")
@@ -438,31 +440,29 @@ async def envoyer_commentaire(commentaire: CommentaireInventaire):
         Confirmation d'envoi
     """
     try:
-        # Envoyer notification Slack aux admins
-        success = SlackNotifier.notify_inventory_comment(
+        # Envoyer notification email au CTO (Allan)
+        email_notifier = get_email_notifier()
+        success = email_notifier.send_inventory_comment(
             username=commentaire.username,
-            comment=commentaire.text,
-            notify_admin=True  # Notifier Allan (CTO)
+            comment=commentaire.text
         )
 
         if success:
             return {
                 "success": True,
-                "message": "Commentaire envoyé, Slack a été notifié."
+                "message": "Commentaire envoyé par email au CTO."
             }
         else:
-            # Ne pas bloquer si Slack échoue
             return {
-                "success": True,
-                "message": "Commentaire enregistré (notification Slack échouée)."
+                "success": False,
+                "message": "Erreur lors de l'envoi de l'email."
             }
 
     except Exception as e:
         print(f"⚠️ Erreur lors de l'envoi du commentaire: {e}")
-        # Ne pas renvoyer d'erreur HTTP pour ne pas bloquer l'utilisateur
         return {
-            "success": True,
-            "message": "Commentaire enregistré (notification Slack échouée)."
+            "success": False,
+            "message": f"Erreur: {str(e)}"
         }
 
 
