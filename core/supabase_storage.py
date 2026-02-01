@@ -284,13 +284,13 @@ class SupabaseStorage:
                 # Cela gère correctement les conflits sur la clé composite
                 if table_name == "inventaire_techniciens" and self.client:
                     try:
-                        # Retirer l'id des données pour l'UPSERT basé sur clé composite
-                        data_for_upsert = {k: v for k, v in data.items() if k != "id"}
+                        # Retirer id et emplacement - clé unique = (code_produit, technicien) uniquement
+                        data_for_upsert = {k: v for k, v in data.items() if k not in ("id", "emplacement")}
                         print(f"DEBUG SUPABASE UPSERT (client natif): {json.dumps(data_for_upsert, indent=2, default=str)}")
 
                         result = self.client.table(table_name).upsert(
                             data_for_upsert,
-                            on_conflict="code_produit,technicien,emplacement"
+                            on_conflict="code_produit,technicien"
                         ).execute()
 
                         if result.data:
@@ -489,7 +489,7 @@ class SupabaseStorage:
         return self.get_data(
             "inventaire_techniciens",
             filters={"technicien": technicien},
-            order_by="emplacement.asc"
+            order_by="code_produit.asc"
         )
 
     def update_stock(
@@ -497,118 +497,53 @@ class SupabaseStorage:
         code_produit: str,
         technicien: str,
         quantite_ajustement: float,
-        emplacement: str = "Atelier",
         motif: str = "",
         created_by: str = "system",
-        inventaire_id: Optional[str] = None  # ID existant si déjà trouvé
+        **kwargs  # Ignorer les anciens paramètres (emplacement, inventaire_id)
     ) -> bool:
         """
         Ajuste le stock d'un produit pour un technicien et enregistre la transaction.
+        Clé unique = (code_produit, technicien) - pas d'emplacement.
 
         Args:
             code_produit: Code du produit
             technicien: Nom du technicien
             quantite_ajustement: Quantité à ajouter (positif) ou retirer (négatif)
-            emplacement: Localisation du stock
             motif: Raison de l'ajustement
             created_by: Qui effectue l'ajustement
-            inventaire_id: ID de l'inventaire si déjà trouvé (pour éviter double recherche)
 
         Returns:
             True si l'opération a réussi
         """
         try:
+            # Chercher l'inventaire existant par (code_produit, technicien)
+            inventaire = self.get_data(
+                "inventaire_techniciens",
+                filters={
+                    "code_produit": code_produit,
+                    "technicien": technicien
+                }
+            )
+
             stock_actuel = 0
-            emplacement_existant = emplacement
-            
-            # Si inventaire_id est fourni, récupérer directement
-            if inventaire_id:
-                try:
-                    result = self.client.table("inventaire_techniciens")\
-                        .select("*")\
-                        .eq("id", inventaire_id)\
-                        .single()\
-                        .execute()
-                    if result.data:
-                        stock_actuel = float(result.data.get("quantite_stock", 0))
-                        emplacement_existant = result.data.get("emplacement") or emplacement
-                except Exception as e:
-                    print(f"⚠️ Erreur récupération inventaire par ID: {e}")
-                    inventaire_id = None
-            
-            # Sinon, chercher l'inventaire
-            if not inventaire_id:
-                # 1. Chercher avec l'emplacement spécifié
-                inventaire = self.get_data(
-                    "inventaire_techniciens",
-                    filters={
-                        "code_produit": code_produit,
-                        "technicien": technicien,
-                        "emplacement": emplacement
-                    }
-                )
-
-                # 2. Si pas trouvé, chercher avec emplacement NULL
-                if not inventaire:
-                    try:
-                        result = self.client.table("inventaire_techniciens")\
-                            .select("*")\
-                            .eq("code_produit", code_produit)\
-                            .eq("technicien", technicien)\
-                            .is_("emplacement", "null")\
-                            .execute()
-                        if result.data:
-                            inventaire = result.data
-                    except Exception as e:
-                        print(f"⚠️ Erreur recherche emplacement NULL: {e}")
-
-                # 3. Si toujours pas trouvé, chercher sans filtre emplacement
-                if not inventaire:
-                    inventaire = self.get_data(
-                        "inventaire_techniciens",
-                        filters={
-                            "code_produit": code_produit,
-                            "technicien": technicien
-                        }
-                    )
-
-                if inventaire:
-                    # Stock existant trouvé
-                    stock_actuel = float(inventaire[0].get("quantite_stock", 0))
-                    inventaire_id = inventaire[0]["id"]
-                    emplacement_existant = inventaire[0].get("emplacement") or emplacement
-                else:
-                    # Nouveau produit pour ce technicien
-                    stock_actuel = 0
-                    inventaire_id = None
-                    emplacement_existant = emplacement
+            inventaire_id = None
+            if inventaire:
+                stock_actuel = float(inventaire[0].get("quantite_stock", 0))
+                inventaire_id = inventaire[0].get("id")
 
             nouveau_stock = stock_actuel + quantite_ajustement
 
-            # 2. Mettre à jour l'inventaire
-            # Utiliser l'emplacement existant s'il y en a un, sinon celui fourni
+            # Données pour UPSERT - clé unique = (code_produit, technicien)
             data_inventaire = {
                 "code_produit": code_produit,
                 "technicien": technicien,
                 "quantite_stock": nouveau_stock,
-                "emplacement": emplacement_existant,  # Utiliser l'emplacement existant ou celui fourni
                 "derniere_verification": datetime.now().isoformat()
             }
 
-            # Pour inventaire_techniciens, on utilise une clé composite (code_produit + technicien + emplacement)
-            # Si l'inventaire existe, on fait un UPDATE via PATCH
-            # Sinon, on fait un INSERT via POST avec upsert
-            if inventaire_id:
-                # UPDATE: utiliser UPSERT avec id pour garantir la persistance
-                # (PATCH avec upsert=False peut échouer silencieusement)
-                data_inventaire["id"] = inventaire_id
-                print(f"🔄 UPDATE inventaire_techniciens: id={inventaire_id}, quantite={nouveau_stock}, emplacement={emplacement_existant}")
-                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=True)
-            else:
-                # INSERT: utiliser POST avec upsert=True
-                # Supabase utilisera la contrainte unique (code_produit, technicien, emplacement) si elle existe
-                print(f"➕ INSERT inventaire_techniciens: code={code_produit}, technicien={technicien}, quantite={nouveau_stock}, emplacement={emplacement_existant}")
-                success = self.update_data("inventaire_techniciens", data_inventaire, id_field="id", upsert=True)
+            print(f"{'🔄 UPDATE' if inventaire_id else '➕ INSERT'} inventaire_techniciens: {code_produit} / {technicien} = {nouveau_stock}")
+
+            success = self.update_data("inventaire_techniciens", data_inventaire, upsert=True)
 
             if not success:
                 print(f"❌ Échec de la mise à jour/insertion dans inventaire_techniciens")

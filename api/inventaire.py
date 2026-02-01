@@ -27,6 +27,38 @@ router = APIRouter(prefix="/inventaire", tags=["inventaire"])
 
 
 # ============================================================
+# Standardisation des noms de techniciens
+# IMPORTANT: Toujours utiliser les noms officiels, jamais de diminutifs
+# ============================================================
+
+TECHNICIEN_NAME_MAP = {
+    # Diminutifs → Nom officiel
+    "nick": "Nicolas",
+    "nico": "Nicolas",
+    "jp": "Jean-Philippe",
+    "al": "Allan",
+    # Casse incorrecte → Nom officiel
+    "nicolas": "Nicolas",
+    "allan": "Allan",
+    "jean-philippe": "Jean-Philippe",
+}
+
+def normalize_technicien_name(name: str) -> str:
+    """
+    Normalise le nom du technicien vers le nom officiel.
+    Évite les doublons causés par les diminutifs (Nick vs Nicolas).
+    """
+    if not name:
+        return name
+    # Chercher dans le mapping (insensible à la casse)
+    normalized = TECHNICIEN_NAME_MAP.get(name.lower())
+    if normalized:
+        return normalized
+    # Si pas dans le mapping, capitaliser correctement
+    return name.capitalize() if name.islower() else name
+
+
+# ============================================================
 # Modèles Pydantic pour validation des requêtes
 # ============================================================
 
@@ -59,7 +91,6 @@ class AjustementStock(BaseModel):
     code_produit: str
     technicien: str
     quantite_ajustement: float
-    emplacement: Optional[str] = "Atelier"
     motif: Optional[str] = ""
     created_by: Optional[str] = "system"
 
@@ -277,6 +308,9 @@ async def get_stock_technicien(technicien: str):
         - technicien: Nom du technicien (ex: "Allan")
     """
     try:
+        # Normaliser le nom (Nick -> Nicolas, etc.)
+        technicien = normalize_technicien_name(technicien)
+
         storage = get_supabase_storage()
         inventaire = storage.get_inventaire_technicien(technicien)
 
@@ -303,80 +337,46 @@ async def mettre_a_jour_stock(maj: MiseAJourStock):
         - motif: Raison de l'ajustement
     """
     try:
+        # Normaliser le nom (Nick -> Nicolas, etc.)
+        technicien = normalize_technicien_name(maj.technicien)
+
         storage = get_supabase_storage()
 
-        # Récupérer la quantité actuelle
-        # IMPORTANT: Chercher d'abord avec emplacement, puis sans, puis avec NULL
-        inventaire = None
-        inventaire_id = None
-        
-        # 1. Chercher avec emplacement "Atelier"
+        # Récupérer la quantité actuelle par (code_produit, technicien)
         inventaire = storage.get_data(
             "inventaire_techniciens",
             filters={
                 "code_produit": maj.code_produit,
-                "technicien": maj.technicien,
-                "emplacement": "Atelier"
+                "technicien": technicien
             }
         )
-        
-        # 2. Si pas trouvé, chercher avec emplacement NULL
-        if not inventaire:
-            try:
-                result = storage.client.table("inventaire_techniciens")\
-                    .select("*")\
-                    .eq("code_produit", maj.code_produit)\
-                    .eq("technicien", maj.technicien)\
-                    .is_("emplacement", "null")\
-                    .execute()
-                if result.data:
-                    inventaire = result.data
-            except Exception as e:
-                logging.warning(f"Erreur recherche emplacement NULL: {e}")
-        
-        # 3. Si toujours pas trouvé, chercher sans filtre emplacement (compatibilité)
-        if not inventaire:
-            inventaire = storage.get_data(
-                "inventaire_techniciens",
-                filters={
-                    "code_produit": maj.code_produit,
-                    "technicien": maj.technicien
-                }
-            )
 
         quantite_actuelle = 0
-        emplacement_existant = "Atelier"  # Par défaut
         if inventaire:
             quantite_actuelle = int(inventaire[0].get("quantite_stock", 0))
-            inventaire_id = inventaire[0].get("id")
-            # Utiliser l'emplacement existant s'il existe, sinon "Atelier"
-            emplacement_existant = inventaire[0].get("emplacement") or "Atelier"
 
         # Calculer l'ajustement
         quantite_ajustement = maj.quantite_stock - quantite_actuelle
 
-        # Effectuer l'ajustement
-        # Utiliser l'emplacement existant si trouvé, sinon "Atelier"
+        # Effectuer l'ajustement - clé unique = (code_produit, technicien)
         success = storage.update_stock(
             code_produit=maj.code_produit,
-            technicien=maj.technicien,
+            technicien=technicien,  # Nom normalisé
             quantite_ajustement=quantite_ajustement,
-            emplacement=emplacement_existant,  # Utiliser l'emplacement existant
             motif=maj.motif,
-            created_by="interface",
-            inventaire_id=inventaire_id  # Passer l'ID si trouvé pour forcer UPDATE
+            created_by="interface"
         )
 
         if success:
-            logging.info(f"✅ Stock mis à jour: {maj.code_produit} - {maj.technicien} - {quantite_actuelle} → {maj.quantite_stock}")
+            logging.info(f"✅ Stock mis à jour: {maj.code_produit} - {technicien} - {quantite_actuelle} → {maj.quantite_stock}")
             return {
                 "success": True,
                 "old_quantity": quantite_actuelle,
                 "new_quantity": maj.quantite_stock,
-                "message": f"Stock mis à jour pour {maj.technicien}"
+                "message": f"Stock mis à jour pour {technicien}"
             }
         else:
-            error_msg = f"Échec de la mise à jour du stock pour {maj.code_produit} - {maj.technicien}"
+            error_msg = f"Échec de la mise à jour du stock pour {maj.code_produit} - {technicien}"
             logging.error(error_msg)
             raise HTTPException(status_code=500, detail=error_msg)
 
@@ -397,18 +397,19 @@ async def ajuster_stock(ajustement: AjustementStock):
         - code_produit: Code du produit
         - technicien: Nom du technicien
         - quantite_ajustement: Quantité à ajouter (positif) ou retirer (négatif)
-        - emplacement: Localisation (défaut: "Atelier")
         - motif: Raison de l'ajustement
         - created_by: Qui effectue l'ajustement
     """
     try:
+        # Normaliser le nom (Nick -> Nicolas, etc.)
+        technicien = normalize_technicien_name(ajustement.technicien)
+
         storage = get_supabase_storage()
 
         success = storage.update_stock(
             code_produit=ajustement.code_produit,
-            technicien=ajustement.technicien,
+            technicien=technicien,
             quantite_ajustement=ajustement.quantite_ajustement,
-            emplacement=ajustement.emplacement,
             motif=ajustement.motif,
             created_by=ajustement.created_by
         )
@@ -417,7 +418,7 @@ async def ajuster_stock(ajustement: AjustementStock):
             action = "ajouté" if ajustement.quantite_ajustement > 0 else "retiré"
             return {
                 "success": True,
-                "message": f"{abs(ajustement.quantite_ajustement)} unités {action} pour {ajustement.technicien}"
+                "message": f"{abs(ajustement.quantite_ajustement)} unités {action} pour {technicien}"
             }
         else:
             raise HTTPException(status_code=500, detail="Échec de l'ajustement du stock")
