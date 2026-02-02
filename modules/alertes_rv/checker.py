@@ -83,12 +83,18 @@ class AppointmentChecker:
 
             appointments = appointments_raw.data
 
-            # Filtrer par type (exclure PERSONAL, MEMO)
+            # Filtrer par type (exclure PERSONAL, MEMO) et par présence de client
             filtered = []
             for apt in appointments:
                 apt_type = apt.get('type', 'APPOINTMENT')
-                if apt_type not in exclude_types:
-                    filtered.append(apt)
+                # Exclure les types non-client (PERSONAL, MEMO, etc.)
+                if apt_type in exclude_types:
+                    continue
+                # Exclure les RV sans client (RV admin/personnel)
+                # Un vrai RV client doit avoir client_external_id
+                if not apt.get('client_external_id'):
+                    continue
+                filtered.append(apt)
             
             # VÉRIFICATION CRITIQUE: Vérifier confirmedByClient depuis Gazelle API
             # Ne garder que les RV qui sont vraiment non confirmés
