@@ -18,6 +18,39 @@ from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
 
 
+# Mots-clés pour identifier les RV d'institutions (doivent déclencher des alertes même sans client)
+INSTITUTION_KEYWORDS = [
+    'vincent-d\'indy', 'vincent d\'indy', 'vd ', ' vd', 'v-d',
+    'place des arts', 'pda',
+    'grands ballets', 'gnb',
+    'orford',
+    'uqam', 'pierre-péladeau',
+    'cmm',  # Conservatoire de musique de Montréal
+]
+
+
+def _is_institution_appointment(apt: Dict[str, Any]) -> bool:
+    """
+    Vérifie si un RV est lié à une institution.
+
+    Args:
+        apt: Données du rendez-vous
+
+    Returns:
+        True si c'est un RV d'institution
+    """
+    title = (apt.get('title') or '').lower()
+    location = (apt.get('location') or '').lower()
+    description = (apt.get('description') or '').lower()
+
+    text_to_check = f"{title} {location} {description}"
+
+    for keyword in INSTITUTION_KEYWORDS:
+        if keyword in text_to_check:
+            return True
+    return False
+
+
 class AppointmentChecker:
     """Vérificateur de rendez-vous non confirmés."""
 
@@ -83,16 +116,18 @@ class AppointmentChecker:
 
             appointments = appointments_raw.data
 
-            # Filtrer par type (exclure PERSONAL, MEMO) et par présence de client
+            # Filtrer par type (exclure PERSONAL, MEMO) et par présence de client OU institution
             filtered = []
             for apt in appointments:
                 apt_type = apt.get('type', 'APPOINTMENT')
                 # Exclure les types non-client (PERSONAL, MEMO, etc.)
                 if apt_type in exclude_types:
                     continue
-                # Exclure les RV sans client (RV admin/personnel)
-                # Un vrai RV client doit avoir client_external_id
-                if not apt.get('client_external_id'):
+                # Garder si: a un client OU est un RV d'institution
+                has_client = bool(apt.get('client_external_id'))
+                is_institution = _is_institution_appointment(apt)
+                if not has_client and not is_institution:
+                    # RV personnel sans client ni institution → exclure
                     continue
                 filtered.append(apt)
             
