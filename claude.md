@@ -103,6 +103,28 @@ Actions Obligatoires (dans l'ordre):
 
 ---
 
+# 🌐 URLs DE PRODUCTION
+
+> **IMPORTANT:** Ne jamais confondre les URLs!
+
+| Service | URL |
+|---------|-----|
+| **API Backend (Render)** | `https://assistant-gazelle-v5-api.onrender.com` |
+| **Frontend (GitHub Pages)** | `https://[username].github.io/assistant-gazelle-v5` |
+| **Supabase** | `https://beblgzvmjqkcillmcavk.supabase.co` |
+
+### Configuration Frontend (`frontend/src/utils/apiConfig.js`)
+```javascript
+// Production: https://assistant-gazelle-v5-api.onrender.com
+// Dev: '' (utilise proxy Vite vers localhost:8001)
+```
+
+### Apres un commit, TOUJOURS:
+1. `git push` pour declencher le redeploy Render automatique
+2. Verifier les logs Render si probleme
+
+---
+
 # 🔧 V5 - MODE MAINTENANCE
 
 > La v5 reste en maintenance pour bugs critiques uniquement. Exception: implémenter `notification_logs` pour que la v6 hérite des données de test.
