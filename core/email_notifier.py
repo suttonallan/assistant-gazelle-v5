@@ -166,6 +166,69 @@ class EmailNotifier:
             html_content=html_content
         )
 
+    def send_inventory_comment(
+        self,
+        username: str,
+        comment: str
+    ) -> bool:
+        """
+        Envoie un commentaire d'inventaire au CTO (Allan).
+
+        Args:
+            username: Nom du technicien qui envoie
+            comment: Texte du commentaire
+
+        Returns:
+            True si envoyé avec succès
+        """
+        # Toujours envoyer au CTO (Allan)
+        cto_email = 'asutton@piano-tek.com'
+
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                .comment-box {{
+                    background: #3B82F6;
+                    color: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    margin: 20px 0;
+                }}
+                .message-box {{
+                    background: #f5f5f5;
+                    padding: 15px;
+                    border-left: 4px solid #3B82F6;
+                    margin: 15px 0;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="comment-box">
+                <h2>📦 Commentaire Inventaire</h2>
+                <p><strong>De:</strong> {username}</p>
+            </div>
+
+            <div class="message-box">
+                <p>{comment}</p>
+            </div>
+
+            <p style="color: #666; font-size: 12px;">
+                Envoyé depuis le Dashboard Inventaire V5
+            </p>
+        </body>
+        </html>
+        """
+
+        subject = f"📦 Inventaire - {username}"
+
+        return self.send_email(
+            to_emails=[cto_email],
+            subject=subject,
+            html_content=html_content
+        )
+
     def send_sync_error_notification(
         self,
         task_name: str,
