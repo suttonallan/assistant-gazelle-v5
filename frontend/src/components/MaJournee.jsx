@@ -84,7 +84,8 @@ export default function MaJournee({ currentUser }) {
   const isToday = selectedDate === getTodayLocal()
 
   const formatDateDisplay = (dateStr) => {
-    const date = new Date(dateStr)
+    // Ajouter T00:00:00 pour forcer l'interprétation en heure locale (pas UTC)
+    const date = new Date(dateStr + 'T00:00:00')
     const options = { weekday: 'long', day: 'numeric', month: 'long' }
     return date.toLocaleDateString('fr-CA', options)
   }
