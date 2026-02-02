@@ -37,6 +37,10 @@ class SlackNotifier:
         Returns:
             True si envoyé avec succès
         """
+        # Guard: skip if webhook not configured
+        if not webhook_url:
+            return False
+
         try:
             payload = {"text": text}
             response = requests.post(webhook_url, json=payload, timeout=5)
@@ -69,6 +73,10 @@ class SlackNotifier:
         Returns:
             True si envoyé avec succès
         """
+        # Guard: skip if webhook not configured
+        if not webhook_url:
+            return False
+
         try:
             payload = {"text": text}
             if blocks:

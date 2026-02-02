@@ -159,20 +159,15 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     // Sinon, attendre 500ms après la dernière modification (debounce)
     const saveToDB = async () => {
       try {
-        // Mapper username vers nom complet pour l'API
-        const technicienNameMap = {
-          'nicolas': 'Nicolas',
-          'allan': 'Allan',
-          'jeanphilippe': 'Jean-Philippe'
-        }
-        const technicienName = technicienNameMap[techUsername] || techUsername
-        
+        // Utiliser prenom de la config centralisée (jamais abbreviation!)
+        const technicienName = TECHNICIENS.find(t => t.username === techUsername)?.prenom || techUsername
+
         const response = await fetch(`${API_URL}/api/inventaire/stock`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             code_produit: codeProduit,
-            technicien: technicienName, // Nom complet: "Nicolas", "Allan", "Jean-Philippe"
+            technicien: technicienName, // Toujours prenom: "Nicolas", "Allan", "Jean-Philippe"
             quantite_stock: newQty,
             type_transaction: 'ajustement',
             motif: 'Ajustement manuel depuis interface'
@@ -214,16 +209,21 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     if (!comment.trim()) return
 
     try {
-      await fetch(`${API_URL}/api/slack/notify`, {
+      const response = await fetch(`${API_URL}/api/inventaire/comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `💬 **${currentUser?.name || 'Technicien'}**: ${comment}`,
-          channel: 'inventory'
+          text: comment,
+          username: currentUser?.name || 'Technicien'
         })
       })
-      alert('✅ Commentaire envoyé!')
-      setComment('')
+      const result = await response.json()
+      if (result.success) {
+        alert('✅ Commentaire envoyé au CTO!')
+        setComment('')
+      } else {
+        alert('❌ ' + (result.message || 'Erreur envoi'))
+      }
     } catch (err) {
       alert('❌ Erreur envoi commentaire: ' + err.message)
     }
@@ -246,7 +246,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
       {allowComment && (
         <div className={`mb-4 bg-blue-50 border border-blue-200 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
           <label className={`block ${isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-700 mb-2`}>
-            💬 Commentaire rapide {!isMobile && '(notifie le CTO via Slack)'}
+            💬 Commentaire rapide {!isMobile && '(email au CTO)'}
           </label>
           <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2`}>
             <input

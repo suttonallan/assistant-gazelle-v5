@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel
 from core.supabase_storage import SupabaseStorage
-from core.slack_notifier import SlackNotifier
 from core.email_notifier import get_email_notifier
 from core.gazelle_api_client import GazelleAPIClient
 import difflib
@@ -105,7 +104,7 @@ class MiseAJourStock(BaseModel):
 
 
 class CommentaireInventaire(BaseModel):
-    """Modèle pour commentaire rapide (notification Slack admin)."""
+    """Modèle pour commentaire rapide (email au CTO)."""
     text: str
     username: str
 

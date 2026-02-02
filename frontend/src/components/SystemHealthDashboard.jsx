@@ -348,7 +348,7 @@ function SystemHealthDashboard() {
           <li>• <strong>Tâches Planifiées</strong> : Logs du scheduler (01:00 Gazelle → Timeline, 16:30 Sync Appointments, 17:00 Alertes RV, etc.)</li>
           <li>• <strong>Synchronisations</strong> : Logs détaillés des syncs manuelles et automatiques</li>
           <li>• <strong>Chaînage</strong> : Quand Gazelle réussit, le Rapport Timeline se génère automatiquement</li>
-          <li>• <strong>Notifications</strong> : Les erreurs sont envoyées automatiquement sur Slack</li>
+          <li>• <strong>Notifications</strong> : Les erreurs sont envoyées automatiquement par email</li>
         </ul>
       </div>
     </div>
