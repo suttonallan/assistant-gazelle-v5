@@ -432,6 +432,35 @@ def task_relance_louise_j7():
         raise
 
 
+def task_process_late_assignment_queue():
+    """
+    Traite la file d'attente des alertes d'assignation tardive.
+
+    Envoie les emails aux techniciens pour les RV assignés < 24h avant.
+    Exécuté toutes les 5 minutes et à 07:05.
+    """
+    try:
+        print("\n" + "="*70)
+        print("📧 TRAITEMENT LATE ASSIGNMENT QUEUE")
+        print("="*70)
+
+        from modules.late_assignment.late_assignment_notifier import LateAssignmentNotifier
+
+        notifier = LateAssignmentNotifier()
+        result = notifier.process_queue()
+
+        print(f"   Traité: {result.get('processed', 0)}, Envoyé: {result.get('sent', 0)}, Échec: {result.get('failed', 0)}")
+        print("="*70 + "\n")
+
+        return result
+
+    except Exception as e:
+        print(f"\n❌ Erreur traitement late assignment queue: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
 def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
     """
     16:30 - Sync Appointments uniquement
