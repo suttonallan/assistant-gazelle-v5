@@ -20,6 +20,7 @@ load_dotenv()
 from core.supabase_storage import SupabaseStorage
 from core.email_notifier import EmailNotifier
 from core.timezone_utils import MONTREAL_TZ
+from config.techniciens_config import GAZELLE_IDS
 import requests
 
 
@@ -97,15 +98,21 @@ class LateAssignmentNotifier:
     def _send_alert(self, queue_item: Dict[str, Any]) -> bool:
         """
         Envoie l'email d'alerte pour un item de la queue.
-        
+
         Args:
             queue_item: Item de la queue (avec appointment_external_id, technician_id, etc.)
-            
+
         Returns:
             True si envoyé avec succès
         """
         try:
             technician_id = queue_item.get('technician_id')
+
+            # Filtrer: seulement les techniciens connus (pas Louise/assistants)
+            if technician_id not in GAZELLE_IDS:
+                print(f"   ⏭️  {technician_id} n'est pas un technicien → alerte ignorée")
+                return True  # Retourner True pour marquer comme "traité" sans erreur
+
             appointment_date = queue_item.get('appointment_date')
             appointment_time = queue_item.get('appointment_time', '')
             client_name = queue_item.get('client_name', 'Client')

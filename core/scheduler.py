@@ -11,7 +11,7 @@ Gère toutes les tâches planifiées de l'application:
 - 03:00: Backup SQL de la base de données
 - 07:00-21:00 (toutes les heures): Sync Appointments - Détection des RV dernière minute
 - 16:30: Sync Appointments - Capture les RV créés/modifiés dans la journée
-- 17:00: URGENCE TECHNIQUE (J-1) - Alertes aux techniciens pour RV non confirmés
+- 16:00: URGENCE TECHNIQUE (J-1) - Alertes aux techniciens pour RV non confirmés
 - 09:00: RELANCE LOUISE (J-7) - Relance pour RV créés il y a plus de 3 mois
 - Toutes les 5 min: Traitement Late Assignment Queue (envoi emails)
 
@@ -340,10 +340,10 @@ def task_backup_database():
 
 def task_urgence_technique_j1():
     """
-    URGENCE TECHNIQUE (J-1) : La veille à 17h, si un RV n'est pas 'Confirmed',
+    URGENCE TECHNIQUE (J-1) : La veille à 16h, si un RV n'est pas 'Confirmed',
     envoie une alerte au technicien concerné (Nicolas, Allan ou JP).
 
-    Exécution: Tous les jours à 17:00 (heure Montréal)
+    Exécution: Tous les jours à 16:00 (heure Montréal)
     """
     print("\n" + "="*70)
     print("🚨 URGENCE TECHNIQUE (J-1) - Démarrage")
@@ -561,16 +561,16 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 03:00 - Backup SQL configurée")
 
-    # 17:00 - URGENCE TECHNIQUE (J-1)
+    # 16:00 - URGENCE TECHNIQUE (J-1)
     scheduler.add_job(
         task_urgence_technique_j1,
-        trigger=CronTrigger(hour=17, minute=0, timezone='America/Montreal'),
+        trigger=CronTrigger(hour=16, minute=0, timezone='America/Montreal'),
         id='urgence_technique_j1',
-        name='URGENCE TECHNIQUE (J-1) - 17:00',
+        name='URGENCE TECHNIQUE (J-1) - 16:00',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 17:00 - URGENCE TECHNIQUE (J-1) configurée")
+    print("   ✅ 16:00 - URGENCE TECHNIQUE (J-1) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(

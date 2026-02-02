@@ -38,6 +38,29 @@ from core.timezone_utils import (
     extract_date_time
 )
 from scripts.sync_logger import SyncLogger
+from config.techniciens_config import GAZELLE_IDS
+
+# Types de RV à exclure des alertes Late Assignment
+EXCLUDED_EVENT_TYPES = ['MEMO', 'BLOCKED', 'HOLIDAY']  # Note: PERSONAL peut être une institution
+
+# Mots-clés pour identifier les RV d'institutions (alertes même sans client)
+INSTITUTION_KEYWORDS = [
+    'vincent-d\'indy', 'vincent d\'indy', 'vd ', ' vd', 'v-d',
+    'place des arts', 'pda',
+    'grands ballets', 'gnb',
+    'orford',
+    'uqam', 'pierre-péladeau',
+    'cmm',
+]
+
+
+def _is_institution_appointment(title: str, location: str, description: str) -> bool:
+    """Vérifie si un RV est lié à une institution."""
+    text_to_check = f"{title or ''} {location or ''} {description or ''}".lower()
+    for keyword in INSTITUTION_KEYWORDS:
+        if keyword in text_to_check:
+            return True
+    return False
 
 
 class GazelleToSupabaseSync:
@@ -714,7 +737,8 @@ class GazelleToSupabaseSync:
                         'technicien': technicien,
                         'location': location,
                         'notes': notes,
-                        'created_at': start_time_utc,  # CoreDateTime UTC avec 'Z'
+                        # NOTE: created_at n'est PAS inclus ici - la DB le set automatiquement sur INSERT
+                        # Inclure created_at avec start_time causait des faux positifs dans la détection Late Assignment
                         'updated_at': format_for_supabase(datetime.now())
                     }
 
@@ -722,7 +746,7 @@ class GazelleToSupabaseSync:
                     # Récupérer l'ancien record pour comparer
                     old_record = None
                     try:
-                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date"
+                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date,updated_at,created_at"
                         check_response = requests.get(check_url, headers=self.storage._get_headers())
                         if check_response.status_code == 200:
                             old_data = check_response.json()
@@ -749,15 +773,22 @@ class GazelleToSupabaseSync:
                         continue  # Skip la détection de changement si l'UPSERT a échoué
 
                     # DÉTECTION DE CHANGEMENT DE TECHNICIEN pour alerte "Late Assignment"
-                    if technicien and appointment_date:
+                    # Conditions:
+                    # 1. RV avec un CLIENT OU institution (vincent-d'indy, etc.)
+                    # 2. Technicien est un vrai technicien (pas Louise/assistants)
+                    # 3. Type de RV n'est pas MEMO, BLOCKED, HOLIDAY
+                    is_technician = technicien in GAZELLE_IDS
+                    is_valid_type = event_type not in EXCLUDED_EVENT_TYPES
+                    is_institution = _is_institution_appointment(title, location, description)
+                    has_client_or_institution = bool(client_id) or is_institution
+
+                    if technicien and appointment_date and has_client_or_institution and is_technician and is_valid_type:
                         try:
                             from core.timezone_utils import MONTREAL_TZ
-                            from datetime import date as date_class
-                            
-                            # Vérifier si la date est aujourd'hui ou demain
-                            today = datetime.now(MONTREAL_TZ).date()
-                            tomorrow = today + timedelta(days=1)
-                            
+                            from datetime import date as date_class, time as time_class
+
+                            now = datetime.now(MONTREAL_TZ)
+
                             # Parser la date du rendez-vous
                             appt_date = None
                             if isinstance(appointment_date, str):
@@ -767,11 +798,31 @@ class GazelleToSupabaseSync:
                                     pass
                             elif isinstance(appointment_date, date_class):
                                 appt_date = appointment_date
-                            
-                            # Vérifier si c'est aujourd'hui ou demain
-                            is_today_or_tomorrow = appt_date and (appt_date == today or appt_date == tomorrow)
-                            
-                            if is_today_or_tomorrow:
+
+                            # Parser l'heure du rendez-vous (défaut: 09:00 si non spécifié)
+                            appt_time = time_class(9, 0)
+                            if appointment_time:
+                                try:
+                                    if isinstance(appointment_time, str):
+                                        # Format HH:MM:SS ou HH:MM
+                                        parts = appointment_time.split(':')
+                                        appt_time = time_class(int(parts[0]), int(parts[1]))
+                                    elif isinstance(appointment_time, time_class):
+                                        appt_time = appointment_time
+                                except:
+                                    pass
+
+                            # Calculer le datetime complet du RV
+                            is_less_than_24h = False
+                            if appt_date:
+                                appt_datetime = datetime.combine(appt_date, appt_time, MONTREAL_TZ)
+                                hours_until_appt = (appt_datetime - now).total_seconds() / 3600
+                                is_less_than_24h = 0 < hours_until_appt < 24
+
+                                if is_less_than_24h:
+                                    print(f"⏰ RV dans {hours_until_appt:.1f}h (< 24h) → vérification late assignment")
+
+                            if is_less_than_24h:
                                 old_technicien = old_record.get('technicien') if old_record else None
                                 last_notified = old_record.get('last_notified_tech_id') if old_record else None
                                 

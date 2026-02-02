@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
+from config.techniciens_config import GAZELLE_IDS
 
 
 # Mots-clés pour identifier les RV d'institutions (doivent déclencher des alertes même sans client)
@@ -153,11 +154,12 @@ class AppointmentChecker:
             
             filtered = unconfirmed_filtered
 
-            # Grouper par technicien
+            # Grouper par technicien (seulement les techniciens connus, pas les assistants)
             by_technician = {}
             for apt in filtered:
                 tech_id = apt.get('technicien')  # Colonne réelle dans gazelle_appointments
-                if tech_id:
+                # Filtrer: seulement les techniciens (pas Louise/assistants)
+                if tech_id and tech_id in GAZELLE_IDS:
                     if tech_id not in by_technician:
                         by_technician[tech_id] = []
 
