@@ -969,16 +969,22 @@ class GazelleToSupabaseSync:
 
             print(f"✅ {self.stats['appointments']['synced']} rendez-vous synchronisés")
 
-            # NETTOYAGE: Supprimer les rendez-vous qui n'existent plus dans Gazelle
+            # ═══════════════════════════════════════════════════════════════════
+            # VERROU SÉCURITÉ #3: Protection contre suppression massive
+            # NETTOYAGE DÉSACTIVÉ PAR DÉFAUT - Trop risqué si l'API Gazelle
+            # retourne des données incomplètes (timeout, erreur réseau)
+            # ═══════════════════════════════════════════════════════════════════
+            ENABLE_APPOINTMENT_CLEANUP = False  # ⚠️ DÉSACTIVÉ pour sécurité
+            MAX_DELETIONS_ALLOWED = 5  # Seuil de sécurité si activé
+
             try:
-                print("\n🧹 Nettoyage des rendez-vous supprimés/annulés dans Gazelle...")
+                print("\n🧹 Vérification des rendez-vous supprimés/annulés dans Gazelle...")
 
                 # 1. Récupérer tous les external_id depuis Gazelle (pour la période synchronisée)
                 gazelle_ids = {appt.get('id') for appt in api_appointments if appt.get('id')}
                 print(f"   📋 {len(gazelle_ids)} rendez-vous actifs dans Gazelle")
 
                 # 2. Récupérer tous les external_id depuis Supabase pour la même période
-                # (on ne supprime que les RV de la fenêtre synchronisée, pas tout l'historique)
                 if start_date_override:
                     date_filter = start_date_override
                 else:
@@ -992,26 +998,42 @@ class GazelleToSupabaseSync:
                     supabase_ids = {appt['external_id'] for appt in supabase_appointments if appt.get('external_id')}
                     print(f"   📋 {len(supabase_ids)} rendez-vous dans Supabase (période synchronisée)")
 
-                    # 3. Identifier les RV à supprimer (dans Supabase mais pas dans Gazelle)
+                    # 3. Identifier les RV potentiellement à supprimer
                     ids_to_delete = supabase_ids - gazelle_ids
 
                     if ids_to_delete:
-                        print(f"   🗑️  {len(ids_to_delete)} rendez-vous à supprimer (annulés/supprimés dans Gazelle)")
+                        print(f"   ℹ️  {len(ids_to_delete)} rendez-vous absents de Gazelle (possiblement annulés)")
 
-                        # 4. Supprimer les RV obsolètes
-                        deleted_count = 0
-                        for external_id in ids_to_delete:
-                            delete_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
-                            delete_response = requests.delete(delete_url, headers=self.storage._get_headers())
+                        # VERROU: Logger les IDs sans les supprimer
+                        for external_id in list(ids_to_delete)[:10]:  # Max 10 pour le log
+                            print(f"      - {external_id}")
+                        if len(ids_to_delete) > 10:
+                            print(f"      ... et {len(ids_to_delete) - 10} autres")
 
-                            if delete_response.status_code in [200, 204]:
-                                deleted_count += 1
-                            else:
-                                print(f"   ⚠️  Erreur suppression {external_id}: {delete_response.status_code}")
+                        if not ENABLE_APPOINTMENT_CLEANUP:
+                            print(f"   🔒 SUPPRESSION DÉSACTIVÉE (sécurité) - Aucun RV supprimé")
+                            print(f"   💡 Pour activer: ENABLE_APPOINTMENT_CLEANUP = True")
+                        elif len(ids_to_delete) > MAX_DELETIONS_ALLOWED:
+                            print(f"   🚨 ALERTE: {len(ids_to_delete)} > {MAX_DELETIONS_ALLOWED} (seuil max)")
+                            print(f"   🔒 SUPPRESSION BLOQUÉE - Trop de RV à supprimer (possible erreur API)")
+                            print(f"   💡 Vérifiez manuellement ces IDs avant de supprimer")
+                        else:
+                            # Suppression autorisée (< seuil ET flag activé)
+                            print(f"   ⚠️  Suppression de {len(ids_to_delete)} RV (< seuil {MAX_DELETIONS_ALLOWED})")
+                            deleted_count = 0
+                            for external_id in ids_to_delete:
+                                delete_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
+                                delete_response = requests.delete(delete_url, headers=self.storage._get_headers())
 
-                        print(f"   ✅ {deleted_count}/{len(ids_to_delete)} rendez-vous supprimés de Supabase")
+                                if delete_response.status_code in [200, 204]:
+                                    deleted_count += 1
+                                    print(f"      ✓ Supprimé: {external_id}")
+                                else:
+                                    print(f"      ⚠️  Erreur suppression {external_id}: {delete_response.status_code}")
+
+                            print(f"   ✅ {deleted_count}/{len(ids_to_delete)} rendez-vous supprimés de Supabase")
                     else:
-                        print(f"   ✅ Aucun rendez-vous obsolète à supprimer")
+                        print(f"   ✅ Aucun rendez-vous obsolète détecté")
                 else:
                     print(f"   ⚠️  Erreur récupération RV Supabase: {response.status_code}")
 
@@ -1048,55 +1070,58 @@ class GazelleToSupabaseSync:
 
     def sync_timeline_entries(self) -> int:
         """
-        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE GLISSANTE 7 JOURS).
+        Synchronise les timeline entries depuis Gazelle vers Supabase (FENÊTRE GLISSANTE 30 JOURS).
 
-        STRATÉGIE OPTIMISÉE (2026-01-11):
-        - Fenêtre glissante de 7 jours uniquement (pas d'historique complet)
+        STRATÉGIE ROBUSTE (2026-02-12):
+        - Fenêtre glissante de 30 jours (au lieu de 7) pour résilience
         - Clé unique: external_id (on_conflict) pour éviter doublons
-        - Suffisant pour capturer notes de Margot et corrections récentes
-        - Performance: <30 secondes vs 10 minutes pour historique complet
+        - Résiste aux pannes serveur, vacances, interruptions de sync
+        - Performance: ~1-2 minutes (acceptable pour la sécurité des données)
 
-        POURQUOI 7 JOURS:
-        - Base historique déjà dans Supabase
-        - Notes récentes capturées rapidement
-        - Pas de surcharge inutile
-        - Corrections de la semaine incluses
+        POURQUOI 30 JOURS (changé de 7):
+        - Résilience: Si sync interrompue pendant vacances, on rattrape tout
+        - Sécurité: Les SERVICE complétés ne tombent plus dans le vide
+        - UPSERT: Pas de doublons même avec fenêtre plus large
+        - Leçon apprise: Bug du 21 décembre causé par fenêtre trop courte
 
         Returns:
             Nombre d'entrées synchronisées
         """
         print(">>> Connexion à Gazelle lancée...")
-        print("\n📖 Synchronisation timeline (fenêtre glissante 7 jours)...")
+        print("\n📖 Synchronisation timeline (fenêtre glissante 30 jours)...")
 
         try:
             from datetime import datetime, timedelta
             from core.timezone_utils import UTC_TZ
 
-            # Date de cutoff: 7 jours en arrière (fenêtre glissante)
-            # IMPORTANT: Utiliser UTC pour garantir timezone-aware
+            # ═══════════════════════════════════════════════════════════════
+            # VERROU SÉCURITÉ #4: Fenêtre élargie à 30 jours
+            # Évite les trous de mémoire si sync interrompue (vacances, panne)
+            # ═══════════════════════════════════════════════════════════════
+            TIMELINE_SYNC_DAYS = 30  # Était 7, maintenant 30 pour résilience
+
             now = datetime.now(UTC_TZ)
-            cutoff_date = now - timedelta(days=7)
+            cutoff_date = now - timedelta(days=TIMELINE_SYNC_DAYS)
 
             # IMPORTANT: Convertir la date Montreal → UTC pour le filtre API
             cutoff_iso_utc = format_for_gazelle_filter(cutoff_date)
 
-            print(f"📅 Fenêtre de synchronisation: 7 derniers jours seulement")
+            print(f"📅 Fenêtre de synchronisation: {TIMELINE_SYNC_DAYS} derniers jours (résilience)")
             print(f"   📍 Cutoff: {cutoff_date.strftime('%Y-%m-%d')} UTC → {cutoff_iso_utc} UTC")
-            print(f"   ⚡ Performance optimisée: ~30 secondes")
+            print(f"   ⚡ Performance: ~1-2 minutes (sécurité > vitesse)")
 
-            # Utiliser le filtre API pour récupérer SEULEMENT les 7 derniers jours
-            # Cela évite de télécharger 100,000+ entrées inutiles à chaque sync
-            # RÈGLE: On a déjà l'historique complet, on rattrape juste la semaine
+            # Utiliser le filtre API pour récupérer les N derniers jours
+            # Fenêtre élargie à 30j pour ne jamais perdre de SERVICE complétés
             api_entries = self.api_client.get_timeline_entries(
                 since_date=cutoff_iso_utc,
                 limit=None
             )
 
             if not api_entries:
-                print("✅ Aucune timeline entry récente (7 derniers jours)")
+                print(f"✅ Aucune timeline entry récente ({TIMELINE_SYNC_DAYS} derniers jours)")
                 return 0
 
-            print(f"📥 {len(api_entries)} timeline entries reçues (7 derniers jours)")
+            print(f"📥 {len(api_entries)} timeline entries reçues ({TIMELINE_SYNC_DAYS} derniers jours)")
 
             synced_count = 0
             stopped_by_age = False
@@ -1115,10 +1140,10 @@ class GazelleToSupabaseSync:
                                 # Formater pour Supabase (UTC avec 'Z')
                                 occurred_at_utc = format_for_supabase(dt_parsed)
 
-                                # Vérifier age (7 jours cutoff)
-                                # cutoff_date est déjà aware (UTC) depuis la ligne 743
+                                # Vérifier age (cutoff dynamique basé sur TIMELINE_SYNC_DAYS)
+                                # cutoff_date est défini plus haut avec la fenêtre de 30 jours
                                 if dt_parsed < cutoff_date:
-                                    # SKIP cette entrée (plus vieille que 7 jours)
+                                    # SKIP cette entrée (plus vieille que la fenêtre)
                                     continue
                         except Exception as e:
                             print(f"⚠️  Erreur parsing date '{occurred_at_raw}': {e}")
@@ -1146,10 +1171,36 @@ class GazelleToSupabaseSync:
 
                     # Données de l'entrée
                     entry_type = entry_data.get('type', 'UNKNOWN')
-                    # TODO: Confirmer avec NotebookLM les vrais noms de champs (description vs summary/comment)
-                    title = entry_data.get('summary', '')
-                    details = entry_data.get('comment', '')
 
+                    # ═══════════════════════════════════════════════════════════════
+                    # VERROU SÉCURITÉ #1: Mapping robuste multi-champs
+                    # Pour les entrées SERVICE, les données peuvent être dans plusieurs champs
+                    # On extrait TOUT pour ne rien perdre
+                    # ═══════════════════════════════════════════════════════════════
+                    title = entry_data.get('summary', '') or ''
+
+                    # Collecter TOUS les champs textuels possibles pour description
+                    description_parts = []
+                    for field_name in ['comment', 'notes', 'workPerformed', 'description', 'details']:
+                        field_value = entry_data.get(field_name, '')
+                        if field_value and field_value.strip():
+                            description_parts.append(field_value.strip())
+
+                    # Pour les SERVICE, ajouter aussi les tags s'ils existent
+                    if entry_type == 'SERVICE':
+                        tags = entry_data.get('tags', [])
+                        if tags and isinstance(tags, list):
+                            tags_str = ', '.join(str(t) for t in tags if t)
+                            if tags_str:
+                                description_parts.append(f"[Tags: {tags_str}]")
+
+                    details = ' | '.join(description_parts) if description_parts else ''
+
+                    # ═══════════════════════════════════════════════════════════════
+                    # VERROU SÉCURITÉ #2: Ne JAMAIS écraser avec des valeurs vides
+                    # Si le nouveau contenu est vide, on ne l'inclut pas dans l'UPSERT
+                    # Cela préserve les données existantes en base
+                    # ═══════════════════════════════════════════════════════════════
                     timeline_record = {
                         'external_id': external_id,
                         'client_id': client_id,
@@ -1159,10 +1210,15 @@ class GazelleToSupabaseSync:
                         'user_id': user_id,
                         'occurred_at': occurred_at_utc,  # CoreDateTime UTC avec 'Z'
                         'entry_type': entry_type,
-                        'title': title,
-                        'description': details  # Colonne 'description' en DB = champ 'comment' en API
-                        # Note: createdAt/updatedAt n'existent pas dans PrivateTimelineEntry
                     }
+
+                    # Ajouter title SEULEMENT si non-vide (protection écrasement)
+                    if title and title.strip():
+                        timeline_record['title'] = title.strip()
+
+                    # Ajouter description SEULEMENT si non-vide (protection écrasement)
+                    if details and details.strip():
+                        timeline_record['description'] = details.strip()
 
                     # UPSERT avec on_conflict sur external_id (clé unique Gazelle)
                     # IMPORTANT: Garantit aucun doublon, même si sync multiple fois
@@ -1191,9 +1247,9 @@ class GazelleToSupabaseSync:
 
             # Affichage final
             if stopped_by_age:
-                print(f"✅ {synced_count} timeline entries synchronisées (fenêtre 7 jours)")
+                print(f"✅ {synced_count} timeline entries synchronisées (fenêtre {TIMELINE_SYNC_DAYS} jours)")
             else:
-                print(f"✅ {synced_count} timeline entries synchronisées (toutes < 7 jours)")
+                print(f"✅ {synced_count} timeline entries synchronisées (toutes < {TIMELINE_SYNC_DAYS} jours)")
 
             return synced_count
 
@@ -1231,9 +1287,10 @@ class GazelleToSupabaseSync:
             from supabase import create_client
             import json
             
-            # Récupérer les timeline entries récentes (7 jours) avec piano_id
+            # Récupérer les timeline entries récentes (30 jours) avec piano_id
+            # Aligné avec TIMELINE_SYNC_DAYS pour cohérence
             from core.timezone_utils import UTC_TZ
-            cutoff_date = datetime.now(UTC_TZ) - timedelta(days=7)
+            cutoff_date = datetime.now(UTC_TZ) - timedelta(days=30)
             cutoff_iso = cutoff_date.isoformat()
             
             supabase = create_client(self.storage.supabase_url, self.storage.supabase_key)
