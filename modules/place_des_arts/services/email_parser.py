@@ -914,7 +914,29 @@ def parse_email_text(email_text: str) -> List[Dict]:
     current_date = datetime.now()
     # Heuristique de signature (demandeur global)
     def extract_signature_requester(all_lines: List[str]) -> Optional[str]:
-        polite_words = ['merci', 'bientot', 'bientôt', 'possible', 'confirm', 'cordialement', 'bien à vous', 'bien a vous']
+        """
+        Détecte la signature (demandeur) à la fin de l'email.
+
+        RÈGLES STRICTES pour éviter confusion avec "pour qui":
+        - Doit ressembler à un prénom/nom de personne
+        - Pas un acronyme tout en majuscules (ONJ, OSM, etc.)
+        - Pas un code de salle
+        - Préférence pour les noms connus (Isabelle, etc.)
+        """
+        polite_words = ['merci', 'bientot', 'bientôt', 'possible', 'confirm',
+                        'cordialement', 'bien à vous', 'bien a vous']
+
+        # Noms de demandeurs connus (priorité haute)
+        known_requesters = ['isabelle', 'clairoux', 'annie', 'jenkins', 'patricia']
+
+        # Patterns à exclure (pas des noms de personnes)
+        exclude_patterns = [
+            'onj', 'osm', 'omm', 'gnb', 'ocm',  # Orchestres
+            'concert', 'spectacle', 'jazz', 'blues',
+            'wp', 'tm', 'ms', '5e', 'scl', 'tjd', 'cl',  # Salles
+            'piano', 'steinway', 'yamaha', 'baldwin',  # Pianos
+        ]
+
         for raw in reversed(all_lines):
             ls = raw.strip()
             if not ls:
@@ -925,12 +947,29 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 continue
             if len(ls.split()) > 3 or len(ls) > 40:
                 continue
+
             lower = ls.lower()
+
             if any(w in lower for w in polite_words):
                 continue
-            # Nom court capitalisé → signature candidate
-            if ls[0].isupper():
+
+            # Exclure les patterns non-signature
+            if any(p in lower for p in exclude_patterns):
+                continue
+
+            # Exclure les acronymes (tout majuscules, 3+ lettres)
+            if ls.isupper() and len(ls) >= 3 and ' ' not in ls:
+                continue
+
+            # Priorité aux noms connus
+            if any(name in lower for name in known_requesters):
                 return ls
+
+            # Sinon, accepter si ça ressemble à un prénom (commence par majuscule)
+            # Mais seulement si c'est un mot de 3+ lettres (pas "IC", "AJ")
+            if ls[0].isupper() and len(ls) >= 3:
+                return ls
+
         return None
     # 1) Si tabulaire (tableur collé avec tabs), traiter en priorité
     tabular = parse_tabular_rows(email_text, current_date)
@@ -1022,25 +1061,58 @@ def parse_email_text(email_text: str) -> List[Dict]:
             requests.append(parsed)
 
     # Appliquer le demandeur global (signature) aux demandes sans demandeur
+    # MAIS ne pas appliquer si la signature est en fait un "pour qui" (artiste/événement)
     if signature_requester:
-        # Mapper Isabelle vers IC si c'est la signature
         signature_lower = signature_requester.lower().strip()
-        requester_mapping = {
-            'isabelle': 'IC',
-            'isabelle clairoux': 'IC',
-            'isabelle constantineau': 'IC',
-            'clairoux': 'IC',
-        }
-        mapped_requester = signature_requester
-        for name, code in requester_mapping.items():
-            if name in signature_lower:
-                mapped_requester = code
-                break
-        
-        for req in requests:
-            if not req.get('requester'):
-                req['requester'] = mapped_requester
-                req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
+
+        # ═══════════════════════════════════════════════════════════════
+        # CORRECTION BUG: Ne pas confondre "pour qui" avec "demandeur"
+        # Vérifier que la signature n'est pas déjà utilisée comme for_who
+        # ═══════════════════════════════════════════════════════════════
+        is_used_as_for_who = any(
+            req.get('for_who', '').lower().strip() == signature_lower
+            for req in requests
+        )
+
+        # Patterns qui indiquent un artiste/événement (PAS un demandeur)
+        # Acronymes d'orchestres, événements, etc.
+        artist_patterns = [
+            'onj', 'osm', 'omm', 'ocm', 'gnb',  # Orchestres/Ballets
+            'jazz', 'blues', 'rock', 'pop', 'classical',
+            'concert', 'spectacle', 'show', 'gala',
+            'festival', 'série', 'series',
+        ]
+        looks_like_artist = any(p in signature_lower for p in artist_patterns)
+
+        # Acronymes tout en majuscules (3+ lettres) = probablement un artiste/org
+        is_acronym = (signature_requester.isupper() and
+                      len(signature_requester) >= 3 and
+                      ' ' not in signature_requester)
+
+        if is_used_as_for_who:
+            # Ne pas appliquer - c'est déjà le "pour qui"
+            pass
+        elif looks_like_artist or is_acronym:
+            # Ne pas appliquer - ressemble à un artiste/événement
+            pass
+        else:
+            # Mapper les noms de demandeurs connus vers leurs codes
+            requester_mapping = {
+                'isabelle': 'IC',
+                'isabelle clairoux': 'IC',
+                'isabelle constantineau': 'IC',
+                'clairoux': 'IC',
+            }
+            mapped_requester = signature_requester
+            for name, code in requester_mapping.items():
+                if name in signature_lower:
+                    mapped_requester = code
+                    break
+
+            for req in requests:
+                if not req.get('requester'):
+                    req['requester'] = mapped_requester
+                    req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
 
     return requests
 
