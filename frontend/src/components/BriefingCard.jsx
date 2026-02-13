@@ -12,7 +12,6 @@ import { API_URL } from '../utils/apiConfig'
  */
 export default function BriefingCard({ briefing, currentUser, onFeedbackSaved }) {
   const [showFeedback, setShowFeedback] = useState(false)
-  const [feedbackField, setFeedbackField] = useState('')
   const [feedbackValue, setFeedbackValue] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -32,9 +31,9 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   // Dernière recommandation
   const lastRec = technical_history?.[0]?.recommendations?.[0]
 
-  // Sauvegarder un feedback (Allan only)
+  // Sauvegarder une note libre (Allan only)
   const saveFeedback = async () => {
-    if (!feedbackField || !feedbackValue) return
+    if (!feedbackValue.trim()) return
 
     setSaving(true)
     try {
@@ -43,16 +42,13 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_id: briefing.client_id,
-          category: 'general',
-          field_name: feedbackField,
-          corrected_value: feedbackValue,
+          note: feedbackValue.trim(),
           created_by: currentUser?.email || 'asutton@piano-tek.com'
         })
       })
 
       if (response.ok) {
         setShowFeedback(false)
-        setFeedbackField('')
         setFeedbackValue('')
         onFeedbackSaved?.()
       }
@@ -168,33 +164,17 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
             </button>
           ) : (
             <div className="space-y-2">
-              <div className="flex gap-2">
-                <select
-                  value={feedbackField}
-                  onChange={(e) => setFeedbackField(e.target.value)}
-                  className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
-                >
-                  <option value="">-- Champ --</option>
-                  <option value="language">Langue</option>
-                  <option value="personality">Personnalité</option>
-                  <option value="pets">Animaux</option>
-                  <option value="courtesies">Courtoisies</option>
-                  <option value="parking">Stationnement</option>
-                  <option value="access">Accès</option>
-                  <option value="recommendation">Recommandation</option>
-                </select>
-                <input
-                  type="text"
-                  value={feedbackValue}
-                  onChange={(e) => setFeedbackValue(e.target.value)}
-                  placeholder="Valeur corrigée"
-                  className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
-                />
-              </div>
+              <textarea
+                value={feedbackValue}
+                onChange={(e) => setFeedbackValue(e.target.value)}
+                placeholder="Ex: Le client parle anglais, il a un chien nommé Rex, stationnement à l'arrière..."
+                className="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none"
+                rows={3}
+              />
               <div className="flex gap-2">
                 <button
                   onClick={saveFeedback}
-                  disabled={saving || !feedbackField || !feedbackValue}
+                  disabled={saving || !feedbackValue.trim()}
                   className="bg-purple-600 text-white text-sm px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50"
                 >
                   {saving ? '...' : 'Enregistrer'}

@@ -30,12 +30,9 @@ router = APIRouter(prefix="/briefing", tags=["briefing"])
 # ═══════════════════════════════════════════════════════════════════════
 
 class FeedbackRequest(BaseModel):
-    """Requête pour sauvegarder une correction"""
+    """Requête pour sauvegarder une note libre sur un client"""
     client_id: str
-    category: str  # 'profile', 'technical', 'piano', 'general'
-    field_name: str
-    original_value: Optional[str] = None
-    corrected_value: str
+    note: str
     created_by: str = "asutton@piano-tek.com"
 
 
@@ -138,30 +135,21 @@ async def submit_feedback(request: FeedbackRequest):
             detail="Seul asutton@piano-tek.com peut soumettre des corrections"
         )
 
-    # Valider la catégorie
-    valid_categories = ['profile', 'technical', 'piano', 'general']
-    if request.category not in valid_categories:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Catégorie invalide. Valeurs acceptées: {valid_categories}"
-        )
-
     try:
         success = save_feedback(
             client_id=request.client_id,
-            category=request.category,
-            field_name=request.field_name,
-            original_value=request.original_value or "",
-            corrected_value=request.corrected_value,
+            category='general',
+            field_name='note_libre',
+            original_value="",
+            corrected_value=request.note,
             created_by=request.created_by
         )
 
         if success:
             return {
                 "success": True,
-                "message": "Correction enregistrée",
-                "client_id": request.client_id,
-                "field": f"{request.category}.{request.field_name}"
+                "message": "Note enregistrée",
+                "client_id": request.client_id
             }
         else:
             raise HTTPException(status_code=500, detail="Erreur sauvegarde")
