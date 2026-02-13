@@ -1,57 +1,54 @@
 #!/usr/bin/env python3
 """
-Client Intelligence Service - "Ma Journée" V2
+Client Intelligence Service - "Ma Journée" V3
 
-Analyse les notes Gazelle pour générer des briefings concis pour les techniciens.
+Architecture HYBRIDE:
+- IA (GPT-4o-mini) pour extraction intelligente + validation anti-hallucination
+- Regex comme fallback si clé API absente
+- Calculs factuels (dates, durées) toujours côté Python
 
-3 Piliers d'Intelligence:
-1. PROFIL HUMAIN: Langue, famille, animaux, courtoisies
-2. HISTORIQUE TECHNIQUE: Recommandations, travaux effectués
-3. FICHE PIANO: Âge, avertissements, particularités
+4 Piliers d'Intelligence:
+1. PROFIL HUMAIN: Langue, animaux, courtoisies, mode de paiement
+2. HISTORIQUE TECHNIQUE: Visites passées avec noms de techniciens résolus
+3. FICHE PIANO: Âge, avertissements, statut PLS
+4. SUIVIS: Items "à faire" persistants entre visites
 """
 
 import re
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
+from modules.briefing.ai_extraction_engine import (
+    AIExtractionEngine,
+    compute_client_since,
+    resolve_technician_name,
+    build_technical_history,
+    TECHNICIAN_NAMES,
+)
 
 
 @dataclass
 class ClientProfile:
-    """Profil humain du client (permanent)"""
-    language: str = "FR"  # FR, EN, BI
-    family_members: List[str] = None
+    """Profil humain du client"""
+    language: str = "FR"
     pets: List[str] = None
     courtesies: List[str] = None
-    personality: str = ""  # bavard, discret, pressé
+    personality: str = ""
     parking_info: str = ""
     access_notes: str = ""
+    payment_method: str = ""
+    access_code: str = ""
 
     def __post_init__(self):
-        self.family_members = self.family_members or []
         self.pets = self.pets or []
         self.courtesies = self.courtesies or []
-
-
-@dataclass
-class TechnicalVisit:
-    """Une visite technique"""
-    date: str
-    technician: str = ""
-    recommendations: List[str] = None
-    work_done: List[str] = None
-    next_action: str = ""
-
-    def __post_init__(self):
-        self.recommendations = self.recommendations or []
-        self.work_done = self.work_done or []
 
 
 @dataclass
@@ -61,23 +58,26 @@ class PianoInfo:
     make: str = ""
     model: str = ""
     year: int = 0
-    type: str = ""  # grand, upright
+    type: str = ""
     age_years: int = 0
     warnings: List[str] = None
     dampp_chaser: bool = False
+    pls_status: Dict = None
     special_notes: str = ""
 
     def __post_init__(self):
         self.warnings = self.warnings or []
+        self.pls_status = self.pls_status or {}
         if self.year and self.year > 1800:
             self.age_years = datetime.now().year - self.year
 
 
 class ClientIntelligenceService:
-    """Service de génération de briefings intelligents"""
+    """Service de génération de briefings intelligents — V3 Hybride"""
 
     def __init__(self):
         self.storage = SupabaseStorage(silent=True)
+        self.ai_engine = AIExtractionEngine()
         self._load_training_feedback()
 
     def _load_training_feedback(self):
@@ -93,32 +93,27 @@ class ClientIntelligenceService:
                     self.feedback_rules[client_id] = {}
 
                 category = fb.get('category', 'general')
-                field = fb.get('field_name')
-                self.feedback_rules[client_id][f"{category}.{field}"] = fb.get('corrected_value')
+                field_name = fb.get('field_name')
+                self.feedback_rules[client_id][f"{category}.{field_name}"] = fb.get('corrected_value')
         except Exception as e:
             print(f"⚠️  Feedback non chargé: {e}")
 
-    def _apply_feedback(self, client_id: str, category: str, field: str, detected_value: Any) -> Any:
+    def _apply_feedback(self, client_id: str, category: str, field_name: str, detected_value: Any) -> Any:
         """Applique les corrections si elles existent"""
-        key = f"{category}.{field}"
+        key = f"{category}.{field_name}"
         if client_id in self.feedback_rules and key in self.feedback_rules[client_id]:
             return self.feedback_rules[client_id][key]
         return detected_value
 
     # ═══════════════════════════════════════════════════════════════════
-    # DÉTECTEURS DE PATTERNS
+    # FALLBACK REGEX (utilisé si pas de clé API OpenAI)
     # ═══════════════════════════════════════════════════════════════════
 
-    def _detect_language(self, text: str) -> str:
-        """Détecte la langue préférée"""
+    def _detect_language_regex(self, text: str) -> str:
         text_lower = text.lower()
-
-        # Mots anglais fréquents
-        en_words = ['the', 'and', 'please', 'thank', 'hello', 'good', 'call', 'email']
+        en_words = ['the', 'and', 'please', 'thank', 'hello', 'good', 'call']
         en_count = sum(1 for w in en_words if w in text_lower)
-
-        # Mots français
-        fr_words = ['le', 'la', 'les', 'et', 'merci', 'bonjour', 'svp', 'appeler']
+        fr_words = ['le', 'la', 'les', 'et', 'merci', 'bonjour', 'svp']
         fr_count = sum(1 for w in fr_words if w in text_lower)
 
         if en_count > fr_count + 2:
@@ -129,13 +124,12 @@ class ClientIntelligenceService:
             return "BI"
         return "FR"
 
-    def _detect_pets(self, text: str) -> List[str]:
-        """Détecte les mentions d'animaux"""
+    def _detect_pets_regex(self, text: str) -> List[str]:
         pets = []
+        text_lower = text.lower()
         patterns = [
             r'(?:chien|dog)\s+(?:appelé|nommé|named)?\s*(\w+)',
             r'(?:chat|cat)\s+(?:appelé|nommé|named)?\s*(\w+)',
-            r'(\w+)\s+(?:le|the)\s+(?:chien|chat|dog|cat)',
             r'attention\s+(?:au|à)\s+(?:chien|chat)',
         ]
         for pattern in patterns:
@@ -144,111 +138,31 @@ class ClientIntelligenceService:
                 if m and len(m) > 2:
                     pets.append(m)
 
-        # Mentions simples
-        if 'chien' in text.lower() or 'dog' in text.lower():
+        if 'chien' in text_lower or 'dog' in text_lower:
             if not pets:
                 pets.append('chien présent')
-        if 'chat' in text.lower() or 'cat' in text.lower():
+        if 'chat' in text_lower or 'cat' in text_lower:
             if not pets:
                 pets.append('chat présent')
 
         return list(set(pets))
 
-    def _detect_courtesies(self, text: str) -> List[str]:
-        """
-        Détecte les préférences de courtoisie.
-
-        IMPORTANT: Ne détecte QUE les patterns explicites pour éviter
-        les faux positifs (ex: "théâtre" ne doit pas matcher "thé").
-        """
+    def _detect_courtesies_regex(self, text: str) -> List[str]:
         courtesies = []
         text_lower = text.lower()
-
-        # Patterns avec regex pour éviter les faux positifs
-        # Chaque pattern doit être explicite et sans ambiguïté
         patterns = {
-            'enlever chaussures': [
-                r'\benlever?\s+(?:les\s+)?chaussures\b',
-                r'\bshoes?\s+off\b',
-                r'\bremove\s+shoes\b',
-                r'\bsans\s+chaussures\b',
-            ],
-            'offre café': [
-                r'\boffre\s+(?:un\s+)?(?:café|thé)\b',
-                r'\boffers?\s+(?:coffee|tea)\b',
-                r'\bcafé\s+offert\b',
-            ],
-            'stationnement arrière': [
-                r'\bstationn\w*\s+(?:en\s+)?arrière\b',
-                r'\bparking\s+(?:in\s+)?(?:the\s+)?back\b',
-                r'\bse\s+garer\s+(?:en\s+)?arrière\b',
-            ],
-            'sonnette ne fonctionne pas': [
-                r'\bsonnette\s+(?:ne\s+)?(?:fonctionne|marche)\s*(?:pas|plus)?\b',
-                r'\bdoorbell\s+(?:does\s*n.t|broken)\b',
-                r'\bcogner\b',
-                r'\bknock\b',
-            ],
-            'appeler avant': [
-                r'\bappeler\s+avant\b',
-                r'\btéléphoner\s+avant\b',
-                r'\bcall\s+before\b',
-                r'\bconfirmer\s+(?:le\s+)?(?:rv|rendez)\b',
-            ],
+            'enlever chaussures': [r'\benlever?\s+(?:les\s+)?chaussures\b', r'\bshoes?\s+off\b'],
+            'offre café': [r'\boffre\s+(?:un\s+)?(?:café|thé)\b', r'\boffers?\s+(?:coffee|tea)\b'],
+            'stationnement arrière': [r'\bstationn\w*\s+(?:en\s+)?arrière\b', r'\bparking\s+(?:in\s+)?(?:the\s+)?back\b'],
+            'sonnette ne fonctionne pas': [r'\bsonnette\s+(?:ne\s+)?(?:fonctionne|marche)\s*(?:pas|plus)?\b', r'\bcogner\b'],
+            'appeler avant': [r'\bappeler\s+avant\b', r'\bcall\s+before\b'],
         }
-
         for courtesy, regex_list in patterns.items():
             for pattern in regex_list:
                 if re.search(pattern, text_lower):
                     courtesies.append(courtesy)
-                    break  # Une seule détection par courtoisie
-
+                    break
         return courtesies
-
-    def _detect_recommendations(self, text: str) -> List[str]:
-        """Détecte les recommandations techniques (verbes d'action)"""
-        recommendations = []
-        text_lower = text.lower()
-
-        # Patterns de recommandations
-        action_patterns = [
-            r'(?:recommand[eé]|suggér[eé]|à faire|should|need)\s*:?\s*([^.]+)',
-            r'(?:prochain|next)\s+(?:fois|time|visite)\s*:?\s*([^.]+)',
-            r'(?:lubrifi|harmonis|régl|adjust|tune|clean|nettoy)\w*',
-        ]
-
-        keywords = {
-            'lubrification': ['lubrifi', 'lubricat'],
-            'harmonisation': ['harmonis', 'voic'],
-            'réglage mécanique': ['réglage', 'adjust', 'mécanique'],
-            'vérifier humidité': ['humid', 'dampp', 'hygrométr'],
-            'accord': ['accord', 'tun'],
-            'nettoyage': ['nettoy', 'clean'],
-        }
-
-        for action, patterns in keywords.items():
-            if any(p in text_lower for p in patterns):
-                recommendations.append(action)
-
-        return list(set(recommendations))
-
-    def _detect_work_done(self, text: str) -> List[str]:
-        """Détecte les travaux effectués"""
-        work = []
-        text_lower = text.lower()
-
-        past_patterns = {
-            'accord effectué': ['accordé', 'tuned', 'accord fait'],
-            'nettoyage effectué': ['nettoyé', 'cleaned'],
-            'réglage effectué': ['réglé', 'adjusted'],
-            'harmonisation effectuée': ['harmonisé', 'voiced'],
-        }
-
-        for work_item, patterns in past_patterns.items():
-            if any(p in text_lower for p in patterns):
-                work.append(work_item)
-
-        return work
 
     # ═══════════════════════════════════════════════════════════════════
     # GÉNÉRATION DE BRIEFING
@@ -258,10 +172,7 @@ class ClientIntelligenceService:
                           appointment_context: Dict = None) -> Dict[str, Any]:
         """
         Génère un briefing complet pour un client.
-
-        Args:
-            client_external_id: ID externe du client
-            appointment_context: Contexte du RV (title, description, notes) pour matcher le bon piano
+        Mode hybride: IA si disponible, regex en fallback.
         """
 
         # 1. Récupérer les données client
@@ -275,101 +186,242 @@ class ClientIntelligenceService:
         # 3. Récupérer les pianos du client
         pianos = self._get_client_pianos(client_external_id)
 
-        # 4. Analyser et générer les 3 piliers
-        all_text = " ".join([n.get('text', '') for n in notes])
+        # 4. Matcher le piano pour ce RV
+        piano_data = {}
+        if pianos:
+            piano_data = self._match_piano_from_context(pianos, appointment_context)
 
-        # PILIER 1: Profil Humain
+        # 5. EXTRACTION: IA si disponible, sinon regex
+        if self.ai_engine.is_available and notes:
+            ai_raw = self.ai_engine.extract_client_intelligence(notes, piano_data)
+            if ai_raw:
+                extraction = self.ai_engine.validate_extraction(ai_raw, notes)
+            else:
+                extraction = self._fallback_regex_extraction(notes)
+        else:
+            extraction = self._fallback_regex_extraction(notes)
+
+        # 6. PILIER 1: Profil Humain (IA enrichi)
         profile = ClientProfile(
-            language=self._apply_feedback(client_external_id, 'profile', 'language',
-                                          self._detect_language(all_text)),
-            pets=self._detect_pets(all_text),
-            courtesies=self._detect_courtesies(all_text),
+            language=self._apply_feedback(
+                client_external_id, 'profile', 'language',
+                extraction.get('language', 'FR')
+            ),
+            pets=self._format_pets(extraction.get('pets', [])),
+            courtesies=self._format_courtesies(extraction.get('courtesies', [])),
+            personality=extraction.get('personality', ''),
+            payment_method=extraction.get('payment_method', ''),
+            parking_info=(extraction.get('access_info') or {}).get('parking', ''),
+            access_code=(extraction.get('access_info') or {}).get('access_code', ''),
+            access_notes=(extraction.get('access_info') or {}).get('special_instructions', ''),
         )
 
-        # PILIER 2: Historique Technique (dernières visites)
-        technical_history = []
-        for note in notes[:5]:  # 5 dernières
-            visit = TechnicalVisit(
-                date=note.get('date', ''),
-                technician=note.get('technician', ''),
-                recommendations=self._detect_recommendations(note.get('text', '')),
-                work_done=self._detect_work_done(note.get('text', '')),
-            )
-            if visit.recommendations or visit.work_done:
-                technical_history.append(asdict(visit))
+        # 7. PILIER 2: Historique Technique (données factuelles Python)
+        technical_history = build_technical_history(notes)
 
-        # PILIER 3: Fiche Piano
-        piano_info = {}
-        if pianos:
-            # Matcher le piano mentionné dans le RV (si contexte fourni)
-            p = self._match_piano_from_context(pianos, appointment_context)
-            year = p.get('year') or 0
-            age = datetime.now().year - year if year > 1800 else 0
+        # 8. PILIER 3: Fiche Piano
+        piano_info = self._build_piano_info(piano_data, notes)
 
-            warnings = []
-            if age > 80:
-                warnings.append("⚠️ DISCLAIMER: Piano > 80 ans - Fragilité mécanique")
-            elif age > 40:
-                warnings.append("Piano mature (> 40 ans) - Attention particulière")
+        # 9. PILIER 4: Suivis ouverts
+        follow_ups = self._get_open_follow_ups(client_external_id)
+        # Ajouter les nouveaux follow-ups détectés par l'IA
+        ai_follow_ups = extraction.get('follow_ups', [])
+        if ai_follow_ups:
+            self._save_new_follow_ups(client_external_id, piano_data.get('external_id'), ai_follow_ups)
 
-            if p.get('dampp_chaser_installed'):
-                warnings.append("Dampp-Chaser installé - Vérifier niveau d'eau")
+        # 10. Client depuis combien de temps
+        client_since = compute_client_since(notes)
 
-            piano_info = asdict(PianoInfo(
-                piano_id=p.get('external_id', ''),
-                make=p.get('make', ''),
-                model=p.get('model', ''),
-                year=year,
-                type=p.get('type', ''),
-                age_years=age,
-                warnings=warnings,
-                dampp_chaser=p.get('dampp_chaser_installed', False),
-            ))
-
-        # 5. Construire le briefing final
+        # 11. Construire le briefing final
         briefing = {
             "client_id": client_external_id,
             "client_name": client.get('company_name') or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip(),
+            "client_since": client_since,
             "profile": asdict(profile),
             "technical_history": technical_history,
             "piano": piano_info,
-            "confidence_score": 0.7 if notes else 0.3,
+            "follow_ups": follow_ups,
+            "confidence_score": 0.85 if (self.ai_engine.is_available and notes) else (0.5 if notes else 0.3),
+            "extraction_mode": "ai" if self.ai_engine.is_available else "regex",
             "notes_analyzed": len(notes),
             "generated_at": datetime.now().isoformat(),
         }
 
-        # 6. Sauvegarder dans client_intelligence (cache)
+        # 12. Sauvegarder dans client_intelligence (cache)
         self._save_intelligence(client_external_id, briefing)
 
         return briefing
 
-    def _match_piano_from_context(self, pianos: List[Dict],
-                                    appointment_context: Dict = None) -> Dict:
-        """
-        Trouve le piano correspondant au RV basé sur la description/titre.
+    def _fallback_regex_extraction(self, notes: List[Dict]) -> Dict:
+        """Extraction regex quand l'IA n'est pas disponible."""
+        all_text = " ".join([n.get('text', '') for n in notes])
+        return {
+            'language': self._detect_language_regex(all_text),
+            'pets': [{'type': p, 'name': None, 'source': ''} for p in self._detect_pets_regex(all_text)],
+            'courtesies': [{'description': c, 'source': ''} for c in self._detect_courtesies_regex(all_text)],
+            'payment_method': None,
+            'follow_ups': [],
+            'personality': None,
+            'access_info': {},
+        }
 
-        Recherche le nom de marque (make) dans le texte du RV.
-        Si un client a 2 pianos (Yamaha N-2, Fuchs & Mohr) et le RV dit
-        "Piano à queue Fuchs & Mohr", retourne le Fuchs & Mohr.
+    def _format_pets(self, pets_data: List[Dict]) -> List[str]:
+        """Formate les données animaux en strings lisibles."""
+        result = []
+        for pet in pets_data:
+            if isinstance(pet, str):
+                result.append(pet)
+                continue
+            pet_type = pet.get('type', '')
+            name = pet.get('name')
+            if name:
+                result.append(f"{pet_type}: {name}")
+            else:
+                result.append(f"{pet_type} présent")
+        return result
 
-        Args:
-            pianos: Liste des pianos du client
-            appointment_context: {'title': ..., 'description': ..., 'notes': ...}
+    def _format_courtesies(self, courtesies_data: List[Dict]) -> List[str]:
+        """Formate les courtoisies en strings lisibles."""
+        result = []
+        for c in courtesies_data:
+            if isinstance(c, str):
+                result.append(c)
+                continue
+            desc = c.get('description', '')
+            if desc:
+                result.append(desc)
+        return result
 
-        Returns:
-            Le piano matché ou le premier par défaut
-        """
-        if not pianos:
+    def _build_piano_info(self, piano_data: Dict, notes: List[Dict]) -> Dict:
+        """Construit la fiche piano avec statut PLS intelligent."""
+        if not piano_data:
             return {}
 
+        year = piano_data.get('year') or 0
+        age = datetime.now().year - year if year > 1800 else 0
+
+        warnings = []
+        if age > 80:
+            warnings.append("Piano > 80 ans - Fragilité mécanique")
+        elif age > 40:
+            warnings.append("Piano mature (> 40 ans) - Attention particulière")
+
+        # Analyse PLS
+        pls_status = {}
+        if piano_data.get('dampp_chaser_installed'):
+            if self.ai_engine.is_available and notes:
+                pls_raw = self.ai_engine.analyze_pls_services(notes)
+                if pls_raw:
+                    pls_status = self.ai_engine.validate_pls_analysis(
+                        pls_raw, notes, piano_data
+                    )
+                else:
+                    pls_status = {"needs_annual": None, "reason": "Analyse PLS non disponible"}
+            else:
+                pls_status = {"needs_annual": None, "reason": "IA non disponible"}
+
+            # Warning PLS basé sur l'analyse
+            if pls_status.get('needs_annual') is True:
+                months = pls_status.get('months_since_last', '?')
+                warnings.append(f"PLS: entretien annuel dû ({months} mois depuis dernier service)")
+            elif pls_status.get('needs_annual') is False:
+                months = pls_status.get('months_since_last', '?')
+                # Pas de warning, mais info dans pls_status pour Niveau 2
+            else:
+                warnings.append("Dampp-Chaser installé - Vérifier niveau d'eau")
+
+        piano_info = asdict(PianoInfo(
+            piano_id=piano_data.get('external_id', ''),
+            make=piano_data.get('make', ''),
+            model=piano_data.get('model', ''),
+            year=year,
+            type=piano_data.get('type', ''),
+            age_years=age,
+            warnings=warnings,
+            dampp_chaser=piano_data.get('dampp_chaser_installed', False),
+            pls_status=pls_status,
+        ))
+
+        return piano_info
+
+    # ═══════════════════════════════════════════════════════════════════
+    # FOLLOW-UPS (SUIVI PERSISTANT)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _get_open_follow_ups(self, client_id: str) -> List[Dict]:
+        """Récupère les follow-ups ouverts pour un client."""
+        try:
+            items = self.storage.get_data(
+                'follow_up_items',
+                filters={'client_external_id': client_id, 'status': 'open'},
+                order_by='detected_at.desc'
+            )
+            return [
+                {
+                    "id": item.get('id'),
+                    "category": item.get('category'),
+                    "description": item.get('description'),
+                    "source_citation": item.get('source_citation'),
+                    "detected_at": item.get('detected_at'),
+                }
+                for item in items
+            ]
+        except Exception:
+            return []
+
+    def _save_new_follow_ups(self, client_id: str, piano_id: Optional[str],
+                              ai_follow_ups: List[Dict]):
+        """Sauvegarde les nouveaux follow-ups détectés par l'IA."""
+        for fu in ai_follow_ups:
+            try:
+                record = {
+                    'client_external_id': client_id,
+                    'piano_external_id': piano_id,
+                    'category': fu.get('category', 'action'),
+                    'description': fu.get('description', ''),
+                    'source_citation': fu.get('source', ''),
+                    'status': 'open',
+                    'detected_by': 'ai_extraction',
+                }
+                # Upsert pour éviter les doublons (unique index sur client+description WHERE open)
+                self.storage.upsert_data(
+                    'follow_up_items', record,
+                    conflict_column='client_external_id,description'
+                )
+            except Exception as e:
+                # Duplicate ou erreur — on continue
+                pass
+
+    def resolve_follow_up(self, item_id: str, resolved_by: str = None,
+                           resolution_note: str = None) -> bool:
+        """Marque un follow-up comme résolu."""
+        try:
+            self.storage.client.table('follow_up_items').update({
+                'status': 'resolved',
+                'resolved_at': datetime.now().isoformat(),
+                'resolved_by': resolved_by,
+                'resolution_note': resolution_note,
+                'updated_at': datetime.now().isoformat(),
+            }).eq('id', item_id).execute()
+            return True
+        except Exception as e:
+            print(f"❌ Erreur résolution follow-up: {e}")
+            return False
+
+    # ═══════════════════════════════════════════════════════════════════
+    # PIANO MATCHING (inchangé)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _match_piano_from_context(self, pianos: List[Dict],
+                                    appointment_context: Dict = None) -> Dict:
+        """Trouve le piano correspondant au RV basé sur la description/titre."""
+        if not pianos:
+            return {}
         if len(pianos) == 1:
             return pianos[0]
-
-        # Pas de contexte = premier piano
         if not appointment_context:
             return pianos[0]
 
-        # Construire le texte de recherche depuis le contexte du RV
         search_text = " ".join([
             appointment_context.get('title', ''),
             appointment_context.get('description', ''),
@@ -379,30 +431,29 @@ class ClientIntelligenceService:
         if not search_text.strip():
             return pianos[0]
 
-        # Chercher chaque piano par marque (make)
         for piano in pianos:
             make = (piano.get('make') or '').lower()
             if make and len(make) > 2 and make in search_text:
                 return piano
 
-        # Chercher par modèle aussi
         for piano in pianos:
             model = (piano.get('model') or '').lower()
             if model and len(model) > 2 and model in search_text:
                 return piano
 
-        # Chercher "grand" ou "queue" pour piano à queue
         if 'queue' in search_text or 'grand' in search_text:
             for piano in pianos:
                 ptype = (piano.get('type') or '').lower()
                 if ptype in ['grand', 'queue', 'baby grand']:
                     return piano
 
-        # Fallback: premier piano
         return pianos[0]
 
+    # ═══════════════════════════════════════════════════════════════════
+    # DATA ACCESS (inchangé)
+    # ═══════════════════════════════════════════════════════════════════
+
     def _get_client(self, client_id: str) -> Optional[Dict]:
-        """Récupère les infos client"""
         try:
             clients = self.storage.get_data('gazelle_clients',
                                             filters={'external_id': client_id})
@@ -411,10 +462,7 @@ class ClientIntelligenceService:
             return None
 
     def _get_client_notes(self, client_id: str) -> List[Dict]:
-        """Récupère toutes les notes d'un client"""
         notes = []
-
-        # Timeline entries
         try:
             timeline = self.storage.get_data('gazelle_timeline_entries',
                                               filters={'client_id': client_id},
@@ -429,7 +477,6 @@ class ClientIntelligenceService:
         except:
             pass
 
-        # Appointments notes
         try:
             appts = self.storage.get_data('gazelle_appointments',
                                            filters={'client_external_id': client_id},
@@ -449,7 +496,6 @@ class ClientIntelligenceService:
         return notes
 
     def _get_client_pianos(self, client_id: str) -> List[Dict]:
-        """Récupère les pianos du client"""
         try:
             return self.storage.get_data('gazelle_pianos',
                                           filters={'client_external_id': client_id})
@@ -457,7 +503,6 @@ class ClientIntelligenceService:
             return []
 
     def _save_intelligence(self, client_id: str, briefing: Dict):
-        """Sauvegarde le briefing dans client_intelligence"""
         try:
             record = {
                 'client_external_id': client_id,
@@ -475,27 +520,15 @@ class ClientIntelligenceService:
             print(f"⚠️  Erreur sauvegarde intelligence: {e}")
 
     # ═══════════════════════════════════════════════════════════════════
-    # BRIEFINGS DU JOUR
+    # BRIEFINGS DU JOUR (inchangé sauf format)
     # ═══════════════════════════════════════════════════════════════════
 
     def get_daily_briefings(self, technician_id: str = None,
                             exclude_technician_id: str = None,
                             target_date: str = None) -> List[Dict]:
-        """
-        Récupère les briefings pour les RV du jour.
-
-        Args:
-            technician_id: Filtrer par technicien (optionnel)
-            exclude_technician_id: Exclure ce technicien (optionnel)
-            target_date: Date cible YYYY-MM-DD (défaut: aujourd'hui)
-
-        Returns:
-            Liste de briefings pour chaque RV
-        """
         if not target_date:
             target_date = datetime.now().strftime('%Y-%m-%d')
 
-        # Récupérer les RV du jour
         filters = {'appointment_date': target_date}
         if technician_id:
             filters['technicien'] = technician_id
@@ -507,7 +540,6 @@ class ClientIntelligenceService:
         except:
             appointments = []
 
-        # Exclure un technicien si demandé
         if exclude_technician_id:
             appointments = [a for a in appointments
                            if a.get('technicien') != exclude_technician_id]
@@ -518,17 +550,14 @@ class ClientIntelligenceService:
             if not client_id:
                 continue
 
-            # Contexte du RV pour matcher le bon piano
             appointment_context = {
                 'title': appt.get('title', ''),
                 'description': appt.get('description', ''),
                 'notes': appt.get('notes', ''),
             }
 
-            # Générer le briefing avec le contexte du RV
             briefing = self.generate_briefing(client_id, appointment_context)
 
-            # Ajouter les infos du RV
             briefing['appointment'] = {
                 'id': appt.get('external_id'),
                 'time': appt.get('appointment_time', '')[:5],
@@ -542,47 +571,54 @@ class ClientIntelligenceService:
         return briefings
 
     def format_briefing_card(self, briefing: Dict) -> str:
-        """
-        Formate un briefing en texte concis pour affichage mobile.
-        Lisible en 10 secondes.
-        """
+        """Formate un briefing en texte concis pour affichage mobile."""
         lines = []
 
-        # Header
         appt = briefing.get('appointment', {})
-        lines.append(f"⏰ {appt.get('time', '?')} - {briefing.get('client_name', 'Client')}")
+        client_since = briefing.get('client_since', '')
+        since_str = f" ({client_since})" if client_since else ""
+        lines.append(f"⏰ {appt.get('time', '?')} - {briefing.get('client_name', 'Client')}{since_str}")
         lines.append("─" * 30)
 
-        # Profil rapide
         profile = briefing.get('profile', {})
         icons = []
         if profile.get('language') == 'EN':
             icons.append("🇬🇧")
         if profile.get('pets'):
-            icons.append("🐕")
-        if 'enlever chaussures' in (profile.get('courtesies') or []):
+            icons.append("🐕 " + ", ".join(profile['pets']))
+        courtesies = profile.get('courtesies') or []
+        if 'enlever chaussures' in courtesies:
             icons.append("👟❌")
-        if 'offre café' in (profile.get('courtesies') or []):
+        if 'offre café' in courtesies:
             icons.append("☕")
+        if profile.get('payment_method'):
+            icons.append(f"💳 {profile['payment_method']}")
         if icons:
             lines.append(" ".join(icons))
 
-        # Piano
         piano = briefing.get('piano', {})
-        if piano:
+        if piano and piano.get('make'):
             piano_line = f"🎹 {piano.get('make', '')} {piano.get('model', '')}"
             if piano.get('year'):
                 piano_line += f" ({piano.get('year')})"
             lines.append(piano_line)
-
             for warning in (piano.get('warnings') or []):
-                lines.append(f"   {warning}")
+                lines.append(f"   ⚠️ {warning}")
 
-        # Dernière recommandation
+        # Dernière visite
         history = briefing.get('technical_history', [])
-        if history and history[0].get('recommendations'):
-            rec = history[0]['recommendations'][0]
-            lines.append(f"📋 Dernière reco: {rec}")
+        if history:
+            h = history[0]
+            tech = h.get('technician', '')
+            date = h.get('date', '')
+            lines.append(f"📋 Dernier: {tech}, {date}")
+
+        # Follow-ups ouverts
+        follow_ups = briefing.get('follow_ups', [])
+        if follow_ups:
+            lines.append(f"🔔 {len(follow_ups)} suivi(s) en attente")
+            for fu in follow_ups[:2]:
+                lines.append(f"   → {fu.get('description', '')}")
 
         return "\n".join(lines)
 
@@ -594,22 +630,7 @@ class ClientIntelligenceService:
 def save_feedback(client_id: str, category: str, field_name: str,
                   original_value: str, corrected_value: str,
                   created_by: str = "asutton@piano-tek.com") -> bool:
-    """
-    Sauvegarde une correction d'Allan.
-
-    Args:
-        client_id: ID externe du client
-        category: 'profile', 'technical', 'piano', 'general'
-        field_name: Nom du champ corrigé
-        original_value: Ce que l'IA avait détecté
-        corrected_value: La correction
-        created_by: Email de l'utilisateur
-
-    Returns:
-        True si succès
-    """
     storage = SupabaseStorage(silent=True)
-
     record = {
         'client_external_id': client_id,
         'category': category,
@@ -619,7 +640,6 @@ def save_feedback(client_id: str, category: str, field_name: str,
         'created_by': created_by,
         'is_active': True,
     }
-
     try:
         storage.insert_data('ai_training_feedback', record)
         return True
@@ -634,12 +654,12 @@ def save_feedback(client_id: str, category: str, field_name: str,
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TEST CLIENT INTELLIGENCE SERVICE")
+    print("TEST CLIENT INTELLIGENCE SERVICE V3")
     print("=" * 60)
 
     service = ClientIntelligenceService()
+    print(f"Mode: {'IA' if service.ai_engine.is_available else 'Regex fallback'}")
 
-    # Test: récupérer les briefings du jour
     print("\n📅 Briefings du jour:")
     briefings = service.get_daily_briefings()
 

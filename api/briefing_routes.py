@@ -36,14 +36,24 @@ class FeedbackRequest(BaseModel):
     created_by: str = "asutton@piano-tek.com"
 
 
+class ResolveFollowUpRequest(BaseModel):
+    """Requête pour marquer un follow-up comme résolu"""
+    item_id: str
+    resolved_by: Optional[str] = None
+    resolution_note: Optional[str] = None
+
+
 class BriefingCard(BaseModel):
     """Format simplifié pour affichage mobile"""
     time: str
     client_name: str
+    client_since: Optional[str] = None
     icons: List[str]
     piano: str
     warnings: List[str]
     last_recommendation: Optional[str]
+    follow_ups: List[Dict] = []
+    payment_method: Optional[str] = None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -162,6 +172,39 @@ async def submit_feedback(request: FeedbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/follow-up/resolve", response_model=Dict[str, Any])
+async def resolve_follow_up(request: ResolveFollowUpRequest):
+    """
+    Marque un follow-up comme résolu.
+
+    Appelé quand le technicien a complété un item "à faire"
+    (ex: rondelle remplacée, harmonisation faite, buvards changés).
+    """
+    try:
+        service = ClientIntelligenceService()
+        success = service.resolve_follow_up(
+            item_id=request.item_id,
+            resolved_by=request.resolved_by,
+            resolution_note=request.resolution_note,
+        )
+
+        if success:
+            return {
+                "success": True,
+                "message": "Suivi marqué comme résolu",
+                "item_id": request.item_id,
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Erreur résolution")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/card/{client_id}", response_model=Dict[str, Any])
 async def get_briefing_card(client_id: str):
     """
@@ -237,9 +280,13 @@ def _format_card(briefing: Dict) -> Dict:
     return {
         "time": appt.get('time', ''),
         "client_name": briefing.get('client_name', 'Client'),
+        "client_since": briefing.get('client_since'),
         "icons": icons,
         "piano": piano_str.strip(),
         "warnings": piano.get('warnings', []),
         "last_recommendation": last_rec,
-        "confidence": briefing.get('confidence_score', 0)
+        "follow_ups": briefing.get('follow_ups', []),
+        "payment_method": (briefing.get('profile') or {}).get('payment_method'),
+        "confidence": briefing.get('confidence_score', 0),
+        "extraction_mode": briefing.get('extraction_mode', 'regex'),
     }

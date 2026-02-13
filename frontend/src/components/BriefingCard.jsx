@@ -2,39 +2,57 @@ import React, { useState } from 'react'
 import { API_URL } from '../utils/apiConfig'
 
 /**
- * BriefingCard - Carte de briefing intelligent pour technicien
+ * BriefingCard V3 - Carte de briefing intelligent à deux niveaux
  *
- * Affichage optimisé mobile (10 secondes de lecture):
- * - Icônes pour scan rapide
- * - Info piano condensée
- * - Alertes visuelles
- * - Bouton "Ajuster" pour Allan (super-utilisateur)
+ * NIVEAU 1 (coup d'oeil, 10 secondes):
+ *   Heure + client + ancienneté + icônes + piano + warnings + paiement
+ *
+ * NIVEAU 2 (clic "Voir plus"):
+ *   Profil détaillé + historique technique + PLS + follow-ups + courtoisies
+ *
+ * Anti-hallucination: chaque donnée vient de Gazelle via extraction validée.
  */
 export default function BriefingCard({ briefing, currentUser, onFeedbackSaved }) {
+  const [expanded, setExpanded] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
   const [feedbackValue, setFeedbackValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const [resolvingId, setResolvingId] = useState(null)
 
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
 
-  const { appointment, profile, piano, technical_history, client_name, confidence_score } = briefing
+  const {
+    appointment,
+    profile,
+    piano,
+    technical_history,
+    client_name,
+    client_since,
+    confidence_score,
+    follow_ups,
+    extraction_mode,
+  } = briefing
 
-  // Générer les icônes de profil
+  // ── NIVEAU 1: Icônes rapides ──
   const profileIcons = []
   if (profile?.language === 'EN') profileIcons.push({ icon: '🇬🇧', label: 'Anglophone' })
   if (profile?.language === 'BI') profileIcons.push({ icon: '🇬🇧🇫🇷', label: 'Bilingue' })
   if (profile?.pets?.length > 0) profileIcons.push({ icon: '🐕', label: profile.pets.join(', ') })
-  if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟❌', label: 'Enlever chaussures' })
-  if (profile?.courtesies?.includes('offre café')) profileIcons.push({ icon: '☕', label: 'Offre café' })
+  if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟', label: 'Enlever chaussures' })
   if (profile?.courtesies?.includes('appeler avant')) profileIcons.push({ icon: '📞', label: 'Appeler avant' })
+  if (profile?.payment_method) profileIcons.push({ icon: '💳', label: profile.payment_method })
 
-  // Dernière recommandation
-  const lastRec = technical_history?.[0]?.recommendations?.[0]
+  // Dernière visite (Niveau 1 résumé)
+  const lastVisit = technical_history?.[0]
+  const hasWarnings = piano?.warnings?.length > 0
+  const hasFollowUps = follow_ups?.length > 0
 
-  // Sauvegarder une note libre (Allan only)
+  // PLS status pour Niveau 2
+  const plsStatus = piano?.pls_status || {}
+
+  // ── Handlers ──
   const saveFeedback = async () => {
     if (!feedbackValue.trim()) return
-
     setSaving(true)
     try {
       const response = await fetch(`${API_URL}/api/briefing/feedback`, {
@@ -46,7 +64,6 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
           created_by: currentUser?.email || 'asutton@piano-tek.com'
         })
       })
-
       if (response.ok) {
         setShowFeedback(false)
         setFeedbackValue('')
@@ -59,9 +76,33 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
     }
   }
 
+  const resolveFollowUp = async (itemId) => {
+    setResolvingId(itemId)
+    try {
+      const response = await fetch(`${API_URL}/api/briefing/follow-up/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_id: itemId,
+          resolved_by: currentUser?.gazelleId || currentUser?.email,
+        })
+      })
+      if (response.ok) {
+        onFeedbackSaved?.() // Refresh
+      }
+    } catch (err) {
+      console.error('Erreur résolution:', err)
+    } finally {
+      setResolvingId(null)
+    }
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-4 border border-gray-100">
-      {/* Header avec heure et client */}
+
+      {/* ══════════ NIVEAU 1: COUP D'OEIL (toujours visible) ══════════ */}
+
+      {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 text-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -69,25 +110,33 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               {appointment?.time || '--:--'}
             </span>
             <div>
-              <div className="font-semibold text-lg">{client_name || 'Client'}</div>
+              <div className="font-semibold text-lg">
+                {client_name || 'Client'}
+                {client_since && (
+                  <span className="text-blue-200 text-sm font-normal ml-2">
+                    {client_since}
+                  </span>
+                )}
+              </div>
               {appointment?.title && appointment.title !== client_name && (
                 <div className="text-blue-100 text-sm">{appointment.title}</div>
               )}
             </div>
           </div>
-
-          {/* Score de confiance */}
-          {confidence_score < 0.5 && (
-            <span className="bg-yellow-400 text-yellow-900 text-xs px-2 py-1 rounded-full">
-              ⚠️ Données limitées
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {confidence_score < 0.5 && (
+              <span className="bg-yellow-400 text-yellow-900 text-xs px-2 py-1 rounded-full">
+                Donnees limitees
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Corps de la carte */}
+      {/* Body Niveau 1 */}
       <div className="p-4 space-y-3">
-        {/* Icônes de profil */}
+
+        {/* Icones rapides */}
         {profileIcons.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {profileIcons.map((item, idx) => (
@@ -114,15 +163,15 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               </div>
               {piano.age_years > 0 && (
                 <div className="text-sm text-gray-500">
-                  {piano.age_years} ans • {piano.type}
+                  {piano.age_years} ans {piano.type && `\u00B7 ${piano.type}`}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Avertissements piano */}
-        {piano?.warnings?.length > 0 && (
+        {/* Warnings (toujours visibles) */}
+        {hasWarnings && (
           <div className="space-y-1">
             {piano.warnings.map((warning, idx) => (
               <div
@@ -135,24 +184,190 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
           </div>
         )}
 
-        {/* Dernière recommandation */}
-        {lastRec && (
-          <div className="bg-blue-50 border-l-4 border-blue-400 px-3 py-2">
-            <div className="text-xs text-blue-600 font-medium mb-1">Dernière recommandation</div>
-            <div className="text-sm text-blue-900">{lastRec}</div>
+        {/* Dernier tech + date (Niveau 1 résumé) */}
+        {lastVisit && (
+          <div className="text-sm text-gray-600">
+            Dernier: <span className="font-medium">{lastVisit.technician}</span>, {lastVisit.date}
           </div>
         )}
 
-        {/* Dampp-Chaser */}
-        {piano?.dampp_chaser && (
-          <div className="bg-cyan-50 border border-cyan-200 rounded px-3 py-2 text-sm text-cyan-800 flex items-center gap-2">
-            <span>💧</span>
-            <span>Dampp-Chaser installé - Vérifier niveau d'eau</span>
+        {/* Follow-ups badge (Niveau 1 résumé) */}
+        {hasFollowUps && !expanded && (
+          <div className="bg-amber-50 border-l-4 border-amber-400 px-3 py-2 text-sm text-amber-800">
+            🔔 {follow_ups.length} suivi(s) en attente
+            {follow_ups.length <= 2 && follow_ups.map((fu, idx) => (
+              <div key={idx} className="ml-4 mt-1 text-amber-700">
+                → {fu.description}
+              </div>
+            ))}
           </div>
         )}
+
+        {/* Bouton Voir plus / Voir moins */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="w-full text-center text-sm text-blue-600 hover:text-blue-800 font-medium py-1 border-t border-gray-100 mt-2"
+        >
+          {expanded ? 'Voir moins ▲' : 'Voir plus ▼'}
+        </button>
       </div>
 
-      {/* Footer - Bouton Allan */}
+      {/* ══════════ NIVEAU 2: DETAILS (expandable) ══════════ */}
+
+      {expanded && (
+        <div className="border-t border-gray-200 p-4 space-y-4 bg-gray-50">
+
+          {/* Profil detaille */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Profil client
+            </h4>
+            <div className="space-y-1 text-sm">
+              {profile?.language && (
+                <div>Langue: <span className="font-medium">{
+                  profile.language === 'FR' ? 'Francais' :
+                  profile.language === 'EN' ? 'Anglais' : 'Bilingue'
+                }</span></div>
+              )}
+              {profile?.pets?.length > 0 && (
+                <div>Animaux: <span className="font-medium">{profile.pets.join(', ')}</span></div>
+              )}
+              {profile?.courtesies?.length > 0 && (
+                <div>
+                  Courtoisies:
+                  {profile.courtesies.map((c, idx) => (
+                    <span key={idx} className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {profile?.personality && (
+                <div>Temperament: <span className="font-medium">{profile.personality}</span></div>
+              )}
+              {profile?.payment_method && (
+                <div>Paiement habituel: <span className="font-medium">{profile.payment_method}</span></div>
+              )}
+              {profile?.parking_info && (
+                <div>Stationnement: <span className="font-medium">{profile.parking_info}</span></div>
+              )}
+              {profile?.access_code && (
+                <div>Code: <span className="font-medium">{profile.access_code}</span></div>
+              )}
+              {profile?.access_notes && (
+                <div>Acces: <span className="font-medium">{profile.access_notes}</span></div>
+              )}
+            </div>
+          </div>
+
+          {/* Historique technique */}
+          {technical_history?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Historique technique
+              </h4>
+              <div className="space-y-2">
+                {technical_history.map((visit, idx) => (
+                  <div key={idx} className="text-sm border-l-2 border-gray-300 pl-3">
+                    <div className="font-medium text-gray-800">
+                      {visit.date} — {visit.technician || 'Tech inconnu'}
+                    </div>
+                    {visit.summary && (
+                      <div className="text-gray-600 mt-0.5 text-xs leading-relaxed">
+                        {visit.summary.length > 150
+                          ? visit.summary.substring(0, 150) + '...'
+                          : visit.summary}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* PLS Status detaille */}
+          {piano?.dampp_chaser && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Piano Life Saver (PLS)
+              </h4>
+              <div className="text-sm space-y-1">
+                {plsStatus.last_service && (
+                  <div>
+                    Dernier service: <span className="font-medium">{plsStatus.last_service.date}</span>
+                    {' '}({plsStatus.last_service.type === 'basic' ? 'test + buvards' :
+                      plsStatus.last_service.type === 'annual' ? 'entretien annuel' : 'type inconnu'})
+                    {plsStatus.last_service.source && (
+                      <div className="text-xs text-gray-400 mt-0.5 italic">
+                        📎 {plsStatus.last_service.source}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {plsStatus.last_annual && plsStatus.last_annual !== plsStatus.last_service && (
+                  <div>
+                    Dernier entretien annuel: <span className="font-medium">{plsStatus.last_annual.date}</span>
+                    {plsStatus.months_since_annual && (
+                      <span className="text-gray-500 ml-1">({plsStatus.months_since_annual} mois)</span>
+                    )}
+                  </div>
+                )}
+                {plsStatus.reason && (
+                  <div className={`text-xs mt-1 ${plsStatus.needs_annual ? 'text-orange-700 font-medium' : 'text-gray-500'}`}>
+                    {plsStatus.reason}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Follow-ups detailles avec bouton resolution */}
+          {hasFollowUps && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Suivis en attente
+              </h4>
+              <div className="space-y-2">
+                {follow_ups.map((fu, idx) => (
+                  <div key={fu.id || idx} className="flex items-start justify-between bg-amber-50 rounded-lg px-3 py-2">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-amber-900">{fu.description}</div>
+                      <div className="text-xs text-amber-600 mt-0.5">
+                        {fu.category && <span className="capitalize">{fu.category}</span>}
+                        {fu.detected_at && <span> — {fu.detected_at.substring(0, 10)}</span>}
+                      </div>
+                      {fu.source_citation && (
+                        <div className="text-xs text-amber-500 italic mt-0.5">
+                          📎 {fu.source_citation}
+                        </div>
+                      )}
+                    </div>
+                    {fu.id && (
+                      <button
+                        onClick={() => resolveFollowUp(fu.id)}
+                        disabled={resolvingId === fu.id}
+                        className="ml-2 text-green-600 hover:text-green-800 text-xs font-medium px-2 py-1 rounded border border-green-300 hover:bg-green-50 disabled:opacity-50 flex-shrink-0"
+                      >
+                        {resolvingId === fu.id ? '...' : 'Fait ✓'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mode extraction (debug info pour Allan) */}
+          {isAllan && extraction_mode && (
+            <div className="text-xs text-gray-400 text-right">
+              Mode: {extraction_mode === 'ai' ? 'IA' : 'Regex'} | {briefing.notes_analyzed || 0} notes
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════ FOOTER: Feedback Allan ══════════ */}
+
       {isAllan && (
         <div className="border-t border-gray-100 px-4 py-2 bg-gray-50">
           {!showFeedback ? (
@@ -167,7 +382,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               <textarea
                 value={feedbackValue}
                 onChange={(e) => setFeedbackValue(e.target.value)}
-                placeholder="Ex: Le client parle anglais, il a un chien nommé Rex, stationnement à l'arrière..."
+                placeholder="Ex: Le client parle anglais, il a un chien nomme Rex, stationnement a l'arriere..."
                 className="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none"
                 rows={3}
               />
