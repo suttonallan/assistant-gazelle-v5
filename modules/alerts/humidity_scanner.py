@@ -156,7 +156,7 @@ class HumidityScanner:
         resolution_keywords: Dict[str, List[str]]
     ) -> Optional[Tuple[str, str, bool, float]]:
         """
-        🤖 FALLBACK IA - OpenAI GPT-4o-mini
+        🤖 FALLBACK IA - Claude Haiku
 
         Analyse texte avec IA si pattern matching échoue.
 
@@ -169,19 +169,19 @@ class HumidityScanner:
 
         Returns:
             Tuple (alert_type, description, is_resolved, confidence) ou None
-            Nécessite: OPENAI_API_KEY dans .env
+            Nécessite: ANTHROPIC_API_KEY dans .env
         """
         if not description or (hasattr(description, '__len__') and len(str(description).strip()) == 0):
             return None
 
-        # Vérifier si OpenAI est configuré
-        api_key = os.getenv('OPENAI_API_KEY')
+        # Vérifier si Anthropic est configuré
+        api_key = os.getenv('ANTHROPIC_API_KEY')
         if not api_key:
             return None
 
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key)
 
             # Construire le prompt
             prompt = f"""Analyse cette note de service d'un technicien de piano.
@@ -211,14 +211,14 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
   "confidence": 0.0 à 1.0
 }}"""
 
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
                 temperature=0.1,
-                max_tokens=200
+                messages=[{"role": "user", "content": prompt}]
             )
 
-            result_text = response.choices[0].message.content.strip()
+            result_text = response.content[0].text.strip()
 
             # Retirer les balises markdown si présentes
             if result_text.startswith('```'):

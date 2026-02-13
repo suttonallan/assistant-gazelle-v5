@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import os
 import json
 import re
-from openai import OpenAI
+from anthropic import Anthropic
 from supabase import Client
 
 from core.supabase_storage import SupabaseStorage
@@ -20,7 +20,7 @@ class ConversationHandler:
     """
     Handler principal pour traiter les questions conversationnelles.
 
-    Utilise OpenAI pour:
+    Utilise Claude Haiku pour:
     1. Détecter l'intention de la requête
     2. Extraire les entités (noms, dates, numéros)
     3. Générer des réponses structurées
@@ -34,13 +34,13 @@ class ConversationHandler:
         self.storage = supabase_storage or SupabaseStorage()
         self.supabase: Client = self.storage.client
 
-        # OpenAI client (optionnel - le backend peut démarrer sans)
-        api_key = os.getenv('OPENAI_API_KEY')
+        # Anthropic client (optionnel - le backend peut démarrer sans)
+        api_key = os.getenv('ANTHROPIC_API_KEY')
         if api_key:
-            self.openai = OpenAI(api_key=api_key)
+            self.anthropic = Anthropic(api_key=api_key)
         else:
-            self.openai = None
-            print("⚠️  OPENAI_API_KEY non trouvée - les fonctionnalités de chat IA seront désactivées")
+            self.anthropic = None
+            print("⚠️  ANTHROPIC_API_KEY non trouvée - les fonctionnalités de chat IA seront désactivées")
 
     async def process_query(self, query: str, user_id: str, user_role: str = "technician") -> Dict[str, Any]:
         """
@@ -89,12 +89,10 @@ class ConversationHandler:
                 }
             }
         """
-        response = self.openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """Tu es un système de détection d'intention pour un assistant de techniciens de piano.
+        response = self.anthropic.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            system="""Tu es un système de détection d'intention pour un assistant de techniciens de piano.
 
 Détecte l'intention et extrais les entités.
 
@@ -112,7 +110,7 @@ Phase 2 - Advanced:
 - humidity_readings: Mesures d'humidité (ex: "taux d'humidité de ce piano", "mesures humidité 2024")
 - unpaid_invoices: Factures impayées (ex: "factures non payées", "créances en souffrance")
 
-Retourne un JSON avec:
+Retourne UNIQUEMENT un JSON valide (pas de texte avant/après):
 {
     "type": "client_search" | "client_summary" | "my_appointments" | "piano_search" | "client_history" | "search_notes" | "humidity_readings" | "unpaid_invoices",
     "entities": {
@@ -128,15 +126,17 @@ Retourne un JSON avec:
 Pour les dates relatives:
 - "aujourd'hui" → date du jour
 - "demain" → lendemain
-- "cette semaine" → lundi à dimanche de la semaine actuelle
-"""
-                },
+- "cette semaine" → lundi à dimanche de la semaine actuelle""",
+            messages=[
                 {"role": "user", "content": query}
-            ],
-            response_format={"type": "json_object"}
+            ]
         )
 
-        return json.loads(response.choices[0].message.content)
+        raw_content = response.content[0].text.strip()
+        if raw_content.startswith("```"):
+            raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
+            raw_content = re.sub(r'\s*```$', '', raw_content)
+        return json.loads(raw_content)
 
     # ============================================================================
     # PHASE 1: CORE HANDLERS
@@ -568,19 +568,17 @@ Prochain RDV:
 {json.dumps(next_appointment, indent=2, ensure_ascii=False) if next_appointment else "Aucun"}
 """
 
-        response = self.openai.chat.completions.create(
-            model="gpt-4o-mini",
+        response = self.anthropic.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=2000,
+            temperature=0.3,
+            system="Tu es un assistant pour techniciens de piano. Génère des résumés CONCIS et STRUCTURÉS.",
             messages=[
-                {
-                    "role": "system",
-                    "content": "Tu es un assistant pour techniciens de piano. Génère des résumés CONCIS et STRUCTURÉS."
-                },
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.3
+            ]
         )
 
-        return response.choices[0].message.content
+        return response.content[0].text
 
     async def _format_my_appointments(
         self,

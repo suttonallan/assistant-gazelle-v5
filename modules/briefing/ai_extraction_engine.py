@@ -22,9 +22,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 try:
-    from openai import OpenAI
+    from anthropic import Anthropic
 except ImportError:
-    OpenAI = None
+    Anthropic = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -152,21 +152,21 @@ class AIExtractionEngine:
     """
     Moteur d'extraction IA ancré.
 
-    Utilise GPT-4o-mini pour extraire des informations structurées
+    Utilise Claude Haiku pour extraire des informations structurées
     depuis les notes Gazelle, avec validation croisée obligatoire.
     """
 
     def __init__(self):
-        api_key = os.getenv('OPENAI_API_KEY')
-        if api_key and OpenAI:
-            self.openai = OpenAI(api_key=api_key)
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        if api_key and Anthropic:
+            self.anthropic = Anthropic(api_key=api_key)
         else:
-            self.openai = None
-            print("⚠️  AI Extraction Engine: OPENAI_API_KEY manquante — mode regex uniquement")
+            self.anthropic = None
+            print("⚠️  AI Extraction Engine: ANTHROPIC_API_KEY manquante — mode regex uniquement")
 
     @property
     def is_available(self) -> bool:
-        return self.openai is not None
+        return self.anthropic is not None
 
     # ═══════════════════════════════════════════════════════════════
     # EXTRACTION PRINCIPALE
@@ -187,7 +187,7 @@ class AIExtractionEngine:
         Returns:
             Dict structuré avec citations, ou None si IA indisponible
         """
-        if not self.openai or not notes:
+        if not self.anthropic or not notes:
             return None
 
         # Préparer les notes pour le prompt (limiter à 20 pour ne pas exploser le contexte)
@@ -216,17 +216,17 @@ class AIExtractionEngine:
         )
 
         try:
-            response = self.openai.chat.completions.create(
-                model="gpt-4o-mini",
+            response = self.anthropic.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2000,
+                temperature=0.1,  # Très basse pour maximiser la fidélité
+                system="Tu retournes UNIQUEMENT du JSON valide sans markdown.",
                 messages=[
-                    {"role": "system", "content": "Tu retournes UNIQUEMENT du JSON valide sans markdown."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # Très basse pour maximiser la fidélité
-                max_tokens=2000,
             )
 
-            raw_content = response.choices[0].message.content.strip()
+            raw_content = response.content[0].text.strip()
             # Nettoyer si le modèle ajoute des backticks markdown
             if raw_content.startswith("```"):
                 raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
@@ -248,7 +248,7 @@ class AIExtractionEngine:
         Détermine si le dernier service était "basic" (test+buvards)
         ou "annual" (entretien complet).
         """
-        if not self.openai or not notes:
+        if not self.anthropic or not notes:
             return None
 
         # Filtrer les notes qui pourraient concerner le PLS
@@ -277,17 +277,17 @@ class AIExtractionEngine:
         )
 
         try:
-            response = self.openai.chat.completions.create(
-                model="gpt-4o-mini",
+            response = self.anthropic.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1000,
+                temperature=0.1,
+                system="Tu retournes UNIQUEMENT du JSON valide sans markdown.",
                 messages=[
-                    {"role": "system", "content": "Tu retournes UNIQUEMENT du JSON valide sans markdown."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=1000,
             )
 
-            raw_content = response.choices[0].message.content.strip()
+            raw_content = response.content[0].text.strip()
             if raw_content.startswith("```"):
                 raw_content = re.sub(r'^```(?:json)?\s*', '', raw_content)
                 raw_content = re.sub(r'\s*```$', '', raw_content)

@@ -30,7 +30,10 @@ apscheduler>=3.10.0
 # Date/time handling
 pytz>=2023.3
 
-# OpenAI (for chat features)
+# Anthropic Claude (for chat, extraction, alerts)
+anthropic>=0.39.0
+
+# OpenAI (for embeddings only - vector_search)
 openai>=1.3.0
 
 # Other utilities
