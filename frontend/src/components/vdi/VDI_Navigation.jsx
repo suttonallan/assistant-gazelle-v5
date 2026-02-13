@@ -18,6 +18,7 @@ export default function VDI_Navigation({ currentView, setCurrentView, setSelecte
   const tabs = [
     { key: 'nicolas', label: 'Gestion & Pianos' },
     { key: 'technicien', label: 'Technicien' },
+    { key: 'vdi', label: 'Mode VDI' },
   ];
 
   return (

@@ -1523,6 +1523,34 @@ async def vdi_guest_save_note(tech_token: str, piano_id: str, body: VdiGuestNote
 
 # ---------- ADMIN routes ----------
 
+@vdi_router.post("/internal/ensure-token")
+async def vdi_ensure_token(body: VdiGuestTechCreate):
+    """
+    Auto-provision: retourne le token existant pour ce tech_name,
+    ou en crée un nouveau. Utilisé par l'UI React (derrière PIN).
+    """
+    # Chercher un token actif existant
+    r = _vdi_table_request("vdi_guest_technicians",
+                           params=f"tech_name=eq.{body.tech_name}&active=eq.true&select=tech_token,tech_name&limit=1")
+    if r.status_code == 200 and r.json():
+        existing = r.json()[0]
+        return {"tech_token": existing["tech_token"], "tech_name": existing["tech_name"], "created": False}
+
+    # Créer un nouveau token
+    token = str(_uuid.uuid4())
+    row = {
+        "tech_token": token,
+        "tech_name": body.tech_name,
+        "active": True,
+        "created_by": "internal",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    cr = _vdi_table_request("vdi_guest_technicians", method="POST", json_body=row)
+    if cr.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"Erreur création token: {cr.text}")
+    return {"tech_token": token, "tech_name": body.tech_name, "created": True}
+
+
 @vdi_router.post("/admin/guest-technicians")
 async def vdi_create_guest(body: VdiGuestTechCreate):
     """Crée un lien invité (token) pour un technicien externe."""

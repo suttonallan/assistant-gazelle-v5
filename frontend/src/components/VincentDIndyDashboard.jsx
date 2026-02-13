@@ -6,6 +6,7 @@ import { submitReport, getReports, getPianos, updatePiano, getActivity } from '.
 import VDI_Navigation from './vdi/VDI_Navigation';
 import VDI_TechnicianView from './vdi/VDI_TechnicianView';
 import VDI_ManagementView from './vdi/VDI_ManagementView';
+import VDI_NotesView from './vdi/VDI_NotesView';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
@@ -638,6 +639,23 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
+
+  // ============ VUE MODE VDI (saisie rapide + admin buffer) ============
+  if (currentView === 'vdi') {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <VDI_Navigation
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          setSelectedIds={setSelectedIds}
+          hideNickView={hideNickView}
+        />
+        <div className="w-full max-w-lg mx-auto px-4 py-4 sm:px-3 sm:py-2">
+          <VDI_NotesView currentUser={currentUser} />
+        </div>
+      </div>
+    );
+  }
 
   // ============ VUE TECHNICIEN (mobile-friendly) ============
   if (currentView === 'technicien') {
