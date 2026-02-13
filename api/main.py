@@ -26,6 +26,7 @@ import requests
 # Import des routes des modules
 from api.institutions import router as institutions_router
 from api.vincent_dindy import router as vincent_dindy_router
+from api.vincent_dindy import vdi_router as vdi_guest_router  # 🎹 VDI Guest/Admin (préfixe /vdi)
 from api.alertes_rv import router as alertes_rv_router
 from api.tableau_de_bord_routes import router_alertes, router_pianos, router_system  # 🆕 Tableau de Bord unifié (3 routers)
 from api.inventaire import router as inventaire_router
@@ -180,6 +181,7 @@ app.include_router(scheduler_router)
 app.include_router(sync_logs_router)
 app.include_router(scheduler_logs_router)
 app.include_router(briefing_router)  # 🧠 Briefings Intelligents "Ma Journée"
+app.include_router(vdi_guest_router)  # 🎹 VDI Guest/Admin
 app.include_router(institutions_router)  # Route dynamique /{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 # Routes AVEC /api (pour production sans proxy)
@@ -203,6 +205,7 @@ app.include_router(scheduler_router, prefix="/api")
 app.include_router(sync_logs_router, prefix="/api")
 app.include_router(scheduler_logs_router, prefix="/api")
 app.include_router(briefing_router, prefix="/api")  # 🧠 Briefings Intelligents "Ma Journée"
+app.include_router(vdi_guest_router, prefix="/api")  # 🎹 VDI Guest/Admin
 app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{institution}/pianos - DOIT ÊTRE EN DERNIER
 
 

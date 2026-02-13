@@ -1326,3 +1326,461 @@ async def get_pianos_ready_for_push(
             "ready_for_push": False,
             "error": str(e)
         }
+
+
+# ==========================================
+# VDI GUEST / ADMIN ROUTES — "ZÉRO FRICTION"
+# ==========================================
+# Préfixe isolé /vdi pour ne pas interférer avec /vincent-dindy
+# Tables Supabase dédiées : vdi_guest_technicians, vdi_notes_buffer, vdi_priority_pianos
+
+import uuid as _uuid
+from pydantic import Field
+
+vdi_router = APIRouter(prefix="/vdi", tags=["vdi-guest"])
+
+# ---------- Modèles Pydantic ----------
+
+class VdiGuestNoteUpdate(BaseModel):
+    note: str
+
+class VdiGuestTechCreate(BaseModel):
+    tech_name: str
+
+class VdiBufferValidation(BaseModel):
+    note_ids: List[str]
+
+class VdiBundlePushRequest(BaseModel):
+    note_ids: Optional[List[str]] = None          # None = toutes les notes validées
+    technician_id: str = "usr_HcCiFk7o0vZ9xAI0"  # Nicolas par défaut
+    event_date: Optional[str] = None               # défaut = maintenant (Montréal)
+
+class VdiPriorityToggle(BaseModel):
+    piano_id: str
+
+
+# ---------- Helpers Supabase ----------
+
+def _vdi_sb():
+    """Retourne une instance SupabaseStorage pour les tables VDI."""
+    return get_supabase_storage()
+
+def _vdi_table_request(table: str, method: str = "GET", params: str = "",
+                       json_body=None, prefer: str = "return=representation"):
+    """Requête REST Supabase bas-niveau vers une table arbitraire."""
+    sb = _vdi_sb()
+    url = f"{sb.api_url}/{table}?{params}" if params else f"{sb.api_url}/{table}"
+    headers = {
+        "apikey": sb.supabase_key,
+        "Authorization": f"Bearer {sb.supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": prefer,
+    }
+    import requests as _req
+    if method == "GET":
+        r = _req.get(url, headers=headers)
+    elif method == "POST":
+        r = _req.post(url, headers=headers, json=json_body)
+    elif method == "PATCH":
+        r = _req.patch(url, headers=headers, json=json_body)
+    elif method == "DELETE":
+        r = _req.delete(url, headers=headers)
+    else:
+        raise ValueError(f"Méthode HTTP non supportée: {method}")
+    return r
+
+
+# ---------- GUEST routes ----------
+
+@vdi_router.get("/guest/{tech_token}/pianos")
+async def vdi_guest_get_pianos(tech_token: str):
+    """
+    Liste les pianos VDI pour un invité.
+    Retourne les pianos triés : prioritaires (🟢) en premier, puis par location.
+    Inclut la note existante du buffer pour chaque piano (si elle existe).
+    """
+    # 1. Valider le token invité
+    r = _vdi_table_request("vdi_guest_technicians",
+                           params=f"tech_token=eq.{tech_token}&active=eq.true&select=*")
+    if r.status_code != 200 or not r.json():
+        raise HTTPException(status_code=404, detail="Lien invité invalide ou expiré")
+    guest = r.json()[0]
+    tech_name = guest["tech_name"]
+
+    # 2. Charger les pianos VDI depuis Gazelle
+    from api.institutions import get_institution_config
+    config = get_institution_config("vincent-dindy")
+    client_id = config.get("gazelle_client_id")
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Client API Gazelle non disponible")
+
+    query = """
+    query GetVDIPianos($clientId: String!) {
+      allPianos(first: 200, filters: { clientId: $clientId }) {
+        nodes { id serialNumber make model location type status tags }
+      }
+    }
+    """
+    result = api_client._execute_query(query, {"clientId": client_id})
+    gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
+
+    # Filtrer les pianos avec tag "non"
+    visible = []
+    for p in gazelle_pianos:
+        tags_raw = p.get("tags", "")
+        tags = []
+        if tags_raw:
+            if isinstance(tags_raw, list):
+                tags = tags_raw
+            elif isinstance(tags_raw, str):
+                try:
+                    tags = ast.literal_eval(tags_raw)
+                except Exception:
+                    tags = []
+        if "non" not in [t.lower() for t in tags]:
+            visible.append(p)
+
+    # 3. Charger les notes buffer existantes de cet invité
+    buf_r = _vdi_table_request("vdi_notes_buffer",
+                               params=f"tech_token=eq.{tech_token}&select=*")
+    buffer_notes = {}
+    if buf_r.status_code == 200:
+        for bn in buf_r.json():
+            buffer_notes[bn["piano_id"]] = {
+                "id": bn["id"],
+                "note": bn["note"],
+                "status": bn["status"],
+                "updated_at": bn["updated_at"],
+            }
+
+    # 4. Charger les pianos prioritaires
+    prio_r = _vdi_table_request("vdi_priority_pianos", params="select=piano_id")
+    prio_ids = set()
+    if prio_r.status_code == 200:
+        prio_ids = {row["piano_id"] for row in prio_r.json()}
+
+    # 5. Construire la réponse et trier
+    pianos_out = []
+    for p in visible:
+        pid = p["id"]
+        pianos_out.append({
+            "id": pid,
+            "serialNumber": p.get("serialNumber"),
+            "make": p.get("make"),
+            "model": p.get("model"),
+            "location": p.get("location"),
+            "type": p.get("type"),
+            "is_priority": pid in prio_ids,
+            "buffer_note": buffer_notes.get(pid),
+        })
+
+    # Tri : prioritaires d'abord, puis par location
+    pianos_out.sort(key=lambda x: (not x["is_priority"], x.get("location") or ""))
+
+    return {
+        "tech_name": tech_name,
+        "pianos": pianos_out,
+        "count": len(pianos_out),
+    }
+
+
+@vdi_router.put("/guest/{tech_token}/pianos/{piano_id}/note")
+async def vdi_guest_save_note(tech_token: str, piano_id: str, body: VdiGuestNoteUpdate):
+    """
+    Auto-save (upsert) d'une note dans le buffer.
+    Appelé par le debounce côté front (500 ms).
+    """
+    # Valider le token
+    r = _vdi_table_request("vdi_guest_technicians",
+                           params=f"tech_token=eq.{tech_token}&active=eq.true&select=tech_name")
+    if r.status_code != 200 or not r.json():
+        raise HTTPException(status_code=404, detail="Lien invité invalide ou expiré")
+    tech_name = r.json()[0]["tech_name"]
+
+    # Upsert via Supabase on-conflict
+    row = {
+        "tech_token": tech_token,
+        "tech_name": tech_name,
+        "piano_id": piano_id,
+        "note": body.note,
+        "status": "draft",
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    resp = _vdi_table_request(
+        "vdi_notes_buffer",
+        method="POST",
+        json_body=row,
+        prefer="return=representation,resolution=merge-duplicates",
+        params="on_conflict=tech_token,piano_id",
+    )
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"Erreur buffer: {resp.text}")
+
+    saved = resp.json()
+    return {"saved": True, "note_id": saved[0]["id"] if saved else None}
+
+
+# ---------- ADMIN routes ----------
+
+@vdi_router.post("/admin/guest-technicians")
+async def vdi_create_guest(body: VdiGuestTechCreate):
+    """Crée un lien invité (token) pour un technicien externe."""
+    token = str(_uuid.uuid4())
+    row = {
+        "tech_token": token,
+        "tech_name": body.tech_name,
+        "active": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    r = _vdi_table_request("vdi_guest_technicians", method="POST", json_body=row)
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"Erreur création invité: {r.text}")
+    return {"tech_token": token, "tech_name": body.tech_name}
+
+
+@vdi_router.get("/admin/guest-technicians")
+async def vdi_list_guests():
+    """Liste tous les techniciens invités."""
+    r = _vdi_table_request("vdi_guest_technicians", params="select=*&order=created_at.desc")
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=r.text)
+    return r.json()
+
+
+@vdi_router.delete("/admin/guest-technicians/{tech_token}")
+async def vdi_deactivate_guest(tech_token: str):
+    """Désactive un lien invité."""
+    r = _vdi_table_request("vdi_guest_technicians", method="PATCH",
+                           params=f"tech_token=eq.{tech_token}",
+                           json_body={"active": False})
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=r.text)
+    return {"deactivated": True}
+
+
+@vdi_router.post("/admin/priority/{piano_id}")
+async def vdi_set_priority(piano_id: str):
+    """Marque un piano comme prioritaire (🟢)."""
+    row = {"piano_id": piano_id, "set_by": "nicolas", "created_at": datetime.utcnow().isoformat()}
+    r = _vdi_table_request("vdi_priority_pianos", method="POST", json_body=row,
+                           prefer="return=representation,resolution=merge-duplicates",
+                           params="on_conflict=piano_id")
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=r.text)
+    return {"priority": True, "piano_id": piano_id}
+
+
+@vdi_router.delete("/admin/priority/{piano_id}")
+async def vdi_remove_priority(piano_id: str):
+    """Retire le marqueur prioritaire d'un piano."""
+    r = _vdi_table_request("vdi_priority_pianos", method="DELETE",
+                           params=f"piano_id=eq.{piano_id}")
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=r.text)
+    return {"priority": False, "piano_id": piano_id}
+
+
+@vdi_router.get("/admin/buffer")
+async def vdi_get_buffer(status_filter: Optional[str] = None):
+    """
+    Retourne toutes les notes du buffer.
+    ?status_filter=draft|validated|pushed
+    """
+    params = "select=*&order=updated_at.desc"
+    if status_filter:
+        params += f"&status=eq.{status_filter}"
+    r = _vdi_table_request("vdi_notes_buffer", params=params)
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=r.text)
+    return r.json()
+
+
+@vdi_router.put("/admin/buffer/{note_id}")
+async def vdi_admin_edit_note(note_id: str, body: VdiGuestNoteUpdate):
+    """Nicolas peut éditer une note du buffer avant validation."""
+    r = _vdi_table_request("vdi_notes_buffer", method="PATCH",
+                           params=f"id=eq.{note_id}",
+                           json_body={"note": body.note, "updated_at": datetime.utcnow().isoformat()})
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=r.text)
+    return {"edited": True}
+
+
+@vdi_router.post("/admin/buffer/validate")
+async def vdi_validate_notes(body: VdiBufferValidation):
+    """Marque un lot de notes comme 'validated' (prêtes pour bundle push)."""
+    for nid in body.note_ids:
+        _vdi_table_request("vdi_notes_buffer", method="PATCH",
+                           params=f"id=eq.{nid}",
+                           json_body={"status": "validated", "updated_at": datetime.utcnow().isoformat()})
+    return {"validated": len(body.note_ids)}
+
+
+@vdi_router.post("/admin/bundle-push")
+async def vdi_bundle_push(body: VdiBundlePushRequest):
+    """
+    Bundle Push vers Gazelle :
+    1. Récupère les notes validées
+    2. Regroupe par piano
+    3. Crée UN SEUL événement multi-pianos
+    4. Complète avec serviceHistoryNotes individuelles
+    5. Gymnastique ACTIVE → create → complete → INACTIVE
+    """
+    from core.timezone_utils import MONTREAL_TZ
+
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Client API Gazelle non disponible")
+
+    # 1. Récupérer les notes à pousser
+    if body.note_ids:
+        # Notes spécifiques
+        all_notes = []
+        for nid in body.note_ids:
+            r = _vdi_table_request("vdi_notes_buffer", params=f"id=eq.{nid}&select=*")
+            if r.status_code == 200 and r.json():
+                all_notes.append(r.json()[0])
+    else:
+        # Toutes les notes validées
+        r = _vdi_table_request("vdi_notes_buffer", params="status=eq.validated&select=*")
+        if r.status_code != 200:
+            raise HTTPException(status_code=500, detail="Erreur lecture buffer")
+        all_notes = r.json()
+
+    if not all_notes:
+        raise HTTPException(status_code=400, detail="Aucune note à pousser")
+
+    # 2. Regrouper les notes par piano_id
+    piano_notes: Dict[str, List[Dict]] = {}
+    for n in all_notes:
+        pid = n["piano_id"]
+        piano_notes.setdefault(pid, []).append(n)
+
+    piano_ids = list(piano_notes.keys())
+    logging.info(f"🎹 Bundle push: {len(all_notes)} notes pour {len(piano_ids)} pianos")
+
+    # 3. Récupérer le client_id VDI
+    from api.institutions import get_institution_config
+    config = get_institution_config("vincent-dindy")
+    client_id = config.get("gazelle_client_id")
+
+    # 4. Gymnastique: Réactiver les pianos INACTIVE → ACTIVE
+    activated_pianos = []
+    for pid in piano_ids:
+        try:
+            status_q = """
+            query GetPianoStatus($pianoId: String!) {
+                piano(id: $pianoId) { id status }
+            }
+            """
+            sr = api_client._execute_query(status_q, {"pianoId": pid})
+            current_status = sr.get("data", {}).get("piano", {}).get("status")
+            if current_status == "INACTIVE":
+                update_m = """
+                mutation ActivatePiano($pianoId: String!, $input: PrivatePianoInput!) {
+                    updatePiano(id: $pianoId, input: $input) {
+                        piano { id status }
+                        mutationErrors { fieldName messages }
+                    }
+                }
+                """
+                api_client._execute_query(update_m, {"pianoId": pid, "input": {"status": "ACTIVE"}})
+                activated_pianos.append(pid)
+                logging.info(f"   ✅ Piano {pid} → ACTIVE")
+        except Exception as e:
+            logging.warning(f"   ⚠️ Activation piano {pid}: {e}")
+
+    # 5. Créer UN SEUL événement multi-pianos
+    event_date = body.event_date or datetime.now(MONTREAL_TZ).isoformat()
+    pianos_input = [{"pianoId": pid, "isTuning": True} for pid in piano_ids]
+
+    create_mutation = """
+    mutation CreateBundleEvent($input: PrivateEventInput!) {
+        createEvent(input: $input) {
+            event { id title start type status }
+            mutationErrors { fieldName messages }
+        }
+    }
+    """
+
+    # Construire le texte combiné pour le champ notes de l'événement
+    combined_lines = []
+    for pid, notes_list in piano_notes.items():
+        for n in notes_list:
+            combined_lines.append(f"🎹 {pid} - {n['tech_name']} : {n['note']}")
+    combined_text = "\n".join(combined_lines)
+
+    event_input = {
+        "title": f"VDI Accord collectif ({len(piano_ids)} pianos)",
+        "start": event_date,
+        "duration": 60 * len(piano_ids),
+        "type": "APPOINTMENT",
+        "notes": combined_text,
+        "pianos": pianos_input,
+        "userId": body.technician_id,
+    }
+    if client_id:
+        event_input["clientId"] = client_id
+
+    create_result = api_client._execute_query(create_mutation, {"input": event_input})
+    create_data = create_result.get("data", {}).get("createEvent", {})
+    event = create_data.get("event")
+    if not event:
+        errors = create_data.get("mutationErrors", [])
+        raise HTTPException(status_code=500,
+                            detail=f"Erreur createEvent: {errors}")
+
+    event_id = event["id"]
+    logging.info(f"   ✅ Événement créé: {event_id}")
+
+    # 6. Compléter avec serviceHistoryNotes individuelles par piano
+    service_notes = []
+    for pid, notes_list in piano_notes.items():
+        lines = [f"{n['tech_name']} : {n['note']}" for n in notes_list]
+        service_notes.append({"pianoId": pid, "notes": "\n".join(lines)})
+
+    complete_mutation = """
+    mutation CompleteBundleEvent($eventId: String!, $input: PrivateCompleteEventInput!) {
+        completeEvent(eventId: $eventId, input: $input) {
+            event { id status }
+            mutationErrors { fieldName messages }
+        }
+    }
+    """
+    complete_input = {
+        "resultType": "COMPLETE",
+        "serviceHistoryNotes": service_notes,
+    }
+    api_client._execute_query(complete_mutation, {"eventId": event_id, "input": complete_input})
+    logging.info(f"   ✅ Événement complété avec {len(service_notes)} notes d'historique")
+
+    # 7. Remettre les pianos en INACTIVE
+    for pid in activated_pianos:
+        try:
+            deact_m = """
+            mutation DeactivatePiano($pianoId: String!, $input: PrivatePianoInput!) {
+                updatePiano(id: $pianoId, input: $input) {
+                    piano { id status }
+                    mutationErrors { fieldName messages }
+                }
+            }
+            """
+            api_client._execute_query(deact_m, {"pianoId": pid, "input": {"status": "INACTIVE"}})
+            logging.info(f"   ✅ Piano {pid} → INACTIVE")
+        except Exception as e:
+            logging.warning(f"   ⚠️ Désactivation piano {pid}: {e}")
+
+    # 8. Marquer les notes comme 'pushed'
+    for n in all_notes:
+        _vdi_table_request("vdi_notes_buffer", method="PATCH",
+                           params=f"id=eq.{n['id']}",
+                           json_body={"status": "pushed", "updated_at": datetime.utcnow().isoformat()})
+
+    return {
+        "success": True,
+        "event_id": event_id,
+        "pianos_count": len(piano_ids),
+        "notes_count": len(all_notes),
+        "activated_then_deactivated": activated_pianos,
+    }
