@@ -1011,21 +1011,45 @@ def parse_email_text(email_text: str) -> List[Dict]:
     date_pattern = re.compile(rf'^(\d{{1,2}})[-/\s]+{months}\b', re.IGNORECASE)
     # Pattern pour détecter une date n'importe où dans une ligne (pour le bloc en cours)
     date_anywhere_pattern = re.compile(rf'(\d{{1,2}})[-/\s]+{months}', re.IGNORECASE)
+    # Pattern pour détecter une heure (fin de bloc)
+    time_pattern = re.compile(r'(\d{1,2}h|avant\s+\d|après\s+\d|apres\s+\d|a\s+\d{1,2}h)', re.IGNORECASE)
+
     current_block_lines: List[str] = []
     current_block_date = None  # Date du bloc en cours de construction
+    current_block_has_time = False  # Le bloc a-t-il déjà une heure? (signal de fin)
 
     for line in cleaned_lines:
         # Vérifier si cette ligne COMMENCE par une date
         date_match = date_pattern.search(line)
+
+        # ═══════════════════════════════════════════════════════════════
+        # CORRECTION BUG: Même date ≠ même demande
+        # Si le bloc actuel a déjà une HEURE (signal de fin de demande),
+        # alors une nouvelle date = nouvelle demande, même si c'est le même jour
+        # ═══════════════════════════════════════════════════════════════
         if date_match and current_block_lines:
-            # Essayer de parser la date de cette ligne
+            # Vérifier si le bloc actuel est "complet" (a une heure)
+            block_text_so_far = '\n'.join(current_block_lines)
+            block_has_time = bool(time_pattern.search(block_text_so_far))
+
+            # Si le bloc a une heure ET on voit une nouvelle date → nouvelle demande
+            if block_has_time:
+                # Parser le bloc actuel (complet)
+                parsed = parse_email_block(block_text_so_far, current_date)
+                if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
+                    requests.append(parsed)
+                # Commencer un nouveau bloc
+                current_block_lines = [line]
+                current_block_date = None
+                current_block_has_time = False
+                continue
+
+            # Sinon, vérifier si c'est vraiment la même date
             try:
                 potential_date = parse_date_flexible(date_match.group(0), current_date)
 
                 # Si on n'a pas encore de date pour le bloc en cours, essayer de l'extraire
                 if current_block_date is None:
-                    block_text_so_far = '\n'.join(current_block_lines)
-                    # Chercher une date dans le bloc actuel
                     date_in_block = date_anywhere_pattern.search(block_text_so_far)
                     if date_in_block:
                         try:
@@ -1033,18 +1057,15 @@ def parse_email_text(email_text: str) -> List[Dict]:
                         except Exception:
                             pass
 
-                # Comparer les dates (jour/mois/année seulement)
+                # Même date ET bloc pas complet → continuer à accumuler
                 if current_block_date and potential_date.date() == current_block_date.date():
-                    # Même date = même demande, continuer à accumuler
                     current_block_lines.append(line)
                     continue
             except Exception:
-                # Erreur de parsing, traiter comme une nouvelle date
                 pass
 
-            # Date différente ou erreur: parser le bloc actuel et commencer un nouveau
-            block_text = '\n'.join(current_block_lines)
-            parsed = parse_email_block(block_text, current_date)
+            # Date différente: parser le bloc actuel et commencer un nouveau
+            parsed = parse_email_block(block_text_so_far, current_date)
             if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
                 requests.append(parsed)
             # Réinitialiser pour le nouveau bloc
