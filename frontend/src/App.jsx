@@ -78,7 +78,7 @@ function FestiveDecor({ show }) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('sync-dashboard') // DÉFAUT: Dashboard Unifié V6
+  const [currentView, setCurrentView] = useState('chat') // DÉFAUT: Ma Journée pour tous
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
@@ -269,8 +269,12 @@ function App() {
             </ErrorBoundary>
           )
         }
-        // Par défaut: Inventaire
-        return <NickDashboard currentUser={effectiveUser} />
+        // Par défaut: Ma Journée
+        return (
+          <ErrorBoundary componentName="Ma Journée">
+            <MaJournee currentUser={effectiveUser} />
+          </ErrorBoundary>
+        )
       case 'louise':
       case 'margot':
         // Louise & Margot: Navigation par currentView (comme admin)
@@ -316,10 +320,10 @@ function App() {
             </ErrorBoundary>
           )
         }
-        // Par défaut: Inventaire
+        // Par défaut: Ma Journée
         return (
-          <ErrorBoundary componentName="Inventaire Dashboard">
-            <InventaireDashboard currentUser={effectiveUser} />
+          <ErrorBoundary componentName="Ma Journée">
+            <MaJournee currentUser={effectiveUser} />
           </ErrorBoundary>
         )
       case 'jeanphilippe':
@@ -369,15 +373,10 @@ function App() {
             </ErrorBoundary>
           )
         }
-        // Par défaut: Inventaire
+        // Par défaut: Ma Journée
         return (
-          <ErrorBoundary componentName="Inventaire Dashboard">
-            {/* Container style téléphone portable pour Jean-Philippe */}
-            <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
-              <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
-                <InventaireDashboard currentUser={effectiveUser} />
-              </div>
-            </div>
+          <ErrorBoundary componentName="Ma Journée">
+            <MaJournee currentUser={effectiveUser} />
           </ErrorBoundary>
         )
       case 'admin':
