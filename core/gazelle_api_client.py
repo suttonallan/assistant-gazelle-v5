@@ -1100,7 +1100,7 @@ class GazelleAPIClient:
         """
         
         # Construire l'input pour createEvent
-        # ESSENTIEL: title, start, duration, type, notes, clientId (si disponible), pianos
+        # ESSENTIEL: title, start, duration, type, notes, clientId (si disponible), pianos, userId
         event_input = {
             "title": title,
             "start": event_date,
@@ -1109,10 +1109,14 @@ class GazelleAPIClient:
             "notes": f"{service_type}: {technician_note}",  # Notes de service
             "pianos": [{"pianoId": piano_id, "isTuning": True}]  # isTuning: True = "Il s'agit d'un accord pour ce piano"
         }
-        
+
         # Ajouter clientId si disponible (récupéré depuis le piano ou fourni)
         if client_id:
             event_input["clientId"] = client_id
+
+        # Ajouter userId (technicien) si fourni - IMPORTANT pour attribution correcte
+        if technician_id:
+            event_input["userId"] = technician_id
         
         variables = {
             "input": event_input
@@ -1657,39 +1661,57 @@ class GazelleAPIClient:
         print(f"✅ {len(all_users)} utilisateurs uniques récupérés depuis timeline entries")
         return all_users
 
+    def _generate_new_token(self) -> None:
+        """
+        Génère un nouveau token OAuth2 en utilisant les credentials client.
+
+        Cette méthode est appelée quand aucun token valide n'est trouvé
+        (ni dans Supabase, ni dans token.json local).
+        """
+        print(f"🔑 Génération token avec client_id: {self.client_id[:20]}...")
+
+        try:
+            response = requests.post(
+                OAUTH_TOKEN_URL,
+                data={
+                    'grant_type': 'client_credentials',
+                    'client_id': self.client_id,
+                    'client_secret': self.client_secret
+                }
+            )
+
+            if response.status_code == 200:
+                token_data = response.json()
+                token_data['created_at'] = int(time.time())
+                self._save_token(token_data)
+
+                # Sauvegarder aussi dans Supabase pour persistance
+                try:
+                    from core.supabase_storage import SupabaseStorage
+                    storage = SupabaseStorage()
+                    storage.set_system_setting("gazelle_oauth_token", token_data)
+                    print("✅ Token généré et sauvegardé dans Supabase")
+                except Exception as e:
+                    print(f"⚠️ Token généré mais pas sauvegardé dans Supabase: {e}")
+                    print("✅ Token généré et sauvegardé localement")
+            else:
+                print(f"❌ Erreur génération token: {response.status_code}")
+                print(f"Response: {response.text}")
+                raise ConnectionError(f"Impossible de générer un token: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(f"Erreur réseau lors de la génération du token: {e}")
+
 
 if __name__ == '__main__':
     # Test basique du client
     try:
         client = GazelleAPIClient()
         print("✅ Client API initialisé avec succès")
-        
+
         # Test: récupérer quelques clients
         clients = client.get_clients(limit=5)
         print(f"📋 Exemple de client: {clients[0] if clients else 'Aucun client trouvé'}")
-        
+
     except Exception as e:
         print(f"❌ Erreur: {e}")
-
-    
-    def _generate_new_token(self) -> None:
-        """Generate new token using client credentials."""
-        print(f"🔑 Génération token avec client_id: {self.client_id[:20]}...")
-        response = requests.post(
-            OAUTH_TOKEN_URL,
-            data={
-                'grant_type': 'client_credentials',
-                'client_id': self.client_id,
-                'client_secret': self.client_secret
-            }
-        )
-        
-        if response.status_code == 200:
-            token_data = response.json()
-            token_data['created_at'] = int(time.time())
-            self._save_token(token_data)
-            print("✅ Token généré avec succès")
-        else:
-            print(f"❌ Erreur génération token: {response.status_code}")
-            print(f"Response: {response.text}")
-            raise ConnectionError(f"Impossible de générer un token: {response.status_code}")
