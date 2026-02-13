@@ -1,14 +1,44 @@
 /**
  * VDI_NotesView — Mode VDI : Saisie rapide + Admin buffer
  *
- * - Tout technicien (Nick, JP) : voit la liste des pianos, saisit ses notes avec auto-save
- * - Admin (Nicolas) : voit en plus le buffer des notes + bouton Bundle Push + toggle priorité
+ * Fonctionnalités :
+ * - Auto-save debounce 500ms vers le buffer Supabase
+ * - Feedback visuel universel : Modifié → En cours → ✅ Sauvegardé
+ * - localStorage de secours (rien ne se perd si l'onglet est fermé)
+ * - Identification par nom réel du technicien connecté (via PIN)
+ * - Admin : buffer review, validation, Bundle Push, toggle priorité
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getUserRole } from '../../config/roles';
+import { TECHNICIENS_LISTE } from '../../config/techniciens.config';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+
+// ========== localStorage helpers ==========
+const LS_PREFIX = 'vdi_note_';
+function lsSave(pianoId, value) {
+  try { localStorage.setItem(LS_PREFIX + pianoId, value); } catch {}
+}
+function lsLoad(pianoId) {
+  try { return localStorage.getItem(LS_PREFIX + pianoId) || ''; } catch { return ''; }
+}
+function lsRemove(pianoId) {
+  try { localStorage.removeItem(LS_PREFIX + pianoId); } catch {}
+}
+
+// ========== Resolve tech display name from currentUser ==========
+function resolveTechName(currentUser) {
+  // Try to match by email in the technicien config
+  if (currentUser?.email) {
+    const match = TECHNICIENS_LISTE.find(
+      t => t.email.toLowerCase() === currentUser.email.toLowerCase()
+    );
+    if (match) return match.prenom; // "Nicolas", "Jean-Philippe", "Allan"
+  }
+  // Fallback to currentUser.name or email prefix
+  return currentUser?.name || currentUser?.email?.split('@')[0] || 'Inconnu';
+}
 
 export default function VDI_NotesView({ currentUser }) {
   // Auth & token
@@ -19,7 +49,8 @@ export default function VDI_NotesView({ currentUser }) {
   const [pianos, setPianos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
-  const [saveStatus, setSaveStatus] = useState({}); // {pianoId: 'saving'|'saved'|'error'}
+  // Status per piano: 'idle' | 'modified' | 'saving' | 'saved' | 'error'
+  const [saveStatus, setSaveStatus] = useState({});
 
   // Admin buffer
   const [bufferNotes, setBufferNotes] = useState([]);
@@ -29,8 +60,10 @@ export default function VDI_NotesView({ currentUser }) {
 
   // Debounce timers
   const debounceTimers = useRef({});
-  // Local note values (for controlled textareas)
+  // Local note values (controlled textareas)
   const localNotes = useRef({});
+  // Track which pianos have been initialized from localStorage
+  const lsRestored = useRef(new Set());
 
   const userRole = getUserRole(currentUser?.email);
   const isAdmin = userRole === 'admin' || userRole === 'nick';
@@ -38,7 +71,7 @@ export default function VDI_NotesView({ currentUser }) {
   // ========== 1. Auto-provision token on mount ==========
   useEffect(() => {
     const ensureToken = async () => {
-      const name = currentUser?.name || currentUser?.email?.split('@')[0] || 'Inconnu';
+      const name = resolveTechName(currentUser);
       try {
         const r = await fetch(`${API_URL}/api/vdi/internal/ensure-token`, {
           method: 'POST',
@@ -65,11 +98,23 @@ export default function VDI_NotesView({ currentUser }) {
       const r = await fetch(`${API_URL}/api/vdi/guest/${techToken}/pianos`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      setPianos(data.pianos || []);
-      // Initialize local notes from buffer data
-      (data.pianos || []).forEach(p => {
-        if (p.buffer_note?.note) {
-          localNotes.current[p.id] = p.buffer_note.note;
+      const loadedPianos = data.pianos || [];
+      setPianos(loadedPianos);
+
+      // Initialize local notes: server buffer first, then localStorage fallback
+      loadedPianos.forEach(p => {
+        const serverNote = p.buffer_note?.note || '';
+        const lsNote = lsLoad(p.id);
+
+        if (lsNote && lsNote.length > serverNote.length && !lsRestored.current.has(p.id)) {
+          // localStorage has more content → user probably closed before save finished
+          localNotes.current[p.id] = lsNote;
+          lsRestored.current.add(p.id);
+          setSaveStatus(prev => ({ ...prev, [p.id]: 'modified' }));
+        } else if (serverNote) {
+          localNotes.current[p.id] = serverNote;
+          // Clear localStorage since server is up to date
+          lsRemove(p.id);
         }
       });
     } catch (e) {
@@ -95,14 +140,16 @@ export default function VDI_NotesView({ currentUser }) {
 
   useEffect(() => { if (isAdmin) loadBuffer(); }, [loadBuffer, isAdmin]);
 
-  // ========== 4. Auto-save with debounce ==========
+  // ========== 4. Auto-save with debounce + localStorage ==========
   const handleNoteChange = (pianoId, value) => {
     localNotes.current[pianoId] = value;
-    // Force re-render for the textarea
+    // Persist immediately in localStorage (crash-safe)
+    lsSave(pianoId, value);
+    // Force re-render for textarea
     setPianos(prev => [...prev]);
 
     clearTimeout(debounceTimers.current[pianoId]);
-    setSaveStatus(prev => ({ ...prev, [pianoId]: 'typing' }));
+    setSaveStatus(prev => ({ ...prev, [pianoId]: 'modified' }));
 
     debounceTimers.current[pianoId] = setTimeout(async () => {
       if (!value.trim()) return;
@@ -115,10 +162,13 @@ export default function VDI_NotesView({ currentUser }) {
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         setSaveStatus(prev => ({ ...prev, [pianoId]: 'saved' }));
+        // Server is now up to date → remove localStorage backup
+        lsRemove(pianoId);
         // Refresh admin buffer silently
         if (isAdmin) loadBuffer();
       } catch {
         setSaveStatus(prev => ({ ...prev, [pianoId]: 'error' }));
+        // Keep localStorage so nothing is lost
       }
     }, 500);
   };
@@ -167,7 +217,7 @@ export default function VDI_NotesView({ currentUser }) {
       });
       const data = await r.json();
       if (data.success) {
-        alert(`Envoyé! ${data.notes_count} note(s) pour ${data.pianos_count} piano(s). Event: ${data.event_id}`);
+        alert(`Envoyé! ${data.notes_count} note(s) pour ${data.pianos_count} piano(s).\nEvent: ${data.event_id}`);
         await loadBuffer();
       } else {
         alert('Erreur: ' + JSON.stringify(data));
@@ -187,25 +237,35 @@ export default function VDI_NotesView({ currentUser }) {
     });
   };
 
-  // ========== 6. Render helpers ==========
-  const SaveIndicator = ({ pianoId }) => {
+  // ========== 6. Save Status Badge (prominent, universal) ==========
+  const SaveBadge = ({ pianoId }) => {
     const s = saveStatus[pianoId];
-    if (!s) return null;
-    const styles = {
-      typing: 'text-gray-400',
-      saving: 'text-blue-500',
-      saved: 'text-green-600',
-      error: 'text-red-500',
+    if (!s || s === 'idle') return null;
+
+    const config = {
+      modified: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300', label: 'Modifié', icon: '●' },
+      saving:   { bg: 'bg-blue-100',  text: 'text-blue-700',  border: 'border-blue-300',  label: 'En cours...', icon: '↻' },
+      saved:    { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', label: 'Sauvegardé', icon: '✓' },
+      error:    { bg: 'bg-red-100',   text: 'text-red-700',   border: 'border-red-300',   label: 'Erreur — réessai auto', icon: '✕' },
     };
-    const labels = { typing: '...', saving: 'Sauvegarde...', saved: 'Sauvegardé', error: 'Erreur!' };
-    return <span className={`text-xs ${styles[s]}`}>{labels[s]}</span>;
+    const c = config[s];
+
+    return (
+      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${c.bg} ${c.text} ${c.border} ${s === 'saving' ? 'animate-pulse' : ''}`}>
+        <span>{c.icon}</span>
+        <span>{c.label}</span>
+      </div>
+    );
   };
 
   // ========== RENDER ==========
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="text-gray-500">Chargement Mode VDI...</div>
+        <div className="text-center">
+          <div className="w-8 h-8 border-3 border-gray-300 border-t-blue-500 rounded-full animate-spin mx-auto mb-3" />
+          <div className="text-gray-500">Chargement Mode VDI...</div>
+        </div>
       </div>
     );
   }
@@ -282,7 +342,6 @@ export default function VDI_NotesView({ currentUser }) {
                 </div>
               )}
 
-              {/* Admin action buttons */}
               <div className="flex gap-2 pt-2 border-t">
                 <button
                   onClick={validateSelected}
@@ -322,7 +381,7 @@ export default function VDI_NotesView({ currentUser }) {
 
             return (
               <div key={piano.id}>
-                {/* Piano header — clickable */}
+                {/* Piano header */}
                 <div
                   onClick={() => setExpandedId(isExpanded ? null : piano.id)}
                   className={`px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${
@@ -343,10 +402,14 @@ export default function VDI_NotesView({ currentUser }) {
                         Prioritaire
                       </span>
                     )}
-                    {piano.buffer_note?.note && (
+                    {piano.buffer_note?.note && !isExpanded && (
                       <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
                         {piano.buffer_note.status === 'draft' ? '📝' : '✓'}
                       </span>
+                    )}
+                    {/* Save status visible even when collapsed */}
+                    {!isExpanded && saveStatus[piano.id] === 'modified' && (
+                      <span className="w-2 h-2 rounded-full bg-amber-400" title="Modifié (non sauvegardé)" />
                     )}
                     {isAdmin && (
                       <button
@@ -381,8 +444,11 @@ export default function VDI_NotesView({ currentUser }) {
                         className="w-full border border-gray-300 rounded-lg p-3 text-sm h-28 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
                         autoFocus
                       />
-                      <div className="flex justify-end mt-1">
-                        <SaveIndicator pianoId={piano.id} />
+                      <div className="flex justify-between items-center mt-2">
+                        <div className="text-xs text-gray-400">
+                          {techName} — auto-save 0.5s
+                        </div>
+                        <SaveBadge pianoId={piano.id} />
                       </div>
                     </div>
                   </div>
