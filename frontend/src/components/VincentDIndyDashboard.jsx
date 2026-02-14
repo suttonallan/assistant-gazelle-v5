@@ -724,10 +724,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             batchSetStatus={batchSetStatus}
             batchSetUsage={batchSetUsage}
             batchHideFromInventory={batchHideFromInventory}
-            handlePushToGazelle={handlePushToGazelle}
             savePianoToAPI={savePianoToAPI}
-            readyForPushCount={readyForPushCount}
-            pushInProgress={pushInProgress}
             editingAFaireId={editingAFaireId}
             setEditingAFaireId={setEditingAFaireId}
             aFaireInput={aFaireInput}

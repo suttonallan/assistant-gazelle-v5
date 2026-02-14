@@ -59,13 +59,8 @@ export default function VDI_ManagementView({
   batchSetStatus,
   batchSetUsage,
   batchHideFromInventory,
-  handlePushToGazelle,
   savePianoToAPI,
   removePianoFromTournee,
-
-  // Push Gazelle
-  readyForPushCount,
-  pushInProgress,
 
   // Édition inline
   editingAFaireId,
@@ -210,21 +205,6 @@ export default function VDI_ManagementView({
         <div className="flex gap-3 flex-wrap items-center border-t pt-3">
           <button onClick={selectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☑ Tous</button>
           <button onClick={deselectAll} className="px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300">☐ Aucun</button>
-
-          {/* Bouton Push vers Gazelle */}
-          {readyForPushCount > 0 && (
-            <button
-              onClick={handlePushToGazelle}
-              className="px-4 py-2 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-              disabled={pushInProgress}
-            >
-              {pushInProgress ? (
-                '⏳ Envoi en cours...'
-              ) : (
-                `📤 Envoyer à Gazelle (${readyForPushCount})`
-              )}
-            </button>
-          )}
 
           {selectedIds.size > 0 && (
             <>
