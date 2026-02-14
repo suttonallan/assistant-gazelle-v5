@@ -78,7 +78,7 @@ function FestiveDecor({ show }) {
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('chat') // DÉFAUT: Ma Journée pour tous
+  const [currentView, setCurrentView] = useState('vincent-dindy-v7') // TEMP: ouvrir VDI directement pour tester
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
