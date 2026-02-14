@@ -1,10 +1,12 @@
 /**
- * VDI_TechnicianView - Vue accordéon mobile pour les techniciens
+ * VDI_TechnicianView v2 — Vue accordéon mobile pour les techniciens
  *
  * Auto-save avec debounce 500ms + indicateur lumineux.
  * Le technicien tape ses notes, ça s'enregistre tout seul.
  * Il clique sur un autre piano pour passer au suivant.
  * Pas de push Gazelle — Nick review et décide dans sa vue gestionnaire.
+ *
+ * Changements v2: retrait checkbox Gazelle, retrait bouton Sauvegarder
  */
 
 import React, { useState, useRef, useCallback } from 'react';
