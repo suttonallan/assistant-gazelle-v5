@@ -287,14 +287,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
-    // Cycle à 3 états : normal → proposed (jaune) → completed (vert) → normal
+    // Cycle à 3 états : blanc → jaune (à faire) → ambre (Top) → blanc
     let newStatus;
     if (piano.status === 'normal' || !piano.status) {
-      newStatus = 'proposed'; // Blanc → Jaune
+      newStatus = 'proposed'; // Blanc → Jaune (à faire)
     } else if (piano.status === 'proposed') {
-      newStatus = 'completed'; // Jaune → Vert
-    } else if (piano.status === 'completed') {
-      newStatus = 'normal'; // Vert → Blanc
+      newStatus = 'top'; // Jaune → Ambre (Top priorité)
+    } else if (piano.status === 'top') {
+      newStatus = 'normal'; // Ambre → Blanc (reset)
+    } else {
+      newStatus = 'normal'; // Tout autre état → Blanc
     }
 
     // Mise à jour optimiste
@@ -485,13 +487,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 1: Sélection (mauve)
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Haute priorité (ambre)
+    // Priorité 2: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-amber-200';
 
-    // Priorité 3: Travail complété (vert)
-    if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
-
-    // Priorité 4: Proposé, à faire = jaune
+    // Priorité 3: À faire (jaune)
     if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
       return 'bg-yellow-200';
     }
