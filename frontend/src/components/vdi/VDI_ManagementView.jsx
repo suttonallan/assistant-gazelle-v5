@@ -374,27 +374,21 @@ export default function VDI_ManagementView({
                     )}
                   </td>
 
-                  {/* Colonne Visibilité - Toggle individuel */}
-                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={async () => {
+                  {/* Colonne Visible - simple checkbox */}
+                  <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={!piano.is_hidden}
+                      onChange={async () => {
                         const newIsHidden = !piano.is_hidden;
-                        // Mise à jour optimiste
                         setPianos(pianos.map(p =>
                           p.id === piano.id ? { ...p, is_hidden: newIsHidden } : p
                         ));
-                        // Sauvegarder via API
                         await savePianoToAPI(piano.id, { isHidden: newIsHidden });
                       }}
-                      className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
-                        piano.is_hidden
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-green-100 text-green-700 hover:bg-green-200'
-                      }`}
-                      title={piano.is_hidden ? 'Piano masqué - cliquer pour afficher' : 'Piano visible - cliquer pour masquer'}
-                    >
-                      {piano.is_hidden ? '🚫 Masqué' : '👁️ Visible'}
-                    </button>
+                      className="rounded"
+                      title={piano.is_hidden ? 'Masqué — cocher pour afficher' : 'Visible — décocher pour masquer'}
+                    />
                   </td>
                 </tr>
               );
