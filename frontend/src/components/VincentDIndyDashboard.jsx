@@ -590,8 +590,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
 
-  // ============ VUE MODE VDI (saisie rapide + admin buffer) ============
+  // ============ VUE MODE VDI (review travail des techniciens) ============
   if (currentView === 'vdi') {
+    const pianosAvecTravail = pianos.filter(p => p.travail && p.travail.trim() !== '');
+    const pianosCompletes = pianos.filter(p => p.is_work_completed);
+    const pianosEnCours = pianosAvecTravail.filter(p => !p.is_work_completed);
+
     return (
       <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
@@ -600,8 +604,60 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
-        <div className="w-full max-w-lg mx-auto px-4 py-4 sm:px-3 sm:py-2">
-          <VDI_NotesView currentUser={currentUser} />
+        <div className="w-full max-w-lg mx-auto px-4 py-4">
+          {/* Résumé */}
+          <div className="bg-white rounded-lg shadow p-4 mb-4">
+            <div className="text-lg font-semibold text-gray-800 mb-2">Travail des techniciens</div>
+            <div className="flex gap-4 text-sm">
+              <span className="text-green-700 font-medium">{pianosCompletes.length} complété(s)</span>
+              <span className="text-blue-700 font-medium">{pianosEnCours.length} en cours</span>
+              <span className="text-gray-500">{pianos.length} total</span>
+            </div>
+          </div>
+
+          {/* Liste des pianos avec travail */}
+          {pianosAvecTravail.length === 0 ? (
+            <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+              Aucun piano avec du travail effectué pour l'instant.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pianosAvecTravail.map(piano => (
+                <div key={piano.id} className={`bg-white rounded-lg shadow overflow-hidden border-l-4 ${
+                  piano.is_work_completed ? 'border-green-500' : 'border-blue-400'
+                }`}>
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <span className="font-bold text-gray-800 text-lg">{piano.local}</span>
+                        <span className="text-gray-500 ml-2">{piano.piano}</span>
+                      </div>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                        piano.is_work_completed
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {piano.is_work_completed ? 'Complété' : 'En cours'}
+                      </span>
+                    </div>
+                    {piano.aFaire && (
+                      <div className="text-sm text-yellow-800 bg-yellow-50 rounded p-2 mb-2">
+                        <span className="font-medium">À faire:</span> {piano.aFaire}
+                      </div>
+                    )}
+                    <div className="text-sm text-gray-700 bg-gray-50 rounded p-2 whitespace-pre-wrap">
+                      {piano.travail}
+                    </div>
+                    {piano.sync_status && (
+                      <div className="mt-2 text-xs text-gray-400">
+                        Sync: {piano.sync_status}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
