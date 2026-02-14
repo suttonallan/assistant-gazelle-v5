@@ -192,7 +192,7 @@ export default function VDI_TechnicianView({
                       <span className="w-2 h-2 rounded-full bg-amber-400" title="Non sauvegardé" />
                     )}
                     <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>
-                      {mois === 999 ? '-' : `${mois}m`}
+                      {formatDateRelative(piano.dernierAccord)}
                     </span>
                     <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
                   </div>

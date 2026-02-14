@@ -140,11 +140,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   };
 
   const moisDepuisAccord = (dateStr) => {
-    if (!dateStr || dateStr.trim() === '') return 999; // Valeur très élevée pour trier à la fin
+    if (!dateStr || dateStr.trim() === '') return 999;
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 999; // Date invalide
+    if (isNaN(date.getTime())) return 999;
     const now = new Date();
-    return Math.floor((now - date) / (1000 * 60 * 60 * 24 * 30));
+    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    if (diffDays < 30) return diffDays / 30; // Fraction < 1 pour le tri
+    return Math.floor(diffDays / 30);
   };
 
   // Format de date relatif compact (1j, 2j, 1s, 1m, etc.)
