@@ -1,64 +1,91 @@
 /**
  * VDI_TechnicianView - Vue accordéon mobile pour les techniciens
  *
- * Affiche les pianos sous forme de cartes pliables avec:
- * - Filtres "Tous" / "À faire"
- * - Recherche par local
- * - Formulaire de saisie du travail effectué
- * - Sauvegarde et passage automatique au suivant
+ * Auto-save avec debounce 500ms + indicateur lumineux.
+ * Le technicien tape ses notes, ça s'enregistre tout seul.
+ * Il clique sur un autre piano pour passer au suivant.
+ * Pas de push Gazelle — Nick review et décide dans sa vue gestionnaire.
  */
 
-import React from 'react';
+import React, { useState, useRef, useCallback } from 'react';
+
+// Save status badge (same pattern as VDI_NotesView)
+function SaveBadge({ status }) {
+  if (!status || status === 'idle') return null;
+
+  const config = {
+    modified: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-300', label: 'Modifié', icon: '●' },
+    saving:   { bg: 'bg-blue-100',  text: 'text-blue-700',  border: 'border-blue-300',  label: 'En cours...', icon: '↻' },
+    saved:    { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', label: 'Sauvegardé', icon: '✓' },
+    error:    { bg: 'bg-red-100',   text: 'text-red-700',   border: 'border-red-300',   label: 'Erreur', icon: '✕' },
+  };
+  const c = config[status];
+
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${c.bg} ${c.text} ${c.border} ${status === 'saving' ? 'animate-pulse' : ''}`}>
+      <span>{c.icon}</span>
+      <span>{c.label}</span>
+    </div>
+  );
+}
 
 export default function VDI_TechnicianView({
-  // État global
   pianos,
   stats,
-
-  // Filtres
   showOnlyProposed,
   setShowOnlyProposed,
   searchLocal,
   setSearchLocal,
-
-  // Piano développé
   expandedPianoId,
   setExpandedPianoId,
   travailInput,
   setTravailInput,
-  observationsInput,
-  setObservationsInput,
-  isWorkCompleted,
-  setIsWorkCompleted,
 
-  // Actions
+  // Actions — saveTravail is used for auto-save now
   saveTravail,
 
   // Utilitaires
   moisDepuisAccord,
   formatDateRelative,
-  getSyncStatusIcon,
   pianosFiltres,
 
-  // Tournées (sélection institution) - avec valeurs par défaut
+  // Tournées (sélection institution)
   selectedInstitution,
   setSelectedInstitution,
   onInstitutionChange
 }) {
+  // Auto-save state
+  const [saveStatus, setSaveStatus] = useState({});
+  const debounceTimers = useRef({});
 
   const toggleExpand = (piano) => {
     if (expandedPianoId === piano.id) {
-      // Fermer
       setExpandedPianoId(null);
       setTravailInput('');
-      setIsWorkCompleted(false);
     } else {
-      // Ouvrir et charger les données
       setExpandedPianoId(piano.id);
       setTravailInput(piano.travail || '');
-      setIsWorkCompleted(piano.is_work_completed || false);
     }
   };
+
+  // Auto-save handler with debounce
+  const handleTravailChange = useCallback((pianoId, value) => {
+    setTravailInput(value);
+
+    clearTimeout(debounceTimers.current[pianoId]);
+    setSaveStatus(prev => ({ ...prev, [pianoId]: 'modified' }));
+
+    debounceTimers.current[pianoId] = setTimeout(async () => {
+      if (!value.trim()) return;
+      setSaveStatus(prev => ({ ...prev, [pianoId]: 'saving' }));
+      try {
+        await saveTravail(pianoId, value);
+        setSaveStatus(prev => ({ ...prev, [pianoId]: 'saved' }));
+      } catch {
+        setSaveStatus(prev => ({ ...prev, [pianoId]: 'error' }));
+      }
+    }, 500);
+  }, [saveTravail, setTravailInput]);
 
   const institutions = [
     { slug: 'vincent-dindy', name: "Vincent-d'Indy" },
@@ -67,58 +94,31 @@ export default function VDI_TechnicianView({
   ];
 
   const handleInstitutionChange = (institutionSlug) => {
-    console.log('🔄 Changement institution:', institutionSlug);
-    if (setSelectedInstitution) {
-      setSelectedInstitution(institutionSlug);
-    }
-    if (onInstitutionChange) {
-      onInstitutionChange(institutionSlug);
-    } else {
-      console.warn('⚠️ onInstitutionChange non défini');
-    }
+    if (setSelectedInstitution) setSelectedInstitution(institutionSlug);
+    if (onInstitutionChange) onInstitutionChange(institutionSlug);
   };
 
-  // Utiliser selectedInstitution ou 'vincent-dindy' par défaut
   const currentInstitution = selectedInstitution || 'vincent-dindy';
-  
-  // Debug: afficher la valeur actuelle - LOGS TRÈS VISIBLES
-  console.log('🏛️ ===== VDI_TechnicianView RENDU =====');
-  console.log('🏛️ Props reçues:', {
-    selectedInstitution,
-    hasSetSelectedInstitution: !!setSelectedInstitution,
-    hasOnInstitutionChange: !!onInstitutionChange,
-    currentInstitution
-  });
-  console.log('🏛️ Institutions disponibles:', institutions.map(i => `${i.slug} (${i.name})`).join(', '));
-  console.log('🏛️ Institution active:', currentInstitution);
-  console.log('🏛️ ====================================');
 
   return (
     <div className="bg-gray-50">
-      {/* Volet Tournées - Sélection institution - TOUJOURS AFFICHÉ - TEST VISIBILITÉ */}
-      <div 
-        className="bg-gradient-to-r from-blue-50 to-white p-4 mb-3 border-2 border-blue-400 shadow-lg rounded-lg"
-        style={{ display: 'block', visibility: 'visible', opacity: 1 }}
-        data-testid="institution-selector-panel"
-      >
-        <div className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <span className="text-2xl">🏛️</span>
-          <span>Tournées</span>
+      {/* Sélection institution */}
+      <div className="bg-gradient-to-r from-blue-50 to-white p-4 mb-3 border border-blue-200 rounded-lg">
+        <div className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+          <span>🏛️</span>
+          <span>Institution</span>
         </div>
-        <div className="flex gap-2 mb-2">
+        <div className="flex gap-2">
           {institutions.map(inst => {
             const isActive = currentInstitution === inst.slug;
             return (
               <button
                 key={inst.slug}
-                onClick={() => {
-                  console.log('🖱️ Clic sur institution:', inst.slug);
-                  handleInstitutionChange(inst.slug);
-                }}
-                className={`flex-1 py-3 px-4 text-sm rounded-lg font-bold transition-all ${
+                onClick={() => handleInstitutionChange(inst.slug)}
+                className={`flex-1 py-2 px-3 text-sm rounded-lg font-medium transition-all ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-lg scale-105 ring-2 ring-blue-300'
-                    : 'bg-white text-gray-700 hover:bg-blue-50 active:bg-blue-100 border-2 border-gray-300 hover:border-blue-400'
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-300'
                 }`}
               >
                 {inst.name}
@@ -126,12 +126,9 @@ export default function VDI_TechnicianView({
             );
           })}
         </div>
-        <div className="mt-2 text-xs text-gray-700 bg-blue-100 p-2 rounded border border-blue-300">
-          <span className="font-semibold">Institution active:</span> <span className="font-bold text-blue-700">{currentInstitution}</span>
-        </div>
       </div>
 
-      {/* Filtres compacts pour la vue technicien */}
+      {/* Filtres */}
       <div className="bg-white p-3 mb-4 border-b border-gray-200">
         <div className="flex gap-2 mb-2">
           <button
@@ -167,12 +164,13 @@ export default function VDI_TechnicianView({
           pianosFiltres.map(piano => {
             const isExpanded = expandedPianoId === piano.id;
             const mois = moisDepuisAccord(piano.dernierAccord);
+            const hasTravail = piano.travail && piano.travail.trim() !== '';
 
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
                 piano.status === 'top' ? 'bg-amber-100' :
-                (piano.status === 'completed' && piano.is_work_completed) ? 'bg-green-100' :
-                (piano.status === 'work_in_progress' || ((piano.travail || piano.observations) && !piano.is_work_completed)) ? 'bg-blue-100' :
+                (piano.status === 'completed') ? 'bg-green-100' :
+                hasTravail ? 'bg-blue-100' :
                 (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) ? 'bg-yellow-100' :
                 'bg-white'
               }`}>
@@ -186,11 +184,10 @@ export default function VDI_TechnicianView({
                     <span className="text-gray-600">{piano.piano}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {piano.status === 'completed' && <span className="text-green-600">✓</span>}
-                    {piano.sync_status && (
-                      <span title={`Sync: ${piano.sync_status}`} className="text-base">
-                        {getSyncStatusIcon(piano.sync_status)}
-                      </span>
+                    {hasTravail && <span className="text-blue-500 text-xs">📝</span>}
+                    {/* Save status dot when collapsed */}
+                    {!isExpanded && saveStatus[piano.id] === 'modified' && (
+                      <span className="w-2 h-2 rounded-full bg-amber-400" title="Non sauvegardé" />
                     )}
                     <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>
                       {mois === 999 ? '-' : `${mois}m`}
@@ -213,41 +210,24 @@ export default function VDI_TechnicianView({
                     {/* Note "à faire" de Nick */}
                     {piano.aFaire && (
                       <div className="bg-yellow-100 p-2 rounded text-sm">
-                        <span className="font-medium">📋 À faire:</span> {piano.aFaire}
+                        <span className="font-medium">À faire:</span> {piano.aFaire}
                       </div>
                     )}
 
-                    {/* Formulaire technicien */}
+                    {/* Textarea auto-save */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">🔧 Travail effectué</label>
                       <textarea
                         value={travailInput}
-                        onChange={(e) => setTravailInput(e.target.value)}
-                        className="w-full border rounded p-2 text-sm h-20"
-                        placeholder="Accord, réglages..."
+                        onChange={(e) => handleTravailChange(piano.id, e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg p-3 text-sm h-24 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                        placeholder="Notes d'accord, observations..."
+                        autoFocus
                       />
+                      <div className="flex justify-between items-center mt-1">
+                        <div className="text-xs text-gray-400">auto-save</div>
+                        <SaveBadge status={saveStatus[piano.id]} />
+                      </div>
                     </div>
-
-                    {/* Checkbox Travail complété */}
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id={`completed-${piano.id}`}
-                        checked={isWorkCompleted}
-                        onChange={(e) => setIsWorkCompleted(e.target.checked)}
-                        className="w-4 h-4"
-                      />
-                      <label htmlFor={`completed-${piano.id}`} className="font-medium text-sm">
-                        ✅ Travail complété (prêt pour Gazelle)
-                      </label>
-                    </div>
-
-                    <button
-                      onClick={() => saveTravail(piano.id)}
-                      className="w-full bg-green-500 text-white py-3 rounded-lg font-medium active:bg-green-600"
-                    >
-                      💾 Sauvegarder → Suivant
-                    </button>
                   </div>
                 )}
               </div>

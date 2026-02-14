@@ -178,11 +178,11 @@ export default function VDI_ManagementView({
             onClick={async () => {
               await loadPianosFromAPI();
             }}
-            className="px-4 py-2 rounded text-sm font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50"
+            className="px-3 py-2 rounded text-sm font-medium bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
             disabled={loading}
-            title="Rafraîchir les données depuis Gazelle"
+            title="Rafraîchir les données"
           >
-            {loading ? '⏳ Sync...' : '🔄 Sync Gazelle'}
+            {loading ? '⏳...' : '🔄'}
           </button>
         </div>
 

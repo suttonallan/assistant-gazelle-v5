@@ -399,70 +399,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
-  // Technicien - sauvegarder (connecté à l'API)
-  const saveTravail = async (id) => {
+  // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
+  // Accepte la valeur en paramètre pour le mode auto-save
+  const saveTravail = async (id, value) => {
+    const noteValue = value !== undefined ? value : travailInput;
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
-    try {
-      // Créer le rapport pour l'API
-      const report = {
-        technician_name: 'Technicien', // TODO: Récupérer depuis l'authentification
-        client_name: 'École Vincent-d\'Indy',
-        piano_id: piano.gazelleId || null, // NOUVEAU: ID Gazelle pour push automatique
-        date: new Date().toISOString().split('T')[0],
-        report_type: 'maintenance',
-        description: `Travail effectué sur piano ${piano.piano} (Série: ${piano.serie}) - Local: ${piano.local}`,
-        service_history_notes: piano.aFaire ? `À faire: ${piano.aFaire}\n\nTravail: ${travailInput}\n\nObservations: ${observationsInput}` : `Travail: ${travailInput}\n\nObservations: ${observationsInput}`,
-        hours_worked: null,
-        institution: institution || 'vincent-dindy' // NOUVEAU: Support multi-institutions
-      };
+    // Mise à jour optimiste
+    setPianos(pianos.map(p =>
+      p.id === id ? { ...p, travail: noteValue, status: noteValue ? 'work_in_progress' : p.status } : p
+    ));
 
-      // Envoyer le rapport à l'API
-      await submitReport(API_URL, report);
-
-      // Déterminer le statut selon la logique de transition
-      let newStatus = piano.status;
-      if (isWorkCompleted) {
-        newStatus = 'completed';
-      } else if (travailInput) {
-        newStatus = 'work_in_progress';
-      }
-
-      // Mise à jour optimiste
-      setPianos(pianos.map(p =>
-        p.id === id ? { 
-          ...p, 
-          travail: travailInput, 
-          is_work_completed: isWorkCompleted,
-          status: newStatus
-        } : p
-      ));
-
-      // Sauvegarder le piano via API
-      await savePianoToAPI(id, {
-        travail: travailInput,
-        isWorkCompleted: isWorkCompleted,
-        status: newStatus
-      });
-
-      // Le push vers Gazelle est maintenant géré automatiquement par l'endpoint /reports
-      // quand piano_id est fourni dans le rapport (pas besoin d'appel séparé)
-
-      // Passer au suivant
-      const currentIndex = pianosFiltres.findIndex(p => p.id === id);
-      const nextPiano = pianosFiltres[currentIndex + 1];
-      if (nextPiano && nextPiano.status === 'proposed') {
-        setExpandedPianoId(nextPiano.id);
-        setTravailInput(nextPiano.travail || '');
-        setObservationsInput(nextPiano.observations || '');
-      } else {
-        setExpandedPianoId(null);
-      }
-    } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
-      alert('Erreur lors de la sauvegarde du rapport. Veuillez réessayer.');
-    }
+    // Sauvegarder le piano via API
+    await savePianoToAPI(id, { travail: noteValue });
   };
 
 
@@ -688,19 +638,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               setExpandedPianoId={setExpandedPianoId}
               travailInput={travailInput}
               setTravailInput={setTravailInput}
-              observationsInput={observationsInput}
-              setObservationsInput={setObservationsInput}
-              isWorkCompleted={isWorkCompleted}
-              setIsWorkCompleted={setIsWorkCompleted}
               saveTravail={saveTravail}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}
-              getSyncStatusIcon={getSyncStatusIcon}
               pianosFiltres={pianosFiltres}
               selectedInstitution={selectedInstitutionForTechnician || institution}
               setSelectedInstitution={setSelectedInstitutionForTechnician}
               onInstitutionChange={handleInstitutionChangeForTechnician}
-                        />
+            />
                       </div>
         </div>
       </div>
