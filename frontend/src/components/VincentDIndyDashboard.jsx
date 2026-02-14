@@ -589,46 +589,27 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Filtrer : seulement les pianos qui ont du travail du technicien
     const pianosAvecTravail = pianos.filter(p => p.travail && p.travail.trim() !== '');
 
-    // Séparer en deux groupes : à valider vs déjà validés
+    // Pianos avec notes du technicien, triés par local
     const aValider = pianosAvecTravail
-      .filter(p => p.status !== 'validated')
       .sort((a, b) => (a.local || '').localeCompare(b.local || '', undefined, { numeric: true }));
 
-    const valides = pianosAvecTravail
-      .filter(p => p.status === 'validated')
-      .sort((a, b) => {
-        // Plus récent (validated_at) en premier
-        const dateA = a.validated_at || a.updated_at || '';
-        const dateB = b.validated_at || b.updated_at || '';
-        return dateB.localeCompare(dateA);
-      });
-
     const handleValidate = async (pianoId) => {
-      // Mise à jour optimiste
+      // Valider = effacer notes + remettre à normal (ardoise propre pour le technicien)
       setPianos(pianos.map(p =>
-        p.id === pianoId ? { ...p, status: 'validated', validated_at: new Date().toISOString() } : p
+        p.id === pianoId ? { ...p, status: 'normal', travail: '', aFaire: '', validated_at: new Date().toISOString() } : p
       ));
-      await savePianoToAPI(pianoId, { status: 'validated' });
-    };
-
-    const handleUnvalidate = async (pianoId) => {
-      // Remettre en work_in_progress
-      setPianos(pianos.map(p =>
-        p.id === pianoId ? { ...p, status: 'work_in_progress', validated_at: null } : p
-      ));
-      await savePianoToAPI(pianoId, { status: 'work_in_progress' });
+      await savePianoToAPI(pianoId, { status: 'normal', travail: '', aFaire: '' });
     };
 
     const handleValidateAll = async () => {
       if (aValider.length === 0) return;
-      if (!confirm(`Valider les ${aValider.length} piano(s) d'un coup?`)) return;
-      const now = new Date().toISOString();
+      if (!confirm(`Valider les ${aValider.length} piano(s) et effacer leurs notes?`)) return;
       const ids = aValider.map(p => p.id);
       setPianos(pianos.map(p =>
-        ids.includes(p.id) ? { ...p, status: 'validated', validated_at: now } : p
+        ids.includes(p.id) ? { ...p, status: 'normal', travail: '', aFaire: '' } : p
       ));
       for (const id of ids) {
-        await savePianoToAPI(id, { status: 'validated' });
+        await savePianoToAPI(id, { status: 'normal', travail: '', aFaire: '' });
       }
     };
 
@@ -699,52 +680,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             )}
           </div>
 
-          {/* Section : Validés */}
-          {valides.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                <span className="w-3 h-3 bg-green-400 rounded-full inline-block"></span>
-                Validés ({valides.length})
-              </h2>
-              <div className="bg-white rounded-lg shadow overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-green-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
-                      <th className="px-3 py-2">Local</th>
-                      <th className="px-3 py-2">Piano</th>
-                      <th className="px-3 py-2">À faire (Nick)</th>
-                      <th className="px-3 py-2">Notes technicien</th>
-                      <th className="px-3 py-2 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {valides.map(piano => (
-                      <tr key={piano.id} className="bg-green-50/30 hover:bg-green-50">
-                        <td className="px-3 py-2 font-medium whitespace-nowrap">{piano.local}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
-                        <td className="px-3 py-2 text-xs text-gray-600">{piano.aFaire || '-'}</td>
-                        <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
-                          <div className="whitespace-pre-wrap">{piano.travail}</div>
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => handleUnvalidate(piano.id)}
-                            className="px-2 py-1 text-xs font-medium text-gray-500 bg-gray-100 rounded hover:bg-red-100 hover:text-red-600 transition-colors"
-                            title="Annuler la validation"
-                          >
-                            Annuler
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           <div className="text-xs text-gray-400 text-right">
-            {pianosAvecTravail.length} piano(s) avec notes technicien
+            {aValider.length} piano(s) avec notes technicien
           </div>
         </div>
       </div>
