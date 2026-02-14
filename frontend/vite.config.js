@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     // base: '/assistant-gazelle-v5/', // Désactivé pour développement local
-    base: '/',
+    base: isProduction ? '/assistant-gazelle-v5/' : '/',
     build: {
       outDir: 'dist',
       // S'assurer que les variables d'environnement sont bien incluses
