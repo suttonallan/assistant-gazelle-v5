@@ -619,6 +619,19 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       await savePianoToAPI(pianoId, { status: 'work_in_progress' });
     };
 
+    const handleValidateAll = async () => {
+      if (aValider.length === 0) return;
+      if (!confirm(`Valider les ${aValider.length} piano(s) d'un coup?`)) return;
+      const now = new Date().toISOString();
+      const ids = aValider.map(p => p.id);
+      setPianos(pianos.map(p =>
+        ids.includes(p.id) ? { ...p, status: 'validated', validated_at: now } : p
+      ));
+      for (const id of ids) {
+        await savePianoToAPI(id, { status: 'validated' });
+      }
+    };
+
     return (
       <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
@@ -631,10 +644,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
           {/* Section : À valider */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-              <span className="w-3 h-3 bg-blue-400 rounded-full inline-block"></span>
-              À valider ({aValider.length})
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <span className="w-3 h-3 bg-blue-400 rounded-full inline-block"></span>
+                À valider ({aValider.length})
+              </h2>
+              {aValider.length > 1 && (
+                <button
+                  onClick={handleValidateAll}
+                  className="px-3 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                >
+                  Valider tout ({aValider.length})
+                </button>
+              )}
+            </div>
             {aValider.length === 0 ? (
               <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
                 Aucun piano en attente de validation.
