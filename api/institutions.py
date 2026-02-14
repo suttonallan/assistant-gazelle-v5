@@ -507,6 +507,12 @@ async def update_institution_piano(
                 from datetime import datetime
                 update_data['completed_at'] = datetime.now().isoformat()
 
+        # Si statut passe à validated, enregistrer validated_at
+        if update_data.get('status') == 'validated':
+            if 'validated_at' not in update_data:
+                from datetime import datetime
+                update_data['validated_at'] = datetime.now().isoformat()
+
         success = storage.update_piano(piano_id, update_data, institution_slug=institution)
 
         if not success:

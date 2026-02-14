@@ -357,6 +357,12 @@ async def update_piano(piano_id: str, update: PianoUpdate):
                 update_data['completed_at'] = datetime.now().isoformat()
             # TODO: Ajouter completed_in_tournee_id si tournée active
 
+        # Si statut passe à validated, enregistrer validated_at
+        if update_data.get('status') == 'validated':
+            if 'validated_at' not in update_data:
+                from datetime import datetime
+                update_data['validated_at'] = datetime.now().isoformat()
+
         # Si piano était pushed et on modifie travail/observations → sync_status = modified
         # (géré par trigger SQL auto_mark_sync_modified)
 

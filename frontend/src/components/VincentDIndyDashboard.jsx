@@ -584,8 +584,41 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
 
-  // ============ VUE MODE VDI (tableur compact — une ligne par piano) ============
+  // ============ VUE "À VALIDER" — pianos avec travail du technicien ============
   if (currentView === 'vdi') {
+    // Filtrer : seulement les pianos qui ont du travail du technicien
+    const pianosAvecTravail = pianos.filter(p => p.travail && p.travail.trim() !== '');
+
+    // Séparer en deux groupes : à valider vs déjà validés
+    const aValider = pianosAvecTravail
+      .filter(p => p.status !== 'validated')
+      .sort((a, b) => (a.local || '').localeCompare(b.local || '', undefined, { numeric: true }));
+
+    const valides = pianosAvecTravail
+      .filter(p => p.status === 'validated')
+      .sort((a, b) => {
+        // Plus récent (validated_at) en premier
+        const dateA = a.validated_at || a.updated_at || '';
+        const dateB = b.validated_at || b.updated_at || '';
+        return dateB.localeCompare(dateA);
+      });
+
+    const handleValidate = async (pianoId) => {
+      // Mise à jour optimiste
+      setPianos(pianos.map(p =>
+        p.id === pianoId ? { ...p, status: 'validated', validated_at: new Date().toISOString() } : p
+      ));
+      await savePianoToAPI(pianoId, { status: 'validated' });
+    };
+
+    const handleUnvalidate = async (pianoId) => {
+      // Remettre en work_in_progress
+      setPianos(pianos.map(p =>
+        p.id === pianoId ? { ...p, status: 'work_in_progress', validated_at: null } : p
+      ));
+      await savePianoToAPI(pianoId, { status: 'work_in_progress' });
+    };
+
     return (
       <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
@@ -594,44 +627,102 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
-        <div className="w-full max-w-7xl mx-auto px-4 py-4">
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
-                  <th className="px-3 py-2 whitespace-nowrap">Local</th>
-                  <th className="px-3 py-2 whitespace-nowrap">Piano</th>
-                  <th className="px-3 py-2 whitespace-nowrap">Série</th>
-                  <th className="px-3 py-2 whitespace-nowrap">Usage</th>
-                  <th className="px-3 py-2 whitespace-nowrap">Accord</th>
-                  <th className="px-3 py-2 whitespace-nowrap">À faire</th>
-                  <th className="px-3 py-2">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {pianosFiltres.map(piano => {
-                  const mois = moisDepuisAccord(piano.dernierAccord);
-                  return (
-                    <tr key={piano.id} className="hover:bg-gray-50">
-                      <td className="px-3 py-1.5 font-medium whitespace-nowrap">{piano.local}</td>
-                      <td className="px-3 py-1.5 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
-                      <td className="px-3 py-1.5 text-gray-500 font-mono text-xs whitespace-nowrap">{piano.serie}</td>
-                      <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{piano.usage || '-'}</td>
-                      <td className={`px-3 py-1.5 font-medium whitespace-nowrap ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
-                        {formatDateRelative(piano.dernierAccord)}
-                      </td>
-                      <td className="px-3 py-1.5 text-xs">{piano.aFaire || ''}</td>
-                      <td className="px-3 py-1.5 text-xs text-gray-600 max-w-xs truncate">{piano.observations || piano.notes || ''}</td>
+        <div className="w-full max-w-7xl mx-auto px-4 py-4 space-y-6">
+
+          {/* Section : À valider */}
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+              <span className="w-3 h-3 bg-blue-400 rounded-full inline-block"></span>
+              À valider ({aValider.length})
+            </h2>
+            {aValider.length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+                Aucun piano en attente de validation.
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg shadow overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-blue-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-3 py-2">Local</th>
+                      <th className="px-3 py-2">Piano</th>
+                      <th className="px-3 py-2">À faire (Nick)</th>
+                      <th className="px-3 py-2">Notes technicien</th>
+                      <th className="px-3 py-2 text-center">Action</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            {pianosFiltres.length === 0 && (
-              <div className="p-6 text-center text-gray-500">Aucun piano.</div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {aValider.map(piano => (
+                      <tr key={piano.id} className="bg-blue-50/30 hover:bg-blue-50">
+                        <td className="px-3 py-2 font-medium whitespace-nowrap">{piano.local}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{piano.aFaire || '-'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
+                          <div className="whitespace-pre-wrap">{piano.travail}</div>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            onClick={() => handleValidate(piano.id)}
+                            className="px-3 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                          >
+                            Valider
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-          <div className="mt-2 text-xs text-gray-400 text-right">{pianosFiltres.length} pianos</div>
+
+          {/* Section : Validés */}
+          {valides.length > 0 && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                <span className="w-3 h-3 bg-green-400 rounded-full inline-block"></span>
+                Validés ({valides.length})
+              </h2>
+              <div className="bg-white rounded-lg shadow overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-green-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
+                      <th className="px-3 py-2">Local</th>
+                      <th className="px-3 py-2">Piano</th>
+                      <th className="px-3 py-2">À faire (Nick)</th>
+                      <th className="px-3 py-2">Notes technicien</th>
+                      <th className="px-3 py-2 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {valides.map(piano => (
+                      <tr key={piano.id} className="bg-green-50/30 hover:bg-green-50">
+                        <td className="px-3 py-2 font-medium whitespace-nowrap">{piano.local}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{piano.aFaire || '-'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
+                          <div className="whitespace-pre-wrap">{piano.travail}</div>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            onClick={() => handleUnvalidate(piano.id)}
+                            className="px-2 py-1 text-xs font-medium text-gray-500 bg-gray-100 rounded hover:bg-red-100 hover:text-red-600 transition-colors"
+                            title="Annuler la validation"
+                          >
+                            Annuler
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="text-xs text-gray-400 text-right">
+            {pianosAvecTravail.length} piano(s) avec notes technicien
+          </div>
         </div>
       </div>
     );
