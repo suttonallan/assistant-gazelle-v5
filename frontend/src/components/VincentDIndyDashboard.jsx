@@ -491,14 +491,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 3: Travail complété (vert)
     if (piano.status === 'completed' && piano.is_work_completed) return 'bg-green-200';
 
-    // Priorité 4: Travail en cours (bleu)
-    // IMPORTANT: Utiliser seulement 'travail' pour éviter confusion avec 'observations' Gazelle (donateur, etc.)
-    if (piano.status === 'work_in_progress' ||
-        (piano.travail && piano.travail.trim() !== '' && !piano.is_work_completed)) {
-      return 'bg-blue-200';
-    }
-
-    // Priorité 5: Proposé, à faire = jaune
+    // Priorité 4: Proposé, à faire = jaune
     if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
       return 'bg-yellow-200';
     }
@@ -592,12 +585,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
 
-  // ============ VUE MODE VDI (review travail des techniciens) ============
+  // ============ VUE MODE VDI (tableur compact — une ligne par piano) ============
   if (currentView === 'vdi') {
-    const pianosAvecTravail = pianos.filter(p => p.travail && p.travail.trim() !== '');
-    const pianosCompletes = pianos.filter(p => p.is_work_completed);
-    const pianosEnCours = pianosAvecTravail.filter(p => !p.is_work_completed);
-
     return (
       <div className="min-h-screen bg-gray-100">
         <VDI_Navigation
@@ -606,60 +595,44 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
-        <div className="w-full max-w-lg mx-auto px-4 py-4">
-          {/* Résumé */}
-          <div className="bg-white rounded-lg shadow p-4 mb-4">
-            <div className="text-lg font-semibold text-gray-800 mb-2">Travail des techniciens</div>
-            <div className="flex gap-4 text-sm">
-              <span className="text-green-700 font-medium">{pianosCompletes.length} complété(s)</span>
-              <span className="text-blue-700 font-medium">{pianosEnCours.length} en cours</span>
-              <span className="text-gray-500">{pianos.length} total</span>
-            </div>
+        <div className="w-full max-w-7xl mx-auto px-4 py-4">
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2 whitespace-nowrap">Local</th>
+                  <th className="px-3 py-2 whitespace-nowrap">Piano</th>
+                  <th className="px-3 py-2 whitespace-nowrap">Série</th>
+                  <th className="px-3 py-2 whitespace-nowrap">Usage</th>
+                  <th className="px-3 py-2 whitespace-nowrap">Accord</th>
+                  <th className="px-3 py-2 whitespace-nowrap">À faire</th>
+                  <th className="px-3 py-2">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pianosFiltres.map(piano => {
+                  const mois = moisDepuisAccord(piano.dernierAccord);
+                  return (
+                    <tr key={piano.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-1.5 font-medium whitespace-nowrap">{piano.local}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
+                      <td className="px-3 py-1.5 text-gray-500 font-mono text-xs whitespace-nowrap">{piano.serie}</td>
+                      <td className="px-3 py-1.5 text-gray-500 whitespace-nowrap">{piano.usage || '-'}</td>
+                      <td className={`px-3 py-1.5 font-medium whitespace-nowrap ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
+                        {formatDateRelative(piano.dernierAccord)}
+                      </td>
+                      <td className="px-3 py-1.5 text-xs">{piano.aFaire || ''}</td>
+                      <td className="px-3 py-1.5 text-xs text-gray-600 max-w-xs truncate">{piano.observations || piano.notes || ''}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {pianosFiltres.length === 0 && (
+              <div className="p-6 text-center text-gray-500">Aucun piano.</div>
+            )}
           </div>
-
-          {/* Liste des pianos avec travail */}
-          {pianosAvecTravail.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-              Aucun piano avec du travail effectué pour l'instant.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pianosAvecTravail.map(piano => (
-                <div key={piano.id} className={`bg-white rounded-lg shadow overflow-hidden border-l-4 ${
-                  piano.is_work_completed ? 'border-green-500' : 'border-blue-400'
-                }`}>
-                  <div className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <span className="font-bold text-gray-800 text-lg">{piano.local}</span>
-                        <span className="text-gray-500 ml-2">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
-                      </div>
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                        piano.is_work_completed
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {piano.is_work_completed ? 'Complété' : 'En cours'}
-                      </span>
-                    </div>
-                    {piano.aFaire && (
-                      <div className="text-sm text-yellow-800 bg-yellow-50 rounded p-2 mb-2">
-                        <span className="font-medium">À faire:</span> {piano.aFaire}
-                      </div>
-                    )}
-                    <div className="text-sm text-gray-700 bg-gray-50 rounded p-2 whitespace-pre-wrap">
-                      {piano.travail}
-                    </div>
-                    {piano.sync_status && (
-                      <div className="mt-2 text-xs text-gray-400">
-                        Sync: {piano.sync_status}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="mt-2 text-xs text-gray-400 text-right">{pianosFiltres.length} pianos</div>
         </div>
       </div>
     );
@@ -760,16 +733,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             setEditingAFaireId={setEditingAFaireId}
             aFaireInput={aFaireInput}
             setAFaireInput={setAFaireInput}
-            editingNotesId={editingNotesId}
-            setEditingNotesId={setEditingNotesId}
-            notesInput={notesInput}
-            setNotesInput={setNotesInput}
             sortConfig={sortConfig}
             handleSort={handleSort}
             getRowClass={getRowClass}
             moisDepuisAccord={moisDepuisAccord}
             formatDateRelative={formatDateRelative}
-            getSyncStatusIcon={getSyncStatusIcon}
             filterEtage={filterEtage}
             setFilterEtage={setFilterEtage}
           />

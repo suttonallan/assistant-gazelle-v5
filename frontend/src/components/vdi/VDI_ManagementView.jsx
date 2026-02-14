@@ -4,10 +4,10 @@
  * Fonctionnalités:
  * - Bannière de sélection de tournée
  * - Boutons de vue (Inventaire, Tout voir, Sélection)
- * - Filtres (usage, mois depuis accord)
+ * - Filtres (usage, mois depuis accord, étage)
  * - Actions batch (statut, usage, masquer)
- * - Tableau complet des pianos avec tri
- * - Édition inline (à faire, notes)
+ * - Tableau compact des pianos avec tri
+ * - Édition inline (à faire)
  * - Push vers Gazelle
  */
 
@@ -72,10 +72,6 @@ export default function VDI_ManagementView({
   setEditingAFaireId,
   aFaireInput,
   setAFaireInput,
-  editingNotesId,
-  setEditingNotesId,
-  notesInput,
-  setNotesInput,
 
   // Tri
   sortConfig,
@@ -85,7 +81,6 @@ export default function VDI_ManagementView({
   getRowClass,
   moisDepuisAccord,
   formatDateRelative,
-  getSyncStatusIcon,
   isPianoInTournee,
   filterEtage,
   setFilterEtage
@@ -303,12 +298,7 @@ export default function VDI_ManagementView({
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sync</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Notes (Tech)</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Statut
-              </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Visible
               </th>
@@ -338,15 +328,6 @@ export default function VDI_ManagementView({
                   <td className="px-3 py-3 text-sm text-gray-500">{piano.usage || '-'}</td>
                   <td className={`px-3 py-3 text-sm font-medium ${mois === 999 ? 'text-gray-400' : mois >= 12 ? 'text-red-600' : mois >= 6 ? 'text-orange-500' : 'text-green-600'}`}>
                     {formatDateRelative(piano.dernierAccord)}
-                  </td>
-
-                  {/* Colonne Sync Status */}
-                  <td className="px-3 py-3 text-sm">
-                    {piano.sync_status && (
-                      <span title={`Sync: ${piano.sync_status}`} className="text-lg">
-                        {getSyncStatusIcon(piano.sync_status)}
-                      </span>
-                    )}
                   </td>
 
                   {/* Colonne "À faire" de Nick */}
@@ -393,88 +374,6 @@ export default function VDI_ManagementView({
                     )}
                   </td>
 
-                  {/* Colonne Notes (combinaison de Travail + Observations) */}
-                  <td className="px-3 py-3 bg-blue-50" onClick={(e) => e.stopPropagation()}>
-                    {editingNotesId === piano.id ? (
-                      <textarea
-                        value={notesInput}
-                        onChange={(e) => setNotesInput(e.target.value)}
-                        onBlur={async () => {
-                          try {
-                            // Mapper notes vers observations (le backend attend observations, pas notes)
-                            const notesValue = notesInput.trim();
-                            setPianos(pianos.map(p =>
-                              p.id === piano.id ? {
-                                ...p,
-                                notes: notesValue,
-                                observations: notesValue // Synchroniser avec observations
-                              } : p
-                            ));
-                            setEditingNotesId(null);
-                            setNotesInput('');
-                            // Sauvegarder avec observations (le backend n'accepte pas "notes")
-                            await savePianoToAPI(piano.id, { observations: notesValue });
-                          } catch (err) {
-                            console.error('Erreur sauvegarde notes:', err);
-                            alert(`Erreur lors de la sauvegarde: ${err.message}`);
-                            // Restaurer l'état d'édition en cas d'erreur
-                            setEditingNotesId(piano.id);
-                            setNotesInput(notesInput);
-                          }
-                        }}
-                        className="border rounded px-2 py-1 text-xs w-full"
-                        placeholder="Notes du technicien (accord, humidité...)"
-                        rows="3"
-                        autoFocus
-                      />
-                    ) : (
-                      <span
-                        className="text-xs cursor-text block whitespace-pre-wrap"
-                        onClick={() => {
-                          setEditingNotesId(piano.id);
-                          // Utiliser observations si disponible, sinon notes (pour compatibilité)
-                          setNotesInput(piano.observations || piano.notes || '');
-                        }}
-                      >
-                        {piano.observations || piano.notes || <span className="text-gray-400">Cliquer...</span>}
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Colonne Statut */}
-                  <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-2">
-                      <div>
-                        {piano.status === 'top' && <span className="px-2 py-1 bg-amber-400 rounded text-xs font-medium">Top</span>}
-                        {piano.status === 'completed' && <span className="px-2 py-1 bg-green-400 rounded text-xs">Complété</span>}
-                        {piano.status === 'work_in_progress' && <span className="px-2 py-1 bg-blue-400 rounded text-xs">En cours</span>}
-                        {/* ⭐ RÈGLE DE COHÉRENCE VISUELLE: Tout piano dans la tournée sélectionnée = badge "À faire" jaune */}
-                        {selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) &&
-                         piano.status !== 'top' && piano.status !== 'completed' && piano.status !== 'work_in_progress' && (
-                          <span className="px-2 py-1 bg-yellow-400 rounded text-xs">À faire</span>
-                        )}
-                        {/* Si pas de tournée OU piano pas dans la tournée OU statut déjà affiché ci-dessus */}
-                        {(!selectedTourneeId || !isPianoInTournee(piano, selectedTourneeId)) &&
-                         piano.status !== 'top' && piano.status !== 'completed' && piano.status !== 'work_in_progress' && (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </div>
-                      {/* Bouton Retirer de la tournée - visible seulement si une tournée est sélectionnée */}
-                      {selectedTourneeId && isPianoInTournee(piano, selectedTourneeId) && removePianoFromTournee && (
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            await removePianoFromTournee(piano);
-                            await loadPianosFromAPI();
-                          }}
-                          className="px-2 py-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
-                          title="Retire le piano de cette liste de travail, mais le garde dans l'inventaire global"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  </td>
                   {/* Colonne Visibilité - Toggle individuel */}
                   <td className="px-3 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                     <button
@@ -513,12 +412,7 @@ export default function VDI_ManagementView({
         <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
         <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité élevée)</span>
         <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
-        <span key="legend-work-in-progress" className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-200 rounded"></span> Travail en cours</span>
         <span key="legend-completed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-200 rounded"></span> Complété</span>
-        <span key="legend-sync-pending" className="flex items-center gap-1">⏳ En attente</span>
-        <span key="legend-sync-pushed" className="flex items-center gap-1">✅ Envoyé</span>
-        <span key="legend-sync-modified" className="flex items-center gap-1">🔄 Modifié</span>
-        <span key="legend-sync-error" className="flex items-center gap-1">⚠️ Erreur</span>
       </div>
     </div>
   );
