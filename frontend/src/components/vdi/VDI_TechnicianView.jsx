@@ -183,7 +183,7 @@ export default function VDI_TechnicianView({
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-lg font-bold text-gray-700">{piano.local}</span>
-                    <span className="text-gray-600">{piano.piano}</span>
+                    <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {hasTravail && <span className="text-blue-500 text-xs">📝</span>}

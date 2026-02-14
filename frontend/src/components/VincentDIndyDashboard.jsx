@@ -630,7 +630,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <span className="font-bold text-gray-800 text-lg">{piano.local}</span>
-                        <span className="text-gray-500 ml-2">{piano.piano}</span>
+                        <span className="text-gray-500 ml-2">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                       </div>
                       <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
                         piano.is_work_completed
