@@ -709,6 +709,33 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const validatedCount = validatedPianos.length;
     const pushedCount = pushedPianos.length;
 
+    // --- Pré-chargement de l'historique pour les pianos pending/validated/pushed ---
+    // (pour afficher le dernier service directement dans la colonne Notes)
+    React.useEffect(() => {
+      const loadHistoryForPianos = async () => {
+        // Collecter tous les gazelleIds uniques à charger
+        const idsToLoad = [];
+        [...pendingPianos, ...validatedPianos, ...pushedPianos].forEach(row => {
+          const id = row.gazelleId || row.pianoId;
+          if (id && !gazelleHistoryData[id]) {
+            idsToLoad.push({ pianoId: row.pianoId, gazelleId: row.gazelleId });
+          }
+        });
+
+        // Charger en parallèle (max 5 à la fois pour ne pas surcharger)
+        for (let i = 0; i < idsToLoad.length; i += 5) {
+          const batch = idsToLoad.slice(i, i + 5);
+          await Promise.all(batch.map(({ pianoId, gazelleId }) =>
+            loadGazelleHistory(pianoId, gazelleId)
+          ));
+        }
+      };
+
+      if (pendingPianos.length > 0 || validatedPianos.length > 0 || pushedPianos.length > 0) {
+        loadHistoryForPianos();
+      }
+    }, [pendingPianos.length, validatedPianos.length, pushedPianos.length]);
+
     // --- Actions ---
     const handleValidate = async (pianoId) => {
       try {
@@ -878,13 +905,23 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const toggleGazelleHistory = (pianoId, gazelleId) => {
       const idToUse = gazelleId || pianoId;
       if (expandedGazelleHistoryId === idToUse) {
-        // Fermer l'accordéon
+        // Fermer si on clique sur le même piano
         setExpandedGazelleHistoryId(null);
       } else {
-        // Ouvrir et charger si nécessaire
+        // Ouvrir ce piano (ferme automatiquement l'autre)
         setExpandedGazelleHistoryId(idToUse);
         loadGazelleHistory(pianoId, gazelleId);
       }
+    };
+
+    // Cliquer sur une ligne = ouvrir son historique
+    const handleRowClick = (row) => {
+      const idToUse = row.gazelleId || row.pianoId;
+      // Si déjà ouvert sur ce piano, ne rien faire (laisser l'utilisateur lire)
+      if (expandedGazelleHistoryId === idToUse) return;
+      // Sinon, ouvrir l'historique de ce piano
+      setExpandedGazelleHistoryId(idToUse);
+      loadGazelleHistory(row.pianoId, row.gazelleId);
     };
 
     // --- Badge statut ---
@@ -905,6 +942,32 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     // --- Rendu notes avec édition inline ---
     const NotesCell = ({ row }) => {
+      // Obtenir le dernier service de l'historique pour ce piano
+      const historyId = row.gazelleId || row.pianoId;
+      const historyEntries = gazelleHistoryData[historyId] || [];
+      const lastService = historyEntries.length > 0 ? historyEntries[0] : null;
+
+      // Composant pour afficher le dernier service (réutilisé)
+      const LastServiceDisplay = () => {
+        if (!lastService) return null;
+        const dateStr = lastService.date ? (() => {
+          try {
+            const d = new Date(lastService.date);
+            if (isNaN(d.getTime())) return lastService.date.slice(0, 10);
+            return d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: '2-digit' });
+          } catch {
+            return lastService.date.slice(0, 10) || '';
+          }
+        })() : '';
+
+        return (
+          <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+            <div className="text-[10px] text-gray-400 mb-0.5">Dernier service {dateStr ? `(${dateStr})` : ''}</div>
+            <div className="text-[11px] text-gray-500 line-clamp-2">{lastService.text}</div>
+          </div>
+        );
+      };
+
       // Pending → edit via piano directly
       if (row._type === 'pending') {
         if (editingTravailId === row.pianoId) {
@@ -932,15 +995,19 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                   className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
                 >Annuler</button>
               </div>
+              <LastServiceDisplay />
             </div>
           );
         }
         return (
-          <div
-            onClick={() => { setEditingTravailId(row.pianoId); setEditingTravailText(row.travail); }}
-            className="whitespace-pre-wrap cursor-pointer hover:bg-blue-50 hover:text-blue-700 rounded px-1 -mx-1 py-0.5 transition-colors"
-            title="Cliquer pour modifier"
-          >{row.travail}</div>
+          <div>
+            <div
+              onClick={(e) => { e.stopPropagation(); setEditingTravailId(row.pianoId); setEditingTravailText(row.travail); }}
+              className="whitespace-pre-wrap cursor-pointer hover:bg-blue-50 hover:text-blue-700 rounded px-1 -mx-1 py-0.5 transition-colors"
+              title="Cliquer pour modifier"
+            >{row.travail}</div>
+            <LastServiceDisplay />
+          </div>
         );
       }
 
@@ -1125,12 +1192,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                     return (
                       <React.Fragment key={row._key}>
                         <tr
-                          className={
+                          onClick={() => handleRowClick(row)}
+                          className={`cursor-pointer ${
                             row.status === 'pending' ? 'bg-blue-50/30 hover:bg-blue-50' :
                             row.status === 'validated' ? 'bg-green-50/30 hover:bg-green-50' :
                             row.status === 'error' ? 'bg-red-50/30' :
                             'bg-gray-50/30 hover:bg-gray-50'
-                          }
+                          }`}
                         >
                           <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
                           <td className="px-3 py-2 font-medium whitespace-nowrap">{row.local}</td>
