@@ -1576,6 +1576,14 @@ class GazelleToSupabaseSync:
             if self.incremental_mode:
                 self._save_last_sync_date(datetime.now())
 
+            # Pré-charger le cache des briefings (aujourd'hui + demain)
+            try:
+                from modules.briefing.briefing_cache import warm_briefing_cache
+                print("\n🔥 Pré-chargement des briefings...")
+                warm_briefing_cache()
+            except Exception as cache_err:
+                print(f"⚠️ Cache briefings non mis à jour: {cache_err}")
+
             return {
                 'success': True,
                 'duration_seconds': duration,

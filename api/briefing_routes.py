@@ -66,40 +66,89 @@ async def health_check():
     return {"status": "ok", "service": "briefing"}
 
 
+@router.post("/warm-cache", response_model=Dict[str, Any])
+async def warm_cache():
+    """
+    Pré-charge le cache des briefings pour aujourd'hui et demain.
+    Appelé automatiquement après chaque sync, ou manuellement.
+    """
+    try:
+        from modules.briefing.briefing_cache import warm_briefing_cache
+        stats = warm_briefing_cache()
+        return {
+            "success": True,
+            "message": "Cache pré-chargé",
+            "stats": stats
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/daily", response_model=Dict[str, Any])
 async def get_daily_briefings(
     technician_id: Optional[str] = Query(None, description="ID du technicien"),
     exclude_technician_id: Optional[str] = Query(None, description="Exclure ce technicien"),
-    date: Optional[str] = Query(None, description="Date YYYY-MM-DD (défaut: aujourd'hui)")
+    date: Optional[str] = Query(None, description="Date YYYY-MM-DD (défaut: aujourd'hui)"),
+    skip_cache: bool = Query(False, description="Forcer le recalcul (ignorer le cache)")
 ):
     """
     Récupère les briefings pour les RV du jour.
+
+    Utilise le cache pré-calculé si disponible (plus rapide).
+    Le cache est rafraîchi toutes les 4 heures par le sync.
 
     Retourne une liste de briefings avec les 3 piliers:
     - Profile: Langue, animaux, courtoisies
     - Technical: Recommandations des dernières visites
     - Piano: Fiche et avertissements
     """
-    try:
-        service = ClientIntelligenceService()
-        briefings = service.get_daily_briefings(
-            technician_id=technician_id,
-            exclude_technician_id=exclude_technician_id,
-            target_date=date
-        )
+    target_date = date or datetime.now().strftime('%Y-%m-%d')
 
-        # Générer aussi les cartes formatées
-        cards = []
-        for b in briefings:
-            card = _format_card(b)
-            cards.append(card)
+    try:
+        briefings = None
+        from_cache = False
+
+        # Essayer le cache d'abord (sauf si skip_cache ou filtre technicien)
+        if not skip_cache and not technician_id and not exclude_technician_id:
+            try:
+                from modules.briefing.briefing_cache import BriefingCache
+                cache = BriefingCache()
+                briefings = cache.get_cached_briefings(target_date)
+                if briefings:
+                    from_cache = True
+                    print(f"⚡ Briefings servis depuis le cache ({len(briefings)})")
+            except Exception as cache_err:
+                print(f"⚠️ Cache non disponible: {cache_err}")
+
+        # Fallback: générer à la demande
+        if briefings is None:
+            service = ClientIntelligenceService()
+            briefings = service.get_daily_briefings(
+                technician_id=technician_id,
+                exclude_technician_id=exclude_technician_id,
+                target_date=target_date
+            )
+
+        # Filtrer par technicien si demandé (même avec cache)
+        if from_cache and technician_id:
+            briefings = [b for b in briefings
+                        if b.get('appointment', {}).get('technician_id') == technician_id]
+        elif from_cache and exclude_technician_id:
+            briefings = [b for b in briefings
+                        if b.get('appointment', {}).get('technician_id') != exclude_technician_id]
+
+        # Générer les cartes formatées
+        cards = [_format_card(b) for b in briefings]
 
         return {
-            "date": date or datetime.now().strftime('%Y-%m-%d'),
+            "date": target_date,
             "technician_id": technician_id,
             "count": len(briefings),
+            "from_cache": from_cache,
             "briefings": briefings,
-            "cards": cards  # Version simplifiée pour mobile
+            "cards": cards
         }
 
     except Exception as e:
