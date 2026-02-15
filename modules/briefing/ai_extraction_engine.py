@@ -562,6 +562,10 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         'thank you for confirming',
         'votre rendez-vous avec piano technique',
         'your piano appointment',
+        'votre piano',  # Messages de confirmation
+        'your piano',
+        'veuillez confirmer',
+        'please confirm',
         'a créé un rendez-vous',
         'created an appointment',
         'rendez-vous avec',  # Notifications système
