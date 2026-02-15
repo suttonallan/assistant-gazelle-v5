@@ -490,6 +490,9 @@ class ClientIntelligenceService:
             return None
 
     def _get_client_notes(self, client_id: str, piano_id: str = None) -> List[Dict]:
+        from datetime import date as date_type
+        today_str = date_type.today().isoformat()  # "YYYY-MM-DD"
+
         notes = []
         seen_texts = set()  # Éviter les doublons
 
@@ -499,11 +502,15 @@ class ClientIntelligenceService:
                                               filters={'client_id': client_id},
                                               order_by='occurred_at.desc')
             for t in timeline[:20]:
+                entry_date = (t.get('occurred_at', '') or '')[:10]
+                # Exclure les entrées d'aujourd'hui et futures
+                if entry_date and entry_date >= today_str:
+                    continue
                 text = f"{t.get('title', '')} {t.get('description', '')}".strip()
                 if text and text not in seen_texts:
                     seen_texts.add(text)
                     notes.append({
-                        'date': t.get('occurred_at', '')[:10],
+                        'date': entry_date,
                         'text': text,
                         'technician': t.get('user_id', ''),
                         'source': 'timeline'
@@ -518,11 +525,14 @@ class ClientIntelligenceService:
                                                         filters={'piano_id': piano_id},
                                                         order_by='occurred_at.desc')
                 for t in piano_timeline[:20]:
+                    entry_date = (t.get('occurred_at', '') or '')[:10]
+                    if entry_date and entry_date >= today_str:
+                        continue
                     text = f"{t.get('title', '')} {t.get('description', '')}".strip()
                     if text and text not in seen_texts:
                         seen_texts.add(text)
                         notes.append({
-                            'date': t.get('occurred_at', '')[:10],
+                            'date': entry_date,
                             'text': text,
                             'technician': t.get('user_id', ''),
                             'source': 'piano_timeline'
@@ -536,11 +546,15 @@ class ClientIntelligenceService:
                                            filters={'client_external_id': client_id},
                                            order_by='start_datetime.desc')
             for a in appts[:10]:
+                appt_date = a.get('appointment_date', '') or ''
+                # Exclure les RV d'aujourd'hui et futurs
+                if appt_date and appt_date[:10] >= today_str:
+                    continue
                 text = f"{a.get('title', '')} {a.get('description', '')} {a.get('notes', '')}".strip()
                 if text and text not in seen_texts:
                     seen_texts.add(text)
                     notes.append({
-                        'date': a.get('appointment_date', ''),
+                        'date': appt_date,
                         'text': text,
                         'technician': a.get('technicien', ''),
                         'source': 'appointment'
