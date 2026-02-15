@@ -73,7 +73,8 @@
   td { padding: 8px; border-bottom: 1px solid #0f3460; }
   tr:hover { background: #16213e; }
   tr.outlier { opacity: 0.4; text-decoration: line-through; }
-  .delete-btn { background: none; border: none; color: #e94560; cursor: pointer; font-size: 16px; }
+  .delete-btn { background: none; border: none; color: #e94560; cursor: pointer; font-size: 16px; padding: 2px 4px; }
+  .delete-btn:hover { opacity: 0.7; }
   .outlier-cb { width: 16px; height: 16px; cursor: pointer; }
 
   /* Stock */
@@ -134,69 +135,127 @@
   <!-- SAISIE -->
   <div id="entry" class="panel">
     <h2 style="margin-bottom:16px; color:#e94560;">Nouvelle entrée</h2>
-    <div class="form-grid">
+
+    <!-- Client / Piano (commun) -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
+      <div class="form-group">
+        <label>Client</label>
+        <input type="text" id="f_client" placeholder="Ex: Lamontagne">
+      </div>
       <div class="form-group">
         <label>Piano (nom/modèle)</label>
         <input type="text" id="f_piano" placeholder="Ex: Steinway D">
       </div>
-      <div class="form-group">
-        <label>Type de pointe</label>
-        <select id="f_pinType">
-          <option value="enfoncement">Enfoncement</option>
-          <option value="balance">Balance</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Taille pointe (pouces)</label>
-        <input type="number" id="f_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
-      </div>
-      <div class="form-group">
-        <label>Sizing utilisé</label>
-        <select id="f_sizing">
-          <option value="">-- Aucun / Custom --</option>
-          <option value="MS-125">MS-125 (.208)</option>
-          <option value="MS-137">MS-137 (.217)</option>
-          <option value="MS-146">MS-146 (.227)</option>
-          <option value="MS-162">MS-162 (.241)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Largeur sizing mesurée (pouces)</label>
-        <input type="number" id="f_sizingWidth" step="0.001" placeholder=".227">
-      </div>
-      <div class="form-group">
-        <label>Feutre utilisé (mm)</label>
-        <select id="f_felt">
-          <option value="">-- Choisir --</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Cale intermédiaire</label>
-        <select id="f_interCaul">
-          <option value="">-- Aucune --</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Cale finale</label>
-        <select id="f_finalCaul">
-          <option value="">-- Aucune --</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Verdict</label>
-        <select id="f_verdict">
-          <option value="parfait">Parfait</option>
-          <option value="ok">OK</option>
-          <option value="trop_lache">Trop lâche</option>
-          <option value="trop_serre">Trop serré</option>
-        </select>
-      </div>
-      <div class="form-group full">
-        <label>Notes</label>
-        <textarea id="f_notes" placeholder="Observations, ajustements..."></textarea>
-      </div>
     </div>
-    <div class="form-actions">
+
+    <!-- Deux sections côte à côte -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+
+      <!-- BALANCE -->
+      <div style="background:#16213e; border-radius:8px; padding:16px; border:1px solid #0f3460;">
+        <h3 style="color:#4ecca3; margin-bottom:12px; font-size:15px;">Balance</h3>
+        <div style="display:grid; gap:12px;">
+          <div class="form-group">
+            <label>Taille pointe (pouces)</label>
+            <input type="number" id="f_bal_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".125">
+          </div>
+          <div class="form-group">
+            <label>Sizing utilisé</label>
+            <select id="f_bal_sizing">
+              <option value="">-- Aucun / Custom --</option>
+              <option value="MS-125">MS-125 (.208)</option>
+              <option value="MS-137">MS-137 (.217)</option>
+              <option value="MS-146">MS-146 (.227)</option>
+              <option value="MS-162">MS-162 (.241)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Largeur sizing mesurée</label>
+            <input type="number" id="f_bal_sizingWidth" step="0.001" placeholder=".227">
+          </div>
+          <div class="form-group">
+            <label>Feutre utilisé (mm)</label>
+            <select id="f_bal_felt"><option value="">-- Choisir --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Cale intermédiaire</label>
+            <select id="f_bal_interCaul"><option value="">-- Aucune --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Cale finale</label>
+            <select id="f_bal_finalCaul"><option value="">-- Aucune --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Verdict</label>
+            <select id="f_bal_verdict">
+              <option value="">-- Non testé --</option>
+              <option value="parfait">Parfait</option>
+              <option value="ok">OK</option>
+              <option value="trop_lache">Trop lâche</option>
+              <option value="trop_serre">Trop serré</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea id="f_bal_notes" placeholder="Observations balance..." style="min-height:40px;"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ENFONCEMENT -->
+      <div style="background:#16213e; border-radius:8px; padding:16px; border:1px solid #0f3460;">
+        <h3 style="color:#e94560; margin-bottom:12px; font-size:15px;">Enfoncement</h3>
+        <div style="display:grid; gap:12px;">
+          <div class="form-group">
+            <label>Taille pointe (pouces)</label>
+            <input type="number" id="f_enf_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
+          </div>
+          <div class="form-group">
+            <label>Sizing utilisé</label>
+            <select id="f_enf_sizing">
+              <option value="">-- Aucun / Custom --</option>
+              <option value="MS-125">MS-125 (.208)</option>
+              <option value="MS-137">MS-137 (.217)</option>
+              <option value="MS-146">MS-146 (.227)</option>
+              <option value="MS-162">MS-162 (.241)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Largeur sizing mesurée</label>
+            <input type="number" id="f_enf_sizingWidth" step="0.001" placeholder=".227">
+          </div>
+          <div class="form-group">
+            <label>Feutre utilisé (mm)</label>
+            <select id="f_enf_felt"><option value="">-- Choisir --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Cale intermédiaire</label>
+            <select id="f_enf_interCaul"><option value="">-- Aucune --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Cale finale</label>
+            <select id="f_enf_finalCaul"><option value="">-- Aucune --</option></select>
+          </div>
+          <div class="form-group">
+            <label>Verdict</label>
+            <select id="f_enf_verdict">
+              <option value="">-- Non testé --</option>
+              <option value="parfait">Parfait</option>
+              <option value="ok">OK</option>
+              <option value="trop_lache">Trop lâche</option>
+              <option value="trop_serre">Trop serré</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea id="f_enf_notes" placeholder="Observations enfoncement..." style="min-height:40px;"></textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="form-actions" style="margin-top:16px;">
       <button class="btn btn-primary" onclick="addEntry()">Ajouter</button>
       <button class="btn btn-secondary" onclick="clearForm()">Effacer</button>
     </div>
@@ -212,7 +271,10 @@
         <option value="trop_lache">Trop lâche</option>
         <option value="trop_serre">Trop serré</option>
       </select>
-      <input type="text" id="filterPiano" placeholder="Filtrer par piano..." oninput="renderTable()">
+      <input type="text" id="filterPiano" placeholder="Filtrer par client ou piano..." oninput="renderTable()">
+      <label style="color:#888; font-size:13px; display:flex; align-items:center; gap:4px;">
+        <input type="checkbox" id="groupView" onchange="renderTable()" checked> Grouper par piano
+      </label>
       <button class="btn btn-secondary" onclick="exportData()">Export JSON</button>
       <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">Import JSON</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
@@ -223,7 +285,7 @@
         <thead>
           <tr>
             <th>Outlier</th>
-            <th>Piano</th>
+            <th>Client / Piano</th>
             <th>Type</th>
             <th>Pointe</th>
             <th>Sizing</th>
@@ -545,7 +607,7 @@ function renderHistoryCard(pin, type) {
     const badge = verdictBadge(h.verdict);
     html += `<div class="history-match">
       <span class="badge ${badge.cls}">${badge.label}</span>
-      <span>${h.piano}</span>
+      <span>${h.client ? h.client + ' — ' : ''}${h.piano}</span>
       <span style="color:#4ecca3">${h.felt.toFixed(2)} mm</span>
       <span style="color:#888">.${h.pinSize.toFixed(3).slice(2)}</span>
     </div>`;
@@ -642,57 +704,117 @@ function renderRangeCard(pin, type) {
 // FORM - ENTRY
 // ============================================================
 function populateFormDropdowns() {
-  // Felt sizes (0.05mm increments)
-  const feltSelect = document.getElementById('f_felt');
+  const feltOptions = [];
   for (let f = 0.80; f <= 1.60; f += 0.05) {
-    const opt = document.createElement('option');
-    opt.value = f.toFixed(2);
-    opt.textContent = f.toFixed(2) + ' mm';
-    feltSelect.appendChild(opt);
+    feltOptions.push(`<option value="${f.toFixed(2)}">${f.toFixed(2)} mm</option>`);
   }
+  const feltHtml = '<option value="">-- Choisir --</option>' + feltOptions.join('');
 
-  // Caul dropdowns
   const caulOptions = DEFAULT_CAULS
     .filter(c => !c.id.startsWith('MS-'))
     .map(c => `<option value="${c.id}">${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
     .join('');
-  const emptyOpt = '<option value="">-- Aucune --</option>';
-  document.getElementById('f_interCaul').innerHTML = emptyOpt + caulOptions;
-  document.getElementById('f_finalCaul').innerHTML = emptyOpt + caulOptions;
+  const caulHtml = '<option value="">-- Aucune --</option>' + caulOptions;
+
+  // Populate both balance and enfoncement dropdowns
+  ['bal', 'enf'].forEach(prefix => {
+    document.getElementById(`f_${prefix}_felt`).innerHTML = feltHtml;
+    document.getElementById(`f_${prefix}_interCaul`).innerHTML = caulHtml;
+    document.getElementById(`f_${prefix}_finalCaul`).innerHTML = caulHtml;
+  });
 }
 
 function addEntry() {
   const piano = document.getElementById('f_piano').value.trim();
-  const pinSize = parseFloat(document.getElementById('f_pinSize').value);
-  const verdict = document.getElementById('f_verdict').value;
+  const client = document.getElementById('f_client').value.trim();
 
   if (!piano) { showToast('Entrez le nom du piano'); return; }
-  if (!pinSize) { showToast('Entrez la taille de la pointe'); return; }
 
-  const entry = {
-    id: nextId++,
-    piano: piano,
-    pinType: document.getElementById('f_pinType').value,
-    pinSize: pinSize,
-    sizing: document.getElementById('f_sizing').value,
-    sizingWidth: parseFloat(document.getElementById('f_sizingWidth').value) || 0,
-    felt: parseFloat(document.getElementById('f_felt').value) || 0,
-    interCaul: document.getElementById('f_interCaul').value,
-    finalCaul: document.getElementById('f_finalCaul').value,
-    verdict: verdict,
-    notes: document.getElementById('f_notes').value.trim(),
-    outlier: false,
-  };
+  let added = 0;
 
-  history.push(entry);
+  // Add balance entry if pin size is filled
+  const balPin = parseFloat(document.getElementById('f_bal_pinSize').value);
+  const balVerdict = document.getElementById('f_bal_verdict').value;
+  if (balPin && balVerdict) {
+    history.push({
+      id: nextId++, client, piano, pinType: 'balance', pinSize: balPin,
+      sizing: document.getElementById('f_bal_sizing').value,
+      sizingWidth: parseFloat(document.getElementById('f_bal_sizingWidth').value) || 0,
+      felt: parseFloat(document.getElementById('f_bal_felt').value) || 0,
+      interCaul: document.getElementById('f_bal_interCaul').value,
+      finalCaul: document.getElementById('f_bal_finalCaul').value,
+      verdict: balVerdict,
+      notes: document.getElementById('f_bal_notes').value.trim(),
+      outlier: false,
+    });
+    added++;
+  }
+
+  // Add enfoncement entry if pin size is filled
+  const enfPin = parseFloat(document.getElementById('f_enf_pinSize').value);
+  const enfVerdict = document.getElementById('f_enf_verdict').value;
+  if (enfPin && enfVerdict) {
+    history.push({
+      id: nextId++, client, piano, pinType: 'enfoncement', pinSize: enfPin,
+      sizing: document.getElementById('f_enf_sizing').value,
+      sizingWidth: parseFloat(document.getElementById('f_enf_sizingWidth').value) || 0,
+      felt: parseFloat(document.getElementById('f_enf_felt').value) || 0,
+      interCaul: document.getElementById('f_enf_interCaul').value,
+      finalCaul: document.getElementById('f_enf_finalCaul').value,
+      verdict: enfVerdict,
+      notes: document.getElementById('f_enf_notes').value.trim(),
+      outlier: false,
+    });
+    added++;
+  }
+
+  if (added === 0) {
+    showToast('Remplissez au moins un côté (balance ou enfoncement)');
+    return;
+  }
+
   saveData();
-  showToast('Entrée ajoutée !');
+  showToast(`${added} entrée(s) ajoutée(s) !`);
   clearForm();
 }
 
 function clearForm() {
-  ['f_piano', 'f_pinSize', 'f_sizingWidth', 'f_notes'].forEach(id => document.getElementById(id).value = '');
-  ['f_sizing', 'f_felt', 'f_interCaul', 'f_finalCaul'].forEach(id => document.getElementById(id).selectedIndex = 0);
+  ['f_client', 'f_piano'].forEach(id => document.getElementById(id).value = '');
+  ['bal', 'enf'].forEach(prefix => {
+    document.getElementById(`f_${prefix}_pinSize`).value = '';
+    document.getElementById(`f_${prefix}_sizingWidth`).value = '';
+    document.getElementById(`f_${prefix}_notes`).value = '';
+    ['sizing', 'felt', 'interCaul', 'finalCaul', 'verdict'].forEach(field => {
+      document.getElementById(`f_${prefix}_${field}`).selectedIndex = 0;
+    });
+  });
+}
+
+// Edit an existing entry - populate form
+function editEntry(id) {
+  const entry = history.find(h => h.id === id);
+  if (!entry) return;
+
+  showTab('entry');
+  clearForm();
+
+  document.getElementById('f_client').value = entry.client || '';
+  document.getElementById('f_piano').value = entry.piano;
+
+  const prefix = entry.pinType === 'balance' ? 'bal' : 'enf';
+  document.getElementById(`f_${prefix}_pinSize`).value = entry.pinSize;
+  document.getElementById(`f_${prefix}_sizing`).value = entry.sizing || '';
+  if (entry.sizingWidth) document.getElementById(`f_${prefix}_sizingWidth`).value = entry.sizingWidth;
+  document.getElementById(`f_${prefix}_felt`).value = entry.felt ? entry.felt.toFixed(2) : '';
+  document.getElementById(`f_${prefix}_interCaul`).value = entry.interCaul || '';
+  document.getElementById(`f_${prefix}_finalCaul`).value = entry.finalCaul || '';
+  document.getElementById(`f_${prefix}_verdict`).value = entry.verdict;
+  document.getElementById(`f_${prefix}_notes`).value = entry.notes || '';
+
+  // Remove old entry so re-adding acts as update
+  history = history.filter(h => h.id !== id);
+  saveData();
+  showToast('Modifier puis cliquer Ajouter');
 }
 
 // ============================================================
@@ -701,19 +823,21 @@ function clearForm() {
 function renderTable() {
   const verdictFilter = document.getElementById('filterVerdict').value;
   const pianoFilter = document.getElementById('filterPiano').value.toLowerCase();
+  const grouped = document.getElementById('groupView').checked;
 
   let filtered = history;
   if (verdictFilter !== 'all') filtered = filtered.filter(h => h.verdict === verdictFilter);
-  if (pianoFilter) filtered = filtered.filter(h => h.piano.toLowerCase().includes(pianoFilter));
+  if (pianoFilter) filtered = filtered.filter(h => h.piano.toLowerCase().includes(pianoFilter) || (h.client && h.client.toLowerCase().includes(pianoFilter)));
 
   document.getElementById('dataCount').textContent = `${filtered.length} / ${history.length} entrées`;
 
   const tbody = document.getElementById('dataBody');
-  tbody.innerHTML = filtered.map(h => `
-    <tr class="${h.outlier ? 'outlier' : ''}">
+
+  function renderRow(h, showPiano) {
+    return `<tr class="${h.outlier ? 'outlier' : ''}">
       <td><input type="checkbox" class="outlier-cb" ${h.outlier ? 'checked' : ''} onchange="toggleOutlier(${h.id})"></td>
-      <td>${h.piano}</td>
-      <td>${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</td>
+      <td>${showPiano ? `<strong>${h.client ? h.client + '</strong> — ' : '</strong>'}${h.piano}` : ''}</td>
+      <td style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</td>
       <td>.${h.pinSize.toFixed(3).slice(2)}</td>
       <td>${h.sizing || '—'}</td>
       <td>${h.sizingWidth ? '.' + h.sizingWidth.toFixed(3).slice(2) : '—'}</td>
@@ -722,9 +846,37 @@ function renderTable() {
       <td>${h.finalCaul || '—'}</td>
       <td><span class="badge ${verdictBadge(h.verdict).cls}">${verdictBadge(h.verdict).label}</span></td>
       <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${h.notes}">${h.notes || ''}</td>
-      <td><button class="delete-btn" onclick="deleteEntry(${h.id})" title="Supprimer">&times;</button></td>
-    </tr>
-  `).join('');
+      <td>
+        <button class="delete-btn" onclick="editEntry(${h.id})" title="Modifier" style="color:#4ecca3;">&#9998;</button>
+        <button class="delete-btn" onclick="deleteEntry(${h.id})" title="Supprimer">&times;</button>
+      </td>
+    </tr>`;
+  }
+
+  if (grouped) {
+    // Group by client+piano
+    const groups = {};
+    for (const h of filtered) {
+      const key = (h.client || '') + '|||' + h.piano;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(h);
+    }
+
+    let html = '';
+    for (const key of Object.keys(groups)) {
+      const entries = groups[key];
+      // Sort: balance first, then enfoncement
+      entries.sort((a, b) => (a.pinType === 'balance' ? 0 : 1) - (b.pinType === 'balance' ? 0 : 1));
+      entries.forEach((h, i) => {
+        html += renderRow(h, i === 0);
+      });
+      // Separator row between groups
+      html += `<tr><td colspan="12" style="padding:2px; background:#0f3460;"></td></tr>`;
+    }
+    tbody.innerHTML = html;
+  } else {
+    tbody.innerHTML = filtered.map(h => renderRow(h, true)).join('');
+  }
 }
 
 function toggleOutlier(id) {
