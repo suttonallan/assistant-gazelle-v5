@@ -534,14 +534,24 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
     """
     Construit l'historique technique à partir des notes brutes.
     Utilise les données factuelles (date, technician) sans IA.
+
+    IMPORTANT: Exclut les dates futures (services à venir).
     """
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+
     history = []
     seen_dates = set()
 
-    for note in notes[:10]:
+    for note in notes[:15]:  # Regarder plus de notes car on filtre les futures
         date = note.get('date', '')
         if not date or date in seen_dates:
             continue
+
+        # Exclure les dates futures (services à venir)
+        if date > today:
+            continue
+
         seen_dates.add(date)
 
         tech_id = note.get('technician', '')
