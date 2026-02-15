@@ -829,7 +829,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     };
 
-    // --- Chargement historique Gazelle (timeline_entries) ---
+    // --- Chargement historique via /timeline (même endpoint que Gestion & Pianos) ---
     const loadGazelleHistory = async (pianoId, gazelleId) => {
       // Utiliser gazelleId si disponible, sinon pianoId
       const idToFetch = gazelleId || pianoId;
@@ -840,15 +840,25 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
       setGazelleHistoryLoading(true);
       try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/history?limit=15`);
+        // Utiliser le même endpoint que "Gestion & Pianos"
+        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=20`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
+        // Transformer le format timeline vers format simplifié pour l'accordéon
+        const entries = (data.entries || []).map(e => ({
+          date: e.occurred_at ? e.occurred_at.split('T')[0] : '',
+          text: e.summary || e.comment || '',
+          entry_type: e.type || 'NOTE',
+          user: e.user || '',
+          source: e.source || 'gazelle'
+        })).filter(e => e.text.trim()); // Exclure les entrées vides
+
         setGazelleHistoryData(prev => ({
           ...prev,
-          [idToFetch]: data.history || []
+          [idToFetch]: entries
         }));
       } catch (e) {
-        console.error('Erreur chargement historique Gazelle:', e);
+        console.error('Erreur chargement historique:', e);
         setGazelleHistoryData(prev => ({
           ...prev,
           [idToFetch]: [] // Marquer comme chargé (vide)
@@ -1149,37 +1159,52 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                             </div>
                           </td>
                         </tr>
-                        {/* Accordéon historique Gazelle */}
+                        {/* Accordéon historique */}
                         {isExpanded && (
                           <tr className="bg-blue-50/50">
                             <td colSpan="7" className="px-4 py-3">
                               <div className="text-xs font-semibold text-blue-800 mb-2">
-                                📜 Historique de Service ({historyEntries.length} entrées)
+                                📋 Historique de Service ({historyEntries.length} entrées)
                               </div>
                               {gazelleHistoryLoading && historyEntries.length === 0 ? (
                                 <div className="text-xs text-gray-500 italic">Chargement...</div>
                               ) : historyEntries.length === 0 ? (
                                 <div className="text-xs text-gray-500 italic">Aucun historique trouvé pour ce piano.</div>
                               ) : (
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
-                                  {historyEntries.map((entry, idx) => (
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
+                                  {historyEntries.slice(0, 10).map((entry, idx) => (
                                     <div
                                       key={idx}
-                                      className="bg-blue-50 p-2 rounded border-l-4 border-blue-400"
+                                      className="bg-white p-2 rounded border-l-4 border-blue-400 shadow-sm"
                                     >
-                                      <div className="flex items-start gap-2">
-                                        <span className="text-[10px] text-blue-600 font-medium min-w-[70px]">
-                                          {entry.date || '—'}
+                                      <div className="flex items-start gap-2 text-[11px]">
+                                        <span className="text-blue-600 font-medium min-w-[75px]">
+                                          {entry.date ? new Date(entry.date).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
                                         </span>
-                                        <span className="text-[10px] text-gray-400 uppercase min-w-[50px]">
-                                          {entry.entry_type || 'NOTE'}
+                                        <span className={`uppercase min-w-[55px] font-medium ${
+                                          entry.entry_type === 'SERVICE' ? 'text-green-600' :
+                                          entry.entry_type === 'MEASUREMENT' ? 'text-purple-600' :
+                                          'text-gray-400'
+                                        }`}>
+                                          {entry.entry_type === 'SERVICE_ENTRY_MANUAL' ? 'Service' :
+                                           entry.entry_type === 'MEASUREMENT' ? 'Mesure' :
+                                           entry.entry_type === 'SERVICE' ? (entry.source === 'local' ? 'Local' : 'Service') :
+                                           entry.entry_type || 'Note'}
                                         </span>
-                                        <p className="text-xs text-gray-700 whitespace-pre-wrap flex-1">
+                                        {entry.user && (
+                                          <span className="text-gray-400 min-w-[80px]">{entry.user}</span>
+                                        )}
+                                        <p className="text-gray-700 whitespace-pre-wrap flex-1 line-clamp-2">
                                           {entry.text}
                                         </p>
                                       </div>
                                     </div>
                                   ))}
+                                  {historyEntries.length > 10 && (
+                                    <div className="text-[10px] text-gray-400 text-center pt-1">
+                                      ... et {historyEntries.length - 10} autres entrées
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </td>
