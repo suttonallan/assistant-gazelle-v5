@@ -762,13 +762,15 @@ async def get_piano_history(piano_id: str, limit: int = 20):
     try:
         storage = get_supabase_storage()
 
-        # Requête sur gazelle_timeline_entries avec entity_id = piano_id
-        # On cherche aussi les entrées où external_id contient le piano_id (pour les anciens formats)
+        # Requête sur gazelle_timeline_entries
+        # Le champ correct est piano_id (pas entity_id)
+        # On cherche aussi dans external_id pour les anciens formats
         url = f"{storage.api_url}/gazelle_timeline_entries"
-        url += f"?or=(entity_id.eq.{piano_id},external_id.ilike.*{piano_id}*)"
+        url += f"?or=(piano_id.eq.{piano_id},external_id.ilike.*{piano_id}*)"
         url += f"&order=occurred_at.desc.nullsfirst,created_at.desc"
         url += f"&limit={limit}"
 
+        print(f"🔍 Requête historique piano: {url}")
         response = requests.get(url, headers=storage._get_headers())
 
         if response.status_code != 200:

@@ -1137,14 +1137,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                               )}
                               <button
                                 onClick={() => toggleGazelleHistory(row.pianoId, row.gazelleId)}
-                                className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                className={`px-2 py-1 text-[10px] font-semibold rounded transition-colors ${
                                   isExpanded
                                     ? 'bg-blue-500 text-white'
-                                    : 'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
+                                    : 'bg-gray-200 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
                                 }`}
-                                title="Voir l'historique Gazelle"
+                                title="Voir l'historique de service"
                               >
-                                📜
+                                {isExpanded ? '▼ Hist' : '▶ Hist'}
                               </button>
                             </div>
                           </td>
