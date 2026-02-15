@@ -840,8 +840,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
       setGazelleHistoryLoading(true);
       try {
-        // Utiliser le même endpoint que "Gestion & Pianos"
-        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=20`);
+        // Utiliser le même endpoint que "Gestion & Pianos" (limit=200 pour cohérence)
+        console.log('[À valider] Chargement historique pour piano:', idToFetch);
+        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         // Transformer le format timeline vers format simplifié pour l'accordéon
@@ -1171,8 +1172,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                               ) : historyEntries.length === 0 ? (
                                 <div className="text-xs text-gray-500 italic">Aucun historique trouvé pour ce piano.</div>
                               ) : (
-                                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
-                                  {historyEntries.slice(0, 10).map((entry, idx) => (
+                                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-2">
+                                  {historyEntries.map((entry, idx) => (
                                     <div
                                       key={idx}
                                       className="bg-white p-2 rounded border-l-4 border-blue-400 shadow-sm"
@@ -1200,11 +1201,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                                       </div>
                                     </div>
                                   ))}
-                                  {historyEntries.length > 10 && (
-                                    <div className="text-[10px] text-gray-400 text-center pt-1">
-                                      ... et {historyEntries.length - 10} autres entrées
-                                    </div>
-                                  )}
                                 </div>
                               )}
                             </td>
