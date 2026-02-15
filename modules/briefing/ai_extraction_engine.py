@@ -548,7 +548,8 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
     Construit l'historique technique à partir des notes brutes.
     Utilise les données factuelles (date, technician) sans IA.
 
-    IMPORTANT: Exclut les dates futures (services à venir).
+    IMPORTANT: Exclut les dates futures ET aujourd'hui (services pas encore faits).
+    L'historique ne montre que les services PASSÉS (avant aujourd'hui).
     """
     from datetime import datetime
     today = datetime.now().strftime('%Y-%m-%d')
@@ -561,8 +562,9 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         if not date or date in seen_dates:
             continue
 
-        # Exclure les dates futures (services à venir)
-        if date > today:
+        # Exclure aujourd'hui et les dates futures (services pas encore complétés)
+        # L'historique ne montre que les services passés
+        if date >= today:
             continue
 
         seen_dates.add(date)
@@ -616,6 +618,9 @@ def extract_follow_ups_regex(notes: List[Dict]) -> List[Dict]:
         (r'(?:à\s+)?noter?\s*[:\-]?\s*([^\.]+)', 'note'),
     ]
 
+    # Termes à ignorer (stationnement, etc.)
+    ignore_terms = ['stationnement', 'parking', 'stationner']
+
     for note in notes[:20]:
         date = note.get('date', '')
         # Ignorer les notes futures
@@ -631,6 +636,10 @@ def extract_follow_ups_regex(notes: List[Dict]) -> List[Dict]:
                 # Nettoyer le match
                 desc = match.strip()
                 if len(desc) < 5 or len(desc) > 150:
+                    continue
+
+                # Ignorer les termes non pertinents (stationnement, etc.)
+                if any(term in desc.lower() for term in ignore_terms):
                     continue
 
                 # Éviter les doublons

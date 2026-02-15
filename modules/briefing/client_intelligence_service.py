@@ -215,12 +215,18 @@ class ClientIntelligenceService:
             extraction = self._fallback_regex_extraction(notes)
 
         # 6. PILIER 1: Profil Humain (IA enrichi)
+        # Détecter si c'est une institution (langue non pertinente)
+        client_name = client.get('company_name') or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
+        institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
+                                'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
+        is_institution = any(kw in client_name.lower() for kw in institution_keywords)
+
         profile = ClientProfile(
-            language=self._apply_feedback(
+            language='' if is_institution else self._apply_feedback(
                 client_external_id, 'profile', 'language',
                 extraction.get('language', 'FR')
             ),
-            pets=self._format_pets(extraction.get('pets', [])),
+            pets=self._format_pets(extraction.get('pets', [])) if not is_institution else [],
             courtesies=self._format_courtesies(extraction.get('courtesies', [])),
             personality=extraction.get('personality', ''),
             payment_method=extraction.get('payment_method', ''),
