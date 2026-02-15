@@ -548,23 +548,54 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
     Construit l'historique technique à partir des notes brutes.
     Utilise les données factuelles (date, technician) sans IA.
 
-    IMPORTANT: Exclut les dates futures ET aujourd'hui (services pas encore faits).
-    L'historique ne montre que les services PASSÉS (avant aujourd'hui).
+    IMPORTANT:
+    - Exclut les dates futures ET aujourd'hui (services pas encore faits)
+    - Exclut les messages système (confirmations, rappels, créations de RV)
+    - Ne montre que les vrais services/notes techniques
     """
     from datetime import datetime
     today = datetime.now().strftime('%Y-%m-%d')
 
+    # Messages système à ignorer
+    ignore_patterns = [
+        'merci d\'avoir confirmé',
+        'thank you for confirming',
+        'votre rendez-vous avec piano technique',
+        'your piano appointment',
+        'a créé un rendez-vous',
+        'created an appointment',
+        'rendez-vous avec',  # Notifications système
+        'appointment with',
+        'rappel',
+        'reminder',
+        'confirmation',
+    ]
+
     history = []
     seen_dates = set()
 
-    for note in notes[:15]:  # Regarder plus de notes car on filtre les futures
+    for note in notes[:20]:  # Regarder plus de notes car on filtre beaucoup
         date = note.get('date', '')
         if not date or date in seen_dates:
             continue
 
-        # Exclure aujourd'hui et les dates futures (services pas encore complétés)
-        # L'historique ne montre que les services passés
+        # Exclure aujourd'hui et les dates futures
         if date >= today:
+            continue
+
+        text = (note.get('text', '') or '').strip()
+        text_lower = text.lower()
+
+        # Ignorer les messages système
+        if any(pattern in text_lower for pattern in ignore_patterns):
+            continue
+
+        # Ignorer les textes vides ou trop courts
+        if len(text) < 10 or text.lower() == 'none':
+            continue
+
+        # Ignorer si "None" est le contenu principal
+        if text.replace('None', '').strip() == '' or text.startswith('None '):
             continue
 
         seen_dates.add(date)
@@ -572,11 +603,15 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         tech_id = note.get('technician', '')
         tech_name = resolve_technician_name(tech_id)
 
+        # Si tech inconnu et pas de contenu utile, ignorer
+        if not tech_name and not any(c.isalpha() for c in text[:50]):
+            continue
+
         entry = {
             "date": date,
-            "technician": tech_name,
+            "technician": tech_name if tech_name else "Tech",
             "technician_id": tech_id,
-            "summary": (note.get('text', '') or '')[:200],
+            "summary": text[:200],
         }
         history.append(entry)
 
