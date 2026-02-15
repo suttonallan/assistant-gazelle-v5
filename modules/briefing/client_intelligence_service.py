@@ -187,8 +187,19 @@ class ClientIntelligenceService:
         pianos = self._get_client_pianos(client_external_id)
 
         # 4. Matcher le piano pour ce RV
+        # PRIORITÉ: utiliser piano_external_id du RV si disponible (lien direct Gazelle)
         piano_data = {}
-        if pianos:
+        piano_id_from_appointment = appointment_context.get('piano_external_id') if appointment_context else None
+
+        if piano_id_from_appointment and pianos:
+            # Lien direct: chercher le piano par son ID
+            for p in pianos:
+                if p.get('external_id') == piano_id_from_appointment:
+                    piano_data = p
+                    break
+
+        # Fallback: matcher par contexte texte si pas de lien direct
+        if not piano_data and pianos:
             piano_data = self._match_piano_from_context(pianos, appointment_context)
 
         # 5. EXTRACTION: IA si disponible, sinon regex
@@ -554,6 +565,7 @@ class ClientIntelligenceService:
                 'title': appt.get('title', ''),
                 'description': appt.get('description', ''),
                 'notes': appt.get('notes', ''),
+                'piano_external_id': appt.get('piano_external_id'),  # 🔗 Lien direct vers le piano
             }
 
             briefing = self.generate_briefing(client_id, appointment_context)

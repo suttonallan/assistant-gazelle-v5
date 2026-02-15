@@ -727,6 +727,7 @@ class GazelleToSupabaseSync:
                     appointment_record = {
                         'external_id': external_id,
                         'client_external_id': client_id,
+                        'piano_external_id': piano_id,  # 🔗 Lien direct vers le piano (extrait de allEventPianos)
                         'title': title,
                         'description': description,
                         'appointment_date': appointment_date,
