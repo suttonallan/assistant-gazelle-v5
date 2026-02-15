@@ -556,7 +556,7 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
     from datetime import datetime
     today = datetime.now().strftime('%Y-%m-%d')
 
-    # Messages système à ignorer
+    # Messages système à ignorer (pas des vrais services)
     ignore_patterns = [
         'merci d\'avoir confirmé',
         'thank you for confirming',
@@ -569,6 +569,14 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         'rappel',
         'reminder',
         'confirmation',
+        'le client a confirmé',  # Auto-confirmation
+        'client confirmed',
+        'le statut du client',  # Changement de statut
+        'client status',
+        'a été modifié',
+        'was changed',
+        'stationnement',  # Pas pertinent
+        'parking',
     ]
 
     history = []
@@ -607,11 +615,18 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         if not tech_name and not any(c.isalpha() for c in text[:50]):
             continue
 
+        # Nettoyer le texte (enlever "None", espaces multiples)
+        clean_text = text.replace(' None', '').replace('None ', '').replace('None', '')
+        clean_text = ' '.join(clean_text.split())  # Normaliser espaces
+
+        if len(clean_text) < 10:
+            continue  # Texte trop court après nettoyage
+
         entry = {
             "date": date,
             "technician": tech_name if tech_name else "Tech",
             "technician_id": tech_id,
-            "summary": text[:200],
+            "summary": clean_text[:200],
         }
         history.append(entry)
 
