@@ -847,15 +847,18 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         const data = await r.json();
         // Transformer le format timeline vers format simplifié pour l'accordéon
         // Le endpoint /timeline retourne: { date, type, summary, comment, user, source }
+        // Debug: voir la structure brute
+        console.log('[À valider] Données brutes:', data.entries?.slice(0, 2));
+
         const entries = (data.entries || []).map(e => ({
-          date: e.date || '',  // Le champ est 'date', pas 'occurred_at'
+          date: e.date || '',
           text: e.summary || e.comment || '',
           entry_type: e.type || 'NOTE',
           user: e.user || '',
           source: e.source || 'gazelle'
-        })).filter(e => e.text.trim()); // Exclure les entrées vides
+        })).filter(e => e.text.trim());
 
-        console.log('[À valider] Historique chargé:', entries.length, 'entrées');
+        console.log('[À valider] Entrées transformées:', entries.slice(0, 2));
 
         setGazelleHistoryData(prev => ({
           ...prev,
@@ -1185,7 +1188,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                                     >
                                       <div className="flex items-start gap-2 text-[11px]">
                                         <span className="text-blue-600 font-medium min-w-[75px]">
-                                          {entry.date ? new Date(entry.date).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
+                                          {(() => {
+                                            if (!entry.date) return '—';
+                                            try {
+                                              const d = new Date(entry.date);
+                                              if (isNaN(d.getTime())) return entry.date.slice(0, 10);
+                                              return d.toLocaleDateString('fr-CA', { day: 'numeric', month: 'short', year: '2-digit' });
+                                            } catch {
+                                              return entry.date.slice(0, 10) || '—';
+                                            }
+                                          })()}
                                         </span>
                                         <span className={`uppercase min-w-[55px] font-medium ${
                                           entry.entry_type === 'SERVICE' ? 'text-green-600' :
