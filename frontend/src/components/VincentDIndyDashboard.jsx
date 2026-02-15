@@ -53,6 +53,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const [editingNotesId, setEditingNotesId] = useState(null);
   const [notesInput, setNotesInput] = useState('');
 
+  // Pour vue "À valider" - édition inline des notes technicien
+  const [editingTravailId, setEditingTravailId] = useState(null);
+  const [editingTravailText, setEditingTravailText] = useState('');
+  const [editingHistoryId, setEditingHistoryId] = useState(null);
+  const [editingHistoryText, setEditingHistoryText] = useState('');
+
+  // Historique des services validés/poussés
+  const [serviceHistory, setServiceHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [tourneeInProgress, setTourneeInProgress] = useState(false);
+
+  // Historique Gazelle (timeline_entries) - accordéon dans vue "À valider"
+  const [expandedGazelleHistoryId, setExpandedGazelleHistoryId] = useState(null);
+  const [gazelleHistoryData, setGazelleHistoryData] = useState({});
+  const [gazelleHistoryLoading, setGazelleHistoryLoading] = useState(false);
+
   // Pour sélection de l'établissement
   const [selectedLocation, setSelectedLocation] = useState('vincent-dindy');
 
@@ -105,6 +121,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       setLoading(false);
     }
   }, [institution]); // Recharger les pianos si l'institution change
+
+  // Charger l'historique des services validés/poussés
+  const loadServiceHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/vincent-dindy/service-history?limit=200`);
+      if (r.ok) {
+        setServiceHistory(await r.json());
+      }
+    } catch (e) {
+      console.error('Erreur chargement historique:', e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -431,6 +462,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   }, [loadPianosFromAPI, institution]); // Recharger si l'institution change
 
+  // Charger l'historique quand on passe sur l'onglet "À valider"
+  useEffect(() => {
+    if (currentView === 'vdi') {
+      loadServiceHistory();
+    }
+  }, [currentView, loadServiceHistory]);
+
   // Handler pour changement d'institution depuis le volet tournées
   const handleInstitutionChangeForTechnician = useCallback(async (newInstitution) => {
     setSelectedInstitutionForTechnician(newInstitution);
@@ -584,33 +622,398 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
 
-  // ============ VUE "À VALIDER" — pianos avec travail du technicien ============
+  // ============ VUE "À VALIDER" — liste unifiée avec historique ============
   if (currentView === 'vdi') {
-    // Filtrer : seulement les pianos qui ont du travail du technicien
-    const pianosAvecTravail = pianos.filter(p => p.travail && p.travail.trim() !== '');
+    // Pianos pending (pas encore validés, ont du travail, pas de service_status)
+    const pendingPianos = pianos
+      .filter(p => p.travail && p.travail.trim() !== '' && !p.service_status)
+      .map(p => ({
+        _type: 'pending',
+        _key: `pending-${p.id}`,
+        _sortDate: p.updated_at || '1970-01-01',
+        pianoId: p.id,
+        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
+        local: p.local,
+        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+        aFaire: p.aFaire || '',
+        travail: p.travail,
+        serviceDate: p.dernierAccord || '',
+        status: 'pending',
+      }));
 
-    // Pianos avec notes du technicien, triés par local
-    const aValider = pianosAvecTravail
-      .sort((a, b) => (a.local || '').localeCompare(b.local || '', undefined, { numeric: true }));
+    // Pianos validés (notes visibles, en attente de push)
+    const validatedPianos = pianos
+      .filter(p => p.service_status === 'validated')
+      .map(p => ({
+        _type: 'validated_piano',
+        _key: `vp-${p.id}`,
+        _sortDate: p.updated_at || '1970-01-01',
+        pianoId: p.id,
+        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
+        local: p.local,
+        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+        aFaire: p.aFaire || '',
+        travail: p.travail || '',
+        serviceDate: p.dernierAccord || '',
+        status: 'validated',
+      }));
 
+    // Pianos poussés (notes visibles, en attente fin tournée)
+    const pushedPianos = pianos
+      .filter(p => p.service_status === 'pushed')
+      .map(p => ({
+        _type: 'pushed_piano',
+        _key: `pp-${p.id}`,
+        _sortDate: p.updated_at || '1970-01-01',
+        pianoId: p.id,
+        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
+        local: p.local,
+        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+        aFaire: p.aFaire || '',
+        travail: p.travail || '',
+        serviceDate: p.dernierAccord || '',
+        status: 'pushed',
+      }));
+
+    // Entrées historique (from vdi_service_history — validated + pushed passés)
+    // Dédoublonner : exclure les pianos déjà représentés par validatedPianos/pushedPianos
+    const livePianoIds = new Set([
+      ...validatedPianos.map(p => p.pianoId),
+      ...pushedPianos.map(p => p.pianoId),
+    ]);
+    const historyRows = serviceHistory
+      .filter(h => !livePianoIds.has(h.piano_id))
+      .map(h => ({
+        _type: 'history',
+        _key: `history-${h.id}`,
+        _sortDate: h.validated_at || h.created_at || '1970-01-01',
+        entryId: h.id,
+        pianoId: h.piano_id,
+        gazelleId: h.gazelle_piano_id || h.piano_id,  // Pour historique Gazelle
+        local: h.piano_local || '',
+        pianoName: h.piano_name || '',
+        aFaire: h.a_faire || '',
+        travail: h.travail || '',
+        serviceDate: h.service_date || '',
+        status: h.status, // 'validated' | 'pushed' | 'error'
+        validatedAt: h.validated_at,
+        pushedAt: h.pushed_at,
+        gazelleEventId: h.gazelle_event_id,
+      }));
+
+    // Liste unifiée, anti-chronologique
+    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos, ...historyRows]
+      .sort((a, b) => (b._sortDate || '').localeCompare(a._sortDate || ''));
+
+    const pendingCount = pendingPianos.length;
+    const validatedCount = validatedPianos.length;
+    const pushedCount = pushedPianos.length;
+
+    // --- Actions ---
     const handleValidate = async (pianoId) => {
-      // Valider = effacer notes + remettre à normal (ardoise propre pour le technicien)
-      setPianos(pianos.map(p =>
-        p.id === pianoId ? { ...p, status: 'normal', travail: '', aFaire: '', validated_at: new Date().toISOString() } : p
-      ));
-      await savePianoToAPI(pianoId, { status: 'normal', travail: '', aFaire: '' });
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            piano_ids: [pianoId],
+            validated_by: currentUser?.email || currentUser?.name || 'Unknown',
+          }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // Optimistic update : garder les notes, mettre service_status='validated'
+        setPianos(pianos.map(p =>
+          p.id === pianoId ? { ...p, service_status: 'validated', last_validated_at: new Date().toISOString() } : p
+        ));
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur validation: ' + e.message);
+      }
     };
 
     const handleValidateAll = async () => {
-      if (aValider.length === 0) return;
-      if (!confirm(`Valider les ${aValider.length} piano(s) et effacer leurs notes?`)) return;
-      const ids = aValider.map(p => p.id);
-      setPianos(pianos.map(p =>
-        ids.includes(p.id) ? { ...p, status: 'normal', travail: '', aFaire: '' } : p
-      ));
-      for (const id of ids) {
-        await savePianoToAPI(id, { status: 'normal', travail: '', aFaire: '' });
+      if (pendingCount === 0) return;
+      if (!confirm(`Valider ${pendingCount} piano(s)?`)) return;
+      try {
+        const ids = pendingPianos.map(p => p.pianoId);
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/validate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            piano_ids: ids,
+            validated_by: currentUser?.email || currentUser?.name || 'Unknown',
+          }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // Optimistic : garder les notes, mettre service_status='validated'
+        setPianos(pianos.map(p =>
+          ids.includes(p.id) ? { ...p, service_status: 'validated', last_validated_at: new Date().toISOString() } : p
+        ));
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur validation: ' + e.message);
       }
+    };
+
+    const handlePushToGazelle = async () => {
+      if (validatedCount === 0) return;
+      if (!confirm(`Pousser ${validatedCount} piano(s) validé(s) vers Gazelle?`)) return;
+      setPushInProgress(true);
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/push-tournee`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await r.json();
+        if (data.success || data.pushed_count > 0) {
+          alert(`${data.pushed_count} entrée(s) poussée(s) vers Gazelle.`);
+          // Optimistic : service_status → 'pushed'
+          const pushedIds = validatedPianos.map(p => p.pianoId);
+          setPianos(pianos.map(p =>
+            pushedIds.includes(p.id) ? { ...p, service_status: 'pushed' } : p
+          ));
+        } else {
+          alert('Erreur: ' + JSON.stringify(data));
+        }
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur push: ' + e.message);
+      } finally {
+        setPushInProgress(false);
+      }
+    };
+
+    const handleTourneeTerminee = async () => {
+      if (pushedCount === 0) return;
+      if (!confirm(`Terminer la tournée? ${pushedCount} piano(s) seront nettoyé(s) (notes effacées de l'affichage).`)) return;
+      setTourneeInProgress(true);
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/tournee-terminee`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await r.json();
+        if (data.success) {
+          alert(`${data.cleaned_count} piano(s) nettoyé(s). Tournée terminée.`);
+          const cleanedIds = new Set(data.piano_ids);
+          setPianos(pianos.map(p =>
+            cleanedIds.has(p.id) ? { ...p, travail: '', aFaire: '', observations: '', status: 'normal', service_status: null, is_work_completed: false } : p
+          ));
+        } else {
+          alert('Erreur: ' + (data.detail || JSON.stringify(data)));
+        }
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur nettoyage: ' + e.message);
+      } finally {
+        setTourneeInProgress(false);
+      }
+    };
+
+    const handleSaveHistoryEdit = async () => {
+      if (!editingHistoryId) return;
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/${editingHistoryId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ travail: editingHistoryText }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        setEditingHistoryId(null);
+        setEditingHistoryText('');
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur sauvegarde: ' + e.message);
+      }
+    };
+
+    // --- Chargement historique Gazelle (timeline_entries) ---
+    const loadGazelleHistory = async (pianoId, gazelleId) => {
+      // Utiliser gazelleId si disponible, sinon pianoId
+      const idToFetch = gazelleId || pianoId;
+      if (!idToFetch) return;
+
+      // Si déjà chargé, ne pas recharger
+      if (gazelleHistoryData[idToFetch]) return;
+
+      setGazelleHistoryLoading(true);
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/history?limit=15`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        setGazelleHistoryData(prev => ({
+          ...prev,
+          [idToFetch]: data.history || []
+        }));
+      } catch (e) {
+        console.error('Erreur chargement historique Gazelle:', e);
+        setGazelleHistoryData(prev => ({
+          ...prev,
+          [idToFetch]: [] // Marquer comme chargé (vide)
+        }));
+      } finally {
+        setGazelleHistoryLoading(false);
+      }
+    };
+
+    const toggleGazelleHistory = (pianoId, gazelleId) => {
+      const idToUse = gazelleId || pianoId;
+      if (expandedGazelleHistoryId === idToUse) {
+        // Fermer l'accordéon
+        setExpandedGazelleHistoryId(null);
+      } else {
+        // Ouvrir et charger si nécessaire
+        setExpandedGazelleHistoryId(idToUse);
+        loadGazelleHistory(pianoId, gazelleId);
+      }
+    };
+
+    // --- Badge statut ---
+    const StatusBadge = ({ status }) => {
+      const cfg = {
+        pending:   { bg: 'bg-blue-100',  text: 'text-blue-700',  label: 'À valider' },
+        validated: { bg: 'bg-green-100', text: 'text-green-700', label: 'Validé' },
+        pushed:    { bg: 'bg-gray-100',  text: 'text-gray-500',  label: 'Poussé' },
+        error:     { bg: 'bg-red-100',   text: 'text-red-700',   label: 'Erreur' },
+      };
+      const c = cfg[status] || cfg.pending;
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.bg} ${c.text}`}>
+          {c.label}
+        </span>
+      );
+    };
+
+    // --- Rendu notes avec édition inline ---
+    const NotesCell = ({ row }) => {
+      // Pending → edit via piano directly
+      if (row._type === 'pending') {
+        if (editingTravailId === row.pianoId) {
+          return (
+            <div className="space-y-1.5">
+              <textarea
+                value={editingTravailText}
+                onChange={(e) => setEditingTravailText(e.target.value)}
+                className="w-full border border-blue-300 rounded p-2 text-xs h-24 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <button
+                  onClick={async () => {
+                    setPianos(pianos.map(p =>
+                      p.id === row.pianoId ? { ...p, travail: editingTravailText } : p
+                    ));
+                    await savePianoToAPI(row.pianoId, { travail: editingTravailText });
+                    setEditingTravailId(null);
+                  }}
+                  className="px-2 py-1 text-xs font-medium rounded bg-blue-500 text-white hover:bg-blue-600"
+                >Sauvegarder</button>
+                <button
+                  onClick={() => setEditingTravailId(null)}
+                  className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+                >Annuler</button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div
+            onClick={() => { setEditingTravailId(row.pianoId); setEditingTravailText(row.travail); }}
+            className="whitespace-pre-wrap cursor-pointer hover:bg-blue-50 hover:text-blue-700 rounded px-1 -mx-1 py-0.5 transition-colors"
+            title="Cliquer pour modifier"
+          >{row.travail}</div>
+        );
+      }
+
+      // Validated piano (live, from piano row) → read-only with green styling
+      if (row._type === 'validated_piano') {
+        // Editable via history entry (Nicolas peut corriger avant push)
+        if (editingHistoryId === `vp-${row.pianoId}`) {
+          return (
+            <div className="space-y-1.5">
+              <textarea
+                value={editingHistoryText}
+                onChange={(e) => setEditingHistoryText(e.target.value)}
+                className="w-full border border-green-300 rounded p-2 text-xs h-24 resize-y focus:outline-none focus:ring-2 focus:ring-green-300"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <button
+                  onClick={async () => {
+                    // Sauvegarder dans vdi_service_history (l'entrée la plus récente pour ce piano)
+                    const histEntry = serviceHistory.find(h => h.piano_id === row.pianoId && h.status === 'validated');
+                    if (histEntry) {
+                      await fetch(`${API_URL}/api/vincent-dindy/service-history/${histEntry.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ travail: editingHistoryText }),
+                      });
+                    }
+                    setEditingHistoryId(null);
+                    setEditingHistoryText('');
+                    await loadServiceHistory();
+                  }}
+                  className="px-2 py-1 text-xs font-medium rounded bg-green-500 text-white hover:bg-green-600"
+                >Sauvegarder</button>
+                <button
+                  onClick={() => setEditingHistoryId(null)}
+                  className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+                >Annuler</button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div
+            onClick={() => { setEditingHistoryId(`vp-${row.pianoId}`); setEditingHistoryText(row.travail); }}
+            className="whitespace-pre-wrap cursor-pointer hover:bg-green-50 hover:text-green-700 rounded px-1 -mx-1 py-0.5 transition-colors"
+            title="Cliquer pour modifier avant le push"
+          >{row.travail}</div>
+        );
+      }
+
+      // Pushed piano (live) → read-only
+      if (row._type === 'pushed_piano') {
+        return <div className="whitespace-pre-wrap text-gray-500">{row.travail}</div>;
+      }
+
+      // History validated (from vdi_service_history, past entries) → editable
+      if (row.status === 'validated' && row._type === 'history') {
+        if (editingHistoryId === row.entryId) {
+          return (
+            <div className="space-y-1.5">
+              <textarea
+                value={editingHistoryText}
+                onChange={(e) => setEditingHistoryText(e.target.value)}
+                className="w-full border border-green-300 rounded p-2 text-xs h-24 resize-y focus:outline-none focus:ring-2 focus:ring-green-300"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <button
+                  onClick={handleSaveHistoryEdit}
+                  className="px-2 py-1 text-xs font-medium rounded bg-green-500 text-white hover:bg-green-600"
+                >Sauvegarder</button>
+                <button
+                  onClick={() => setEditingHistoryId(null)}
+                  className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
+                >Annuler</button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div
+            onClick={() => { setEditingHistoryId(row.entryId); setEditingHistoryText(row.travail); }}
+            className="whitespace-pre-wrap cursor-pointer hover:bg-green-50 hover:text-green-700 rounded px-1 -mx-1 py-0.5 transition-colors"
+            title="Cliquer pour modifier"
+          >{row.travail}</div>
+        );
+      }
+
+      // Pushed → read-only
+      return <div className="whitespace-pre-wrap text-gray-500">{row.travail}</div>;
     };
 
     return (
@@ -621,68 +1024,174 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
-        <div className="w-full max-w-7xl mx-auto px-4 py-4 space-y-6">
+        <div className="w-full max-w-7xl mx-auto px-4 py-4 space-y-4">
 
-          {/* Section : À valider */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <span className="w-3 h-3 bg-blue-400 rounded-full inline-block"></span>
-                À valider ({aValider.length})
-              </h2>
-              {aValider.length > 1 && (
+          {/* Barre d'actions */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              {pendingCount > 0 && (
+                <span className="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-1 rounded-full">
+                  {pendingCount} à valider
+                </span>
+              )}
+              {validatedCount > 0 && (
+                <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded-full">
+                  {validatedCount} validé{validatedCount > 1 ? 's' : ''} (à pousser)
+                </span>
+              )}
+              {pushedCount > 0 && (
+                <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
+                  {pushedCount} poussé{pushedCount > 1 ? 's' : ''}
+                </span>
+              )}
+              {allRows.length === 0 && !historyLoading && (
+                <span className="text-sm text-gray-500">Aucune entrée.</span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {pendingCount > 0 && (
                 <button
                   onClick={handleValidateAll}
-                  className="px-3 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                 >
-                  Valider tout ({aValider.length})
+                  Valider tout ({pendingCount})
+                </button>
+              )}
+              {validatedCount > 0 && (
+                <button
+                  onClick={handlePushToGazelle}
+                  disabled={pushInProgress}
+                  className="px-3 py-1.5 text-xs font-medium bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {pushInProgress ? 'Envoi...' : `Pousser vers Gazelle (${validatedCount})`}
+                </button>
+              )}
+              {pushedCount > 0 && validatedCount === 0 && (
+                <button
+                  onClick={handleTourneeTerminee}
+                  disabled={tourneeInProgress}
+                  className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  {tourneeInProgress ? 'Nettoyage...' : `Tournée terminée (${pushedCount})`}
                 </button>
               )}
             </div>
-            {aValider.length === 0 ? (
-              <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
-                Aucun piano en attente de validation.
-              </div>
-            ) : (
-              <div className="bg-white rounded-lg shadow overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-blue-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
-                      <th className="px-3 py-2">Local</th>
-                      <th className="px-3 py-2">Piano</th>
-                      <th className="px-3 py-2">À faire (Nick)</th>
-                      <th className="px-3 py-2">Notes technicien</th>
-                      <th className="px-3 py-2 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {aValider.map(piano => (
-                      <tr key={piano.id} className="bg-blue-50/30 hover:bg-blue-50">
-                        <td className="px-3 py-2 font-medium whitespace-nowrap">{piano.local}</td>
-                        <td className="px-3 py-2 whitespace-nowrap">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</td>
-                        <td className="px-3 py-2 text-xs text-gray-600">{piano.aFaire || '-'}</td>
-                        <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
-                          <div className="whitespace-pre-wrap">{piano.travail}</div>
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => handleValidate(piano.id)}
-                            className="px-3 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
-                          >
-                            Valider
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
-          <div className="text-xs text-gray-400 text-right">
-            {aValider.length} piano(s) avec notes technicien
-          </div>
+          {/* Tableau unifié */}
+          {historyLoading && allRows.length === 0 ? (
+            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">Chargement...</div>
+          ) : allRows.length === 0 ? (
+            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+              Aucun service en attente de validation ou dans l'historique.
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-3 py-2 w-20">Statut</th>
+                    <th className="px-3 py-2">Local</th>
+                    <th className="px-3 py-2">Piano</th>
+                    <th className="px-3 py-2">À faire</th>
+                    <th className="px-3 py-2">Notes technicien</th>
+                    <th className="px-3 py-2 w-24">Service</th>
+                    <th className="px-3 py-2 w-28 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {allRows.map(row => {
+                    const historyId = row.gazelleId || row.pianoId;
+                    const isExpanded = expandedGazelleHistoryId === historyId;
+                    const historyEntries = gazelleHistoryData[historyId] || [];
+
+                    return (
+                      <React.Fragment key={row._key}>
+                        <tr
+                          className={
+                            row.status === 'pending' ? 'bg-blue-50/30 hover:bg-blue-50' :
+                            row.status === 'validated' ? 'bg-green-50/30 hover:bg-green-50' :
+                            row.status === 'error' ? 'bg-red-50/30' :
+                            'bg-gray-50/30 hover:bg-gray-50'
+                          }
+                        >
+                          <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
+                          <td className="px-3 py-2 font-medium whitespace-nowrap">{row.local}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">{row.pianoName}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600">{row.aFaire || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
+                            <NotesCell row={row} />
+                          </td>
+                          <td className="px-3 py-2 text-[10px] text-gray-400 whitespace-nowrap">
+                            {row.serviceDate ? new Date(row.serviceDate).toLocaleDateString('fr-CA', { day: 'numeric', month: 'short' }) : '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {row.status === 'pending' && (
+                                <button
+                                  onClick={() => handleValidate(row.pianoId)}
+                                  className="px-2 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                >
+                                  Valider
+                                </button>
+                              )}
+                              <button
+                                onClick={() => toggleGazelleHistory(row.pianoId, row.gazelleId)}
+                                className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                  isExpanded
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-700'
+                                }`}
+                                title="Voir l'historique Gazelle"
+                              >
+                                📜
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {/* Accordéon historique Gazelle */}
+                        {isExpanded && (
+                          <tr className="bg-blue-50/50">
+                            <td colSpan="7" className="px-4 py-3">
+                              <div className="text-xs font-semibold text-blue-800 mb-2">
+                                📜 Historique de Service ({historyEntries.length} entrées)
+                              </div>
+                              {gazelleHistoryLoading && historyEntries.length === 0 ? (
+                                <div className="text-xs text-gray-500 italic">Chargement...</div>
+                              ) : historyEntries.length === 0 ? (
+                                <div className="text-xs text-gray-500 italic">Aucun historique trouvé pour ce piano.</div>
+                              ) : (
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                  {historyEntries.map((entry, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="bg-blue-50 p-2 rounded border-l-4 border-blue-400"
+                                    >
+                                      <div className="flex items-start gap-2">
+                                        <span className="text-[10px] text-blue-600 font-medium min-w-[70px]">
+                                          {entry.date || '—'}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 uppercase min-w-[50px]">
+                                          {entry.entry_type || 'NOTE'}
+                                        </span>
+                                        <p className="text-xs text-gray-700 whitespace-pre-wrap flex-1">
+                                          {entry.text}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     );

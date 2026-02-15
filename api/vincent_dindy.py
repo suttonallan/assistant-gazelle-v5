@@ -154,6 +154,20 @@ async def get_pianos(include_inactive: bool = False):
 
         logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées pour vincent-dindy")
 
+        # 2b. Charger les dernières validations depuis vdi_service_history
+        validation_statuses = {}
+        try:
+            r = _sh_table_request(
+                params="institution_slug=eq.vincent-dindy&status=in.(validated,pushed)&select=piano_id,validated_at&order=validated_at.desc"
+            )
+            if r.status_code == 200:
+                for entry in r.json():
+                    pid = entry.get('piano_id')
+                    if pid and pid not in validation_statuses:
+                        validation_statuses[pid] = entry['validated_at']
+        except Exception as e:
+            logging.warning(f"⚠️ Chargement validation statuses échoué: {e}")
+
         # 3. FUSION: Transformer pianos Gazelle + appliquer overlays Supabase
         pianos = []
 
@@ -219,7 +233,10 @@ async def get_pianos(include_inactive: bool = False):
                 "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
                 "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
                 "is_hidden": updates.get('is_hidden', False),  # Masquer de l'inventaire (False par défaut)
-                "gazelleStatus": gz_piano.get('status', 'UNKNOWN')  # Status Gazelle
+                "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),  # Status Gazelle
+                "updated_at": updates.get('updated_at', ''),  # Dernière modification des notes
+                "last_validated_at": validation_statuses.get(gz_id, ''),  # Dernière validation par Nicolas
+                "service_status": updates.get('service_status', None),  # Lifecycle tournée: None → validated → pushed
             }
 
             pianos.append(piano)
@@ -322,6 +339,16 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         # Supabase acceptera la mise à jour que le piano existe ou non.
         # Sauvegarder les modifications dans Supabase
         storage = get_supabase_storage()
+
+        # Garde : empêcher la modification de travail/a_faire si le piano est validé ou poussé
+        if update.travail is not None or update.aFaire is not None:
+            existing = storage.get_all_piano_updates(institution_slug='vincent-dindy')
+            piano_state = existing.get(piano_id, {})
+            if piano_state.get('service_status') in ('validated', 'pushed'):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Piano {piano_id} est en état '{piano_state['service_status']}' — lecture seule jusqu'à fin de tournée."
+                )
 
         # Convertir les champs camelCase vers snake_case pour Supabase
         update_dict = update.dict(exclude_none=True)
@@ -709,6 +736,88 @@ async def get_activity(limit: int = 20):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération de l'activité: {str(e)}")
+
+
+@router.get("/pianos/{piano_id}/history", response_model=Dict[str, Any])
+async def get_piano_history(piano_id: str, limit: int = 20):
+    """
+    Récupère l'historique de service d'un piano depuis gazelle_timeline_entries.
+
+    Args:
+        piano_id: ID du piano (gazelleId ou ID local)
+        limit: Nombre maximum d'entrées à retourner (défaut: 20)
+
+    Returns:
+        {
+            "history": [
+                {"date": "2026-01-15", "text": "Accord effectué...", "entry_type": "SERVICE"},
+                ...
+            ],
+            "piano_id": "ins_xxx",
+            "count": 5
+        }
+    """
+    import requests
+
+    try:
+        storage = get_supabase_storage()
+
+        # Requête sur gazelle_timeline_entries avec entity_id = piano_id
+        # On cherche aussi les entrées où external_id contient le piano_id (pour les anciens formats)
+        url = f"{storage.api_url}/gazelle_timeline_entries"
+        url += f"?or=(entity_id.eq.{piano_id},external_id.ilike.*{piano_id}*)"
+        url += f"&order=occurred_at.desc.nullsfirst,created_at.desc"
+        url += f"&limit={limit}"
+
+        response = requests.get(url, headers=storage._get_headers())
+
+        if response.status_code != 200:
+            print(f"⚠️ Erreur timeline entries: {response.status_code} - {response.text[:200]}")
+            return {"history": [], "piano_id": piano_id, "count": 0}
+
+        entries = response.json() or []
+
+        # Formatter les entrées pour le frontend
+        history = []
+        for entry in entries:
+            # Extraire la date (occurred_at ou created_at)
+            date_str = entry.get('occurred_at') or entry.get('created_at') or ''
+            if date_str:
+                try:
+                    # Parser et formater la date
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+                    date_formatted = dt.strftime('%Y-%m-%d')
+                except:
+                    date_formatted = date_str[:10] if len(date_str) >= 10 else date_str
+            else:
+                date_formatted = ''
+
+            # Extraire le texte (description, title, ou summary)
+            text = entry.get('description') or entry.get('title') or entry.get('summary') or ''
+
+            # Type d'entrée
+            entry_type = entry.get('entry_type') or entry.get('type') or 'NOTE'
+
+            if text.strip():  # Ne pas inclure les entrées vides
+                history.append({
+                    "date": date_formatted,
+                    "text": text.strip(),
+                    "entry_type": entry_type,
+                    "technician_id": entry.get('technician_id') or entry.get('user_id'),
+                })
+
+        return {
+            "history": history,
+            "piano_id": piano_id,
+            "count": len(history)
+        }
+
+    except Exception as e:
+        print(f"❌ Erreur get_piano_history: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la récupération de l'historique: {str(e)}")
 
 
 @router.get("/stats", response_model=Dict[str, Any])
@@ -1332,6 +1441,592 @@ async def get_pianos_ready_for_push(
             "ready_for_push": False,
             "error": str(e)
         }
+
+
+# ==========================================
+# SERVICE HISTORY — Historique des validations
+# ==========================================
+
+class ServiceHistoryValidateRequest(BaseModel):
+    piano_ids: List[str]
+    validated_by: str = "Unknown"
+
+class ServiceHistoryEditRequest(BaseModel):
+    travail: Optional[str] = None
+    a_faire: Optional[str] = None
+    observations: Optional[str] = None
+
+class ServiceHistoryPushRequest(BaseModel):
+    technician_id: str = "usr_HcCiFk7o0vZ9xAI0"
+    dry_run: bool = False
+    skip_gazelle: bool = False  # Marquer pushed sans écrire dans Gazelle
+
+
+def _sh_table_request(method: str = "GET", params: str = "",
+                      json_body=None, prefer: str = "return=representation"):
+    """Requête REST Supabase vers vdi_service_history."""
+    sb = get_supabase_storage()
+    url = f"{sb.api_url}/vdi_service_history?{params}" if params else f"{sb.api_url}/vdi_service_history"
+    headers = {
+        "apikey": sb.supabase_key,
+        "Authorization": f"Bearer {sb.supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": prefer,
+    }
+    import requests as _req
+    if method == "GET":
+        return _req.get(url, headers=headers)
+    elif method == "POST":
+        return _req.post(url, headers=headers, json=json_body)
+    elif method == "PATCH":
+        return _req.patch(url, headers=headers, json=json_body)
+    elif method == "DELETE":
+        return _req.delete(url, headers=headers)
+    raise ValueError(f"Méthode non supportée: {method}")
+
+
+@router.get("/service-history", response_model=List[Dict[str, Any]])
+async def get_service_history(limit: int = 100, include_imported: bool = False):
+    """Retourne l'historique des services validés/poussés, anti-chronologique."""
+    status_filter = "" if include_imported else "&status=in.(validated,pushed,error)"
+    r = _sh_table_request(params=f"select=*&order=validated_at.desc&limit={limit}{status_filter}")
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=r.text)
+    return r.json()
+
+
+@router.post("/service-history/validate", response_model=Dict[str, Any])
+async def validate_service_history(body: ServiceHistoryValidateRequest):
+    """
+    Valide un ou plusieurs pianos :
+    1. Archive les notes dans vdi_service_history
+    2. Nettoie le piano (ardoise propre pour le technicien)
+    """
+    storage = get_supabase_storage()
+    api_client = get_api_client()
+
+    # Charger les données Supabase pour ces pianos
+    all_updates = storage.get_all_piano_updates(institution_slug='vincent-dindy')
+
+    # Charger les données Gazelle pour le contexte (local, make, model, etc.)
+    piano_context = {}
+    try:
+        from api.institutions import get_institution_config
+        config = get_institution_config("vincent-dindy")
+        client_id = config.get('gazelle_client_id')
+        if api_client and client_id:
+            gz_pianos = api_client.get_pianos_by_client(client_id) or []
+            for gz in gz_pianos:
+                gz_id = gz.get('gazelleId', '')
+                piano_context[gz_id] = {
+                    'local': gz.get('location', ''),
+                    'name': f"{gz.get('make', '')} {gz.get('model', '')}".strip(),
+                    'serie': gz.get('serialNumber', ''),
+                    'dernierAccord': gz.get('calculatedLastService', ''),
+                }
+    except Exception as e:
+        logging.warning(f"⚠️ Impossible de charger le contexte Gazelle: {e}")
+
+    created = []
+    for piano_id in body.piano_ids:
+        updates = all_updates.get(piano_id, {})
+        ctx = piano_context.get(piano_id, {})
+
+        travail = updates.get('travail', '')
+        if not travail.strip():
+            continue  # Pas de notes à archiver
+
+        # Déterminer la date du service
+        service_date = None
+        dernier = ctx.get('dernierAccord', '')
+        if dernier:
+            try:
+                service_date = dernier[:10]  # ISO date part
+            except Exception:
+                pass
+
+        entry = {
+            "piano_id": piano_id,
+            "institution_slug": "vincent-dindy",
+            "piano_local": ctx.get('local', updates.get('local', '')),
+            "piano_name": ctx.get('name', ''),
+            "piano_serie": ctx.get('serie', ''),
+            "travail": travail,
+            "a_faire": updates.get('a_faire', ''),
+            "observations": updates.get('observations', ''),
+            "service_date": service_date,
+            "status": "validated",
+            "validated_by": body.validated_by,
+            "validated_at": datetime.utcnow().isoformat(),
+        }
+
+        # INSERT dans vdi_service_history
+        r = _sh_table_request(method="POST", json_body=entry)
+        if r.status_code not in (200, 201):
+            logging.error(f"❌ Erreur insert history pour {piano_id}: {r.text}")
+            continue
+
+        created_entries = r.json()
+        if created_entries:
+            created.append(created_entries[0] if isinstance(created_entries, list) else created_entries)
+
+        # Marquer le piano comme validé (notes RESTENT visibles jusqu'à fin de tournée)
+        storage.update_piano(piano_id, {
+            'service_status': 'validated',
+        }, institution_slug='vincent-dindy')
+
+    return {
+        "success": True,
+        "validated_count": len(created),
+        "entries": created,
+    }
+
+
+@router.put("/service-history/{entry_id}", response_model=Dict[str, Any])
+async def edit_service_history(entry_id: str, body: ServiceHistoryEditRequest):
+    """Modifier une entrée validée (pas encore poussée)."""
+    # Vérifier que l'entrée existe et est modifiable
+    r = _sh_table_request(params=f"id=eq.{entry_id}&select=status")
+    if r.status_code != 200 or not r.json():
+        raise HTTPException(status_code=404, detail="Entrée non trouvée")
+    entry = r.json()[0]
+    if entry.get('status') == 'pushed':
+        raise HTTPException(status_code=400, detail="Impossible de modifier une entrée déjà poussée")
+
+    update_data = {}
+    if body.travail is not None:
+        update_data['travail'] = body.travail
+    if body.a_faire is not None:
+        update_data['a_faire'] = body.a_faire
+    if body.observations is not None:
+        update_data['observations'] = body.observations
+
+    if not update_data:
+        return {"edited": False, "message": "Aucun champ à modifier"}
+
+    r = _sh_table_request(method="PATCH", params=f"id=eq.{entry_id}",
+                          json_body=update_data)
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=r.text)
+
+    return {"edited": True, "entry_id": entry_id}
+
+
+@router.post("/service-history/push-tournee", response_model=Dict[str, Any])
+async def push_tournee(body: ServiceHistoryPushRequest):
+    """
+    Pousse toutes les entrées validées vers Gazelle en UN SEUL rendez-vous multi-pianos.
+    Pattern identique au bundle-push VDI :
+    1. Activer pianos INACTIVE → ACTIVE
+    2. Créer un seul événement avec tous les pianos
+    3. Compléter avec serviceHistoryNotes individuelles par piano
+    4. Remettre pianos INACTIVE
+    5. Marquer les entrées comme 'pushed'
+    """
+    from core.timezone_utils import MONTREAL_TZ
+    from collections import defaultdict
+
+    # 1. Récupérer les entrées validées
+    r = _sh_table_request(params="status=eq.validated&select=*&order=piano_local.asc")
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=r.text)
+    validated = r.json()
+
+    if not validated:
+        return {"success": True, "pushed_count": 0, "message": "Aucune entrée validée à pousser"}
+
+    # Grouper par piano_id
+    piano_entries = defaultdict(list)
+    for entry in validated:
+        piano_entries[entry['piano_id']].append(entry)
+    piano_ids = list(piano_entries.keys())
+
+    if body.dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "would_push": len(validated),
+            "pianos_count": len(piano_ids),
+            "pianos": [{"piano_id": v["piano_id"], "local": v.get("piano_local", "")} for v in validated]
+        }
+
+    # Mode simulation : marquer pushed sans écrire dans Gazelle
+    if body.skip_gazelle:
+        logging.info(f"⏭️ skip_gazelle: marquage {len(validated)} entrées comme pushed (sans Gazelle)")
+        storage = get_supabase_storage()
+        for entry in validated:
+            _sh_table_request(
+                method="PATCH",
+                params=f"id=eq.{entry['id']}",
+                json_body={
+                    "status": "pushed",
+                    "pushed_at": datetime.utcnow().isoformat(),
+                    "gazelle_event_id": "SKIPPED",
+                }
+            )
+        # Marquer les pianos comme 'pushed'
+        for pid in piano_ids:
+            storage.update_piano(pid, {'service_status': 'pushed'}, institution_slug='vincent-dindy')
+        return {
+            "success": True,
+            "pushed_count": len(validated),
+            "pianos_count": len(piano_ids),
+            "skip_gazelle": True,
+            "summary": f"{len(validated)} entrée(s) marquée(s) pushed (Gazelle ignoré)"
+        }
+
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Client API Gazelle non disponible")
+
+    try:
+        # 2. Récupérer le client_id VDI
+        from api.institutions import get_institution_config
+        config = get_institution_config("vincent-dindy")
+        client_id = config.get("gazelle_client_id")
+
+        logging.info(f"🎹 Push tournée: {len(validated)} entrées pour {len(piano_ids)} pianos")
+
+        # 3. Gymnastique: Réactiver les pianos INACTIVE → ACTIVE
+        activated_pianos = []
+        for pid in piano_ids:
+            try:
+                status_q = """
+                query GetPianoStatus($pianoId: String!) {
+                    piano(id: $pianoId) { id status }
+                }
+                """
+                sr = api_client._execute_query(status_q, {"pianoId": pid})
+                current_status = sr.get("data", {}).get("piano", {}).get("status")
+                if current_status == "INACTIVE":
+                    update_m = """
+                    mutation ActivatePiano($pianoId: String!, $input: PrivatePianoInput!) {
+                        updatePiano(id: $pianoId, input: $input) {
+                            piano { id status }
+                            mutationErrors { fieldName messages }
+                        }
+                    }
+                    """
+                    api_client._execute_query(update_m, {"pianoId": pid, "input": {"status": "ACTIVE"}})
+                    activated_pianos.append(pid)
+                    logging.info(f"   ✅ Piano {pid} → ACTIVE")
+            except Exception as e:
+                logging.warning(f"   ⚠️ Activation piano {pid}: {e}")
+
+        # 4. Créer UN SEUL événement multi-pianos
+        event_date = datetime.now(MONTREAL_TZ).isoformat()
+        pianos_input = [{"pianoId": pid, "isTuning": True} for pid in piano_ids]
+
+        # Texte combiné pour le champ notes
+        combined_lines = []
+        for pid, entries in piano_entries.items():
+            local = entries[0].get('piano_local', pid)
+            for e in entries:
+                combined_lines.append(f"🎹 {local} : {e.get('travail', '')}")
+        combined_text = "\n".join(combined_lines)
+
+        create_mutation = """
+        mutation CreateBundleEvent($input: PrivateEventInput!) {
+            createEvent(input: $input) {
+                event { id title start type status }
+                mutationErrors { fieldName messages }
+            }
+        }
+        """
+        event_input = {
+            "title": f"VDI Accord collectif ({len(piano_ids)} pianos)",
+            "start": event_date,
+            "duration": 60 * len(piano_ids),
+            "type": "APPOINTMENT",
+            "notes": combined_text,
+            "pianos": pianos_input,
+            "userId": body.technician_id,
+        }
+        if client_id:
+            event_input["clientId"] = client_id
+
+        create_result = api_client._execute_query(create_mutation, {"input": event_input})
+        create_data = create_result.get("data", {}).get("createEvent", {})
+        event = create_data.get("event")
+        if not event:
+            errors = create_data.get("mutationErrors", [])
+            raise Exception(f"Erreur createEvent: {errors}")
+
+        event_id = event["id"]
+        logging.info(f"   ✅ Événement créé: {event_id}")
+
+        # 5. Compléter avec serviceHistoryNotes individuelles par piano
+        service_notes = []
+        for pid, entries in piano_entries.items():
+            lines = [e.get('travail', '') for e in entries if e.get('travail')]
+            service_notes.append({"pianoId": pid, "notes": "\n".join(lines)})
+
+        complete_mutation = """
+        mutation CompleteBundleEvent($eventId: String!, $input: PrivateCompleteEventInput!) {
+            completeEvent(eventId: $eventId, input: $input) {
+                event { id status }
+                mutationErrors { fieldName messages }
+            }
+        }
+        """
+        complete_input = {
+            "resultType": "COMPLETE",
+            "serviceHistoryNotes": service_notes,
+        }
+        api_client._execute_query(complete_mutation, {"eventId": event_id, "input": complete_input})
+        logging.info(f"   ✅ Événement complété avec {len(service_notes)} notes d'historique")
+
+        # 6. Remettre les pianos en INACTIVE
+        for pid in activated_pianos:
+            try:
+                deact_m = """
+                mutation DeactivatePiano($pianoId: String!, $input: PrivatePianoInput!) {
+                    updatePiano(id: $pianoId, input: $input) {
+                        piano { id status }
+                        mutationErrors { fieldName messages }
+                    }
+                }
+                """
+                api_client._execute_query(deact_m, {"pianoId": pid, "input": {"status": "INACTIVE"}})
+                logging.info(f"   ✅ Piano {pid} → INACTIVE")
+            except Exception as e:
+                logging.warning(f"   ⚠️ Désactivation piano {pid}: {e}")
+
+        # 7. Marquer toutes les entrées comme 'pushed'
+        for entry in validated:
+            _sh_table_request(
+                method="PATCH",
+                params=f"id=eq.{entry['id']}",
+                json_body={
+                    "status": "pushed",
+                    "pushed_at": datetime.utcnow().isoformat(),
+                    "gazelle_event_id": event_id,
+                }
+            )
+
+        # 8. Marquer les pianos comme 'pushed' (notes restent visibles jusqu'à fin de tournée)
+        storage = get_supabase_storage()
+        for pid in piano_ids:
+            storage.update_piano(pid, {'service_status': 'pushed'}, institution_slug='vincent-dindy')
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "pushed_count": len(validated),
+            "pianos_count": len(piano_ids),
+            "activated_then_deactivated": activated_pianos,
+            "summary": f"{len(validated)} entrée(s) pour {len(piano_ids)} piano(s) → 1 rendez-vous Gazelle"
+        }
+
+    except Exception as e:
+        logging.error(f"❌ Push tournée erreur: {e}")
+        # Marquer les entrées en erreur
+        for entry in validated:
+            _sh_table_request(
+                method="PATCH",
+                params=f"id=eq.{entry['id']}",
+                json_body={"status": "error", "push_error": str(e)}
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# TOURNÉE TERMINÉE — Nettoyage des fiches pianos
+# ==========================================
+
+@router.post("/service-history/tournee-terminee", response_model=Dict[str, Any])
+async def tournee_terminee():
+    """
+    Nettoie tous les pianos dont le service a été poussé vers Gazelle.
+    Remet l'ardoise à zéro : vide travail/a_faire, reset service_status.
+    Ne touche PAS à Gazelle — juste l'affichage local.
+    Précondition : aucun piano en état 'validated' (doit être poussé d'abord).
+    """
+    storage = get_supabase_storage()
+    all_updates = storage.get_all_piano_updates(institution_slug='vincent-dindy')
+
+    # Vérifier qu'il n'y a pas de pianos validés non poussés
+    validated_remaining = [pid for pid, d in all_updates.items()
+                          if d.get('service_status') == 'validated']
+    if validated_remaining:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(validated_remaining)} piano(s) validé(s) non poussé(s). "
+                   "Poussez vers Gazelle avant de terminer la tournée."
+        )
+
+    # Nettoyer tous les pianos avec service_status='pushed'
+    cleaned = []
+    for piano_id, data in all_updates.items():
+        if data.get('service_status') == 'pushed':
+            storage.update_piano(piano_id, {
+                'travail': '',
+                'a_faire': '',
+                'observations': '',
+                'status': 'normal',
+                'is_work_completed': False,
+                'service_status': None,
+            }, institution_slug='vincent-dindy')
+            cleaned.append(piano_id)
+
+    logging.info(f"🧹 Tournée terminée: {len(cleaned)} piano(s) nettoyé(s)")
+
+    return {
+        "success": True,
+        "cleaned_count": len(cleaned),
+        "piano_ids": cleaned,
+    }
+
+
+# ==========================================
+# TIMELINE / HISTORIQUE D'ENTRETIEN
+# ==========================================
+
+_timeline_cache = {}  # { client_id: { "entries": [...], "fetched_at": datetime } }
+_TIMELINE_CACHE_TTL = 300  # 5 minutes
+
+@router.get("/pianos/{piano_id}/timeline", response_model=Dict[str, Any])
+async def get_piano_timeline(piano_id: str, limit: int = 50):
+    """
+    Récupère l'historique complet d'entretien d'un piano.
+
+    Fusionne 2 sources :
+    1. Gazelle API — allTimelineEntries filtré par clientId VDI + piano.id local
+       (cache 5 min pour éviter 34+ appels API par clic)
+    2. Supabase — vdi_service_history (services validés/poussés localement)
+
+    NOTE: Le filtre pianoId de allTimelineEntries ne fonctionne pas (bug Gazelle).
+    On filtre donc par clientId (institution) puis localement par piano.id.
+    """
+    try:
+        api_client = get_api_client()
+        gazelle_entries = []
+
+        if api_client:
+            # Charger le clientId de l'institution
+            from api.institutions import get_institution_config
+            config = get_institution_config("vincent-dindy")
+            client_id = config.get('gazelle_client_id')
+
+            # NOTE: Le filtre pianoId de allTimelineEntries ne fonctionne pas (bug Gazelle).
+            # On charge TOUTES les entrées du client (cache 5 min) puis filtre par piano.
+
+            # Vérifier le cache
+            cached = _timeline_cache.get(client_id)
+            now = datetime.utcnow()
+            if cached and (now - cached["fetched_at"]).total_seconds() < _TIMELINE_CACHE_TTL:
+                all_client_entries = cached["entries"]
+                logging.info(f"📋 Cache timeline hit ({len(all_client_entries)} entrées)")
+            else:
+                # Paginer toutes les entrées du client
+                all_client_entries = []
+                query = """
+                query GetClientTimeline($clientId: String!, $cursor: String) {
+                    allTimelineEntries(first: 100, clientId: $clientId, after: $cursor) {
+                        edges {
+                            node {
+                                id
+                                occurredAt
+                                type
+                                summary
+                                comment
+                                piano { id }
+                                user { id firstName lastName }
+                                invoice { id number }
+                            }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }
+                """
+                try:
+                    cursor = None
+                    for _ in range(50):  # ~5000 entries max
+                        variables = {"clientId": client_id}
+                        if cursor:
+                            variables["cursor"] = cursor
+                        result = api_client._execute_query(query, variables)
+                        data = result.get("data", {}).get("allTimelineEntries", {})
+                        edges = data.get("edges", [])
+
+                        for edge in edges:
+                            node = edge.get("node", {})
+                            if node.get("type") == "SYSTEM_MESSAGE":
+                                continue
+                            entry_piano = node.get("piano") or {}
+                            pid = entry_piano.get("id")
+                            if not pid:
+                                continue
+                            user = node.get("user") or {}
+                            user_name = f"{user.get('firstName', '')} {user.get('lastName', '')}".strip() or None
+                            all_client_entries.append({
+                                "source": "gazelle",
+                                "piano_id": pid,
+                                "id": node.get("id"),
+                                "date": node.get("occurredAt"),
+                                "type": node.get("type"),
+                                "summary": node.get("summary") or "",
+                                "comment": node.get("comment") or "",
+                                "user": user_name,
+                                "invoice_number": (node.get("invoice") or {}).get("number"),
+                            })
+
+                        page_info = data.get("pageInfo", {})
+                        if not page_info.get("hasNextPage"):
+                            break
+                        cursor = page_info.get("endCursor")
+
+                    _timeline_cache[client_id] = {"entries": all_client_entries, "fetched_at": now}
+                    logging.info(f"📋 Cache timeline rempli: {len(all_client_entries)} entrées (hors SYSTEM_MESSAGE)")
+                except Exception as e:
+                    logging.warning(f"⚠️ Erreur timeline Gazelle: {e}")
+
+            # Filtrer pour ce piano
+            gazelle_entries = [
+                {k: v for k, v in e.items() if k != "piano_id"}
+                for e in all_client_entries
+                if e.get("piano_id") == piano_id
+            ][:limit]
+            logging.info(f"📋 {len(gazelle_entries)} entrées Gazelle pour piano {piano_id}")
+
+        # 2. Entrées locales depuis vdi_service_history
+        local_entries = []
+        try:
+            r = _sh_table_request(
+                params=f"piano_id=eq.{piano_id}&select=*&order=validated_at.desc&limit={limit}"
+            )
+            if r.status_code == 200:
+                for entry in r.json():
+                    local_entries.append({
+                        "source": "local",
+                        "id": entry.get("id"),
+                        "date": entry.get("service_date") or entry.get("validated_at") or entry.get("created_at"),
+                        "type": "SERVICE",
+                        "summary": entry.get("travail") or "",
+                        "comment": entry.get("a_faire") or "",
+                        "user": entry.get("technician_name"),
+                        "status": entry.get("status"),
+                        "pushed_at": entry.get("pushed_at"),
+                        "gazelle_event_id": entry.get("gazelle_event_id"),
+                    })
+                logging.info(f"📋 {len(local_entries)} entrées locales pour piano {piano_id}")
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur service_history pour {piano_id}: {e}")
+
+        # 3. Fusionner et trier anti-chronologiquement
+        all_entries = gazelle_entries + local_entries
+        all_entries.sort(key=lambda x: x.get("date") or "1970-01-01", reverse=True)
+
+        return {
+            "piano_id": piano_id,
+            "entries": all_entries,
+            "gazelle_count": len(gazelle_entries),
+            "local_count": len(local_entries),
+        }
+
+    except Exception as e:
+        logging.error(f"❌ Timeline piano {piano_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ==========================================
