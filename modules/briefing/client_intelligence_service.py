@@ -181,13 +181,10 @@ class ClientIntelligenceService:
         if not client:
             return {"error": "Client non trouvé"}
 
-        # 2. Récupérer les notes (timeline + appointments)
-        notes = self._get_client_notes(client_external_id)
-
-        # 3. Récupérer les pianos du client
+        # 2. Récupérer les pianos du client
         pianos = self._get_client_pianos(client_external_id)
 
-        # 4. Matcher le piano pour ce RV
+        # 3. Matcher le piano pour ce RV
         # PRIORITÉ: utiliser piano_external_id du RV si disponible (lien direct Gazelle)
         piano_data = {}
         piano_id_from_appointment = appointment_context.get('piano_external_id') if appointment_context else None
@@ -202,6 +199,10 @@ class ClientIntelligenceService:
         # Fallback: matcher par contexte texte si pas de lien direct
         if not piano_data and pianos:
             piano_data = self._match_piano_from_context(pianos, appointment_context)
+
+        # 4. Récupérer les notes (timeline + appointments) - INCLUT le piano_id pour les déficiences
+        piano_id = piano_data.get('external_id') if piano_data else None
+        notes = self._get_client_notes(client_external_id, piano_id=piano_id)
 
         # 5. EXTRACTION: IA si disponible, sinon regex
         if self.ai_engine.is_available and notes:
@@ -482,29 +483,56 @@ class ClientIntelligenceService:
         except:
             return None
 
-    def _get_client_notes(self, client_id: str) -> List[Dict]:
+    def _get_client_notes(self, client_id: str, piano_id: str = None) -> List[Dict]:
         notes = []
+        seen_texts = set()  # Éviter les doublons
+
+        # 1. Timeline par client
         try:
             timeline = self.storage.get_data('gazelle_timeline_entries',
                                               filters={'client_id': client_id},
                                               order_by='occurred_at.desc')
             for t in timeline[:20]:
-                notes.append({
-                    'date': t.get('occurred_at', '')[:10],
-                    'text': f"{t.get('title', '')} {t.get('description', '')}",
-                    'technician': t.get('user_id', ''),
-                    'source': 'timeline'
-                })
+                text = f"{t.get('title', '')} {t.get('description', '')}".strip()
+                if text and text not in seen_texts:
+                    seen_texts.add(text)
+                    notes.append({
+                        'date': t.get('occurred_at', '')[:10],
+                        'text': text,
+                        'technician': t.get('user_id', ''),
+                        'source': 'timeline'
+                    })
         except:
             pass
 
+        # 2. Timeline par piano (important pour les déficiences liées au piano!)
+        if piano_id:
+            try:
+                piano_timeline = self.storage.get_data('gazelle_timeline_entries',
+                                                        filters={'piano_id': piano_id},
+                                                        order_by='occurred_at.desc')
+                for t in piano_timeline[:20]:
+                    text = f"{t.get('title', '')} {t.get('description', '')}".strip()
+                    if text and text not in seen_texts:
+                        seen_texts.add(text)
+                        notes.append({
+                            'date': t.get('occurred_at', '')[:10],
+                            'text': text,
+                            'technician': t.get('user_id', ''),
+                            'source': 'piano_timeline'
+                        })
+            except:
+                pass
+
+        # 3. Appointments
         try:
             appts = self.storage.get_data('gazelle_appointments',
                                            filters={'client_external_id': client_id},
                                            order_by='start_datetime.desc')
             for a in appts[:10]:
-                text = f"{a.get('title', '')} {a.get('description', '')} {a.get('notes', '')}"
-                if text.strip():
+                text = f"{a.get('title', '')} {a.get('description', '')} {a.get('notes', '')}".strip()
+                if text and text not in seen_texts:
+                    seen_texts.add(text)
                     notes.append({
                         'date': a.get('appointment_date', ''),
                         'text': text,
