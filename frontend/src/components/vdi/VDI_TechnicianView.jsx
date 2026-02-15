@@ -184,7 +184,15 @@ export default function VDI_TechnicianView({
                     <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {hasTravail && <span className="text-blue-500 text-xs">📝</span>}
+                    {piano.service_status ? (
+                      <span className="text-green-500 text-sm font-bold" title={
+                        piano.service_status === 'pushed' ? 'Poussé vers Gazelle' : 'Validé par Nicolas'
+                      }>{piano.service_status === 'pushed' ? '✓✓' : '✓'}</span>
+                    ) : hasTravail ? (
+                      <span className="text-blue-500 text-xs">📝</span>
+                    ) : piano.last_validated_at ? (
+                      <span className="text-green-500 text-sm font-bold" title="Validé">✓</span>
+                    ) : null}
                     {/* Save status dot when collapsed */}
                     {!isExpanded && saveStatus[piano.id] === 'modified' && (
                       <span className="w-2 h-2 rounded-full bg-amber-400" title="Non sauvegardé" />
@@ -214,19 +222,40 @@ export default function VDI_TechnicianView({
                       </div>
                     )}
 
+                    {/* Bannière lecture seule si validé/poussé */}
+                    {piano.service_status && (
+                      <div className={`text-xs font-medium rounded px-2 py-1.5 ${
+                        piano.service_status === 'pushed'
+                          ? 'bg-gray-100 text-gray-600'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {piano.service_status === 'pushed'
+                          ? 'Poussé vers Gazelle — lecture seule'
+                          : 'Validé par Nicolas — lecture seule'}
+                      </div>
+                    )}
+
                     {/* Textarea auto-save */}
                     <div>
                       <textarea
                         value={travailInput}
                         onChange={(e) => handleTravailChange(piano.id, e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg p-3 text-sm h-24 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                        className={`w-full border rounded-lg p-3 text-sm h-24 resize-y focus:outline-none ${
+                          piano.service_status
+                            ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
+                            : 'border-gray-300 focus:ring-2 focus:ring-blue-300 focus:border-blue-400'
+                        }`}
                         placeholder="Notes d'accord, observations..."
-                        autoFocus
+                        autoFocus={!piano.service_status}
+                        disabled={!!piano.service_status}
+                        readOnly={!!piano.service_status}
                       />
-                      <div className="flex justify-between items-center mt-1">
-                        <div className="text-xs text-gray-400">auto-save</div>
-                        <SaveBadge status={saveStatus[piano.id]} />
-                      </div>
+                      {!piano.service_status && (
+                        <div className="flex justify-between items-center mt-1">
+                          <div className="text-xs text-gray-400">auto-save</div>
+                          <SaveBadge status={saveStatus[piano.id]} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

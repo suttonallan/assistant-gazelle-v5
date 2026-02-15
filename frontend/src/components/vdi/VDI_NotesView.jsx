@@ -58,6 +58,11 @@ export default function VDI_NotesView({ currentUser }) {
   const [bundlePushing, setBundlePushing] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
+  // Admin inline editing
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editingText, setEditingText] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   // Debounce timers
   const debounceTimers = useRef({});
   // Local note values (controlled textareas)
@@ -237,6 +242,36 @@ export default function VDI_NotesView({ currentUser }) {
     });
   };
 
+  const startEditNote = (note) => {
+    setEditingNoteId(note.id);
+    setEditingText(note.note);
+  };
+
+  const cancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditingText('');
+  };
+
+  const saveEditNote = async () => {
+    if (!editingNoteId) return;
+    setEditSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/api/vdi/admin/buffer/${editingNoteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: editingText }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setEditingNoteId(null);
+      setEditingText('');
+      await loadBuffer();
+    } catch (e) {
+      alert('Erreur sauvegarde: ' + e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   // ========== 6. Save Status Badge (prominent, universal) ==========
   const SaveBadge = ({ pianoId }) => {
     const s = saveStatus[pianoId];
@@ -273,6 +308,67 @@ export default function VDI_NotesView({ currentUser }) {
   const draftCount = bufferNotes.filter(n => n.status === 'draft').length;
   const validatedCount = bufferNotes.filter(n => n.status === 'validated').length;
 
+  // ========== NoteRow — reusable per-note rendering ==========
+  const NoteRow = ({ note }) => (
+    <div
+      className={`flex items-start gap-2 p-2 rounded border text-sm ${
+        note.status === 'validated' ? 'bg-green-50 border-green-200' :
+        note.status === 'pushed' ? 'bg-gray-50 border-gray-200 opacity-60' :
+        'bg-white border-gray-200'
+      }`}
+    >
+      {note.status === 'draft' && (
+        <input
+          type="checkbox"
+          checked={selectedNoteIds.has(note.id)}
+          onChange={() => toggleNoteSelection(note.id)}
+          className="mt-1 w-4 h-4"
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-gray-800">{note.tech_name}</span>
+          <span className="text-gray-400">—</span>
+          <span className="text-gray-600 truncate">{note.piano_id?.slice(-8)}</span>
+        </div>
+        {editingNoteId === note.id ? (
+          <div className="mt-1 space-y-1.5">
+            <textarea
+              value={editingText}
+              onChange={(e) => setEditingText(e.target.value)}
+              className="w-full border border-blue-300 rounded p-2 text-sm h-24 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300"
+              autoFocus
+            />
+            <div className="flex gap-1.5">
+              <button
+                onClick={saveEditNote}
+                disabled={editSaving}
+                className="px-2.5 py-1 text-xs font-medium rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50"
+              >
+                {editSaving ? 'Sauvegarde...' : 'Sauvegarder'}
+              </button>
+              <button
+                onClick={cancelEditNote}
+                disabled={editSaving}
+                className="px-2.5 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={(e) => { e.stopPropagation(); if (note.status !== 'pushed') startEditNote(note); }}
+            className={`text-gray-600 mt-0.5 ${note.status !== 'pushed' ? 'cursor-pointer hover:bg-blue-50 hover:text-blue-700 rounded px-1 -mx-1 transition-colors' : ''}`}
+            title={note.status !== 'pushed' ? 'Cliquer pour modifier' : ''}
+          >
+            {note.note}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {/* ===== ADMIN PANEL ===== */}
@@ -304,41 +400,67 @@ export default function VDI_NotesView({ currentUser }) {
               {bufferNotes.length === 0 ? (
                 <div className="text-sm text-gray-500 text-center py-2">Aucune note dans le buffer.</div>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {bufferNotes.map(note => (
-                    <div
-                      key={note.id}
-                      className={`flex items-start gap-2 p-2 rounded border text-sm ${
-                        note.status === 'validated' ? 'bg-green-50 border-green-200' :
-                        note.status === 'pushed' ? 'bg-gray-50 border-gray-200 opacity-60' :
-                        'bg-white border-gray-200'
-                      }`}
-                    >
-                      {note.status === 'draft' && (
-                        <input
-                          type="checkbox"
-                          checked={selectedNoteIds.has(note.id)}
-                          onChange={() => toggleNoteSelection(note.id)}
-                          className="mt-1 w-4 h-4"
-                        />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-800">{note.tech_name}</span>
-                          <span className="text-gray-400">—</span>
-                          <span className="text-gray-600 truncate">{note.piano_id?.slice(-8)}</span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${
-                            note.status === 'draft' ? 'bg-blue-100 text-blue-700' :
-                            note.status === 'validated' ? 'bg-green-100 text-green-700' :
-                            'bg-gray-100 text-gray-500'
-                          }`}>
-                            {note.status}
-                          </span>
-                        </div>
-                        <div className="text-gray-600 mt-0.5 line-clamp-2">{note.note}</div>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {/* --- Section Brouillons --- */}
+                  {(() => { const drafts = bufferNotes.filter(n => n.status === 'draft'); return drafts.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">Brouillons</span>
+                        <span className="text-xs text-blue-500">({drafts.length})</span>
+                        {drafts.length > 1 && (
+                          <button
+                            onClick={() => {
+                              const allSelected = drafts.every(n => selectedNoteIds.has(n.id));
+                              setSelectedNoteIds(prev => {
+                                const next = new Set(prev);
+                                drafts.forEach(n => allSelected ? next.delete(n.id) : next.add(n.id));
+                                return next;
+                              });
+                            }}
+                            className="text-xs text-blue-500 hover:text-blue-700 underline"
+                          >
+                            {drafts.every(n => selectedNoteIds.has(n.id)) ? 'Tout desélectionner' : 'Tout sélectionner'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        {drafts.map(note => (
+                          <NoteRow key={note.id} note={note} />
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  ); })()}
+
+                  {/* --- Section Validées --- */}
+                  {(() => { const validated = bufferNotes.filter(n => n.status === 'validated'); return validated.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-xs font-bold text-green-700 uppercase tracking-wide">Validées — prêtes à pousser</span>
+                        <span className="text-xs text-green-500">({validated.length})</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {validated.map(note => (
+                          <NoteRow key={note.id} note={note} />
+                        ))}
+                      </div>
+                    </div>
+                  ); })()}
+
+                  {/* --- Section Poussées (collapsed) --- */}
+                  {(() => { const pushed = bufferNotes.filter(n => n.status === 'pushed'); return pushed.length > 0 && (
+                    <details className="group">
+                      <summary className="flex items-center gap-2 mb-1.5 cursor-pointer text-xs text-gray-400 hover:text-gray-600">
+                        <span className="font-bold uppercase tracking-wide">Déjà poussées</span>
+                        <span>({pushed.length})</span>
+                        <span className="group-open:rotate-90 transition-transform">▶</span>
+                      </summary>
+                      <div className="space-y-1.5">
+                        {pushed.map(note => (
+                          <NoteRow key={note.id} note={note} />
+                        ))}
+                      </div>
+                    </details>
+                  ); })()}
                 </div>
               )}
 
