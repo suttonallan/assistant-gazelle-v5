@@ -846,13 +846,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         // Transformer le format timeline vers format simplifié pour l'accordéon
+        // Le endpoint /timeline retourne: { date, type, summary, comment, user, source }
         const entries = (data.entries || []).map(e => ({
-          date: e.occurred_at ? e.occurred_at.split('T')[0] : '',
+          date: e.date || '',  // Le champ est 'date', pas 'occurred_at'
           text: e.summary || e.comment || '',
           entry_type: e.type || 'NOTE',
           user: e.user || '',
           source: e.source || 'gazelle'
         })).filter(e => e.text.trim()); // Exclure les entrées vides
+
+        console.log('[À valider] Historique chargé:', entries.length, 'entrées');
 
         setGazelleHistoryData(prev => ({
           ...prev,
@@ -1165,10 +1168,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                           <tr className="bg-blue-50/50">
                             <td colSpan="7" className="px-4 py-3">
                               <div className="text-xs font-semibold text-blue-800 mb-2">
-                                📋 Historique de Service ({historyEntries.length} entrées)
+                                📋 Historique de Service {gazelleHistoryLoading ? '(chargement...)' : `(${historyEntries.length} entrées)`}
                               </div>
-                              {gazelleHistoryLoading && historyEntries.length === 0 ? (
-                                <div className="text-xs text-gray-500 italic">Chargement...</div>
+                              {gazelleHistoryLoading ? (
+                                <div className="text-xs text-gray-500 italic">Chargement de l'historique...</div>
                               ) : historyEntries.length === 0 ? (
                                 <div className="text-xs text-gray-500 italic">Aucun historique trouvé pour ce piano.</div>
                               ) : (
