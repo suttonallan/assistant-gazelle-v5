@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculateur Feutrage Marteaux</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+
+  .header { background: #16213e; padding: 16px 24px; border-bottom: 2px solid #0f3460; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 20px; color: #e94560; }
+  .header span { font-size: 13px; color: #888; }
+
+  .tabs { display: flex; background: #16213e; border-bottom: 1px solid #0f3460; }
+  .tab { padding: 12px 24px; cursor: pointer; color: #888; border-bottom: 3px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: #ccc; }
+  .tab.active { color: #e94560; border-bottom-color: #e94560; }
+
+  .content { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* Calculator */
+  .calc-input { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 24px; }
+  .calc-input label { font-size: 13px; color: #aaa; display: block; margin-bottom: 4px; }
+  .calc-input input, .calc-input select { background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 10px 14px; border-radius: 6px; font-size: 16px; width: 160px; }
+  .calc-input button { background: #e94560; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: 600; }
+  .calc-input button:hover { background: #c73e54; }
+
+  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .result-card { background: #16213e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460; }
+  .result-card h3 { font-size: 14px; color: #e94560; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .result-card.full { grid-column: 1 / -1; }
+
+  .felt-hero { background: linear-gradient(135deg, #16213e, #0f3460); border-radius: 12px; padding: 24px; margin-bottom: 24px; text-align: center; }
+  .recommendation { font-size: 28px; font-weight: 700; color: #4ecca3; margin: 8px 0; }
+  .rec-detail { font-size: 13px; color: #aaa; margin: 4px 0; }
+
+  .range-bar { display: flex; align-items: center; gap: 4px; margin: 12px 0; height: 32px; }
+  .range-segment { height: 100%; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: white; min-width: 40px; padding: 0 6px; }
+  .seg-loose { background: #e94560; }
+  .seg-ok { background: #4ecca3; }
+  .seg-tight { background: #f5a623; }
+
+  .history-match { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #0f3460; font-size: 13px; }
+  .history-match:last-child { border-bottom: none; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-parfait { background: #4ecca3; color: #1a1a2e; }
+  .badge-ok { background: #3a9d7c; color: #1a1a2e; }
+  .badge-lache { background: #e94560; color: white; }
+  .badge-serre { background: #f5a623; color: #1a1a2e; }
+
+  /* Form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .form-group { display: flex; flex-direction: column; }
+  .form-group.full { grid-column: 1 / -1; }
+  .form-group label { font-size: 13px; color: #aaa; margin-bottom: 4px; }
+  .form-group input, .form-group select, .form-group textarea { background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 10px; border-radius: 6px; font-size: 14px; }
+  .form-group textarea { resize: vertical; min-height: 60px; }
+  .form-actions { margin-top: 16px; display: flex; gap: 12px; }
+  .btn { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+  .btn-primary { background: #e94560; color: white; }
+  .btn-primary:hover { background: #c73e54; }
+  .btn-secondary { background: #0f3460; color: #aaa; }
+  .btn-secondary:hover { background: #16213e; color: #eee; }
+
+  /* Data table */
+  .table-actions { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .table-actions select, .table-actions input { background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #0f3460; padding: 10px 8px; text-align: left; font-weight: 600; color: #e94560; position: sticky; top: 0; }
+  td { padding: 8px; border-bottom: 1px solid #0f3460; }
+  tr:hover { background: #16213e; }
+  tr.outlier { opacity: 0.4; text-decoration: line-through; }
+  .delete-btn { background: none; border: none; color: #e94560; cursor: pointer; font-size: 16px; }
+  .outlier-cb { width: 16px; height: 16px; cursor: pointer; }
+
+  /* Stock */
+  .stock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .stock-card { background: #16213e; border-radius: 8px; padding: 12px; border: 1px solid #0f3460; }
+  .stock-card .name { font-weight: 600; color: #4ecca3; }
+  .stock-card .thickness { font-size: 13px; color: #aaa; }
+  .stock-card .qty { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .stock-card .qty.low { color: #e94560; }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #4ecca3; color: #1a1a2e; padding: 12px 20px; border-radius: 8px; font-weight: 600; transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 100; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  @media (max-width: 768px) {
+    .results { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+    .calc-input { flex-direction: column; }
+    .calc-input input, .calc-input select { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Calculateur Feutrage</h1>
+  <span>Marteaux de piano - Cales & Feutres</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('calc')">Calculateur</div>
+  <div class="tab" onclick="showTab('entry')">Saisie</div>
+  <div class="tab" onclick="showTab('data')">Historique</div>
+  <div class="tab" onclick="showTab('stock')">Inventaire</div>
+</div>
+
+<div class="content">
+
+  <!-- CALCULATEUR -->
+  <div id="calc" class="panel active">
+    <div class="calc-input">
+      <div>
+        <label>Taille de la pointe (pouces)</label>
+        <input type="number" id="pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
+      </div>
+      <div>
+        <label>Type de pointe</label>
+        <select id="pinType">
+          <option value="any">Tous types</option>
+          <option value="balance">Balance</option>
+          <option value="enfoncement">Enfoncement</option>
+        </select>
+      </div>
+      <button onclick="calculate()">Calculer</button>
+    </div>
+    <div id="calcResults"></div>
+  </div>
+
+  <!-- SAISIE -->
+  <div id="entry" class="panel">
+    <h2 style="margin-bottom:16px; color:#e94560;">Nouvelle entrée</h2>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Piano (nom/modèle)</label>
+        <input type="text" id="f_piano" placeholder="Ex: Steinway D">
+      </div>
+      <div class="form-group">
+        <label>Type de pointe</label>
+        <select id="f_pinType">
+          <option value="enfoncement">Enfoncement</option>
+          <option value="balance">Balance</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Taille pointe (pouces)</label>
+        <input type="number" id="f_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
+      </div>
+      <div class="form-group">
+        <label>Sizing utilisé</label>
+        <select id="f_sizing">
+          <option value="">-- Aucun / Custom --</option>
+          <option value="MS-125">MS-125 (.208)</option>
+          <option value="MS-137">MS-137 (.217)</option>
+          <option value="MS-146">MS-146 (.227)</option>
+          <option value="MS-162">MS-162 (.241)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Largeur sizing mesurée (pouces)</label>
+        <input type="number" id="f_sizingWidth" step="0.001" placeholder=".227">
+      </div>
+      <div class="form-group">
+        <label>Feutre utilisé (mm)</label>
+        <select id="f_felt">
+          <option value="">-- Choisir --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Cale intermédiaire</label>
+        <select id="f_interCaul">
+          <option value="">-- Aucune --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Cale finale</label>
+        <select id="f_finalCaul">
+          <option value="">-- Aucune --</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Verdict</label>
+        <select id="f_verdict">
+          <option value="parfait">Parfait</option>
+          <option value="ok">OK</option>
+          <option value="trop_lache">Trop lâche</option>
+          <option value="trop_serre">Trop serré</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>Notes</label>
+        <textarea id="f_notes" placeholder="Observations, ajustements..."></textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="addEntry()">Ajouter</button>
+      <button class="btn btn-secondary" onclick="clearForm()">Effacer</button>
+    </div>
+  </div>
+
+  <!-- HISTORIQUE -->
+  <div id="data" class="panel">
+    <div class="table-actions">
+      <select id="filterVerdict" onchange="renderTable()">
+        <option value="all">Tous les verdicts</option>
+        <option value="parfait">Parfait</option>
+        <option value="ok">OK</option>
+        <option value="trop_lache">Trop lâche</option>
+        <option value="trop_serre">Trop serré</option>
+      </select>
+      <input type="text" id="filterPiano" placeholder="Filtrer par piano..." oninput="renderTable()">
+      <button class="btn btn-secondary" onclick="exportData()">Export JSON</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">Import JSON</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+      <span id="dataCount" style="color:#888; font-size:13px; margin-left:auto;"></span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Outlier</th>
+            <th>Piano</th>
+            <th>Type</th>
+            <th>Pointe</th>
+            <th>Sizing</th>
+            <th>Larg.</th>
+            <th>Feutre</th>
+            <th>Inter</th>
+            <th>Finale</th>
+            <th>Verdict</th>
+            <th>Notes</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="dataBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- INVENTAIRE -->
+  <div id="stock" class="panel">
+    <h2 style="margin-bottom:16px; color:#e94560;">Inventaire des cales</h2>
+    <div id="stockGrid" class="stock-grid"></div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ============================================================
+// DATA: Cales inventory
+// ============================================================
+const DEFAULT_CAULS = [
+  { id: '#1', name: '#1 Intermediate', thickness: 0.185, qty: 90 },
+  { id: '#2', name: '#2 Final', thickness: 0.149, qty: 180 },
+  { id: '#3', name: '#3 Intermediate', thickness: 0.200, qty: 90 },
+  { id: '#4', name: '#4 Intermediate', thickness: 0.163, qty: 90 },
+  { id: '#5', name: '#5 Final', thickness: 0.128, qty: 90 },
+  { id: '#6', name: '#6 Final', thickness: 0.090, qty: 90 },
+  { id: '#7', name: '#7 Intermediate', thickness: 0.174, qty: 90 },
+  { id: '#8', name: '#8 Final', thickness: 0.140, qty: 90 },
+  { id: '#9', name: '#9 Final', thickness: 0.134, qty: 90 },
+  { id: '#10', name: '#10 Final', thickness: 0.133, qty: 90 },
+  { id: '#11', name: '#11 Final', thickness: 0.159, qty: 90 },
+  { id: '#12', name: '#12 Final', thickness: 0.131, qty: 90 },
+  { id: 'MS-125', name: 'MS-125 Sizing', thickness: 0.208, qty: 90 },
+  { id: 'MS-137', name: 'MS-137 Sizing', thickness: 0.217, qty: 90 },
+  { id: 'MS-146', name: 'MS-146 Sizing', thickness: 0.227, qty: 180 },
+  { id: 'MS-162', name: 'MS-162 Sizing', thickness: 0.241, qty: 90 },
+  { id: 'DS-125', name: 'DS-125 Double Shoulder', thickness: 0.128, qty: 90 },
+  { id: 'DS-162', name: 'DS-162 Double Shoulder', thickness: 0.163, qty: 90 },
+  { id: 'Mark-rouge', name: 'Mark bout rouge (sizing)', thickness: 0.175, qty: 0 },
+  { id: 'Mark-transp', name: 'Mark transparentes (sizing)', thickness: 0.216, qty: 0 },
+];
+
+// Spurlock recommendations: pin size -> { inter, final, finalAlt, sizing }
+const SPURLOCK = {
+  0.087: { inter: '#5', final: '#6', finalAlt: null, sizing: null },
+  0.125: { inter: '#4', final: '#5', finalAlt: 'DS-125', sizing: 'MS-125' },
+  0.129: { inter: '#4', final: '#12', finalAlt: 'DS-129', sizing: 'MS-125' },
+  0.131: { inter: '#4', final: '#10', finalAlt: 'DS-131', sizing: 'MS-125' },
+  0.133: { inter: '#4', final: '#9', finalAlt: 'DS-133', sizing: 'MS-125' },
+  0.137: { inter: '#7', final: '#8', finalAlt: 'DS-137', sizing: 'MS-137' },
+  0.146: { inter: '#1', final: '#2', finalAlt: 'DS-146', sizing: 'MS-146' },
+  0.152: { inter: '#1', final: '#11', finalAlt: null, sizing: 'MS-146' },
+  0.162: { inter: '#3', final: '#4', finalAlt: 'DS-162', sizing: 'MS-162' },
+};
+
+// Historical data (pre-loaded)
+const DEFAULT_HISTORY = [
+  { id: 1, piano: 'Steigerman Ambiance', pinType: 'balance', pinSize: 0.125, sizing: '', sizingWidth: 0.200, felt: 0.9, interCaul: '#4', finalCaul: '#5', verdict: 'trop_lache', notes: '', outlier: false },
+  { id: 2, piano: 'Steigerman Ambiance', pinType: 'enfoncement', pinSize: 0.132, sizing: '', sizingWidth: 0.216, felt: 0.9, interCaul: '#7', finalCaul: '#8', verdict: 'trop_lache', notes: 'Mesuré .136 sur finale', outlier: false },
+  { id: 3, piano: 'Nu1X', pinType: 'enfoncement', pinSize: 0.124, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 4, piano: 'Nu1X', pinType: 'enfoncement', pinSize: 0.138, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'trop_serre', notes: 'Résultat 1.1 serré. MS-125 → 7', outlier: false },
+  { id: 5, piano: 'Karn', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 6, piano: 'Karn', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-145', sizingWidth: 0.227, felt: 1.1, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 7, piano: 'Anh Triet', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 8, piano: 'Anh Triet', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.1', outlier: false },
+  { id: 9, piano: 'Bosendorfer', pinType: 'enfoncement', pinSize: 0.131, sizing: '', sizingWidth: 0.200, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
+  { id: 10, piano: 'Bosendorfer', pinType: 'enfoncement', pinSize: 0.131, sizing: '', sizingWidth: 0.209, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
+  { id: 11, piano: 'Steinway D', pinType: 'enfoncement', pinSize: 0.150, sizing: '', sizingWidth: 0.217, felt: 1.4, interCaul: '#2', finalCaul: '#11', verdict: 'ok', notes: 'Résultat 1.3', outlier: false },
+  { id: 12, piano: 'Steinway D', pinType: 'enfoncement', pinSize: 0.160, sizing: '', sizingWidth: 0.241, felt: 1.3, interCaul: '', finalCaul: '#4', verdict: 'ok', notes: 'Résultat 1.1', outlier: false },
+  { id: 13, piano: 'Lamontagne', pinType: 'enfoncement', pinSize: 0.137, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 14, piano: 'Lamontagne', pinType: 'enfoncement', pinSize: 0.133, sizing: 'MS-125', sizingWidth: 0.209, felt: 1.1, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 15, piano: 'Steinway', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: 'Résultat 1.1', outlier: false },
+  { id: 16, piano: 'Steinway', pinType: 'enfoncement', pinSize: 0.162, sizing: 'MS-162', sizingWidth: 0.241, felt: 1.3, interCaul: '#3', finalCaul: '#4', verdict: 'parfait', notes: 'Résultat 1.1', outlier: false },
+  { id: 17, piano: 'K-3', pinType: 'enfoncement', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.1, interCaul: '', finalCaul: '#4', verdict: 'trop_serre', notes: '', outlier: false },
+  { id: 18, piano: 'K-3', pinType: 'enfoncement', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.3, interCaul: '', finalCaul: 'DS-125', verdict: 'trop_serre', notes: '', outlier: false },
+  { id: 19, piano: 'Kawai Kg-2', pinType: 'enfoncement', pinSize: 0.132, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  { id: 20, piano: 'Kawai Kg-2', pinType: 'enfoncement', pinSize: 0.145, sizing: '', sizingWidth: 0.209, felt: 1.0, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: '', outlier: false },
+  { id: 21, piano: 'Steinway D Pierre-Mercure', pinType: 'enfoncement', pinSize: 0.130, sizing: 'MS-126', sizingWidth: 0.209, felt: 0, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Données partielles', outlier: true },
+  { id: 22, piano: 'Steinway D Pierre-Mercure', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 0, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Données partielles', outlier: true },
+  { id: 23, piano: 'Kawai RX-5', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-137', sizingWidth: 0.217, felt: 0, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Section basse', outlier: false },
+  { id: 24, piano: 'Kawai RX-5', pinType: 'enfoncement', pinSize: 0.134, sizing: '', sizingWidth: 0, felt: 0.9, interCaul: '', finalCaul: '#8', verdict: 'ok', notes: 'Section e', outlier: false },
+];
+
+// ============================================================
+// STATE
+// ============================================================
+let history = [];
+let cauls = [];
+let nextId = 100;
+
+function loadData() {
+  const saved = localStorage.getItem('felt-calc-history');
+  if (saved) {
+    history = JSON.parse(saved);
+    nextId = Math.max(...history.map(h => h.id), 99) + 1;
+  } else {
+    history = [...DEFAULT_HISTORY];
+    nextId = 100;
+  }
+  const savedCauls = localStorage.getItem('felt-calc-cauls');
+  if (savedCauls) {
+    cauls = JSON.parse(savedCauls);
+  } else {
+    cauls = DEFAULT_CAULS.map(c => ({...c}));
+  }
+}
+
+function saveData() {
+  localStorage.setItem('felt-calc-history', JSON.stringify(history));
+  localStorage.setItem('felt-calc-cauls', JSON.stringify(cauls));
+}
+
+// ============================================================
+// TABS
+// ============================================================
+function showTab(id) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const panels = ['calc', 'entry', 'data', 'stock'];
+    t.classList.toggle('active', panels[i] === id);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === id));
+  if (id === 'data') renderTable();
+  if (id === 'stock') renderStock();
+}
+
+// ============================================================
+// CALCULATOR
+// ============================================================
+function calculate() {
+  const pin = parseFloat(document.getElementById('pinSize').value);
+  const type = document.getElementById('pinType').value;
+  if (!pin || pin < 0.05 || pin > 0.25) {
+    showToast('Entrez une taille de pointe valide (.050 - .250)');
+    return;
+  }
+
+  const results = document.getElementById('calcResults');
+  let html = '';
+
+  // 1. BIG HERO: Felt recommendation
+  html += renderFeltHero(pin, type);
+
+  // 2. Detail cards
+  html += '<div class="results">';
+  html += renderSpurlockCard(pin);
+  html += renderCaulCard(pin);
+  html += renderRangeCard(pin, type);
+  html += renderHistoryCard(pin, type);
+  html += '</div>';
+  results.innerHTML = html;
+}
+
+function renderFeltHero(pin, type) {
+  const TOLERANCE = 0.012;
+  const relevant = history.filter(h =>
+    !h.outlier && h.felt > 0 &&
+    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    (type === 'any' || h.pinType === type)
+  );
+
+  const parfait = relevant.filter(h => h.verdict === 'parfait');
+  const ok = relevant.filter(h => h.verdict === 'ok');
+  const good = [...parfait, ...ok];
+  const lache = relevant.filter(h => h.verdict === 'trop_lache');
+  const serre = relevant.filter(h => h.verdict === 'trop_serre');
+
+  // Main recommendation
+  let recFelt = null;
+  let confidence = '';
+  let confColor = '#888';
+
+  if (parfait.length > 0) {
+    // Prioritize "parfait" entries
+    const avg = parfait.reduce((sum, h) => sum + h.felt, 0) / parfait.length;
+    recFelt = roundToNearest005(avg);
+    confidence = `Basé sur ${parfait.length} résultat(s) PARFAIT`;
+    confColor = '#4ecca3';
+  } else if (good.length > 0) {
+    const avg = good.reduce((sum, h) => sum + h.felt, 0) / good.length;
+    recFelt = roundToNearest005(avg);
+    confidence = `Basé sur ${good.length} résultat(s) OK`;
+    confColor = '#3a9d7c';
+  }
+
+  // Bounds from failures
+  const maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
+  const minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
+
+  // If no historical data, use theoretical calculation from sizing
+  let theoretical = null;
+  const sizes = Object.keys(SPURLOCK).map(Number).sort((a, b) => a - b);
+  let closestPin = sizes[0];
+  for (const s of sizes) { if (Math.abs(pin - s) < Math.abs(pin - closestPin)) closestPin = s; }
+  const spurlockRec = SPURLOCK[closestPin];
+  if (spurlockRec && spurlockRec.sizing) {
+    const sizingCaul = DEFAULT_CAULS.find(c => c.id === spurlockRec.sizing);
+    if (sizingCaul) {
+      const feltInches = (sizingCaul.thickness - pin) / 2;
+      theoretical = roundToNearest005(feltInches * 25.4);
+    }
+  }
+
+  let html = `<div style="background:linear-gradient(135deg, #16213e, #0f3460); border-radius:12px; padding:24px; margin-bottom:24px; border:2px solid ${recFelt ? '#4ecca3' : '#0f3460'}; text-align:center;">`;
+
+  html += `<div style="font-size:13px; color:#888; text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Feutre recommandé pour pointe .${pin.toFixed(3).slice(2)}"</div>`;
+
+  if (recFelt) {
+    html += `<div style="font-size:56px; font-weight:800; color:#4ecca3; line-height:1;">${recFelt.toFixed(2)} mm</div>`;
+    html += `<div style="font-size:14px; color:${confColor}; margin-top:8px;">${confidence}</div>`;
+  } else if (theoretical) {
+    html += `<div style="font-size:56px; font-weight:800; color:#f5a623; line-height:1;">${theoretical.toFixed(2)} mm</div>`;
+    html += `<div style="font-size:14px; color:#f5a623; margin-top:8px;">⚠️ Estimation théorique — aucune donnée historique</div>`;
+  } else {
+    html += `<div style="font-size:36px; font-weight:700; color:#e94560; line-height:1;">?</div>`;
+    html += `<div style="font-size:14px; color:#e94560; margin-top:8px;">Aucune donnée disponible pour cette taille</div>`;
+  }
+
+  // Bounds display
+  if (maxLache || minSerre) {
+    html += `<div style="display:flex; justify-content:center; gap:24px; margin-top:16px; font-size:13px;">`;
+    if (maxLache) html += `<span style="color:#e94560;">▼ Trop lâche à ${maxLache.toFixed(2)} mm</span>`;
+    if (minSerre) html += `<span style="color:#f5a623;">▲ Trop serré à ${minSerre.toFixed(2)} mm</span>`;
+    html += `</div>`;
+  }
+
+  // Also show theoretical if we have historical
+  if (recFelt && theoretical) {
+    html += `<div style="font-size:12px; color:#555; margin-top:12px;">Théorique: ${theoretical.toFixed(2)} mm (formule sizing)</div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function renderSpurlockCard(pin) {
+  // Find closest Spurlock match
+  const sizes = Object.keys(SPURLOCK).map(Number).sort((a, b) => a - b);
+  let closest = sizes[0];
+  let minDiff = Math.abs(pin - closest);
+  for (const s of sizes) {
+    const diff = Math.abs(pin - s);
+    if (diff < minDiff) { minDiff = diff; closest = s; }
+  }
+  const rec = SPURLOCK[closest];
+  const caul = (id) => {
+    const c = DEFAULT_CAULS.find(c => c.id === id);
+    return c ? `${id} (.${c.thickness.toFixed(3).slice(2)})` : id || '—';
+  };
+
+  return `<div class="result-card">
+    <h3>Recommandation Spurlock</h3>
+    <p class="rec-detail">Pointe la plus proche : .${closest.toFixed(3).slice(2)}</p>
+    <p class="rec-detail">Intermédiaire : <strong>${caul(rec.inter)}</strong></p>
+    <p class="rec-detail">Finale : <strong>${caul(rec.final)}</strong>${rec.finalAlt ? ` ou <strong>${caul(rec.finalAlt)}</strong>` : ''}</p>
+    <p class="rec-detail">Sizing : <strong>${rec.sizing ? caul(rec.sizing) : '—'}</strong></p>
+  </div>`;
+}
+
+function renderHistoryCard(pin, type) {
+  // Find relevant history entries (within +/- 0.010 of pin size, not outliers, with felt data)
+  const TOLERANCE = 0.010;
+  const relevant = history.filter(h =>
+    !h.outlier &&
+    h.felt > 0 &&
+    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    (type === 'any' || h.pinType === type)
+  );
+
+  if (relevant.length === 0) {
+    return `<div class="result-card">
+      <h3>Historique</h3>
+      <p class="rec-detail">Aucune donnée historique pour cette taille de pointe (tolérance +/- .010)</p>
+    </div>`;
+  }
+
+  // Separate by verdict
+  const parfait = relevant.filter(h => h.verdict === 'parfait');
+  const ok = relevant.filter(h => h.verdict === 'ok');
+  const good = [...parfait, ...ok];
+  const lache = relevant.filter(h => h.verdict === 'trop_lache');
+  const serre = relevant.filter(h => h.verdict === 'trop_serre');
+
+  // Calculate recommended felt
+  let recFelt = null;
+  if (good.length > 0) {
+    const avg = good.reduce((sum, h) => sum + h.felt, 0) / good.length;
+    recFelt = roundToNearest005(avg);
+  }
+
+  // Bounds
+  const maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
+  const minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
+
+  let html = `<div class="result-card">
+    <h3>Recommandation historique</h3>`;
+
+  if (recFelt) {
+    html += `<div class="recommendation">${recFelt.toFixed(2)} mm</div>`;
+    html += `<p class="rec-detail">Basé sur ${good.length} entrée(s) OK/Parfait</p>`;
+  }
+
+  if (maxLache) html += `<p class="rec-detail" style="color:#e94560">Borne min : > ${maxLache.toFixed(2)} mm (trop lâche)</p>`;
+  if (minSerre) html += `<p class="rec-detail" style="color:#f5a623">Borne max : < ${minSerre.toFixed(2)} mm (trop serré)</p>`;
+
+  html += `<div style="margin-top:12px;">`;
+  for (const h of relevant) {
+    const badge = verdictBadge(h.verdict);
+    html += `<div class="history-match">
+      <span class="badge ${badge.cls}">${badge.label}</span>
+      <span>${h.piano}</span>
+      <span style="color:#4ecca3">${h.felt.toFixed(2)} mm</span>
+      <span style="color:#888">.${h.pinSize.toFixed(3).slice(2)}</span>
+    </div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+function renderCaulCard(pin) {
+  // Find closest matching cauls
+  const targetFinal = pin + 0.003;
+  const targetInter = pin + 0.039;
+
+  const finalCauls = [...DEFAULT_CAULS]
+    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
+    .map(c => ({ ...c, diff: Math.abs(c.thickness - targetFinal) }))
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, 3);
+
+  const interCauls = [...DEFAULT_CAULS]
+    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark') && !c.id.startsWith('DS-'))
+    .map(c => ({ ...c, diff: Math.abs(c.thickness - targetInter) }))
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, 3);
+
+  let html = `<div class="result-card">
+    <h3>Cales suggérées</h3>
+    <p class="rec-detail" style="margin-bottom:8px">Cible finale : .${targetFinal.toFixed(3).slice(2)} (pointe + .003)</p>`;
+
+  for (const c of finalCauls) {
+    const stock = cauls.find(s => s.id === c.id);
+    const qty = stock ? stock.qty : 0;
+    html += `<p class="rec-detail">${c.id} (.${c.thickness.toFixed(3).slice(2)}) — diff: ${c.diff < 0.001 ? '~0' : (c.diff > 0 ? '+' : '') + c.diff.toFixed(3)} — stock: ${qty}</p>`;
+  }
+
+  html += `<p class="rec-detail" style="margin:8px 0">Cible inter : .${targetInter.toFixed(3).slice(2)} (pointe + ~.039)</p>`;
+  for (const c of interCauls) {
+    const stock = cauls.find(s => s.id === c.id);
+    const qty = stock ? stock.qty : 0;
+    html += `<p class="rec-detail">${c.id} (.${c.thickness.toFixed(3).slice(2)}) — diff: ${c.diff < 0.001 ? '~0' : c.diff.toFixed(3)} — stock: ${qty}</p>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function renderRangeCard(pin, type) {
+  const TOLERANCE = 0.015;
+  const relevant = history.filter(h =>
+    !h.outlier && h.felt > 0 &&
+    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    (type === 'any' || h.pinType === type)
+  );
+
+  if (relevant.length < 2) return '';
+
+  const allFelts = relevant.map(h => h.felt).sort((a, b) => a - b);
+  const min = allFelts[0];
+  const max = allFelts[allFelts.length - 1];
+
+  let html = `<div class="result-card full">
+    <h3>Plage de feutres utilisés</h3>
+    <div class="range-bar">`;
+
+  // Create segments
+  const steps = [];
+  for (let f = min; f <= max + 0.001; f += 0.05) {
+    const rounded = roundToNearest005(f);
+    const matches = relevant.filter(h => Math.abs(h.felt - rounded) < 0.025);
+    if (matches.length > 0) {
+      const bestVerdict = matches.some(h => h.verdict === 'parfait') ? 'parfait'
+        : matches.some(h => h.verdict === 'ok') ? 'ok'
+        : matches.some(h => h.verdict === 'trop_serre') ? 'trop_serre' : 'trop_lache';
+      steps.push({ felt: rounded, verdict: bestVerdict, count: matches.length });
+    }
+  }
+
+  // Deduplicate
+  const seen = new Set();
+  for (const s of steps) {
+    const key = s.felt.toFixed(2);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const cls = s.verdict === 'parfait' || s.verdict === 'ok' ? 'seg-ok'
+      : s.verdict === 'trop_lache' ? 'seg-loose' : 'seg-tight';
+    html += `<div class="range-segment ${cls}" style="flex:1" title="${s.count} entrée(s) - ${s.verdict}">${s.felt.toFixed(2)}</div>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+// ============================================================
+// FORM - ENTRY
+// ============================================================
+function populateFormDropdowns() {
+  // Felt sizes (0.05mm increments)
+  const feltSelect = document.getElementById('f_felt');
+  for (let f = 0.80; f <= 1.60; f += 0.05) {
+    const opt = document.createElement('option');
+    opt.value = f.toFixed(2);
+    opt.textContent = f.toFixed(2) + ' mm';
+    feltSelect.appendChild(opt);
+  }
+
+  // Caul dropdowns
+  const caulOptions = DEFAULT_CAULS
+    .filter(c => !c.id.startsWith('MS-'))
+    .map(c => `<option value="${c.id}">${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
+    .join('');
+  const emptyOpt = '<option value="">-- Aucune --</option>';
+  document.getElementById('f_interCaul').innerHTML = emptyOpt + caulOptions;
+  document.getElementById('f_finalCaul').innerHTML = emptyOpt + caulOptions;
+}
+
+function addEntry() {
+  const piano = document.getElementById('f_piano').value.trim();
+  const pinSize = parseFloat(document.getElementById('f_pinSize').value);
+  const verdict = document.getElementById('f_verdict').value;
+
+  if (!piano) { showToast('Entrez le nom du piano'); return; }
+  if (!pinSize) { showToast('Entrez la taille de la pointe'); return; }
+
+  const entry = {
+    id: nextId++,
+    piano: piano,
+    pinType: document.getElementById('f_pinType').value,
+    pinSize: pinSize,
+    sizing: document.getElementById('f_sizing').value,
+    sizingWidth: parseFloat(document.getElementById('f_sizingWidth').value) || 0,
+    felt: parseFloat(document.getElementById('f_felt').value) || 0,
+    interCaul: document.getElementById('f_interCaul').value,
+    finalCaul: document.getElementById('f_finalCaul').value,
+    verdict: verdict,
+    notes: document.getElementById('f_notes').value.trim(),
+    outlier: false,
+  };
+
+  history.push(entry);
+  saveData();
+  showToast('Entrée ajoutée !');
+  clearForm();
+}
+
+function clearForm() {
+  ['f_piano', 'f_pinSize', 'f_sizingWidth', 'f_notes'].forEach(id => document.getElementById(id).value = '');
+  ['f_sizing', 'f_felt', 'f_interCaul', 'f_finalCaul'].forEach(id => document.getElementById(id).selectedIndex = 0);
+}
+
+// ============================================================
+// DATA TABLE
+// ============================================================
+function renderTable() {
+  const verdictFilter = document.getElementById('filterVerdict').value;
+  const pianoFilter = document.getElementById('filterPiano').value.toLowerCase();
+
+  let filtered = history;
+  if (verdictFilter !== 'all') filtered = filtered.filter(h => h.verdict === verdictFilter);
+  if (pianoFilter) filtered = filtered.filter(h => h.piano.toLowerCase().includes(pianoFilter));
+
+  document.getElementById('dataCount').textContent = `${filtered.length} / ${history.length} entrées`;
+
+  const tbody = document.getElementById('dataBody');
+  tbody.innerHTML = filtered.map(h => `
+    <tr class="${h.outlier ? 'outlier' : ''}">
+      <td><input type="checkbox" class="outlier-cb" ${h.outlier ? 'checked' : ''} onchange="toggleOutlier(${h.id})"></td>
+      <td>${h.piano}</td>
+      <td>${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</td>
+      <td>.${h.pinSize.toFixed(3).slice(2)}</td>
+      <td>${h.sizing || '—'}</td>
+      <td>${h.sizingWidth ? '.' + h.sizingWidth.toFixed(3).slice(2) : '—'}</td>
+      <td>${h.felt ? h.felt.toFixed(2) + ' mm' : '—'}</td>
+      <td>${h.interCaul || '—'}</td>
+      <td>${h.finalCaul || '—'}</td>
+      <td><span class="badge ${verdictBadge(h.verdict).cls}">${verdictBadge(h.verdict).label}</span></td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${h.notes}">${h.notes || ''}</td>
+      <td><button class="delete-btn" onclick="deleteEntry(${h.id})" title="Supprimer">&times;</button></td>
+    </tr>
+  `).join('');
+}
+
+function toggleOutlier(id) {
+  const entry = history.find(h => h.id === id);
+  if (entry) { entry.outlier = !entry.outlier; saveData(); renderTable(); }
+}
+
+function deleteEntry(id) {
+  if (confirm('Supprimer cette entrée ?')) {
+    history = history.filter(h => h.id !== id);
+    saveData();
+    renderTable();
+    showToast('Entrée supprimée');
+  }
+}
+
+// ============================================================
+// STOCK
+// ============================================================
+function renderStock() {
+  const grid = document.getElementById('stockGrid');
+  grid.innerHTML = cauls.map(c => `
+    <div class="stock-card">
+      <div class="name">${c.id}</div>
+      <div class="thickness">.${c.thickness.toFixed(3).slice(2)}" — ${(c.thickness * 25.4).toFixed(2)} mm</div>
+      <div class="qty ${c.qty < 20 ? 'low' : ''}">${c.qty}</div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// IMPORT/EXPORT
+// ============================================================
+function exportData() {
+  const data = { history, cauls, exportDate: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `felt-calculator-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (data.history) {
+        history = data.history;
+        nextId = Math.max(...history.map(h => h.id), 99) + 1;
+      }
+      if (data.cauls) cauls = data.cauls;
+      saveData();
+      renderTable();
+      renderStock();
+      showToast(`Importé : ${history.length} entrées`);
+    } catch (err) {
+      showToast('Erreur d\'import : ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function roundToNearest005(val) {
+  return Math.round(val / 0.05) * 0.05;
+}
+
+function verdictBadge(verdict) {
+  switch (verdict) {
+    case 'parfait': return { cls: 'badge-parfait', label: 'Parfait' };
+    case 'ok': return { cls: 'badge-ok', label: 'OK' };
+    case 'trop_lache': return { cls: 'badge-lache', label: 'Trop lâche' };
+    case 'trop_serre': return { cls: 'badge-serre', label: 'Trop serré' };
+    default: return { cls: '', label: verdict };
+  }
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+loadData();
+populateFormDropdowns();
+</script>
+
+</body>
+</html>
