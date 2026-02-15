@@ -30,6 +30,7 @@ from modules.briefing.ai_extraction_engine import (
     compute_client_since,
     resolve_technician_name,
     build_technical_history,
+    extract_follow_ups_regex,
     TECHNICIAN_NAMES,
 )
 
@@ -235,10 +236,19 @@ class ClientIntelligenceService:
 
         # 9. PILIER 4: Suivis ouverts
         follow_ups = self._get_open_follow_ups(client_external_id)
+
         # Ajouter les nouveaux follow-ups détectés par l'IA
         ai_follow_ups = extraction.get('follow_ups', [])
         if ai_follow_ups:
             self._save_new_follow_ups(client_external_id, piano_data.get('external_id'), ai_follow_ups)
+
+        # FALLBACK: Extraire "à faire" et déficiences via regex si pas d'IA ou si vide
+        if not ai_follow_ups and notes:
+            regex_follow_ups = extract_follow_ups_regex(notes)
+            for rfu in regex_follow_ups:
+                # Ajouter seulement si pas déjà dans la liste
+                if not any(f.get('description', '').lower() == rfu['description'].lower() for f in follow_ups):
+                    follow_ups.append(rfu)
 
         # 10. Client depuis combien de temps
         client_since = compute_client_since(notes)

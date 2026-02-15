@@ -158,6 +158,19 @@ class AIExtractionEngine:
 
     def __init__(self):
         api_key = os.getenv('ANTHROPIC_API_KEY')
+
+        # Fallback: chercher la clé dans Supabase si pas dans env
+        if not api_key:
+            try:
+                from core.supabase_storage import SupabaseStorage
+                storage = SupabaseStorage(silent=True)
+                settings = storage.get_data('system_settings', filters={'key': 'anthropic_api_key'})
+                if settings and settings[0].get('value'):
+                    api_key = settings[0]['value']
+                    print("✅ AI Extraction: clé Anthropic chargée depuis Supabase")
+            except Exception as e:
+                pass  # Silencieux si ça échoue
+
         if api_key and Anthropic:
             self.anthropic = Anthropic(api_key=api_key)
         else:
@@ -569,3 +582,68 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
             break
 
     return history
+
+
+def extract_follow_ups_regex(notes: List[Dict]) -> List[Dict]:
+    """
+    Extrait les "à faire", déficiences et recommandations des notes via regex.
+    Fallback quand l'IA n'est pas disponible.
+    """
+    import re
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+
+    follow_ups = []
+    seen = set()
+
+    # Patterns pour détecter les items à faire / déficiences
+    patterns = [
+        # "à faire: butée haute, espacement"
+        (r'à faire\s*[:\-]?\s*([^\.]+)', 'action'),
+        # "TODO: vérifier..."
+        (r'todo\s*[:\-]?\s*([^\.]+)', 'action'),
+        # "recommandé: ..." ou "recommander ..."
+        (r'recommand[ée]r?\s*[:\-]?\s*([^\.]+)', 'recommendation'),
+        # "problème: ..." ou "problème de..."
+        (r'problème\s*(?:de|:|\-)?\s*([^\.]+)', 'issue'),
+        # "déficience" ou "défaut"
+        (r'(?:déficien\w+|défaut)\s*[:\-]?\s*([^\.]+)', 'issue'),
+        # "étouffoir fuyait" / "touche cassée" / "corde cassée"
+        (r'((?:étouffoir|touche|corde|marteau)\s+(?:fuy\w+|cass\w+|bris\w+|défectu\w+)[^\.]*)', 'issue'),
+        # "attention: ..."
+        (r'attention\s*[:\-]?\s*([^\.]+)', 'warning'),
+        # "noter: ..." ou "note: ..."
+        (r'(?:à\s+)?noter?\s*[:\-]?\s*([^\.]+)', 'note'),
+    ]
+
+    for note in notes[:20]:
+        date = note.get('date', '')
+        # Ignorer les notes futures
+        if date and date > today:
+            continue
+
+        text = note.get('text', '') or ''
+        text_lower = text.lower()
+
+        for pattern, category in patterns:
+            matches = re.findall(pattern, text_lower, re.IGNORECASE)
+            for match in matches:
+                # Nettoyer le match
+                desc = match.strip()
+                if len(desc) < 5 or len(desc) > 150:
+                    continue
+
+                # Éviter les doublons
+                desc_key = desc[:30].lower()
+                if desc_key in seen:
+                    continue
+                seen.add(desc_key)
+
+                follow_ups.append({
+                    'description': desc.capitalize(),
+                    'category': category,
+                    'source_date': date,
+                    'source': 'regex_extraction',
+                })
+
+    return follow_ups[:10]  # Limiter à 10 items
