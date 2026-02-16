@@ -221,16 +221,27 @@ class ClientIntelligenceService:
                                 'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
         is_institution = any(kw in client_name.lower() for kw in institution_keywords)
 
+        parking_info = (extraction.get('access_info') or {}).get('parking', '')
+        all_courtesies = self._format_courtesies(extraction.get('courtesies', []))
+
+        # Dédupliquer : retirer des courtoisies ce qui est déjà dans parking/accès
+        if parking_info:
+            parking_lower = parking_info.lower().strip()
+            all_courtesies = [
+                c for c in all_courtesies
+                if c.lower().strip() != parking_lower
+            ]
+
         profile = ClientProfile(
             language='' if is_institution else self._apply_feedback(
                 client_external_id, 'profile', 'language',
                 extraction.get('language', 'FR')
             ),
             pets=self._format_pets(extraction.get('pets', [])) if not is_institution else [],
-            courtesies=self._format_courtesies(extraction.get('courtesies', [])),
+            courtesies=all_courtesies,
             personality=extraction.get('personality', ''),
             payment_method=extraction.get('payment_method', ''),
-            parking_info=(extraction.get('access_info') or {}).get('parking', ''),
+            parking_info=parking_info,
             access_code=(extraction.get('access_info') or {}).get('access_code', ''),
             access_notes=(extraction.get('access_info') or {}).get('special_instructions', ''),
         )
@@ -260,6 +271,9 @@ class ClientIntelligenceService:
         # 10. Client depuis combien de temps
         client_since = compute_client_since(notes)
 
+        # 10b. PILIER 5: Soumissions/Estimates liées au piano
+        estimate_items = self._get_piano_estimates(piano_data.get('external_id'), client_external_id)
+
         # 11. Construire le briefing final
         briefing = {
             "client_id": client_external_id,
@@ -268,6 +282,7 @@ class ClientIntelligenceService:
             "profile": asdict(profile),
             "technical_history": technical_history,
             "piano": piano_info,
+            "estimate_items": estimate_items,
             "follow_ups": follow_ups,
             "confidence_score": 0.85 if (self.ai_engine.is_available and notes) else (0.5 if notes else 0.3),
             "extraction_mode": "ai" if self.ai_engine.is_available else "regex",
@@ -564,6 +579,46 @@ class ClientIntelligenceService:
 
         return notes
 
+    def _get_piano_estimates(self, piano_id: str, client_id: str) -> List[Dict]:
+        """Récupère les entrées timeline liées à une soumission pour ce piano."""
+        if not piano_id and not client_id:
+            return []
+        try:
+            import requests
+            from urllib.parse import quote
+
+            url = f"{self.storage.api_url}/gazelle_timeline_entries"
+            url += "?select=*"
+            url += "&estimate_id=not.is.null"  # Seulement les entrées avec soumission
+            url += "&order=occurred_at.desc"
+            url += "&limit=5"
+
+            # Filtrer par piano ou client
+            if piano_id:
+                url += f"&piano_id=eq.{quote(piano_id)}"
+            elif client_id:
+                url += f"&client_id=eq.{quote(client_id)}"
+
+            headers = self.storage._get_headers()
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                return []
+
+            entries = response.json()
+            items = []
+            for entry in entries:
+                text = entry.get('description') or entry.get('title') or entry.get('summary') or ''
+                if text.strip():
+                    items.append({
+                        'date': (entry.get('occurred_at') or '')[:10],
+                        'text': text.strip(),
+                        'estimate_id': entry.get('estimate_id'),
+                    })
+            return items
+        except Exception as e:
+            print(f"⚠️  Erreur fetch estimates: {e}")
+            return []
+
     def _get_client_pianos(self, client_id: str) -> List[Dict]:
         try:
             return self.storage.get_data('gazelle_pianos',
@@ -613,6 +668,18 @@ class ClientIntelligenceService:
             appointments = [a for a in appointments
                            if a.get('technicien') != exclude_technician_id]
 
+        # Charger TOUS les RV du jour pour détecter les collaborations
+        all_day_appointments = []
+        if technician_id:
+            try:
+                all_day_appointments = self.storage.get_data(
+                    'gazelle_appointments',
+                    filters={'appointment_date': target_date},
+                    order_by='appointment_time.asc'
+                )
+            except:
+                all_day_appointments = []
+
         briefings = []
         for appt in appointments:
             client_id = appt.get('client_external_id')
@@ -628,12 +695,26 @@ class ClientIntelligenceService:
 
             briefing = self.generate_briefing(client_id, appointment_context)
 
+            # Détecter collaboration : autres techs au même client le même jour
+            collaboration = []
+            if technician_id and all_day_appointments:
+                for other in all_day_appointments:
+                    other_tech = other.get('technicien', '')
+                    other_client = other.get('client_external_id', '')
+                    if other_client == client_id and other_tech and other_tech != technician_id:
+                        collaboration.append({
+                            'technician_id': other_tech,
+                            'technician_name': resolve_technician_name(other_tech),
+                            'time': (other.get('appointment_time', '') or '')[:5],
+                        })
+
             briefing['appointment'] = {
                 'id': appt.get('external_id'),
                 'time': appt.get('appointment_time', '')[:5],
                 'title': appt.get('title', ''),
                 'description': appt.get('description', ''),
                 'technician_id': appt.get('technicien'),
+                'collaboration': collaboration,
             }
 
             briefings.append(briefing)

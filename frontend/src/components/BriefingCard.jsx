@@ -26,6 +26,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
     profile,
     piano,
     technical_history,
+    estimate_items,
     client_name,
     client_since,
     confidence_score,
@@ -41,6 +42,9 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟', label: 'Enlever chaussures' })
   if (profile?.courtesies?.includes('appeler avant')) profileIcons.push({ icon: '📞', label: 'Appeler avant' })
   if (profile?.payment_method) profileIcons.push({ icon: '💳', label: profile.payment_method })
+
+  // Collaboration : autres techniciens au même RV
+  const collaboration = appointment?.collaboration || []
 
   // Dernière visite (Niveau 1 résumé)
   const lastVisit = technical_history?.[0]
@@ -184,6 +188,18 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
           </div>
         )}
 
+        {/* Collaboration : autre(s) technicien(s) au même client */}
+        {collaboration.length > 0 && (
+          <div className="bg-indigo-50 border-l-4 border-indigo-400 px-3 py-2 text-sm text-indigo-800">
+            En collaboration avec {collaboration.map((c, idx) => (
+              <span key={idx} className="font-semibold">
+                {c.technician_name}{c.time ? ` (${c.time})` : ''}
+                {idx < collaboration.length - 1 ? ', ' : ''}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Dernier tech + date (Niveau 1 résumé) */}
         {lastVisit && (
           <div className="text-sm text-gray-600">
@@ -232,16 +248,25 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               {profile?.pets?.length > 0 && (
                 <div>Animaux: <span className="font-medium">{profile.pets.join(', ')}</span></div>
               )}
-              {profile?.courtesies?.length > 0 && (
-                <div>
-                  Courtoisies:
-                  {profile.courtesies.map((c, idx) => (
-                    <span key={idx} className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
-                      {c}
-                    </span>
-                  ))}
-                </div>
-              )}
+              {profile?.courtesies?.length > 0 && (() => {
+                // Filtrer les courtoisies déjà affichées dans Stationnement ou Accès
+                const parkingLower = (profile.parking_info || '').toLowerCase().trim()
+                const accessLower = (profile.access_notes || '').toLowerCase().trim()
+                const filtered = profile.courtesies.filter(c => {
+                  const cLower = c.toLowerCase().trim()
+                  return cLower !== parkingLower && cLower !== accessLower
+                })
+                return filtered.length > 0 ? (
+                  <div>
+                    Courtoisies:
+                    {filtered.map((c, idx) => (
+                      <span key={idx} className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                ) : null
+              })()}
               {profile?.personality && (
                 <div>Temperament: <span className="font-medium">{profile.personality}</span></div>
               )}
@@ -279,6 +304,25 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
                           : visit.summary}
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Soumission / Estimate */}
+          {estimate_items?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Soumission
+              </h4>
+              <div className="space-y-2">
+                {estimate_items.map((item, idx) => (
+                  <div key={idx} className="text-sm border-l-2 border-green-400 pl-3 bg-green-50 rounded-r py-1.5 pr-2">
+                    {item.date && (
+                      <div className="text-xs text-gray-500 mb-0.5">{item.date}</div>
+                    )}
+                    <div className="text-gray-800 whitespace-pre-wrap">{item.text}</div>
                   </div>
                 ))}
               </div>
