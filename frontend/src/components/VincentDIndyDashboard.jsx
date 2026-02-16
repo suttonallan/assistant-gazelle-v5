@@ -622,59 +622,104 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ NAVIGATION UNIFIÉE ============
   // Composant externe pour la navigation (pill buttons)
 
+  // ============ Données "À VALIDER" — calculées en dehors du if pour respecter les hooks ============
+  // Pianos pending (pas encore validés, ont du travail, pas de service_status)
+  const pendingPianos = useMemo(() => pianos
+    .filter(p => p.travail && p.travail.trim() !== '' && !p.service_status)
+    .map(p => ({
+      _type: 'pending',
+      _key: `pending-${p.id}`,
+      _sortDate: p.updated_at || '1970-01-01',
+      pianoId: p.id,
+      gazelleId: p.gazelleId || p.id,
+      local: p.local,
+      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+      aFaire: p.aFaire || '',
+      travail: p.travail,
+      serviceDate: p.dernierAccord || '',
+      status: 'pending',
+    })), [pianos]);
+
+  // Pianos validés (notes visibles, en attente de push)
+  const validatedPianos = useMemo(() => pianos
+    .filter(p => p.service_status === 'validated')
+    .map(p => ({
+      _type: 'validated_piano',
+      _key: `vp-${p.id}`,
+      _sortDate: p.updated_at || '1970-01-01',
+      pianoId: p.id,
+      gazelleId: p.gazelleId || p.id,
+      local: p.local,
+      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+      aFaire: p.aFaire || '',
+      travail: p.travail || '',
+      serviceDate: p.dernierAccord || '',
+      status: 'validated',
+    })), [pianos]);
+
+  // Pianos poussés (notes visibles, en attente fin tournée)
+  const pushedPianos = useMemo(() => pianos
+    .filter(p => p.service_status === 'pushed')
+    .map(p => ({
+      _type: 'pushed_piano',
+      _key: `pp-${p.id}`,
+      _sortDate: p.updated_at || '1970-01-01',
+      pianoId: p.id,
+      gazelleId: p.gazelleId || p.id,
+      local: p.local,
+      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
+      aFaire: p.aFaire || '',
+      travail: p.travail || '',
+      serviceDate: p.dernierAccord || '',
+      status: 'pushed',
+    })), [pianos]);
+
+  // Fonction de chargement d'historique Gazelle (définie ici pour le useEffect)
+  const loadGazelleHistoryForPreload = useCallback(async (pianoId, gazelleId) => {
+    const idToFetch = gazelleId || pianoId;
+    if (!idToFetch || gazelleHistoryData[idToFetch]) return;
+    try {
+      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const entries = (data.entries || []).map(e => ({
+        date: e.date || '',
+        text: e.summary || e.comment || '',
+        entry_type: e.type || 'NOTE',
+        user: e.user || '',
+        source: e.source || 'gazelle'
+      })).filter(e => e.text.trim());
+      setGazelleHistoryData(prev => ({ ...prev, [idToFetch]: entries }));
+    } catch (e) {
+      setGazelleHistoryData(prev => ({ ...prev, [idToFetch]: [] }));
+    }
+  }, [gazelleHistoryData]);
+
+  // Pré-chargement de l'historique pour les pianos pending/validated/pushed
+  useEffect(() => {
+    if (currentView !== 'vdi') return;
+    const loadHistoryForPianos = async () => {
+      const idsToLoad = [];
+      [...pendingPianos, ...validatedPianos, ...pushedPianos].forEach(row => {
+        const id = row.gazelleId || row.pianoId;
+        if (id && !gazelleHistoryData[id]) {
+          idsToLoad.push({ pianoId: row.pianoId, gazelleId: row.gazelleId });
+        }
+      });
+      for (let i = 0; i < idsToLoad.length; i += 5) {
+        const batch = idsToLoad.slice(i, i + 5);
+        await Promise.all(batch.map(({ pianoId, gazelleId }) =>
+          loadGazelleHistoryForPreload(pianoId, gazelleId)
+        ));
+      }
+    };
+    if (pendingPianos.length > 0 || validatedPianos.length > 0 || pushedPianos.length > 0) {
+      loadHistoryForPianos();
+    }
+  }, [currentView, pendingPianos.length, validatedPianos.length, pushedPianos.length, loadGazelleHistoryForPreload]);
+
   // ============ VUE "À VALIDER" — liste unifiée avec historique ============
   if (currentView === 'vdi') {
-    // Pianos pending (pas encore validés, ont du travail, pas de service_status)
-    const pendingPianos = pianos
-      .filter(p => p.travail && p.travail.trim() !== '' && !p.service_status)
-      .map(p => ({
-        _type: 'pending',
-        _key: `pending-${p.id}`,
-        _sortDate: p.updated_at || '1970-01-01',
-        pianoId: p.id,
-        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
-        local: p.local,
-        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-        aFaire: p.aFaire || '',
-        travail: p.travail,
-        serviceDate: p.dernierAccord || '',
-        status: 'pending',
-      }));
-
-    // Pianos validés (notes visibles, en attente de push)
-    const validatedPianos = pianos
-      .filter(p => p.service_status === 'validated')
-      .map(p => ({
-        _type: 'validated_piano',
-        _key: `vp-${p.id}`,
-        _sortDate: p.updated_at || '1970-01-01',
-        pianoId: p.id,
-        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
-        local: p.local,
-        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-        aFaire: p.aFaire || '',
-        travail: p.travail || '',
-        serviceDate: p.dernierAccord || '',
-        status: 'validated',
-      }));
-
-    // Pianos poussés (notes visibles, en attente fin tournée)
-    const pushedPianos = pianos
-      .filter(p => p.service_status === 'pushed')
-      .map(p => ({
-        _type: 'pushed_piano',
-        _key: `pp-${p.id}`,
-        _sortDate: p.updated_at || '1970-01-01',
-        pianoId: p.id,
-        gazelleId: p.gazelleId || p.id,  // Pour historique Gazelle
-        local: p.local,
-        pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-        aFaire: p.aFaire || '',
-        travail: p.travail || '',
-        serviceDate: p.dernierAccord || '',
-        status: 'pushed',
-      }));
-
     // Entrées historique (from vdi_service_history — validated + pushed passés)
     // Dédoublonner : exclure les pianos déjà représentés par validatedPianos/pushedPianos
     const livePianoIds = new Set([
@@ -689,13 +734,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         _sortDate: h.validated_at || h.created_at || '1970-01-01',
         entryId: h.id,
         pianoId: h.piano_id,
-        gazelleId: h.gazelle_piano_id || h.piano_id,  // Pour historique Gazelle
+        gazelleId: h.gazelle_piano_id || h.piano_id,
         local: h.piano_local || '',
         pianoName: h.piano_name || '',
         aFaire: h.a_faire || '',
         travail: h.travail || '',
         serviceDate: h.service_date || '',
-        status: h.status, // 'validated' | 'pushed' | 'error'
+        status: h.status,
         validatedAt: h.validated_at,
         pushedAt: h.pushed_at,
         gazelleEventId: h.gazelle_event_id,
@@ -708,33 +753,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pendingCount = pendingPianos.length;
     const validatedCount = validatedPianos.length;
     const pushedCount = pushedPianos.length;
-
-    // --- Pré-chargement de l'historique pour les pianos pending/validated/pushed ---
-    // (pour afficher le dernier service directement dans la colonne Notes)
-    React.useEffect(() => {
-      const loadHistoryForPianos = async () => {
-        // Collecter tous les gazelleIds uniques à charger
-        const idsToLoad = [];
-        [...pendingPianos, ...validatedPianos, ...pushedPianos].forEach(row => {
-          const id = row.gazelleId || row.pianoId;
-          if (id && !gazelleHistoryData[id]) {
-            idsToLoad.push({ pianoId: row.pianoId, gazelleId: row.gazelleId });
-          }
-        });
-
-        // Charger en parallèle (max 5 à la fois pour ne pas surcharger)
-        for (let i = 0; i < idsToLoad.length; i += 5) {
-          const batch = idsToLoad.slice(i, i + 5);
-          await Promise.all(batch.map(({ pianoId, gazelleId }) =>
-            loadGazelleHistory(pianoId, gazelleId)
-          ));
-        }
-      };
-
-      if (pendingPianos.length > 0 || validatedPianos.length > 0 || pushedPianos.length > 0) {
-        loadHistoryForPianos();
-      }
-    }, [pendingPianos.length, validatedPianos.length, pushedPianos.length]);
 
     // --- Actions ---
     const handleValidate = async (pianoId) => {
