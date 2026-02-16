@@ -588,6 +588,75 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
+  // --- Chargement historique Gazelle (utilisé par vue "À valider") ---
+  const loadGazelleHistory = async (pianoId, gazelleId) => {
+    const idToFetch = gazelleId || pianoId;
+    if (!idToFetch) return;
+    if (gazelleHistoryData[idToFetch]) return;
+
+    setGazelleHistoryLoading(true);
+    try {
+      console.log('[À valider] Chargement historique pour piano:', idToFetch);
+      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      console.log('[À valider] Données brutes:', data.entries?.slice(0, 2));
+
+      const entries = (data.entries || []).map(e => ({
+        date: e.date || '',
+        text: e.summary || e.comment || '',
+        entry_type: e.type || 'NOTE',
+        user: e.user || '',
+        source: e.source || 'gazelle'
+      })).filter(e => e.text.trim());
+
+      console.log('[À valider] Entrées transformées:', entries.slice(0, 2));
+
+      setGazelleHistoryData(prev => ({
+        ...prev,
+        [idToFetch]: entries
+      }));
+    } catch (e) {
+      console.error('Erreur chargement historique:', e);
+      setGazelleHistoryData(prev => ({
+        ...prev,
+        [idToFetch]: []
+      }));
+    } finally {
+      setGazelleHistoryLoading(false);
+    }
+  };
+
+  // Pré-charger l'historique Gazelle quand on est sur la vue "À valider"
+  useEffect(() => {
+    if (currentView !== 'vdi') return;
+
+    const pending = pianos.filter(p => p.travail && p.travail.trim() !== '' && !p.service_status);
+    const validated = pianos.filter(p => p.service_status === 'validated');
+    const pushed = pianos.filter(p => p.service_status === 'pushed');
+
+    if (pending.length === 0 && validated.length === 0 && pushed.length === 0) return;
+
+    const loadAll = async () => {
+      const idsToLoad = [];
+      [...pending, ...validated, ...pushed].forEach(p => {
+        const id = p.gazelleId || p.id;
+        if (id && !gazelleHistoryData[id]) {
+          idsToLoad.push({ pianoId: p.id, gazelleId: p.gazelleId });
+        }
+      });
+
+      for (let i = 0; i < idsToLoad.length; i += 5) {
+        const batch = idsToLoad.slice(i, i + 5);
+        await Promise.all(batch.map(({ pianoId, gazelleId }) =>
+          loadGazelleHistory(pianoId, gazelleId)
+        ));
+      }
+    };
+
+    loadAll();
+  }, [currentView, pianos]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Gestion des états de chargement et d'erreur (pour toutes les vues)
   if (loading) {
     return (
@@ -871,52 +940,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         await loadServiceHistory();
       } catch (e) {
         alert('Erreur sauvegarde: ' + e.message);
-      }
-    };
-
-    // --- Chargement historique via /timeline (même endpoint que Gestion & Pianos) ---
-    const loadGazelleHistory = async (pianoId, gazelleId) => {
-      // Utiliser gazelleId si disponible, sinon pianoId
-      const idToFetch = gazelleId || pianoId;
-      if (!idToFetch) return;
-
-      // Si déjà chargé, ne pas recharger
-      if (gazelleHistoryData[idToFetch]) return;
-
-      setGazelleHistoryLoading(true);
-      try {
-        // Utiliser le même endpoint que "Gestion & Pianos" (limit=200 pour cohérence)
-        console.log('[À valider] Chargement historique pour piano:', idToFetch);
-        const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        // Transformer le format timeline vers format simplifié pour l'accordéon
-        // Le endpoint /timeline retourne: { date, type, summary, comment, user, source }
-        // Debug: voir la structure brute
-        console.log('[À valider] Données brutes:', data.entries?.slice(0, 2));
-
-        const entries = (data.entries || []).map(e => ({
-          date: e.date || '',
-          text: e.summary || e.comment || '',
-          entry_type: e.type || 'NOTE',
-          user: e.user || '',
-          source: e.source || 'gazelle'
-        })).filter(e => e.text.trim());
-
-        console.log('[À valider] Entrées transformées:', entries.slice(0, 2));
-
-        setGazelleHistoryData(prev => ({
-          ...prev,
-          [idToFetch]: entries
-        }));
-      } catch (e) {
-        console.error('Erreur chargement historique:', e);
-        setGazelleHistoryData(prev => ({
-          ...prev,
-          [idToFetch]: [] // Marquer comme chargé (vide)
-        }));
-      } finally {
-        setGazelleHistoryLoading(false);
       }
     };
 
