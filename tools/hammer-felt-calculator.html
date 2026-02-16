@@ -290,7 +290,7 @@
             <th>Pointe</th>
             <th>Sizing</th>
             <th>Larg.</th>
-            <th>Feutre</th>
+            <th style="background:#e94560; color:#fff; font-size:14px;">★ Feutre</th>
             <th>Inter</th>
             <th>Finale</th>
             <th>Verdict</th>
@@ -867,7 +867,7 @@ function renderTable() {
       <td>.${h.pinSize.toFixed(3).slice(2)}</td>
       <td>${h.sizing || '—'}</td>
       <td>${h.sizingWidth ? '.' + h.sizingWidth.toFixed(3).slice(2) : '—'}</td>
-      <td>${h.felt ? h.felt.toFixed(2) + ' mm' : '—'}</td>
+      <td style="${h.felt ? 'color:#fff; background:#e94560; font-weight:700; font-size:15px; text-align:center; border-radius:4px; padding:4px 8px;' : ''}">${h.felt ? h.felt.toFixed(2) + ' mm' : '—'}</td>
       <td>${h.interCaul || '—'}</td>
       <td>${h.finalCaul || '—'}</td>
       <td><span class="badge ${verdictBadge(h.verdict).cls}">${verdictBadge(h.verdict).label}</span></td>
