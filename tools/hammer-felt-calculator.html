@@ -21,28 +21,41 @@
   .panel { display: none; }
   .panel.active { display: block; }
 
-  /* Calculator */
+  /* Calculator Input */
   .calc-input { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 24px; }
   .calc-input label { font-size: 13px; color: #aaa; display: block; margin-bottom: 4px; }
   .calc-input input, .calc-input select { background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 10px 14px; border-radius: 6px; font-size: 16px; width: 160px; }
   .calc-input button { background: #e94560; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: 600; }
   .calc-input button:hover { background: #c73e54; }
 
-  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .result-card { background: #16213e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460; }
-  .result-card h3 { font-size: 14px; color: #e94560; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
-  .result-card.full { grid-column: 1 / -1; }
+  /* Recommendation Tiles */
+  .rec-tiles { display: grid; grid-template-columns: 2.5fr 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .rec-tile { background: #16213e; border-radius: 10px; padding: 16px; border: 2px solid #0f3460; text-align: center; }
+  .rec-tile.felt-tile { background: linear-gradient(135deg, #8b0000, #c0392b); border-color: #e94560; }
+  .rec-tile .tile-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #aaa; margin-bottom: 6px; }
+  .rec-tile.felt-tile .tile-label { color: rgba(255,255,255,0.7); }
+  .rec-tile .tile-value { font-size: 22px; font-weight: 800; color: #4ecca3; line-height: 1.2; }
+  .rec-tile.felt-tile .tile-value { font-size: 42px; color: #fff; }
+  .rec-tile .tile-sub { font-size: 11px; color: #888; margin-top: 4px; }
+  .rec-tile.felt-tile .tile-sub { color: rgba(255,255,255,0.6); }
+  .rec-tile .tile-source { font-size: 10px; color: #555; margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); }
+  .rec-tile.felt-tile .tile-source { color: rgba(255,255,255,0.4); }
+  .rec-tile.confidence-high { border-color: #4ecca3; }
+  .rec-tile.confidence-medium { border-color: #3a9d7c; }
+  .rec-tile.confidence-low { border-color: #f5a623; }
+  .rec-tile.confidence-none { border-color: #555; }
 
-  .felt-hero { background: linear-gradient(135deg, #16213e, #0f3460); border-radius: 12px; padding: 24px; margin-bottom: 24px; text-align: center; }
-  .recommendation { font-size: 28px; font-weight: 700; color: #4ecca3; margin: 8px 0; }
-  .rec-detail { font-size: 13px; color: #aaa; margin: 4px 0; }
-
+  /* Range bar */
   .range-bar { display: flex; align-items: center; gap: 4px; margin: 12px 0; height: 32px; }
   .range-segment { height: 100%; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: white; min-width: 40px; padding: 0 6px; }
   .seg-loose { background: #e94560; }
   .seg-ok { background: #4ecca3; }
   .seg-tight { background: #f5a623; }
 
+  /* Bounds bar */
+  .bounds-bar { display: flex; justify-content: center; gap: 24px; margin-bottom: 20px; font-size: 13px; padding: 8px; background: #16213e; border-radius: 6px; }
+
+  /* History matches */
   .history-match { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #0f3460; font-size: 13px; }
   .history-match:last-child { border-bottom: none; }
   .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
@@ -50,6 +63,31 @@
   .badge-ok { background: #3a9d7c; color: #1a1a2e; }
   .badge-lache { background: #e94560; color: white; }
   .badge-serre { background: #f5a623; color: #1a1a2e; }
+
+  /* Feedback form */
+  .feedback-form { background: #0f1a2e; border: 2px dashed #0f3460; border-radius: 10px; padding: 20px; margin-top: 20px; }
+  .feedback-form h3 { color: #4ecca3; margin-bottom: 16px; font-size: 15px; }
+  .feedback-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  .feedback-grid .fg { display: flex; flex-direction: column; }
+  .feedback-grid .fg.wide { grid-column: span 2; }
+  .feedback-grid .fg.full { grid-column: 1 / -1; }
+  .feedback-grid label { font-size: 12px; color: #888; margin-bottom: 3px; }
+  .feedback-grid input, .feedback-grid select, .feedback-grid textarea { background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 8px; border-radius: 5px; font-size: 13px; }
+  .feedback-grid textarea { resize: vertical; min-height: 40px; }
+  .feedback-actions { margin-top: 12px; display: flex; gap: 12px; }
+
+  /* Detail panel (collapsible) */
+  .detail-toggle { color: #888; font-size: 12px; cursor: pointer; text-align: center; margin-top: 8px; }
+  .detail-toggle:hover { color: #aaa; }
+  .detail-panel { background: #16213e; border-radius: 8px; padding: 16px; margin-top: 12px; }
+  .detail-panel h4 { font-size: 13px; color: #e94560; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .rec-detail { font-size: 13px; color: #aaa; margin: 4px 0; }
+
+  /* Old results grid (kept for history detail) */
+  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .result-card { background: #16213e; border-radius: 8px; padding: 16px; border: 1px solid #0f3460; }
+  .result-card h3 { font-size: 14px; color: #e94560; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .result-card.full { grid-column: 1 / -1; }
 
   /* Form */
   .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
@@ -62,6 +100,8 @@
   .btn { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
   .btn-primary { background: #e94560; color: white; }
   .btn-primary:hover { background: #c73e54; }
+  .btn-save { background: #4ecca3; color: #1a1a2e; }
+  .btn-save:hover { background: #3db890; }
   .btn-secondary { background: #0f3460; color: #aaa; }
   .btn-secondary:hover { background: #16213e; color: #eee; }
 
@@ -89,6 +129,8 @@
   .toast.show { transform: translateY(0); opacity: 1; }
 
   @media (max-width: 768px) {
+    .rec-tiles { grid-template-columns: 1fr; }
+    .feedback-grid { grid-template-columns: 1fr 1fr; }
     .results { grid-template-columns: 1fr; }
     .form-grid { grid-template-columns: 1fr; }
     .calc-input { flex-direction: column; }
@@ -450,8 +492,138 @@ function showTab(id) {
 }
 
 // ============================================================
-// CALCULATOR
+// CALCULATOR — Unified Recommendations
 // ============================================================
+const TOLERANCE = 0.012;
+
+function getClosestSpurlock(pin) {
+  const sizes = Object.keys(SPURLOCK).map(Number).sort((a, b) => a - b);
+  let closest = sizes[0];
+  for (const s of sizes) { if (Math.abs(pin - s) < Math.abs(pin - closest)) closest = s; }
+  return { pinSize: closest, ...SPURLOCK[closest] };
+}
+
+function caulLabel(id) {
+  const c = DEFAULT_CAULS.find(c => c.id === id);
+  return c ? `${id} (.${c.thickness.toFixed(3).slice(2)}")` : id || '—';
+}
+
+function caulLabelShort(id) {
+  return id || '—';
+}
+
+function computeRecommendations(pin, type) {
+  const relevant = history.filter(h =>
+    !h.outlier && h.felt > 0 &&
+    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    (type === 'any' || h.pinType === type)
+  );
+
+  const parfait = relevant.filter(h => h.verdict === 'parfait');
+  const ok = relevant.filter(h => h.verdict === 'ok');
+  const good = [...parfait, ...ok];
+  const lache = relevant.filter(h => h.verdict === 'trop_lache');
+  const serre = relevant.filter(h => h.verdict === 'trop_serre');
+
+  const spurlock = getClosestSpurlock(pin);
+
+  // --- FELT recommendation (weighted: parfait=3x, ok=1x) ---
+  let felt = { value: null, source: '', confidence: 'none' };
+
+  // Theoretical from sizing
+  let theoretical = null;
+  if (spurlock.sizing) {
+    const sizingCaul = DEFAULT_CAULS.find(c => c.id === spurlock.sizing);
+    if (sizingCaul) {
+      theoretical = roundToNearest005((sizingCaul.thickness - pin) / 2 * 25.4);
+    }
+  }
+
+  if (parfait.length > 0) {
+    // Weighted average: parfait=3x weight
+    const weightedSum = parfait.reduce((s, h) => s + h.felt * 3, 0) + ok.reduce((s, h) => s + h.felt, 0);
+    const weightedCount = parfait.length * 3 + ok.length;
+    const histAvg = weightedSum / weightedCount;
+    // 100% historical when parfait exists
+    felt.value = roundToNearest005(histAvg);
+    felt.source = `${parfait.length} parfait, ${ok.length} ok`;
+    felt.confidence = 'high';
+  } else if (ok.length > 0) {
+    const histAvg = ok.reduce((s, h) => s + h.felt, 0) / ok.length;
+    if (theoretical) {
+      // 80% historical + 20% theoretical
+      felt.value = roundToNearest005(histAvg * 0.8 + theoretical * 0.2);
+      felt.source = `${ok.length} ok + théorique`;
+    } else {
+      felt.value = roundToNearest005(histAvg);
+      felt.source = `${ok.length} ok`;
+    }
+    felt.confidence = 'medium';
+  } else if (theoretical) {
+    felt.value = theoretical;
+    felt.source = 'Théorique (Spurlock)';
+    felt.confidence = 'low';
+  }
+
+  // Bounds
+  felt.maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
+  felt.minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
+
+  // --- SIZING recommendation ---
+  let sizing = { value: null, label: '', source: '' };
+  // Check history: most used sizing with good results
+  const goodWithSizing = good.filter(h => h.sizing && h.sizing.startsWith('MS-'));
+  if (goodWithSizing.length > 0) {
+    const counts = {};
+    goodWithSizing.forEach(h => { counts[h.sizing] = (counts[h.sizing] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    sizing.value = best;
+    sizing.label = caulLabel(best);
+    sizing.source = `Historique (${goodWithSizing.length} jobs)`;
+  } else if (spurlock.sizing) {
+    sizing.value = spurlock.sizing;
+    sizing.label = caulLabel(spurlock.sizing);
+    sizing.source = 'Spurlock';
+  }
+
+  // --- INTER CAUL recommendation ---
+  let inter = { value: null, label: '', source: '' };
+  const goodWithInter = good.filter(h => h.interCaul && h.interCaul.startsWith('#'));
+  if (goodWithInter.length > 0) {
+    const counts = {};
+    goodWithInter.forEach(h => { counts[h.interCaul] = (counts[h.interCaul] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    inter.value = best;
+    inter.label = caulLabel(best);
+    inter.source = `Historique (${goodWithInter.length} jobs)`;
+  } else {
+    inter.value = spurlock.inter;
+    inter.label = caulLabel(spurlock.inter);
+    inter.source = 'Spurlock';
+  }
+
+  // --- FINAL CAUL recommendation ---
+  let final_ = { value: null, label: '', source: '' };
+  const goodWithFinal = good.filter(h => h.finalCaul && (h.finalCaul.startsWith('#') || h.finalCaul.startsWith('DS-')));
+  if (goodWithFinal.length > 0) {
+    const counts = {};
+    goodWithFinal.forEach(h => { counts[h.finalCaul] = (counts[h.finalCaul] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
+    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    final_.value = best;
+    final_.label = caulLabel(best);
+    final_.source = `Historique (${goodWithFinal.length} jobs)`;
+  } else {
+    final_.value = spurlock.final;
+    final_.label = caulLabel(spurlock.final);
+    final_.source = 'Spurlock';
+    if (spurlock.finalAlt) {
+      final_.label += ` ou ${caulLabelShort(spurlock.finalAlt)}`;
+    }
+  }
+
+  return { felt, sizing, inter, final: final_, relevant, spurlock, theoretical };
+}
+
 function calculate() {
   const pin = parseFloat(document.getElementById('pinSize').value);
   const type = document.getElementById('pinType').value;
@@ -460,274 +632,278 @@ function calculate() {
     return;
   }
 
+  const recs = computeRecommendations(pin, type);
   const results = document.getElementById('calcResults');
   let html = '';
 
-  // 1. BIG HERO: Felt recommendation
-  html += renderFeltHero(pin, type);
+  // 1. Four recommendation tiles
+  html += renderTiles(pin, type, recs);
 
-  // 2. Detail cards
-  html += '<div class="results">';
-  html += renderSpurlockCard(pin);
-  html += renderCaulCard(pin);
-  html += renderRangeCard(pin, type);
-  html += renderHistoryCard(pin, type);
-  html += '</div>';
+  // 2. Bounds bar
+  html += renderBoundsBar(recs.felt);
+
+  // 3. Range bar (compact)
+  html += renderRangeBar(pin, type);
+
+  // 4. History matches (collapsible)
+  html += renderHistoryDetail(recs.relevant);
+
+  // 5. Feedback form
+  html += renderFeedbackForm(pin, type, recs);
+
   results.innerHTML = html;
+
+  // Populate feedback dropdowns
+  populateFeedbackDropdowns(recs);
 }
 
-function renderFeltHero(pin, type) {
-  const TOLERANCE = 0.012;
-  const relevant = history.filter(h =>
-    !h.outlier && h.felt > 0 &&
-    Math.abs(h.pinSize - pin) <= TOLERANCE &&
-    (type === 'any' || h.pinType === type)
-  );
+function renderTiles(pin, type, recs) {
+  const { felt, sizing, inter, final: final_ } = recs;
+  const typeLabel = type === 'any' ? '' : type === 'balance' ? ' (bal.)' : ' (enf.)';
 
-  const parfait = relevant.filter(h => h.verdict === 'parfait');
-  const ok = relevant.filter(h => h.verdict === 'ok');
-  const good = [...parfait, ...ok];
-  const lache = relevant.filter(h => h.verdict === 'trop_lache');
-  const serre = relevant.filter(h => h.verdict === 'trop_serre');
+  let html = `<div class="rec-tiles">`;
 
-  // Main recommendation
-  let recFelt = null;
-  let confidence = '';
-  let confColor = '#888';
-
-  if (parfait.length > 0) {
-    // Prioritize "parfait" entries
-    const avg = parfait.reduce((sum, h) => sum + h.felt, 0) / parfait.length;
-    recFelt = roundToNearest005(avg);
-    confidence = `Basé sur ${parfait.length} résultat(s) PARFAIT`;
-    confColor = '#4ecca3';
-  } else if (good.length > 0) {
-    const avg = good.reduce((sum, h) => sum + h.felt, 0) / good.length;
-    recFelt = roundToNearest005(avg);
-    confidence = `Basé sur ${good.length} résultat(s) OK`;
-    confColor = '#3a9d7c';
-  }
-
-  // Bounds from failures
-  const maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
-  const minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
-
-  // If no historical data, use theoretical calculation from sizing
-  let theoretical = null;
-  const sizes = Object.keys(SPURLOCK).map(Number).sort((a, b) => a - b);
-  let closestPin = sizes[0];
-  for (const s of sizes) { if (Math.abs(pin - s) < Math.abs(pin - closestPin)) closestPin = s; }
-  const spurlockRec = SPURLOCK[closestPin];
-  if (spurlockRec && spurlockRec.sizing) {
-    const sizingCaul = DEFAULT_CAULS.find(c => c.id === spurlockRec.sizing);
-    if (sizingCaul) {
-      const feltInches = (sizingCaul.thickness - pin) / 2;
-      theoretical = roundToNearest005(feltInches * 25.4);
-    }
-  }
-
-  let html = `<div style="background:linear-gradient(135deg, #16213e, #0f3460); border-radius:12px; padding:24px; margin-bottom:24px; border:2px solid ${recFelt ? '#4ecca3' : '#0f3460'}; text-align:center;">`;
-
-  html += `<div style="font-size:13px; color:#888; text-transform:uppercase; letter-spacing:2px; margin-bottom:8px;">Feutre recommandé pour pointe .${pin.toFixed(3).slice(2)}"</div>`;
-
-  if (recFelt) {
-    html += `<div style="font-size:56px; font-weight:800; color:#4ecca3; line-height:1;">${recFelt.toFixed(2)} mm</div>`;
-    html += `<div style="font-size:14px; color:${confColor}; margin-top:8px;">${confidence}</div>`;
-  } else if (theoretical) {
-    html += `<div style="font-size:56px; font-weight:800; color:#f5a623; line-height:1;">${theoretical.toFixed(2)} mm</div>`;
-    html += `<div style="font-size:14px; color:#f5a623; margin-top:8px;">⚠️ Estimation théorique — aucune donnée historique</div>`;
-  } else {
-    html += `<div style="font-size:36px; font-weight:700; color:#e94560; line-height:1;">?</div>`;
-    html += `<div style="font-size:14px; color:#e94560; margin-top:8px;">Aucune donnée disponible pour cette taille</div>`;
-  }
-
-  // Bounds display
-  if (maxLache || minSerre) {
-    html += `<div style="display:flex; justify-content:center; gap:24px; margin-top:16px; font-size:13px;">`;
-    if (maxLache) html += `<span style="color:#e94560;">▼ Trop lâche à ${maxLache.toFixed(2)} mm</span>`;
-    if (minSerre) html += `<span style="color:#f5a623;">▲ Trop serré à ${minSerre.toFixed(2)} mm</span>`;
-    html += `</div>`;
-  }
-
-  // Also show theoretical if we have historical
-  if (recFelt && theoretical) {
-    html += `<div style="font-size:12px; color:#555; margin-top:12px;">Théorique: ${theoretical.toFixed(2)} mm (formule sizing)</div>`;
-  }
-
-  html += `</div>`;
-  return html;
-}
-
-function renderSpurlockCard(pin) {
-  // Find closest Spurlock match
-  const sizes = Object.keys(SPURLOCK).map(Number).sort((a, b) => a - b);
-  let closest = sizes[0];
-  let minDiff = Math.abs(pin - closest);
-  for (const s of sizes) {
-    const diff = Math.abs(pin - s);
-    if (diff < minDiff) { minDiff = diff; closest = s; }
-  }
-  const rec = SPURLOCK[closest];
-  const caul = (id) => {
-    const c = DEFAULT_CAULS.find(c => c.id === id);
-    return c ? `${id} (.${c.thickness.toFixed(3).slice(2)})` : id || '—';
-  };
-
-  return `<div class="result-card">
-    <h3>Recommandation Spurlock</h3>
-    <p class="rec-detail">Pointe la plus proche : .${closest.toFixed(3).slice(2)}</p>
-    <p class="rec-detail">Intermédiaire : <strong>${caul(rec.inter)}</strong></p>
-    <p class="rec-detail">Finale : <strong>${caul(rec.final)}</strong>${rec.finalAlt ? ` ou <strong>${caul(rec.finalAlt)}</strong>` : ''}</p>
-    <p class="rec-detail">Sizing : <strong>${rec.sizing ? caul(rec.sizing) : '—'}</strong></p>
+  // FELT tile (big, red)
+  html += `<div class="rec-tile felt-tile confidence-${felt.confidence}">
+    <div class="tile-label">★ Feutre recommandé${typeLabel}</div>
+    <div class="tile-value">${felt.value ? felt.value.toFixed(2) + ' mm' : '?'}</div>
+    <div class="tile-sub">${felt.confidence === 'high' ? 'Confiance élevée' : felt.confidence === 'medium' ? 'Confiance moyenne' : felt.confidence === 'low' ? 'Estimation théorique' : 'Aucune donnée'}</div>
+    <div class="tile-source">${felt.source || '—'}</div>
   </div>`;
-}
 
-function renderHistoryCard(pin, type) {
-  // Find relevant history entries (within +/- 0.010 of pin size, not outliers, with felt data)
-  const TOLERANCE = 0.010;
-  const relevant = history.filter(h =>
-    !h.outlier &&
-    h.felt > 0 &&
-    Math.abs(h.pinSize - pin) <= TOLERANCE &&
-    (type === 'any' || h.pinType === type)
-  );
+  // SIZING tile
+  html += `<div class="rec-tile ${sizing.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">Sizing</div>
+    <div class="tile-value">${sizing.value || '?'}</div>
+    <div class="tile-sub">${sizing.value ? caulThickness(sizing.value) : ''}</div>
+    <div class="tile-source">${sizing.source || '—'}</div>
+  </div>`;
 
-  if (relevant.length === 0) {
-    return `<div class="result-card">
-      <h3>Historique</h3>
-      <p class="rec-detail">Aucune donnée historique pour cette taille de pointe (tolérance +/- .010)</p>
-    </div>`;
-  }
+  // INTER tile
+  html += `<div class="rec-tile ${inter.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">Cale Inter</div>
+    <div class="tile-value">${inter.value || '?'}</div>
+    <div class="tile-sub">${inter.value ? caulThickness(inter.value) : ''}</div>
+    <div class="tile-source">${inter.source || '—'}</div>
+  </div>`;
 
-  // Separate by verdict
-  const parfait = relevant.filter(h => h.verdict === 'parfait');
-  const ok = relevant.filter(h => h.verdict === 'ok');
-  const good = [...parfait, ...ok];
-  const lache = relevant.filter(h => h.verdict === 'trop_lache');
-  const serre = relevant.filter(h => h.verdict === 'trop_serre');
-
-  // Calculate recommended felt
-  let recFelt = null;
-  if (good.length > 0) {
-    const avg = good.reduce((sum, h) => sum + h.felt, 0) / good.length;
-    recFelt = roundToNearest005(avg);
-  }
-
-  // Bounds
-  const maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
-  const minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
-
-  let html = `<div class="result-card">
-    <h3>Recommandation historique</h3>`;
-
-  if (recFelt) {
-    html += `<div class="recommendation">${recFelt.toFixed(2)} mm</div>`;
-    html += `<p class="rec-detail">Basé sur ${good.length} entrée(s) OK/Parfait</p>`;
-  }
-
-  if (maxLache) html += `<p class="rec-detail" style="color:#e94560">Borne min : > ${maxLache.toFixed(2)} mm (trop lâche)</p>`;
-  if (minSerre) html += `<p class="rec-detail" style="color:#f5a623">Borne max : < ${minSerre.toFixed(2)} mm (trop serré)</p>`;
-
-  html += `<div style="margin-top:12px;">`;
-  for (const h of relevant) {
-    const badge = verdictBadge(h.verdict);
-    html += `<div class="history-match">
-      <span class="badge ${badge.cls}">${badge.label}</span>
-      <span>${h.client ? h.client + ' — ' : ''}${h.piano}</span>
-      <span style="color:#4ecca3">${h.felt.toFixed(2)} mm</span>
-      <span style="color:#888">.${h.pinSize.toFixed(3).slice(2)}</span>
-    </div>`;
-  }
-  html += `</div></div>`;
-  return html;
-}
-
-function renderCaulCard(pin) {
-  // Find closest matching cauls
-  const targetFinal = pin + 0.003;
-  const targetInter = pin + 0.039;
-
-  const finalCauls = [...DEFAULT_CAULS]
-    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
-    .map(c => ({ ...c, diff: Math.abs(c.thickness - targetFinal) }))
-    .sort((a, b) => a.diff - b.diff)
-    .slice(0, 3);
-
-  const interCauls = [...DEFAULT_CAULS]
-    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark') && !c.id.startsWith('DS-'))
-    .map(c => ({ ...c, diff: Math.abs(c.thickness - targetInter) }))
-    .sort((a, b) => a.diff - b.diff)
-    .slice(0, 3);
-
-  let html = `<div class="result-card">
-    <h3>Cales suggérées</h3>
-    <p class="rec-detail" style="margin-bottom:8px">Cible finale : .${targetFinal.toFixed(3).slice(2)} (pointe + .003)</p>`;
-
-  for (const c of finalCauls) {
-    const stock = cauls.find(s => s.id === c.id);
-    const qty = stock ? stock.qty : 0;
-    html += `<p class="rec-detail">${c.id} (.${c.thickness.toFixed(3).slice(2)}) — diff: ${c.diff < 0.001 ? '~0' : (c.diff > 0 ? '+' : '') + c.diff.toFixed(3)} — stock: ${qty}</p>`;
-  }
-
-  html += `<p class="rec-detail" style="margin:8px 0">Cible inter : .${targetInter.toFixed(3).slice(2)} (pointe + ~.039)</p>`;
-  for (const c of interCauls) {
-    const stock = cauls.find(s => s.id === c.id);
-    const qty = stock ? stock.qty : 0;
-    html += `<p class="rec-detail">${c.id} (.${c.thickness.toFixed(3).slice(2)}) — diff: ${c.diff < 0.001 ? '~0' : c.diff.toFixed(3)} — stock: ${qty}</p>`;
-  }
+  // FINAL tile
+  html += `<div class="rec-tile ${final_.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">Cale Finale</div>
+    <div class="tile-value">${final_.value || '?'}</div>
+    <div class="tile-sub">${final_.value ? caulThickness(final_.value) : ''}</div>
+    <div class="tile-source">${final_.source || '—'}</div>
+  </div>`;
 
   html += `</div>`;
   return html;
 }
 
-function renderRangeCard(pin, type) {
-  const TOLERANCE = 0.015;
+function caulThickness(id) {
+  if (!id) return '';
+  const c = DEFAULT_CAULS.find(c => c.id === id);
+  return c ? `.${c.thickness.toFixed(3).slice(2)}"` : '';
+}
+
+function renderBoundsBar(felt) {
+  if (!felt.maxLache && !felt.minSerre) return '';
+  let html = `<div class="bounds-bar">`;
+  if (felt.maxLache) html += `<span style="color:#e94560;">▼ Trop lâche à ≤ ${felt.maxLache.toFixed(2)} mm</span>`;
+  if (felt.value) html += `<span style="color:#4ecca3; font-weight:700;">● Recommandé : ${felt.value.toFixed(2)} mm</span>`;
+  if (felt.minSerre) html += `<span style="color:#f5a623;">▲ Trop serré à ≥ ${felt.minSerre.toFixed(2)} mm</span>`;
+  html += `</div>`;
+  return html;
+}
+
+function renderRangeBar(pin, type) {
   const relevant = history.filter(h =>
     !h.outlier && h.felt > 0 &&
-    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    Math.abs(h.pinSize - pin) <= 0.015 &&
     (type === 'any' || h.pinType === type)
   );
-
   if (relevant.length < 2) return '';
 
   const allFelts = relevant.map(h => h.felt).sort((a, b) => a - b);
   const min = allFelts[0];
   const max = allFelts[allFelts.length - 1];
 
-  let html = `<div class="result-card full">
-    <h3>Plage de feutres utilisés</h3>
+  let html = `<div style="background:#16213e; border-radius:8px; padding:12px; margin-bottom:16px;">
+    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Plage de feutres testés</div>
     <div class="range-bar">`;
 
-  // Create segments
-  const steps = [];
+  const seen = new Set();
   for (let f = min; f <= max + 0.001; f += 0.05) {
     const rounded = roundToNearest005(f);
+    const key = rounded.toFixed(2);
+    if (seen.has(key)) continue;
+    seen.add(key);
     const matches = relevant.filter(h => Math.abs(h.felt - rounded) < 0.025);
     if (matches.length > 0) {
       const bestVerdict = matches.some(h => h.verdict === 'parfait') ? 'parfait'
         : matches.some(h => h.verdict === 'ok') ? 'ok'
         : matches.some(h => h.verdict === 'trop_serre') ? 'trop_serre' : 'trop_lache';
-      steps.push({ felt: rounded, verdict: bestVerdict, count: matches.length });
+      const cls = bestVerdict === 'parfait' || bestVerdict === 'ok' ? 'seg-ok'
+        : bestVerdict === 'trop_lache' ? 'seg-loose' : 'seg-tight';
+      html += `<div class="range-segment ${cls}" style="flex:1" title="${matches.length} entrée(s) - ${bestVerdict}">${key}</div>`;
     }
-  }
-
-  // Deduplicate
-  const seen = new Set();
-  for (const s of steps) {
-    const key = s.felt.toFixed(2);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const cls = s.verdict === 'parfait' || s.verdict === 'ok' ? 'seg-ok'
-      : s.verdict === 'trop_lache' ? 'seg-loose' : 'seg-tight';
-    html += `<div class="range-segment ${cls}" style="flex:1" title="${s.count} entrée(s) - ${s.verdict}">${s.felt.toFixed(2)}</div>`;
   }
 
   html += `</div></div>`;
   return html;
 }
 
+function renderHistoryDetail(relevant) {
+  if (relevant.length === 0) return '';
+
+  let html = `<div class="detail-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+    ▼ Voir ${relevant.length} entrée(s) historique(s) correspondante(s)
+  </div>`;
+  html += `<div class="detail-panel" style="display:none;">`;
+  html += `<h4>Données historiques proches</h4>`;
+  for (const h of relevant) {
+    const badge = verdictBadge(h.verdict);
+    html += `<div class="history-match">
+      <span class="badge ${badge.cls}">${badge.label}</span>
+      <span>${h.client ? h.client + ' — ' : ''}${h.piano}</span>
+      <span style="color:#4ecca3; font-weight:700;">${h.felt.toFixed(2)} mm</span>
+      <span style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</span>
+      <span style="color:#888">.${h.pinSize.toFixed(3).slice(2)}"</span>
+      ${h.interCaul ? `<span style="color:#888">inter:${h.interCaul}</span>` : ''}
+      ${h.finalCaul ? `<span style="color:#888">fin:${h.finalCaul}</span>` : ''}
+    </div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderFeedbackForm(pin, type, recs) {
+  const feltOptions = [];
+  for (let f = 0.80; f <= 1.60; f += 0.05) {
+    feltOptions.push(`<option value="${f.toFixed(2)}" ${recs.felt.value && Math.abs(f - recs.felt.value) < 0.01 ? 'selected' : ''}>${f.toFixed(2)} mm</option>`);
+  }
+
+  const sizingOptions = ['', 'MS-125', 'MS-137', 'MS-146', 'MS-162'].map(s =>
+    `<option value="${s}" ${s === (recs.sizing.value || '') ? 'selected' : ''}>${s || '-- Aucun --'}</option>`
+  ).join('');
+
+  return `<div class="feedback-form">
+    <h3>Résultat réel de la job</h3>
+    <div class="feedback-grid">
+      <div class="fg">
+        <label>Client</label>
+        <input type="text" id="fb_client" placeholder="Client">
+      </div>
+      <div class="fg">
+        <label>Piano</label>
+        <input type="text" id="fb_piano" placeholder="Piano">
+      </div>
+      <div class="fg">
+        <label>Type</label>
+        <select id="fb_type">
+          <option value="enfoncement" ${type === 'enfoncement' ? 'selected' : ''}>Enfoncement</option>
+          <option value="balance" ${type === 'balance' ? 'selected' : ''}>Balance</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Pointe</label>
+        <input type="number" id="fb_pin" step="0.001" value="${pin}" readonly style="opacity:0.7">
+      </div>
+      <div class="fg">
+        <label>★ Feutre utilisé</label>
+        <select id="fb_felt"><option value="">-- Choisir --</option>${feltOptions.join('')}</select>
+      </div>
+      <div class="fg">
+        <label>Sizing</label>
+        <select id="fb_sizing">${sizingOptions}</select>
+      </div>
+      <div class="fg">
+        <label>Larg. sizing</label>
+        <input type="number" id="fb_sizingWidth" step="0.001" placeholder=".227">
+      </div>
+      <div class="fg">
+        <label>Verdict</label>
+        <select id="fb_verdict">
+          <option value="">-- Choisir --</option>
+          <option value="parfait">Parfait</option>
+          <option value="ok">OK</option>
+          <option value="trop_lache">Trop lâche</option>
+          <option value="trop_serre">Trop serré</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Cale inter</label>
+        <select id="fb_inter"></select>
+      </div>
+      <div class="fg">
+        <label>Cale finale</label>
+        <select id="fb_final"></select>
+      </div>
+      <div class="fg wide">
+        <label>Notes</label>
+        <input type="text" id="fb_notes" placeholder="Observations...">
+      </div>
+    </div>
+    <div class="feedback-actions">
+      <button class="btn btn-save" onclick="saveFeedback()">Sauvegarder dans l'historique</button>
+    </div>
+  </div>`;
+}
+
+function populateFeedbackDropdowns(recs) {
+  const caulOptions = DEFAULT_CAULS
+    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
+    .map(c => `<option value="${c.id}" ${c.id === (recs.inter.value || '') ? 'selected' : ''}>${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
+    .join('');
+  const interHtml = '<option value="">-- Aucune --</option>' + caulOptions;
+
+  const finalCaulOptions = DEFAULT_CAULS
+    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
+    .map(c => `<option value="${c.id}" ${c.id === (recs.final.value || '') ? 'selected' : ''}>${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
+    .join('');
+  const finalHtml = '<option value="">-- Aucune --</option>' + finalCaulOptions;
+
+  const interEl = document.getElementById('fb_inter');
+  const finalEl = document.getElementById('fb_final');
+  if (interEl) interEl.innerHTML = interHtml;
+  if (finalEl) finalEl.innerHTML = finalHtml;
+}
+
+function saveFeedback() {
+  const piano = document.getElementById('fb_piano').value.trim();
+  const client = document.getElementById('fb_client').value.trim();
+  const verdict = document.getElementById('fb_verdict').value;
+  const felt = parseFloat(document.getElementById('fb_felt').value) || 0;
+  const pin = parseFloat(document.getElementById('fb_pin').value);
+
+  if (!piano) { showToast('Entrez le nom du piano'); return; }
+  if (!verdict) { showToast('Choisissez un verdict'); return; }
+  if (!felt) { showToast('Choisissez le feutre utilisé'); return; }
+
+  history.push({
+    id: nextId++,
+    client,
+    piano,
+    pinType: document.getElementById('fb_type').value,
+    pinSize: pin,
+    sizing: document.getElementById('fb_sizing').value,
+    sizingWidth: parseFloat(document.getElementById('fb_sizingWidth').value) || 0,
+    felt,
+    interCaul: document.getElementById('fb_inter').value,
+    finalCaul: document.getElementById('fb_final').value,
+    verdict,
+    notes: document.getElementById('fb_notes').value.trim(),
+    outlier: false,
+  });
+
+  saveData();
+  showToast('Entrée sauvegardée ! La recommandation va s\'améliorer.');
+
+  // Re-calculate to show updated recommendations
+  setTimeout(() => calculate(), 300);
+}
+
 // ============================================================
-// FORM - ENTRY
+// FORM - ENTRY (full form, kept for detailed entry)
 // ============================================================
 function populateFormDropdowns() {
   const feltOptions = [];
@@ -742,7 +918,6 @@ function populateFormDropdowns() {
     .join('');
   const caulHtml = '<option value="">-- Aucune --</option>' + caulOptions;
 
-  // Populate both balance and enfoncement dropdowns
   ['bal', 'enf'].forEach(prefix => {
     document.getElementById(`f_${prefix}_felt`).innerHTML = feltHtml;
     document.getElementById(`f_${prefix}_interCaul`).innerHTML = caulHtml;
@@ -758,7 +933,6 @@ function addEntry() {
 
   let added = 0;
 
-  // Add balance entry if pin size is filled
   const balPin = parseFloat(document.getElementById('f_bal_pinSize').value);
   const balVerdict = document.getElementById('f_bal_verdict').value;
   if (balPin && balVerdict) {
@@ -776,7 +950,6 @@ function addEntry() {
     added++;
   }
 
-  // Add enfoncement entry if pin size is filled
   const enfPin = parseFloat(document.getElementById('f_enf_pinSize').value);
   const enfVerdict = document.getElementById('f_enf_verdict').value;
   if (enfPin && enfVerdict) {
@@ -816,7 +989,6 @@ function clearForm() {
   });
 }
 
-// Edit an existing entry - populate form
 function editEntry(id) {
   const entry = history.find(h => h.id === id);
   if (!entry) return;
@@ -837,7 +1009,6 @@ function editEntry(id) {
   document.getElementById(`f_${prefix}_verdict`).value = entry.verdict;
   document.getElementById(`f_${prefix}_notes`).value = entry.notes || '';
 
-  // Remove old entry so re-adding acts as update
   history = history.filter(h => h.id !== id);
   saveData();
   showToast('Modifier puis cliquer Ajouter');
@@ -880,7 +1051,6 @@ function renderTable() {
   }
 
   if (grouped) {
-    // Group by client+piano
     const groups = {};
     for (const h of filtered) {
       const key = (h.client || '') + '|||' + h.piano;
@@ -891,12 +1061,10 @@ function renderTable() {
     let html = '';
     for (const key of Object.keys(groups)) {
       const entries = groups[key];
-      // Sort: balance first, then enfoncement
       entries.sort((a, b) => (a.pinType === 'balance' ? 0 : 1) - (b.pinType === 'balance' ? 0 : 1));
       entries.forEach((h, i) => {
         html += renderRow(h, i === 0);
       });
-      // Separator row between groups
       html += `<tr><td colspan="12" style="padding:2px; background:#0f3460;"></td></tr>`;
     }
     tbody.innerHTML = html;
