@@ -162,6 +162,21 @@
         <input type="number" id="pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
       </div>
       <div>
+        <label>Sizing / Mortaise</label>
+        <select id="sizingSelect" onchange="onSizingSelect()">
+          <option value="">-- Choisir --</option>
+          <option value="MS-125">MS-125 (.208)</option>
+          <option value="MS-137">MS-137 (.217)</option>
+          <option value="MS-146">MS-146 (.227)</option>
+          <option value="MS-162">MS-162 (.241)</option>
+          <option value="custom">Mesure custom</option>
+        </select>
+      </div>
+      <div id="customSizingDiv" style="display:none;">
+        <label>Largeur mesurée (pouces)</label>
+        <input type="number" id="customSizingWidth" step="0.001" min="0.1" max="0.3" placeholder=".227">
+      </div>
+      <div>
         <label>Type de pointe</label>
         <select id="pinType">
           <option value="any">Tous types</option>
@@ -512,12 +527,25 @@ function caulLabelShort(id) {
   return id || '—';
 }
 
-function computeRecommendations(pin, type) {
-  const relevant = history.filter(h =>
+function computeRecommendations(pin, type, mortiseWidth) {
+  // Filter historical data: match pin size, optionally also match mortise width
+  const PIN_TOL = 0.012;
+  const MORTISE_TOL = 0.008;
+
+  const allRelevant = history.filter(h =>
     !h.outlier && h.felt > 0 &&
-    Math.abs(h.pinSize - pin) <= TOLERANCE &&
+    Math.abs(h.pinSize - pin) <= PIN_TOL &&
     (type === 'any' || h.pinType === type)
   );
+
+  // If mortise width provided, prefer entries with matching mortise; fallback to all
+  let relevant;
+  if (mortiseWidth > 0) {
+    const withMortise = allRelevant.filter(h => h.sizingWidth > 0 && Math.abs(h.sizingWidth - mortiseWidth) <= MORTISE_TOL);
+    relevant = withMortise.length > 0 ? withMortise : allRelevant;
+  } else {
+    relevant = allRelevant;
+  }
 
   const parfait = relevant.filter(h => h.verdict === 'parfait');
   const ok = relevant.filter(h => h.verdict === 'ok');
@@ -527,12 +555,17 @@ function computeRecommendations(pin, type) {
 
   const spurlock = getClosestSpurlock(pin);
 
-  // --- FELT recommendation (weighted: parfait=3x, ok=1x) ---
+  // --- FELT recommendation ---
   let felt = { value: null, source: '', confidence: 'none' };
 
-  // Theoretical from sizing
+  // Theoretical: direct formula if mortise width is known
   let theoretical = null;
-  if (spurlock.sizing) {
+  if (mortiseWidth > 0) {
+    // Direct calculation: (mortise - pin) / 2, converted to mm
+    theoretical = roundToNearest005((mortiseWidth - pin) / 2 * 25.4);
+    if (theoretical <= 0) theoretical = null; // invalid
+  } else if (spurlock.sizing) {
+    // Fallback: use Spurlock sizing caul thickness
     const sizingCaul = DEFAULT_CAULS.find(c => c.id === spurlock.sizing);
     if (sizingCaul) {
       theoretical = roundToNearest005((sizingCaul.thickness - pin) / 2 * 25.4);
@@ -540,20 +573,17 @@ function computeRecommendations(pin, type) {
   }
 
   if (parfait.length > 0) {
-    // Weighted average: parfait=3x weight
     const weightedSum = parfait.reduce((s, h) => s + h.felt * 3, 0) + ok.reduce((s, h) => s + h.felt, 0);
     const weightedCount = parfait.length * 3 + ok.length;
     const histAvg = weightedSum / weightedCount;
-    // 100% historical when parfait exists
     felt.value = roundToNearest005(histAvg);
     felt.source = `${parfait.length} parfait, ${ok.length} ok`;
     felt.confidence = 'high';
   } else if (ok.length > 0) {
     const histAvg = ok.reduce((s, h) => s + h.felt, 0) / ok.length;
     if (theoretical) {
-      // 80% historical + 20% theoretical
       felt.value = roundToNearest005(histAvg * 0.8 + theoretical * 0.2);
-      felt.source = `${ok.length} ok + théorique`;
+      felt.source = `${ok.length} ok + formule`;
     } else {
       felt.value = roundToNearest005(histAvg);
       felt.source = `${ok.length} ok`;
@@ -561,8 +591,8 @@ function computeRecommendations(pin, type) {
     felt.confidence = 'medium';
   } else if (theoretical) {
     felt.value = theoretical;
-    felt.source = 'Théorique (Spurlock)';
-    felt.confidence = 'low';
+    felt.source = mortiseWidth > 0 ? 'Formule directe' : 'Théorique (Spurlock)';
+    felt.confidence = mortiseWidth > 0 ? 'medium' : 'low';
   }
 
   // Bounds
@@ -621,18 +651,36 @@ function computeRecommendations(pin, type) {
     }
   }
 
-  return { felt, sizing, inter, final: final_, relevant, spurlock, theoretical };
+  return { felt, sizing, inter, final: final_, relevant, allRelevant, spurlock, theoretical, mortiseWidth };
+}
+
+function onSizingSelect() {
+  const sel = document.getElementById('sizingSelect').value;
+  const customDiv = document.getElementById('customSizingDiv');
+  customDiv.style.display = sel === 'custom' ? 'block' : 'none';
+}
+
+function getMortiseWidth() {
+  const sel = document.getElementById('sizingSelect').value;
+  if (sel === 'custom') {
+    return parseFloat(document.getElementById('customSizingWidth').value) || 0;
+  } else if (sel) {
+    const caul = DEFAULT_CAULS.find(c => c.id === sel);
+    return caul ? caul.thickness : 0;
+  }
+  return 0;
 }
 
 function calculate() {
   const pin = parseFloat(document.getElementById('pinSize').value);
   const type = document.getElementById('pinType').value;
+  const mortiseWidth = getMortiseWidth();
   if (!pin || pin < 0.05 || pin > 0.25) {
     showToast('Entrez une taille de pointe valide (.050 - .250)');
     return;
   }
 
-  const recs = computeRecommendations(pin, type);
+  const recs = computeRecommendations(pin, type, mortiseWidth);
   const results = document.getElementById('calcResults');
   let html = '';
 
@@ -664,10 +712,13 @@ function renderTiles(pin, type, recs) {
   let html = `<div class="rec-tiles">`;
 
   // FELT tile (big, red)
+  const mortise = recs.mortiseWidth;
+  const formulaLine = mortise > 0 ? `(.${mortise.toFixed(3).slice(2)} - .${pin.toFixed(3).slice(2)}) / 2 × 25.4 = ${recs.theoretical ? recs.theoretical.toFixed(2) : '?'} mm` : '';
   html += `<div class="rec-tile felt-tile confidence-${felt.confidence}">
     <div class="tile-label">★ Feutre recommandé${typeLabel}</div>
     <div class="tile-value">${felt.value ? felt.value.toFixed(2) + ' mm' : '?'}</div>
-    <div class="tile-sub">${felt.confidence === 'high' ? 'Confiance élevée' : felt.confidence === 'medium' ? 'Confiance moyenne' : felt.confidence === 'low' ? 'Estimation théorique' : 'Aucune donnée'}</div>
+    <div class="tile-sub">${felt.confidence === 'high' ? 'Confiance élevée' : felt.confidence === 'medium' ? 'Confiance moyenne' : felt.confidence === 'low' ? (mortise > 0 ? 'Formule directe' : 'Estimation théorique') : 'Entrez la largeur de mortaise'}</div>
+    ${formulaLine ? `<div class="tile-source" style="font-family:monospace; font-size:11px;">${formulaLine}</div>` : ''}
     <div class="tile-source">${felt.source || '—'}</div>
   </div>`;
 
