@@ -627,71 +627,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
-  // Pré-charger l'historique Gazelle quand on est sur la vue "À valider"
-  useEffect(() => {
-    if (currentView !== 'vdi') return;
-
-    const pending = pianos.filter(p => p.travail && p.travail.trim() !== '' && !p.service_status);
-    const validated = pianos.filter(p => p.service_status === 'validated');
-    const pushed = pianos.filter(p => p.service_status === 'pushed');
-
-    if (pending.length === 0 && validated.length === 0 && pushed.length === 0) return;
-
-    const loadAll = async () => {
-      const idsToLoad = [];
-      [...pending, ...validated, ...pushed].forEach(p => {
-        const id = p.gazelleId || p.id;
-        if (id && !gazelleHistoryData[id]) {
-          idsToLoad.push({ pianoId: p.id, gazelleId: p.gazelleId });
-        }
-      });
-
-      for (let i = 0; i < idsToLoad.length; i += 5) {
-        const batch = idsToLoad.slice(i, i + 5);
-        await Promise.all(batch.map(({ pianoId, gazelleId }) =>
-          loadGazelleHistory(pianoId, gazelleId)
-        ));
-      }
-    };
-
-    loadAll();
-  }, [currentView, pianos]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Gestion des états de chargement et d'erreur (pour toutes les vues)
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg text-gray-600">Chargement des pianos...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="text-center bg-white p-6 rounded-lg shadow max-w-md w-full">
-          <div className="text-red-600 mb-2 text-lg font-semibold">⚠️ Erreur</div>
-          <div className="text-sm text-gray-600 mb-4">{error}</div>
-          <button
-            onClick={() => {
-              setError(null);
-              loadPianosFromAPI();
-            }}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Réessayer
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ============ NAVIGATION UNIFIÉE ============
-  // Composant externe pour la navigation (pill buttons)
-
-  // ============ Données "À VALIDER" — calculées en dehors du if pour respecter les hooks ============
+  // ============ Données "À VALIDER" — calculées avant les early returns pour respecter les hooks ============
   // Pianos pending (pas encore validés, ont du travail, pas de service_status)
   const pendingPianos = useMemo(() => pianos
     .filter(p => p.travail && p.travail.trim() !== '' && !p.service_status)
@@ -786,6 +722,37 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       loadHistoryForPianos();
     }
   }, [currentView, pendingPianos.length, validatedPianos.length, pushedPianos.length, loadGazelleHistoryForPreload]);
+
+  // ============ EARLY RETURNS (après tous les hooks) ============
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-lg text-gray-600">Chargement des pianos...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="text-center bg-white p-6 rounded-lg shadow max-w-md w-full">
+          <div className="text-red-600 mb-2 text-lg font-semibold">⚠️ Erreur</div>
+          <div className="text-sm text-gray-600 mb-4">{error}</div>
+          <button
+            onClick={() => {
+              setError(null);
+              loadPianosFromAPI();
+            }}
+            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ============ VUE "À VALIDER" — liste unifiée avec historique ============
   if (currentView === 'vdi') {
