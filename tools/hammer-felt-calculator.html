@@ -355,62 +355,56 @@ const SPURLOCK = {
 
 // Historical data (pre-loaded)
 const DEFAULT_HISTORY = [
-  // Steigerman Ambiance — ligne 1: bal=.125, sizing mesuré=.200
-  { id: 1, piano: 'Steigerman Ambiance', pinType: 'balance', pinSize: 0.125, sizing: '', sizingWidth: 0.200, felt: 0.9, interCaul: '#4', finalCaul: '#5', verdict: 'trop_lache', notes: '', outlier: false },
-  // Steigerman Ambiance — ligne 2: enf=.132, sizing mesuré=.216
-  { id: 2, piano: 'Steigerman Ambiance', pinType: 'enfoncement', pinSize: 0.132, sizing: '', sizingWidth: 0.216, felt: 0.9, interCaul: '#7', finalCaul: '#8', verdict: 'trop_lache', notes: '', outlier: false },
-  // Steigerman Ambiance — ligne 3: enf=.134, largeur sizing mesurée=.135
+  // CSV ligne 2: Steigerman — col C(bal)=.125, sizing=.200, largSizing=.200, feutre=0.9, verdict=trop lâche
+  { id: 1, piano: 'Steigerman Ambiance', pinType: 'balance', pinSize: 0.125, sizing: '.200', sizingWidth: 0.200, felt: 0.9, interCaul: '', finalCaul: '', verdict: 'trop_lache', notes: '', outlier: false },
+  // CSV ligne 3: Steigerman — col B(enf)=.132, sizing=.216, largSizing=.216, feutre=0.9, verdict=trop lâche
+  { id: 2, piano: 'Steigerman Ambiance', pinType: 'enfoncement', pinSize: 0.132, sizing: '.216', sizingWidth: 0.216, felt: 0.9, interCaul: '', finalCaul: '', verdict: 'trop_lache', notes: '', outlier: false },
+  // CSV ligne 4: (pas de piano) — col B(enf)=.134, largSizing=.135, feutre=0.9, pas de verdict
   { id: 25, piano: 'Steigerman Ambiance', pinType: 'enfoncement', pinSize: 0.134, sizing: '', sizingWidth: 0.135, felt: 0.9, interCaul: '', finalCaul: '', verdict: 'ok', notes: '', outlier: false },
-  // Nu1X — enf=.124, sizing MS-137
-  { id: 3, piano: 'Nu1X', pinType: 'enfoncement', pinSize: 0.124, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Résultat 1.2, cales 3-1-7-8', outlier: false },
-  // Nu1X — enf=.138, sizing MS-146
-  { id: 4, piano: 'Nu1X', pinType: 'enfoncement', pinSize: 0.138, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'trop_serre', notes: 'Résultat 1.1 serré. MS-125 → 7', outlier: false },
-  // Karn — enf=.140, sizing MS-146
-  { id: 5, piano: 'Karn', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-1-1-2', outlier: false },
-  // Karn — enf=.140, sizing MS-145
-  { id: 6, piano: 'Karn', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-145', sizingWidth: 0.227, felt: 1.1, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-0-1-1-1', outlier: false },
-  // Anh Triet — enf=.146, sizing MS-146
-  { id: 7, piano: 'Anh Triet', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-1-1-2', outlier: false },
-  // Anh Triet — enf=.146, sizing MS-146
-  { id: 8, piano: 'Anh Triet', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.1', outlier: false },
-  // Bosendorfer — ligne 1: enf=.131, bal=.194, mortaise mesurée=.200
-  { id: 9, piano: 'Bosendorfer', pinType: 'enfoncement', pinSize: 0.131, sizing: '', sizingWidth: 0.200, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
-  { id: 27, piano: 'Bosendorfer', pinType: 'balance', pinSize: 0.194, sizing: '', sizingWidth: 0.200, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
-  // Bosendorfer — ligne 2: enf=.131, bal=.208, mortaise mesurée=.209
-  { id: 10, piano: 'Bosendorfer', pinType: 'enfoncement', pinSize: 0.131, sizing: '', sizingWidth: 0.209, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
-  { id: 28, piano: 'Bosendorfer', pinType: 'balance', pinSize: 0.208, sizing: '', sizingWidth: 0.209, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Résultat 1.2', outlier: false },
-  // Steinway D — enf=.150, mortaise=.217
-  { id: 11, piano: 'Steinway D', pinType: 'enfoncement', pinSize: 0.150, sizing: '', sizingWidth: 0.217, felt: 1.4, interCaul: '#2', finalCaul: '#11', verdict: 'ok', notes: 'Résultat 1.3, mortaises > .242', outlier: false },
-  // Steinway D — enf=.160, mortaise=.241
-  { id: 12, piano: 'Steinway D', pinType: 'enfoncement', pinSize: 0.160, sizing: '', sizingWidth: 0.241, felt: 1.3, interCaul: '', finalCaul: '#4', verdict: 'ok', notes: 'Résultat 1.1', outlier: false },
-  // Steinway D 240 — enf=.150
-  { id: 29, piano: 'Steinway D 240', pinType: 'enfoncement', pinSize: 0.150, sizing: '', sizingWidth: 0, felt: 0, interCaul: '#1', finalCaul: '#1', verdict: 'ok', notes: '', outlier: false },
-  // Steinway D 240 — enf=.160
-  { id: 30, piano: 'Steinway D 240', pinType: 'enfoncement', pinSize: 0.160, sizing: '', sizingWidth: 0, felt: 1.3, interCaul: '#3', finalCaul: '#4', verdict: 'ok', notes: '', outlier: false },
-  // Lamontagne — enf=.137, sizing MS-146
-  { id: 13, piano: 'Lamontagne', pinType: 'enfoncement', pinSize: 0.137, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-1-1-2', outlier: false },
-  // Lamontagne — enf=.133, sizing MS-125
-  { id: 14, piano: 'Lamontagne', pinType: 'enfoncement', pinSize: 0.133, sizing: 'MS-125', sizingWidth: 0.209, felt: 1.1, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-1-4-9', outlier: false },
-  // Steinway — enf=.146, sizing MS-146
-  { id: 15, piano: 'Steinway', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: 'Résultat 1.1', outlier: false },
-  // Steinway — enf=.162, sizing MS-162
-  { id: 16, piano: 'Steinway', pinType: 'enfoncement', pinSize: 0.162, sizing: 'MS-162', sizingWidth: 0.241, felt: 1.3, interCaul: '#3', finalCaul: '#4', verdict: 'parfait', notes: 'Résultat 1.1', outlier: false },
-  // K-3 — enf=.125
-  { id: 17, piano: 'K-3', pinType: 'enfoncement', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.1, interCaul: '', finalCaul: '#4', verdict: 'trop_serre', notes: 'Résultat 1.1 serré', outlier: false },
-  // K-3 — enf=.125
-  { id: 18, piano: 'K-3', pinType: 'enfoncement', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.3, interCaul: '', finalCaul: 'DS-125', verdict: 'trop_serre', notes: 'Résultat 1.3 serré', outlier: false },
-  // Kawai Kg-2 — enf=.132, sizing MS-137
-  { id: 19, piano: 'Kawai Kg-2', pinType: 'enfoncement', pinSize: 0.132, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Cales 3-1', outlier: false },
-  // Kawai Kg-2 — enf=.145, mortaise=.209
-  { id: 20, piano: 'Kawai Kg-2', pinType: 'enfoncement', pinSize: 0.145, sizing: '', sizingWidth: 0.209, felt: 1.0, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: '', outlier: false },
-  // Steinway D Pierre-Mercure — enf=.130, sizing MS-126
+  // CSV ligne 5: Nu1X — col B(enf)=.124, sizing=ms-137, largSizing=.217, feutre=1.2, inter=#7, final=#8
+  { id: 3, piano: 'Nu1X', pinType: 'enfoncement', pinSize: 0.124, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#7', finalCaul: '#8', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 6: Nu1X — col C(bal)=.138, sizing=ms-146, largSizing=.227, feutre=1.3, verdict=serré, inter=ms-125, final=#7
+  { id: 4, piano: 'Nu1X', pinType: 'balance', pinSize: 0.138, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: 'MS-125', finalCaul: '#7', verdict: 'trop_serre', notes: '', outlier: false },
+  // CSV ligne 7: Karn — col C(bal)=.140, sizing=ms-146, largSizing=.227, feutre=1.2, inter=#1, final=#2
+  { id: 5, piano: 'Karn', pinType: 'balance', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 8: Karn — col B(enf)=.140, sizing=ms-145, largSizing=.227, feutre=1.1, inter=#1, final=#11
+  { id: 6, piano: 'Karn', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-145', sizingWidth: 0.227, felt: 1.1, interCaul: '#1', finalCaul: '#11', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 9: Anh Triet — col B(enf)=.146, sizing=ms-146, largSizing=.227, feutre=1.2, inter=#1, final=#2
+  { id: 7, piano: 'Anh Triet', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 10: Anh Triet — col C(bal)=.146, sizing=ms-146, largSizing=.227, feutre=1.3
+  { id: 8, piano: 'Anh Triet', pinType: 'balance', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 11: Bosen — col B(enf)=.131, col D(mortaise)=.194, sizing=.200, largSizing=.200, feutre=1.3
+  { id: 9, piano: 'Bosendorfer', pinType: 'enfoncement', pinSize: 0.131, sizing: '.200', sizingWidth: 0.200, felt: 1.3, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'mortaise=.194', outlier: false },
+  // CSV ligne 12: Bosen — col C(bal)=.131, col D(mortaise)=.208, sizing=.209, largSizing=.209, feutre=1.3, final=#2
+  { id: 10, piano: 'Bosendorfer', pinType: 'balance', pinSize: 0.131, sizing: '.209', sizingWidth: 0.209, felt: 1.3, interCaul: '', finalCaul: '#2', verdict: 'ok', notes: 'mortaise=.208', outlier: false },
+  // CSV ligne 13: Steinway D — col B(enf)=.150, sizing=.217, largSizing=.217, feutre=1.4, inter=#2, final=#11
+  { id: 11, piano: 'Steinway D', pinType: 'enfoncement', pinSize: 0.150, sizing: '.217', sizingWidth: 0.217, felt: 1.4, interCaul: '#2', finalCaul: '#11', verdict: 'ok', notes: 'mortaises plus grandes que .242', outlier: false },
+  // CSV ligne 14: Steinway D — col C(bal)=.160, sizing=.241, largSizing=.241, feutre=1.3, final=#4
+  { id: 12, piano: 'Steinway D', pinType: 'balance', pinSize: 0.160, sizing: '.241', sizingWidth: 0.241, felt: 1.3, interCaul: '', finalCaul: '#4', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 15: Steinway D 240 — col B(enf)=.150, feutre=0, final=#11
+  { id: 29, piano: 'Steinway D 240', pinType: 'enfoncement', pinSize: 0.150, sizing: '', sizingWidth: 0, felt: 0, interCaul: '', finalCaul: '#11', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 16: Steinway D 240 — col C(bal)=.160, feutre=1.3, final=#4
+  { id: 30, piano: 'Steinway D 240', pinType: 'balance', pinSize: 0.160, sizing: '', sizingWidth: 0, felt: 1.3, interCaul: '', finalCaul: '#4', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 17: Lamontagne — col C(bal)=.137, sizing=ms-146, largSizing=.227, feutre=1.2, inter=#1, final=#2
+  { id: 13, piano: 'Lamontagne', pinType: 'balance', pinSize: 0.137, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 18: Lamontagne — col B(enf)=.133, sizing=ms-125, largSizing=.209, feutre=1.1, inter=#4, final=#9
+  { id: 14, piano: 'Lamontagne', pinType: 'enfoncement', pinSize: 0.133, sizing: 'MS-125', sizingWidth: 0.209, felt: 1.1, interCaul: '#4', finalCaul: '#9', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 19: Steinway — col B(enf)=.146, sizing=ms-146, largSizing=.227, feutre=1.3, verdict=parfait, inter=#1, final=#2
+  { id: 15, piano: 'Steinway', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-146', sizingWidth: 0.227, felt: 1.3, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: '', outlier: false },
+  // CSV ligne 20: Steinway — col C(bal)=.162, sizing=ms-162, largSizing=.241, feutre=1.3, verdict=parfait, inter=#3, final=#4
+  { id: 16, piano: 'Steinway', pinType: 'balance', pinSize: 0.162, sizing: 'MS-162', sizingWidth: 0.241, felt: 1.3, interCaul: '#3', finalCaul: '#4', verdict: 'parfait', notes: '', outlier: false },
+  // CSV ligne 21: K-3 — col B(enf)=.125, feutre=1.1, verdict=serré, inter=#4
+  { id: 17, piano: 'K-3', pinType: 'enfoncement', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.1, interCaul: '#4', finalCaul: '', verdict: 'trop_serre', notes: '', outlier: false },
+  // CSV ligne 22: K-3 — col C(bal)=.125, feutre=1.3, verdict=serré, inter=ds-125
+  { id: 18, piano: 'K-3', pinType: 'balance', pinSize: 0.125, sizing: '', sizingWidth: 0, felt: 1.3, interCaul: 'DS-125', finalCaul: '', verdict: 'trop_serre', notes: '', outlier: false },
+  // CSV ligne 23: Kg-2 — col B(enf)=.132, sizing=ms137, largSizing=.217, feutre=1.2, verdict=ok, inter=#1, final=#2
+  { id: 19, piano: 'Kawai Kg-2', pinType: 'enfoncement', pinSize: 0.132, sizing: 'MS-137', sizingWidth: 0.217, felt: 1.2, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: '', outlier: false },
+  // CSV ligne 24: Kg-2 — col C(bal)=.145, largSizing=.209, feutre=1.0, verdict=parfait, inter=#1, final=#2
+  { id: 20, piano: 'Kawai Kg-2', pinType: 'balance', pinSize: 0.145, sizing: '', sizingWidth: 0.209, felt: 1.0, interCaul: '#1', finalCaul: '#2', verdict: 'parfait', notes: '', outlier: false },
+  // CSV ligne 25: Steinway D Pierre-Mercure — col B(enf)=.130, sizing=ms126, largSizing=.209
   { id: 21, piano: 'Steinway D Pierre-Mercure', pinType: 'enfoncement', pinSize: 0.130, sizing: 'MS-126', sizingWidth: 0.209, felt: 0, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Données partielles', outlier: true },
-  // Steinway D Pierre-Mercure — enf=.140, sizing MS-146
-  { id: 22, piano: 'Steinway D Pierre-Mercure', pinType: 'enfoncement', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 0, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Données partielles', outlier: true },
-  // Kawai RX-5 — enf=.146 (section basse), sizing MS-137
-  { id: 23, piano: 'Kawai RX-5', pinType: 'enfoncement', pinSize: 0.146, sizing: 'MS-137', sizingWidth: 0.217, felt: 0, interCaul: '#1', finalCaul: '#2', verdict: 'ok', notes: 'Section basse', outlier: false },
-  // Kawai RX-5 — enf=.134 (section e)
-  { id: 24, piano: 'Kawai RX-5', pinType: 'enfoncement', pinSize: 0.134, sizing: '', sizingWidth: 0, felt: 0.9, interCaul: '', finalCaul: '#8', verdict: 'ok', notes: 'Section e', outlier: false },
+  // CSV ligne 26: Steinway D Pierre-Mercure — col C(bal)=.140, sizing=ms-146, largSizing=.227
+  { id: 22, piano: 'Steinway D Pierre-Mercure', pinType: 'balance', pinSize: 0.140, sizing: 'MS-146', sizingWidth: 0.227, felt: 0, interCaul: '', finalCaul: '', verdict: 'ok', notes: 'Données partielles', outlier: true },
 ];
 
 // ============================================================
