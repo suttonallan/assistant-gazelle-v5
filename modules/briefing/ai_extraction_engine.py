@@ -145,6 +145,8 @@ TECHNICIAN_NAMES = {
     "usr_HcCiFk7o0vZ9xAI0": "Nicolas",
     "usr_ReUSmIJmBF86ilY1": "Jean-Philippe",
     "usr_ofYggsCDt2JAVeNP": "Allan",
+    "usr_tndhXmnT0iakT4HF": "Louise",
+    "usr_bbt59aCUqUaDWA8n": "Margot",
 }
 
 
@@ -581,6 +583,19 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         'was changed',
         'stationnement',  # Pas pertinent
         'parking',
+        'client fusionné',  # Fusions système
+        'client merged',
+        'a été fusionné',
+        'was merged',
+        'completed appointment',  # Notifications de completion
+        'appointment completed',
+        'rendez-vous complété',
+        'rendez-vous terminé',
+        'has been completed',
+        'invoice created',  # Factures auto
+        'facture créée',
+        'estimate created',  # Devis auto
+        'devis créé',
     ]
 
     history = []
