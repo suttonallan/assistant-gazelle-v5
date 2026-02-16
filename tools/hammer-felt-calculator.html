@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Calculateur Feutrage Marteaux</title>
+<title>Calculateur Feutrage / Hammer Felt Calculator</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
@@ -11,6 +11,10 @@
   .header { background: #16213e; padding: 16px 24px; border-bottom: 2px solid #0f3460; display: flex; align-items: center; gap: 12px; }
   .header h1 { font-size: 20px; color: #e94560; }
   .header span { font-size: 13px; color: #888; }
+  .lang-toggle { margin-left: auto; display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid #0f3460; }
+  .lang-btn { padding: 6px 14px; cursor: pointer; font-size: 13px; font-weight: 600; border: none; background: #1a1a2e; color: #888; transition: all 0.2s; }
+  .lang-btn.active { background: #e94560; color: #fff; }
+  .lang-btn:hover:not(.active) { background: #0f3460; color: #ccc; }
 
   .tabs { display: flex; background: #16213e; border-bottom: 1px solid #0f3460; }
   .tab { padding: 12px 24px; cursor: pointer; color: #888; border-bottom: 3px solid transparent; transition: all 0.2s; }
@@ -141,15 +145,19 @@
 <body>
 
 <div class="header">
-  <h1>Calculateur Feutrage</h1>
-  <span>Marteaux de piano - Cales & Feutres</span>
+  <h1 data-t="header_title">Calculateur Feutrage</h1>
+  <span data-t="header_subtitle">Marteaux de piano - Cales & Feutres</span>
+  <div class="lang-toggle">
+    <button class="lang-btn active" id="langFR" onclick="setLang('fr')">FR</button>
+    <button class="lang-btn" id="langEN" onclick="setLang('en')">EN</button>
+  </div>
 </div>
 
 <div class="tabs">
-  <div class="tab active" onclick="showTab('calc')">Calculateur</div>
-  <div class="tab" onclick="showTab('entry')">Saisie</div>
-  <div class="tab" onclick="showTab('data')">Historique</div>
-  <div class="tab" onclick="showTab('stock')">Inventaire</div>
+  <div class="tab active" onclick="showTab('calc')" data-t="tab_calc">Calculateur</div>
+  <div class="tab" onclick="showTab('entry')" data-t="tab_entry">Saisie</div>
+  <div class="tab" onclick="showTab('data')" data-t="tab_history">Historique</div>
+  <div class="tab" onclick="showTab('stock')" data-t="tab_stock">Inventaire</div>
 </div>
 
 <div class="content">
@@ -158,50 +166,50 @@
   <div id="calc" class="panel active">
     <div class="calc-input">
       <div>
-        <label>Taille de la pointe (pouces)</label>
+        <label data-t="calc_pin_label">Taille de la pointe (pouces)</label>
         <input type="number" id="pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
       </div>
       <div>
-        <label>Sizing / Mortaise</label>
+        <label data-t="calc_sizing_label">Sizing / Mortaise</label>
         <select id="sizingSelect" onchange="onSizingSelect()">
-          <option value="">-- Choisir --</option>
+          <option value="" data-t="opt_choose">-- Choisir --</option>
           <option value="MS-125">MS-125 (.208)</option>
           <option value="MS-137">MS-137 (.217)</option>
           <option value="MS-146">MS-146 (.227)</option>
           <option value="MS-162">MS-162 (.241)</option>
-          <option value="custom">Mesure custom</option>
+          <option value="custom" data-t="opt_custom">Mesure custom</option>
         </select>
       </div>
       <div id="customSizingDiv" style="display:none;">
-        <label>Largeur mesurée (pouces)</label>
+        <label data-t="calc_custom_label">Largeur mesurée (pouces)</label>
         <input type="number" id="customSizingWidth" step="0.001" min="0.1" max="0.3" placeholder=".227">
       </div>
       <div>
-        <label>Type de pointe</label>
+        <label data-t="calc_type_label">Type de pointe</label>
         <select id="pinType">
-          <option value="any">Tous types</option>
+          <option value="any" data-t="opt_all_types">Tous types</option>
           <option value="balance">Balance</option>
-          <option value="enfoncement">Enfoncement</option>
+          <option value="enfoncement" data-t="opt_enfoncement">Enfoncement</option>
         </select>
       </div>
-      <button onclick="calculate()">Calculer</button>
+      <button onclick="calculate()" data-t="btn_calculate">Calculer</button>
     </div>
     <div id="calcResults"></div>
   </div>
 
   <!-- SAISIE -->
   <div id="entry" class="panel">
-    <h2 style="margin-bottom:16px; color:#e94560;">Nouvelle entrée</h2>
+    <h2 style="margin-bottom:16px; color:#e94560;" data-t="entry_title">Nouvelle entrée</h2>
 
     <!-- Client / Piano (commun) -->
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
       <div class="form-group">
-        <label>Client</label>
-        <input type="text" id="f_client" placeholder="Ex: Lamontagne">
+        <label data-t="lbl_client">Client</label>
+        <input type="text" id="f_client" data-ph="ph_client">
       </div>
       <div class="form-group">
-        <label>Piano (nom/modèle)</label>
-        <input type="text" id="f_piano" placeholder="Ex: Steinway D">
+        <label data-t="lbl_piano">Piano (nom/modèle)</label>
+        <input type="text" id="f_piano" data-ph="ph_piano">
       </div>
     </div>
 
@@ -213,13 +221,13 @@
         <h3 style="color:#4ecca3; margin-bottom:12px; font-size:15px;">Balance</h3>
         <div style="display:grid; gap:12px;">
           <div class="form-group">
-            <label>Taille pointe (pouces)</label>
+            <label data-t="lbl_pin_size">Taille pointe (pouces)</label>
             <input type="number" id="f_bal_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".125">
           </div>
           <div class="form-group">
-            <label>Sizing utilisé</label>
+            <label data-t="lbl_sizing_used">Sizing utilisé</label>
             <select id="f_bal_sizing">
-              <option value="">-- Aucun / Custom --</option>
+              <option value="" data-t="opt_none_custom">-- Aucun / Custom --</option>
               <option value="MS-125">MS-125 (.208)</option>
               <option value="MS-137">MS-137 (.217)</option>
               <option value="MS-146">MS-146 (.227)</option>
@@ -227,50 +235,50 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Largeur sizing mesurée</label>
+            <label data-t="lbl_sizing_width">Largeur sizing mesurée</label>
             <input type="number" id="f_bal_sizingWidth" step="0.001" placeholder=".227">
           </div>
           <div class="form-group">
-            <label>Feutre utilisé (mm)</label>
-            <select id="f_bal_felt"><option value="">-- Choisir --</option></select>
+            <label data-t="lbl_felt_used">Feutre utilisé (mm)</label>
+            <select id="f_bal_felt"><option value="" data-t="opt_choose">-- Choisir --</option></select>
           </div>
           <div class="form-group">
-            <label>Cale intermédiaire</label>
-            <select id="f_bal_interCaul"><option value="">-- Aucune --</option></select>
+            <label data-t="lbl_inter_caul">Cale intermédiaire</label>
+            <select id="f_bal_interCaul"><option value="" data-t="opt_none">-- Aucune --</option></select>
           </div>
           <div class="form-group">
-            <label>Cale finale</label>
-            <select id="f_bal_finalCaul"><option value="">-- Aucune --</option></select>
+            <label data-t="lbl_final_caul">Cale finale</label>
+            <select id="f_bal_finalCaul"><option value="" data-t="opt_none">-- Aucune --</option></select>
           </div>
           <div class="form-group">
-            <label>Verdict</label>
+            <label data-t="lbl_verdict">Verdict</label>
             <select id="f_bal_verdict">
-              <option value="">-- Non testé --</option>
-              <option value="parfait">Parfait</option>
+              <option value="" data-t="opt_not_tested">-- Non testé --</option>
+              <option value="parfait" data-t="opt_parfait">Parfait</option>
               <option value="ok">OK</option>
-              <option value="trop_lache">Trop lâche</option>
-              <option value="trop_serre">Trop serré</option>
+              <option value="trop_lache" data-t="opt_lache">Trop lâche</option>
+              <option value="trop_serre" data-t="opt_serre">Trop serré</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Notes</label>
-            <textarea id="f_bal_notes" placeholder="Observations balance..." style="min-height:40px;"></textarea>
+            <label data-t="lbl_notes">Notes</label>
+            <textarea id="f_bal_notes" data-ph="ph_notes_bal" style="min-height:40px;"></textarea>
           </div>
         </div>
       </div>
 
       <!-- ENFONCEMENT -->
       <div style="background:#16213e; border-radius:8px; padding:16px; border:1px solid #0f3460;">
-        <h3 style="color:#e94560; margin-bottom:12px; font-size:15px;">Enfoncement</h3>
+        <h3 style="color:#e94560; margin-bottom:12px; font-size:15px;" data-t="lbl_enfoncement">Enfoncement</h3>
         <div style="display:grid; gap:12px;">
           <div class="form-group">
-            <label>Taille pointe (pouces)</label>
+            <label data-t="lbl_pin_size">Taille pointe (pouces)</label>
             <input type="number" id="f_enf_pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
           </div>
           <div class="form-group">
-            <label>Sizing utilisé</label>
+            <label data-t="lbl_sizing_used">Sizing utilisé</label>
             <select id="f_enf_sizing">
-              <option value="">-- Aucun / Custom --</option>
+              <option value="" data-t="opt_none_custom">-- Aucun / Custom --</option>
               <option value="MS-125">MS-125 (.208)</option>
               <option value="MS-137">MS-137 (.217)</option>
               <option value="MS-146">MS-146 (.227)</option>
@@ -278,34 +286,34 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Largeur sizing mesurée</label>
+            <label data-t="lbl_sizing_width">Largeur sizing mesurée</label>
             <input type="number" id="f_enf_sizingWidth" step="0.001" placeholder=".227">
           </div>
           <div class="form-group">
-            <label>Feutre utilisé (mm)</label>
-            <select id="f_enf_felt"><option value="">-- Choisir --</option></select>
+            <label data-t="lbl_felt_used">Feutre utilisé (mm)</label>
+            <select id="f_enf_felt"><option value="" data-t="opt_choose">-- Choisir --</option></select>
           </div>
           <div class="form-group">
-            <label>Cale intermédiaire</label>
-            <select id="f_enf_interCaul"><option value="">-- Aucune --</option></select>
+            <label data-t="lbl_inter_caul">Cale intermédiaire</label>
+            <select id="f_enf_interCaul"><option value="" data-t="opt_none">-- Aucune --</option></select>
           </div>
           <div class="form-group">
-            <label>Cale finale</label>
-            <select id="f_enf_finalCaul"><option value="">-- Aucune --</option></select>
+            <label data-t="lbl_final_caul">Cale finale</label>
+            <select id="f_enf_finalCaul"><option value="" data-t="opt_none">-- Aucune --</option></select>
           </div>
           <div class="form-group">
-            <label>Verdict</label>
+            <label data-t="lbl_verdict">Verdict</label>
             <select id="f_enf_verdict">
-              <option value="">-- Non testé --</option>
-              <option value="parfait">Parfait</option>
+              <option value="" data-t="opt_not_tested">-- Non testé --</option>
+              <option value="parfait" data-t="opt_parfait">Parfait</option>
               <option value="ok">OK</option>
-              <option value="trop_lache">Trop lâche</option>
-              <option value="trop_serre">Trop serré</option>
+              <option value="trop_lache" data-t="opt_lache">Trop lâche</option>
+              <option value="trop_serre" data-t="opt_serre">Trop serré</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Notes</label>
-            <textarea id="f_enf_notes" placeholder="Observations enfoncement..." style="min-height:40px;"></textarea>
+            <label data-t="lbl_notes">Notes</label>
+            <textarea id="f_enf_notes" data-ph="ph_notes_enf" style="min-height:40px;"></textarea>
           </div>
         </div>
       </div>
@@ -313,8 +321,8 @@
     </div>
 
     <div class="form-actions" style="margin-top:16px;">
-      <button class="btn btn-primary" onclick="addEntry()">Ajouter</button>
-      <button class="btn btn-secondary" onclick="clearForm()">Effacer</button>
+      <button class="btn btn-primary" onclick="addEntry()" data-t="btn_add">Ajouter</button>
+      <button class="btn btn-secondary" onclick="clearForm()" data-t="btn_clear">Effacer</button>
     </div>
   </div>
 
@@ -322,15 +330,15 @@
   <div id="data" class="panel">
     <div class="table-actions">
       <select id="filterVerdict" onchange="renderTable()">
-        <option value="all">Tous les verdicts</option>
-        <option value="parfait">Parfait</option>
+        <option value="all" data-t="filter_all">Tous les verdicts</option>
+        <option value="parfait" data-t="opt_parfait">Parfait</option>
         <option value="ok">OK</option>
-        <option value="trop_lache">Trop lâche</option>
-        <option value="trop_serre">Trop serré</option>
+        <option value="trop_lache" data-t="opt_lache">Trop lâche</option>
+        <option value="trop_serre" data-t="opt_serre">Trop serré</option>
       </select>
-      <input type="text" id="filterPiano" placeholder="Filtrer par client ou piano..." oninput="renderTable()">
+      <input type="text" id="filterPiano" data-ph="ph_filter" oninput="renderTable()">
       <label style="color:#888; font-size:13px; display:flex; align-items:center; gap:4px;">
-        <input type="checkbox" id="groupView" onchange="renderTable()" checked> Grouper par piano
+        <input type="checkbox" id="groupView" onchange="renderTable()" checked> <span data-t="lbl_group">Grouper par piano</span>
       </label>
       <button class="btn btn-secondary" onclick="exportData()">Export JSON</button>
       <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">Import JSON</button>
@@ -342,16 +350,16 @@
         <thead>
           <tr>
             <th>Outlier</th>
-            <th>Client / Piano</th>
+            <th data-t="th_client_piano">Client / Piano</th>
             <th>Type</th>
-            <th>Pointe</th>
+            <th data-t="th_pin">Pointe</th>
             <th>Sizing</th>
-            <th>Larg.</th>
-            <th style="background:#e94560; color:#fff; font-size:14px;">★ Feutre</th>
+            <th data-t="th_width">Larg.</th>
+            <th style="background:#e94560; color:#fff; font-size:14px;" data-t="th_felt">★ Feutre</th>
             <th>Inter</th>
-            <th>Finale</th>
-            <th>Verdict</th>
-            <th>Notes</th>
+            <th data-t="th_final">Finale</th>
+            <th data-t="th_verdict">Verdict</th>
+            <th data-t="th_notes">Notes</th>
             <th></th>
           </tr>
         </thead>
@@ -362,7 +370,7 @@
 
   <!-- INVENTAIRE -->
   <div id="stock" class="panel">
-    <h2 style="margin-bottom:16px; color:#e94560;">Inventaire des cales</h2>
+    <h2 style="margin-bottom:16px; color:#e94560;" data-t="stock_title">Inventaire des cales</h2>
     <div id="stockGrid" class="stock-grid"></div>
   </div>
 
@@ -371,6 +379,177 @@
 <div id="toast" class="toast"></div>
 
 <script>
+// ============================================================
+// i18n — BILINGUAL SUPPORT (FR/EN)
+// ============================================================
+let currentLang = localStorage.getItem('felt-calc-lang') || 'fr';
+
+const TRANSLATIONS = {
+  // Header
+  header_title:       { fr: 'Calculateur Feutrage', en: 'Hammer Felt Calculator' },
+  header_subtitle:    { fr: 'Marteaux de piano - Cales & Feutres', en: 'Piano Hammers - Cauls & Felts' },
+
+  // Tabs
+  tab_calc:           { fr: 'Calculateur', en: 'Calculator' },
+  tab_entry:          { fr: 'Saisie', en: 'Entry' },
+  tab_history:        { fr: 'Historique', en: 'History' },
+  tab_stock:          { fr: 'Inventaire', en: 'Inventory' },
+
+  // Calculator inputs
+  calc_pin_label:     { fr: 'Taille de la pointe (pouces)', en: 'Pin size (inches)' },
+  calc_sizing_label:  { fr: 'Sizing / Mortaise', en: 'Sizing / Mortise' },
+  calc_custom_label:  { fr: 'Largeur mesurée (pouces)', en: 'Measured width (inches)' },
+  calc_type_label:    { fr: 'Type de pointe', en: 'Pin type' },
+  btn_calculate:      { fr: 'Calculer', en: 'Calculate' },
+
+  // Dropdowns — common
+  opt_choose:         { fr: '-- Choisir --', en: '-- Select --' },
+  opt_custom:         { fr: 'Mesure custom', en: 'Custom measurement' },
+  opt_all_types:      { fr: 'Tous types', en: 'All types' },
+  opt_enfoncement:    { fr: 'Enfoncement', en: 'Front pin' },
+  opt_none:           { fr: '-- Aucune --', en: '-- None --' },
+  opt_none_custom:    { fr: '-- Aucun / Custom --', en: '-- None / Custom --' },
+  opt_not_tested:     { fr: '-- Non testé --', en: '-- Not tested --' },
+  opt_parfait:        { fr: 'Parfait', en: 'Perfect' },
+  opt_lache:          { fr: 'Trop lâche', en: 'Too loose' },
+  opt_serre:          { fr: 'Trop serré', en: 'Too tight' },
+
+  // Recommendation tiles
+  tile_felt:          { fr: '★ Feutre recommandé', en: '★ Recommended Felt' },
+  tile_sizing:        { fr: 'Sizing', en: 'Sizing' },
+  tile_inter:         { fr: 'Cale Inter', en: 'Inter Caul' },
+  tile_final:         { fr: 'Cale Finale', en: 'Final Caul' },
+  conf_high:          { fr: 'Confiance élevée', en: 'High confidence' },
+  conf_medium:        { fr: 'Confiance moyenne', en: 'Medium confidence' },
+  conf_low_formula:   { fr: 'Formule directe', en: 'Direct formula' },
+  conf_low_theo:      { fr: 'Estimation théorique', en: 'Theoretical estimate' },
+  conf_none:          { fr: 'Entrez la largeur de mortaise', en: 'Enter mortise width' },
+  src_formula:        { fr: 'Formule directe', en: 'Direct formula' },
+  src_theo:           { fr: 'Théorique (Spurlock)', en: 'Theoretical (Spurlock)' },
+  src_hist:           { fr: 'Historique', en: 'History' },
+  src_formula_short:  { fr: 'formule', en: 'formula' },
+
+  // Bounds bar
+  bounds_loose:       { fr: '▼ Trop lâche à ≤', en: '▼ Too loose at ≤' },
+  bounds_rec:         { fr: '● Recommandé :', en: '● Recommended:' },
+  bounds_tight:       { fr: '▲ Trop serré à ≥', en: '▲ Too tight at ≥' },
+
+  // Range bar
+  range_title:        { fr: 'Plage de feutres testés', en: 'Tested felt range' },
+
+  // History detail
+  hist_toggle:        { fr: 'entrée(s) historique(s) correspondante(s)', en: 'matching history entry(ies)' },
+  hist_header:        { fr: 'Données historiques proches', en: 'Close historical data' },
+
+  // Feedback form
+  fb_title:           { fr: 'Résultat réel de la job', en: 'Actual job result' },
+  lbl_client:         { fr: 'Client', en: 'Client' },
+  lbl_piano:          { fr: 'Piano (nom/modèle)', en: 'Piano (name/model)' },
+  lbl_pin_size:       { fr: 'Taille pointe (pouces)', en: 'Pin size (inches)' },
+  lbl_sizing_used:    { fr: 'Sizing utilisé', en: 'Sizing used' },
+  lbl_sizing_width:   { fr: 'Largeur sizing mesurée', en: 'Measured sizing width' },
+  lbl_felt_used:      { fr: 'Feutre utilisé (mm)', en: 'Felt used (mm)' },
+  lbl_inter_caul:     { fr: 'Cale intermédiaire', en: 'Intermediate caul' },
+  lbl_final_caul:     { fr: 'Cale finale', en: 'Final caul' },
+  lbl_verdict:        { fr: 'Verdict', en: 'Verdict' },
+  lbl_notes:          { fr: 'Notes', en: 'Notes' },
+  lbl_enfoncement:    { fr: 'Enfoncement', en: 'Front pin' },
+  lbl_type:           { fr: 'Type', en: 'Type' },
+  lbl_pin:            { fr: 'Pointe', en: 'Pin' },
+  lbl_felt_star:      { fr: '★ Feutre utilisé', en: '★ Felt used' },
+  lbl_sizing_w:       { fr: 'Larg. sizing', en: 'Sizing width' },
+  btn_save_feedback:  { fr: 'Sauvegarder dans l\'historique', en: 'Save to history' },
+  fb_observations:    { fr: 'Observations...', en: 'Observations...' },
+
+  // Entry form
+  entry_title:        { fr: 'Nouvelle entrée', en: 'New entry' },
+  btn_add:            { fr: 'Ajouter', en: 'Add' },
+  btn_clear:          { fr: 'Effacer', en: 'Clear' },
+  ph_client:          { fr: 'Ex: Lamontagne', en: 'e.g. Smith' },
+  ph_piano:           { fr: 'Ex: Steinway D', en: 'e.g. Steinway D' },
+  ph_notes_bal:       { fr: 'Observations balance...', en: 'Balance observations...' },
+  ph_notes_enf:       { fr: 'Observations enfoncement...', en: 'Front pin observations...' },
+
+  // History table
+  filter_all:         { fr: 'Tous les verdicts', en: 'All verdicts' },
+  ph_filter:          { fr: 'Filtrer par client ou piano...', en: 'Filter by client or piano...' },
+  lbl_group:          { fr: 'Grouper par piano', en: 'Group by piano' },
+  th_client_piano:    { fr: 'Client / Piano', en: 'Client / Piano' },
+  th_pin:             { fr: 'Pointe', en: 'Pin' },
+  th_width:           { fr: 'Larg.', en: 'Width' },
+  th_felt:            { fr: '★ Feutre', en: '★ Felt' },
+  th_final:           { fr: 'Finale', en: 'Final' },
+  th_verdict:         { fr: 'Verdict', en: 'Verdict' },
+  th_notes:           { fr: 'Notes', en: 'Notes' },
+
+  // Stock
+  stock_title:        { fr: 'Inventaire des cales', en: 'Caul Inventory' },
+
+  // Verdicts (for badges & rendering)
+  v_parfait:          { fr: 'Parfait', en: 'Perfect' },
+  v_ok:               { fr: 'OK', en: 'OK' },
+  v_lache:            { fr: 'Trop lâche', en: 'Too loose' },
+  v_serre:            { fr: 'Trop serré', en: 'Too tight' },
+  v_bal:              { fr: 'Bal.', en: 'Bal.' },
+  v_enf:              { fr: 'Enf.', en: 'Front' },
+
+  // Toasts
+  toast_invalid_pin:  { fr: 'Entrez une taille de pointe valide (.050 - .250)', en: 'Enter a valid pin size (.050 - .250)' },
+  toast_enter_piano:  { fr: 'Entrez le nom du piano', en: 'Enter the piano name' },
+  toast_choose_verdict: { fr: 'Choisissez un verdict', en: 'Choose a verdict' },
+  toast_choose_felt:  { fr: 'Choisissez le feutre utilisé', en: 'Choose the felt used' },
+  toast_saved:        { fr: 'Entrée sauvegardée ! La recommandation va s\'améliorer.', en: 'Entry saved! Recommendation will improve.' },
+  toast_fill_side:    { fr: 'Remplissez au moins un côté (balance ou enfoncement)', en: 'Fill at least one side (balance or front pin)' },
+  toast_added:        { fr: 'entrée(s) ajoutée(s) !', en: 'entry(ies) added!' },
+  toast_deleted:      { fr: 'Entrée supprimée', en: 'Entry deleted' },
+  toast_modify:       { fr: 'Modifier puis cliquer Ajouter', en: 'Edit then click Add' },
+  toast_imported:     { fr: 'Importé :', en: 'Imported:' },
+  toast_import_err:   { fr: 'Erreur d\'import :', en: 'Import error:' },
+  confirm_delete:     { fr: 'Supprimer cette entrée ?', en: 'Delete this entry?' },
+
+  // Misc
+  entries:            { fr: 'entrées', en: 'entries' },
+  jobs:               { fr: 'jobs', en: 'jobs' },
+  or:                 { fr: 'ou', en: 'or' },
+  type_bal:           { fr: '(bal.)', en: '(bal.)' },
+  type_enf:           { fr: '(enf.)', en: '(front)' },
+};
+
+function t(key) {
+  const entry = TRANSLATIONS[key];
+  if (!entry) return key;
+  return entry[currentLang] || entry.fr || key;
+}
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('felt-calc-lang', lang);
+  document.getElementById('langFR').classList.toggle('active', lang === 'fr');
+  document.getElementById('langEN').classList.toggle('active', lang === 'en');
+  document.documentElement.lang = lang;
+  applyTranslations();
+}
+
+function applyTranslations() {
+  // Update all elements with data-t attribute (text content)
+  document.querySelectorAll('[data-t]').forEach(el => {
+    el.textContent = t(el.getAttribute('data-t'));
+  });
+  // Update all elements with data-ph attribute (placeholder)
+  document.querySelectorAll('[data-ph]').forEach(el => {
+    el.placeholder = t(el.getAttribute('data-ph'));
+  });
+  // Re-render dynamic content if visible
+  const calcResults = document.getElementById('calcResults');
+  if (calcResults && calcResults.innerHTML) {
+    // Re-run calculation if results are showing
+    const pin = parseFloat(document.getElementById('pinSize').value);
+    if (pin) calculate();
+  }
+  renderTable();
+  renderStock();
+}
+
 // ============================================================
 // DATA: Cales inventory
 // ============================================================
@@ -647,7 +826,7 @@ function computeRecommendations(pin, type, mortiseWidth) {
     final_.label = caulLabel(spurlock.final);
     final_.source = 'Spurlock';
     if (spurlock.finalAlt) {
-      final_.label += ` ou ${caulLabelShort(spurlock.finalAlt)}`;
+      final_.label += ` ${t('or')} ${caulLabelShort(spurlock.finalAlt)}`;
     }
   }
 
@@ -676,7 +855,7 @@ function calculate() {
   const type = document.getElementById('pinType').value;
   const mortiseWidth = getMortiseWidth();
   if (!pin || pin < 0.05 || pin > 0.25) {
-    showToast('Entrez une taille de pointe valide (.050 - .250)');
+    showToast(t('toast_invalid_pin'));
     return;
   }
 
@@ -707,47 +886,65 @@ function calculate() {
 
 function renderTiles(pin, type, recs) {
   const { felt, sizing, inter, final: final_ } = recs;
-  const typeLabel = type === 'any' ? '' : type === 'balance' ? ' (bal.)' : ' (enf.)';
+  const typeLabel = type === 'any' ? '' : type === 'balance' ? ` ${t('type_bal')}` : ` ${t('type_enf')}`;
 
   let html = `<div class="rec-tiles">`;
 
   // FELT tile (big, red)
   const mortise = recs.mortiseWidth;
   const formulaLine = mortise > 0 ? `(.${mortise.toFixed(3).slice(2)} - .${pin.toFixed(3).slice(2)}) / 2 × 25.4 = ${recs.theoretical ? recs.theoretical.toFixed(2) : '?'} mm` : '';
+  const confText = felt.confidence === 'high' ? t('conf_high')
+    : felt.confidence === 'medium' ? t('conf_medium')
+    : felt.confidence === 'low' ? (mortise > 0 ? t('conf_low_formula') : t('conf_low_theo'))
+    : t('conf_none');
   html += `<div class="rec-tile felt-tile confidence-${felt.confidence}">
-    <div class="tile-label">★ Feutre recommandé${typeLabel}</div>
+    <div class="tile-label">${t('tile_felt')}${typeLabel}</div>
     <div class="tile-value">${felt.value ? felt.value.toFixed(2) + ' mm' : '?'}</div>
-    <div class="tile-sub">${felt.confidence === 'high' ? 'Confiance élevée' : felt.confidence === 'medium' ? 'Confiance moyenne' : felt.confidence === 'low' ? (mortise > 0 ? 'Formule directe' : 'Estimation théorique') : 'Entrez la largeur de mortaise'}</div>
+    <div class="tile-sub">${confText}</div>
     ${formulaLine ? `<div class="tile-source" style="font-family:monospace; font-size:11px;">${formulaLine}</div>` : ''}
-    <div class="tile-source">${felt.source || '—'}</div>
+    <div class="tile-source">${translateSource(felt.source)}</div>
   </div>`;
 
   // SIZING tile
-  html += `<div class="rec-tile ${sizing.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
-    <div class="tile-label">Sizing</div>
+  html += `<div class="rec-tile ${sizing.source.includes('Historique') || sizing.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">${t('tile_sizing')}</div>
     <div class="tile-value">${sizing.value || '?'}</div>
     <div class="tile-sub">${sizing.value ? caulThickness(sizing.value) : ''}</div>
-    <div class="tile-source">${sizing.source || '—'}</div>
+    <div class="tile-source">${translateSource(sizing.source)}</div>
   </div>`;
 
   // INTER tile
-  html += `<div class="rec-tile ${inter.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
-    <div class="tile-label">Cale Inter</div>
+  html += `<div class="rec-tile ${inter.source.includes('Historique') || inter.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">${t('tile_inter')}</div>
     <div class="tile-value">${inter.value || '?'}</div>
     <div class="tile-sub">${inter.value ? caulThickness(inter.value) : ''}</div>
-    <div class="tile-source">${inter.source || '—'}</div>
+    <div class="tile-source">${translateSource(inter.source)}</div>
   </div>`;
 
   // FINAL tile
-  html += `<div class="rec-tile ${final_.source.includes('Historique') ? 'confidence-medium' : 'confidence-low'}">
-    <div class="tile-label">Cale Finale</div>
+  html += `<div class="rec-tile ${final_.source.includes('Historique') || final_.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+    <div class="tile-label">${t('tile_final')}</div>
     <div class="tile-value">${final_.value || '?'}</div>
     <div class="tile-sub">${final_.value ? caulThickness(final_.value) : ''}</div>
-    <div class="tile-source">${final_.source || '—'}</div>
+    <div class="tile-source">${translateSource(final_.source)}</div>
   </div>`;
 
   html += `</div>`;
   return html;
+}
+
+function translateSource(src) {
+  if (!src) return '—';
+  if (currentLang === 'fr') return src; // already in French
+  // Translate source strings that come from computeRecommendations
+  return src
+    .replace('Formule directe', t('src_formula'))
+    .replace('Théorique (Spurlock)', t('src_theo'))
+    .replace(/Historique \((\d+) jobs\)/, (_, n) => `${t('src_hist')} (${n} ${t('jobs')})`)
+    .replace(/(\d+) parfait/g, (_, n) => `${n} ${t('v_parfait').toLowerCase()}`)
+    .replace(/(\d+) ok/g, (_, n) => `${n} ${t('v_ok').toLowerCase()}`)
+    .replace(/\+ formule/g, `+ ${t('src_formula_short')}`)
+    .replace(/^Spurlock$/, 'Spurlock');
 }
 
 function caulThickness(id) {
@@ -759,9 +956,9 @@ function caulThickness(id) {
 function renderBoundsBar(felt) {
   if (!felt.maxLache && !felt.minSerre) return '';
   let html = `<div class="bounds-bar">`;
-  if (felt.maxLache) html += `<span style="color:#e94560;">▼ Trop lâche à ≤ ${felt.maxLache.toFixed(2)} mm</span>`;
-  if (felt.value) html += `<span style="color:#4ecca3; font-weight:700;">● Recommandé : ${felt.value.toFixed(2)} mm</span>`;
-  if (felt.minSerre) html += `<span style="color:#f5a623;">▲ Trop serré à ≥ ${felt.minSerre.toFixed(2)} mm</span>`;
+  if (felt.maxLache) html += `<span style="color:#e94560;">${t('bounds_loose')} ${felt.maxLache.toFixed(2)} mm</span>`;
+  if (felt.value) html += `<span style="color:#4ecca3; font-weight:700;">${t('bounds_rec')} ${felt.value.toFixed(2)} mm</span>`;
+  if (felt.minSerre) html += `<span style="color:#f5a623;">${t('bounds_tight')} ${felt.minSerre.toFixed(2)} mm</span>`;
   html += `</div>`;
   return html;
 }
@@ -779,7 +976,7 @@ function renderRangeBar(pin, type) {
   const max = allFelts[allFelts.length - 1];
 
   let html = `<div style="background:#16213e; border-radius:8px; padding:12px; margin-bottom:16px;">
-    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Plage de feutres testés</div>
+    <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">${t('range_title')}</div>
     <div class="range-bar">`;
 
   const seen = new Set();
@@ -807,17 +1004,17 @@ function renderHistoryDetail(relevant) {
   if (relevant.length === 0) return '';
 
   let html = `<div class="detail-toggle" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
-    ▼ Voir ${relevant.length} entrée(s) historique(s) correspondante(s)
+    ▼ ${relevant.length} ${t('hist_toggle')}
   </div>`;
   html += `<div class="detail-panel" style="display:none;">`;
-  html += `<h4>Données historiques proches</h4>`;
+  html += `<h4>${t('hist_header')}</h4>`;
   for (const h of relevant) {
     const badge = verdictBadge(h.verdict);
     html += `<div class="history-match">
       <span class="badge ${badge.cls}">${badge.label}</span>
       <span>${h.client ? h.client + ' — ' : ''}${h.piano}</span>
       <span style="color:#4ecca3; font-weight:700;">${h.felt.toFixed(2)} mm</span>
-      <span style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</span>
+      <span style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? t('v_bal') : t('v_enf')}</span>
       <span style="color:#888">.${h.pinSize.toFixed(3).slice(2)}"</span>
       ${h.interCaul ? `<span style="color:#888">inter:${h.interCaul}</span>` : ''}
       ${h.finalCaul ? `<span style="color:#888">fin:${h.finalCaul}</span>` : ''}
@@ -834,68 +1031,68 @@ function renderFeedbackForm(pin, type, recs) {
   }
 
   const sizingOptions = ['', 'MS-125', 'MS-137', 'MS-146', 'MS-162'].map(s =>
-    `<option value="${s}" ${s === (recs.sizing.value || '') ? 'selected' : ''}>${s || '-- Aucun --'}</option>`
+    `<option value="${s}" ${s === (recs.sizing.value || '') ? 'selected' : ''}>${s || `-- ${currentLang === 'fr' ? 'Aucun' : 'None'} --`}</option>`
   ).join('');
 
   return `<div class="feedback-form">
-    <h3>Résultat réel de la job</h3>
+    <h3>${t('fb_title')}</h3>
     <div class="feedback-grid">
       <div class="fg">
-        <label>Client</label>
-        <input type="text" id="fb_client" placeholder="Client">
+        <label>${t('lbl_client')}</label>
+        <input type="text" id="fb_client" placeholder="${t('lbl_client')}">
       </div>
       <div class="fg">
         <label>Piano</label>
         <input type="text" id="fb_piano" placeholder="Piano">
       </div>
       <div class="fg">
-        <label>Type</label>
+        <label>${t('lbl_type')}</label>
         <select id="fb_type">
-          <option value="enfoncement" ${type === 'enfoncement' ? 'selected' : ''}>Enfoncement</option>
+          <option value="enfoncement" ${type === 'enfoncement' ? 'selected' : ''}>${t('lbl_enfoncement')}</option>
           <option value="balance" ${type === 'balance' ? 'selected' : ''}>Balance</option>
         </select>
       </div>
       <div class="fg">
-        <label>Pointe</label>
+        <label>${t('lbl_pin')}</label>
         <input type="number" id="fb_pin" step="0.001" value="${pin}" readonly style="opacity:0.7">
       </div>
       <div class="fg">
-        <label>★ Feutre utilisé</label>
-        <select id="fb_felt"><option value="">-- Choisir --</option>${feltOptions.join('')}</select>
+        <label>${t('lbl_felt_star')}</label>
+        <select id="fb_felt"><option value="">${t('opt_choose')}</option>${feltOptions.join('')}</select>
       </div>
       <div class="fg">
         <label>Sizing</label>
         <select id="fb_sizing">${sizingOptions}</select>
       </div>
       <div class="fg">
-        <label>Larg. sizing</label>
+        <label>${t('lbl_sizing_w')}</label>
         <input type="number" id="fb_sizingWidth" step="0.001" placeholder=".227">
       </div>
       <div class="fg">
-        <label>Verdict</label>
+        <label>${t('lbl_verdict')}</label>
         <select id="fb_verdict">
-          <option value="">-- Choisir --</option>
-          <option value="parfait">Parfait</option>
+          <option value="">${t('opt_choose')}</option>
+          <option value="parfait">${t('opt_parfait')}</option>
           <option value="ok">OK</option>
-          <option value="trop_lache">Trop lâche</option>
-          <option value="trop_serre">Trop serré</option>
+          <option value="trop_lache">${t('opt_lache')}</option>
+          <option value="trop_serre">${t('opt_serre')}</option>
         </select>
       </div>
       <div class="fg">
-        <label>Cale inter</label>
+        <label>${t('lbl_inter_caul')}</label>
         <select id="fb_inter"></select>
       </div>
       <div class="fg">
-        <label>Cale finale</label>
+        <label>${t('lbl_final_caul')}</label>
         <select id="fb_final"></select>
       </div>
       <div class="fg wide">
-        <label>Notes</label>
-        <input type="text" id="fb_notes" placeholder="Observations...">
+        <label>${t('lbl_notes')}</label>
+        <input type="text" id="fb_notes" placeholder="${t('fb_observations')}">
       </div>
     </div>
     <div class="feedback-actions">
-      <button class="btn btn-save" onclick="saveFeedback()">Sauvegarder dans l'historique</button>
+      <button class="btn btn-save" onclick="saveFeedback()">${t('btn_save_feedback')}</button>
     </div>
   </div>`;
 }
@@ -926,9 +1123,9 @@ function saveFeedback() {
   const felt = parseFloat(document.getElementById('fb_felt').value) || 0;
   const pin = parseFloat(document.getElementById('fb_pin').value);
 
-  if (!piano) { showToast('Entrez le nom du piano'); return; }
-  if (!verdict) { showToast('Choisissez un verdict'); return; }
-  if (!felt) { showToast('Choisissez le feutre utilisé'); return; }
+  if (!piano) { showToast(t('toast_enter_piano')); return; }
+  if (!verdict) { showToast(t('toast_choose_verdict')); return; }
+  if (!felt) { showToast(t('toast_choose_felt')); return; }
 
   history.push({
     id: nextId++,
@@ -947,7 +1144,7 @@ function saveFeedback() {
   });
 
   saveData();
-  showToast('Entrée sauvegardée ! La recommandation va s\'améliorer.');
+  showToast(t('toast_saved'));
 
   // Re-calculate to show updated recommendations
   setTimeout(() => calculate(), 300);
@@ -980,7 +1177,7 @@ function addEntry() {
   const piano = document.getElementById('f_piano').value.trim();
   const client = document.getElementById('f_client').value.trim();
 
-  if (!piano) { showToast('Entrez le nom du piano'); return; }
+  if (!piano) { showToast(t('toast_enter_piano')); return; }
 
   let added = 0;
 
@@ -1019,12 +1216,12 @@ function addEntry() {
   }
 
   if (added === 0) {
-    showToast('Remplissez au moins un côté (balance ou enfoncement)');
+    showToast(t('toast_fill_side'));
     return;
   }
 
   saveData();
-  showToast(`${added} entrée(s) ajoutée(s) !`);
+  showToast(`${added} ${t('toast_added')}`);
   clearForm();
 }
 
@@ -1062,7 +1259,7 @@ function editEntry(id) {
 
   history = history.filter(h => h.id !== id);
   saveData();
-  showToast('Modifier puis cliquer Ajouter');
+  showToast(t('toast_modify'));
 }
 
 // ============================================================
@@ -1077,7 +1274,7 @@ function renderTable() {
   if (verdictFilter !== 'all') filtered = filtered.filter(h => h.verdict === verdictFilter);
   if (pianoFilter) filtered = filtered.filter(h => h.piano.toLowerCase().includes(pianoFilter) || (h.client && h.client.toLowerCase().includes(pianoFilter)));
 
-  document.getElementById('dataCount').textContent = `${filtered.length} / ${history.length} entrées`;
+  document.getElementById('dataCount').textContent = `${filtered.length} / ${history.length} ${t('entries')}`;
 
   const tbody = document.getElementById('dataBody');
 
@@ -1085,7 +1282,7 @@ function renderTable() {
     return `<tr class="${h.outlier ? 'outlier' : ''}">
       <td><input type="checkbox" class="outlier-cb" ${h.outlier ? 'checked' : ''} onchange="toggleOutlier(${h.id})"></td>
       <td>${showPiano ? `<strong>${h.client ? h.client + '</strong> — ' : '</strong>'}${h.piano}` : ''}</td>
-      <td style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? 'Bal.' : 'Enf.'}</td>
+      <td style="color:${h.pinType === 'balance' ? '#4ecca3' : '#e94560'}">${h.pinType === 'balance' ? t('v_bal') : t('v_enf')}</td>
       <td>.${h.pinSize.toFixed(3).slice(2)}</td>
       <td>${h.sizing || '—'}</td>
       <td>${h.sizingWidth ? '.' + h.sizingWidth.toFixed(3).slice(2) : '—'}</td>
@@ -1130,11 +1327,11 @@ function toggleOutlier(id) {
 }
 
 function deleteEntry(id) {
-  if (confirm('Supprimer cette entrée ?')) {
+  if (confirm(t('confirm_delete'))) {
     history = history.filter(h => h.id !== id);
     saveData();
     renderTable();
-    showToast('Entrée supprimée');
+    showToast(t('toast_deleted'));
   }
 }
 
@@ -1179,9 +1376,9 @@ function importData(event) {
       saveData();
       renderTable();
       renderStock();
-      showToast(`Importé : ${history.length} entrées`);
+      showToast(`${t('toast_imported')} ${history.length} ${t('entries')}`);
     } catch (err) {
-      showToast('Erreur d\'import : ' + err.message);
+      showToast(`${t('toast_import_err')} ${err.message}`);
     }
   };
   reader.readAsText(file);
@@ -1197,10 +1394,10 @@ function roundToNearest005(val) {
 
 function verdictBadge(verdict) {
   switch (verdict) {
-    case 'parfait': return { cls: 'badge-parfait', label: 'Parfait' };
-    case 'ok': return { cls: 'badge-ok', label: 'OK' };
-    case 'trop_lache': return { cls: 'badge-lache', label: 'Trop lâche' };
-    case 'trop_serre': return { cls: 'badge-serre', label: 'Trop serré' };
+    case 'parfait': return { cls: 'badge-parfait', label: t('v_parfait') };
+    case 'ok': return { cls: 'badge-ok', label: t('v_ok') };
+    case 'trop_lache': return { cls: 'badge-lache', label: t('v_lache') };
+    case 'trop_serre': return { cls: 'badge-serre', label: t('v_serre') };
     default: return { cls: '', label: verdict };
   }
 }
@@ -1217,6 +1414,7 @@ function showToast(msg) {
 // ============================================================
 loadData();
 populateFormDropdowns();
+setLang(currentLang);
 </script>
 
 </body>
