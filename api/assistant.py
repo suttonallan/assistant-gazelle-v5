@@ -299,7 +299,12 @@ async def get_client_details(client_id: str):
                 else:
                     kept_entries.append(e)
 
-            entries = kept_entries
+            # Exclure les entrées d'aujourd'hui et futures (pas encore de l'historique)
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            entries = [
+                e for e in kept_entries
+                if not (e.get("entry_date") or "")[:10] or (e.get("entry_date") or "")[:10] < today_str
+            ]
 
             if not entries:
                 return {

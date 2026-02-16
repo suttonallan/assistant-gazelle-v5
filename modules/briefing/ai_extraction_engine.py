@@ -592,7 +592,7 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
             continue
 
         # Exclure aujourd'hui et les dates futures
-        if date >= today:
+        if date[:10] >= today:
             continue
 
         text = (note.get('text', '') or '').strip()
