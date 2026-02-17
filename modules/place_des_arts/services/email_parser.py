@@ -485,7 +485,7 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
         r'(piano\s+baldwin\s*\(?[\d\'\"]+\)?)',  # Piano Baldwin (9') ou Piano Baldwin 9'
         r'(piano\s+steinway\s*\(?[\d\'\"a-z\s\-]*\)?)',  # Piano Steinway (9') ou Piano Steinway D
         r'(piano\s+yamaha\s+[a-z]?\d*)',  # Piano Yamaha C7
-        r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*-?\s*[a-z\s]*)',  # Steinway 9' D - New York
+        r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*(?:-\s*[a-z ]+)?)',  # Steinway 9' D - New York
         r'(yamaha\s+[a-z]\d+)',  # Yamaha C7
         r'(kawai\s+[a-z]+\d*)',  # Kawai GX7
         r'(baldwin\s*\(?[\d\'\"]+\)?)',  # Baldwin 9' ou Baldwin (9')
@@ -581,7 +581,7 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
     # Dans le format: Date / Salle / Pour_qui / Diapason / Piano / Heure
     # "Pour qui" est la ligne après la salle, si ce n'est pas un diapason, piano, ou heure
     lines = text.split('\n')
-    room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', '5E SALLE', 'CL', 'TJD']
+    room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', '5E SALLE', 'CL', 'TJD', 'SALLE E', 'E']
     piano_keywords = ['steinway', 'yamaha', 'kawai', 'bösendorfer', 'fazioli', 'baldwin', 'piano']
 
     room_idx = None
@@ -613,14 +613,13 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             continue
         # Mapping des demandeurs connus
         requester_mapping = {
-            'annie jenkins': 'ANNIE JENKINS',
-            'annie': 'ANNIE JENKINS',
-            'jenkins': 'ANNIE JENKINS',
+            'annie jenkins': 'AJ',
+            'annie': 'AJ',
+            'jenkins': 'AJ',
             'isabelle clairoux': 'IC',
             'isabelle': 'IC',
             'clairoux': 'IC',
             'patricia': 'PT',
-            'alain': 'AJ'
         }
         line_lower = line_stripped.lower()
         for name, code in requester_mapping.items():
@@ -695,7 +694,7 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                 result['notes'] = ' - '.join(parts[4:])
     else:
         date_pattern = re.compile(r'^(\d{1,2})[-/\s]*(jan|janv|feb|fév|fev|fevr|févr|mar|mars|avr|avril|mai|jui|juin|jul|juil|juillet|aoû|aou|août|aout|sep|sept|septembre|oct|octobre|nov|novembre|déc|dec|décembre|decembre)', re.IGNORECASE)
-        room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL']
+        room_keywords = ['WP', 'TM', 'MS', 'SD', 'C5', 'SCL', 'ODM', '5E', 'CL', 'SALLE E', 'E']
         piano_keywords = ['Steinway', 'Yamaha', 'Kawai', 'Bösendorfer', 'Fazioli', 'Baldwin', 'Mason']
 
         # Heuristiques spécifiques au format 6 lignes (date, room, for_who, diapason, piano, time)
