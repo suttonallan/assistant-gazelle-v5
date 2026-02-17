@@ -967,7 +967,7 @@ async def preview_email(payload: PreviewRequest):
     lines = raw_text.split('\n')
     requester_mapping = {
         'isabelle': 'IC', 'isabelle clairoux': 'IC', 'clairoux': 'IC',
-        'patricia': 'PT', 'alain': 'AJ', 'annie': 'ANNIE JENKINS', 'annie jenkins': 'ANNIE JENKINS'
+        'patricia': 'PT', 'annie': 'AJ', 'annie jenkins': 'AJ', 'jenkins': 'AJ'
     }
     global_requester = None
     for line in reversed(lines):

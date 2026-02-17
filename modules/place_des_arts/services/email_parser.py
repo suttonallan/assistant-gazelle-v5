@@ -1123,6 +1123,9 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 'isabelle clairoux': 'IC',
                 'isabelle constantineau': 'IC',
                 'clairoux': 'IC',
+                'annie': 'AJ',
+                'annie jenkins': 'AJ',
+                'jenkins': 'AJ',
             }
             mapped_requester = signature_requester
             for name, code in requester_mapping.items():
@@ -1134,6 +1137,21 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 if not req.get('requester'):
                     req['requester'] = mapped_requester
                     req['confidence'] = min(req.get('confidence', 0.0) + 0.05, 1.0)
+
+    # Post-traitement: mapper les noms complets de demandeurs vers leurs initiales
+    final_requester_mapping = {
+        'isabelle clairoux': 'IC', 'isabelle': 'IC', 'clairoux': 'IC',
+        'isabelle constantineau': 'IC', 'constantineau': 'IC',
+        'annie jenkins': 'AJ', 'annie': 'AJ', 'jenkins': 'AJ',
+        'patricia': 'PT',
+    }
+    for req in requests:
+        req_name = (req.get('requester') or '').lower().strip()
+        if req_name:
+            for name, code in final_requester_mapping.items():
+                if name in req_name:
+                    req['requester'] = code
+                    break
 
     return requests
 
