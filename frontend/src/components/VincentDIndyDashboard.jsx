@@ -526,7 +526,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
     // Priorité 2: Top priorité (ambre)
-    if (piano.status === 'top') return 'bg-amber-200';
+    if (piano.status === 'top') return 'bg-orange-200';
 
     // Priorité 3: À faire (jaune)
     if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
