@@ -336,7 +336,7 @@ async def zoom_webhook(request: Request):
                 email_notifier = EmailNotifier()
                 
                 if email_notifier.client:
-                    recipient_email = os.getenv('EMAIL_ALLAN', 'asutton@piano-tek.com')
+                    recipient_email = os.getenv('EMAIL_SMS_FORWARD', 'info@piano-tek.com')
                     
                     html_content = f"""
                     <h2>📩 SMS Reçu via Zoom</h2>
