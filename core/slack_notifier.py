@@ -157,3 +157,54 @@ class SlackNotifier:
             return cls.notify_admin(message)
         else:
             return cls.notify_technician(username, message)
+
+    @classmethod
+    def notify_chat_prospect(
+        cls,
+        event_type: str,
+        email: str = None,
+        region: str = None,
+        interest: str = None,
+        piano_brand: str = None,
+        score: int = None
+    ) -> bool:
+        """
+        Notification Slack pour un prospect du chat public (Piano Concierge).
+
+        Args:
+            event_type: 'new_contact', 'photo_analysis', 'concierge_interest'
+            email: Email du prospect (si connu)
+            region: Région détectée
+            interest: Type d'intérêt
+            piano_brand: Marque de piano analysée
+            score: Score de l'analyse
+
+        Returns:
+            True si envoyé avec succès
+        """
+        if event_type == 'new_contact':
+            msg = f"💬 *Nouveau prospect chat*\n📧 {email or '(anonyme)'}"
+            if region:
+                msg += f"\n📍 {region}"
+            if interest:
+                msg += f"\n🎯 {interest}"
+        elif event_type == 'photo_analysis':
+            msg = f"📸 *Analyse photo chat*"
+            if piano_brand:
+                msg += f"\n🎹 {piano_brand}"
+            if score is not None:
+                msg += f"\n⭐ Score: {score}/10"
+            if email:
+                msg += f"\n📧 {email}"
+            if region:
+                msg += f"\n📍 {region}"
+        elif event_type == 'concierge_interest':
+            msg = f"🎯 *Intérêt Piano Concierge!*\n📧 {email or '(anonyme)'}"
+            if region:
+                msg += f"\n📍 {region}"
+        else:
+            msg = f"💬 *Chat: {event_type}*"
+
+        # Notifier Allan directement
+        webhook = cls.TECH_WEBHOOKS.get('Allan')
+        return cls.send_simple_message(webhook, msg)

@@ -15,6 +15,7 @@ import ChatIntelligent from './components/ChatIntelligent'
 import MaJournee from './components/MaJournee' // 🧠 Briefings Intelligents V2
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
+import ChatStats from './components/ChatStats'
 import ErrorBoundary from './components/ErrorBoundary'
 import { getUserRole, ROLES } from './config/roles'
 
@@ -341,6 +342,12 @@ function App() {
               <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
+        } else if (currentView === 'chat-stats') {
+          return (
+            <ErrorBoundary componentName="Chat Stats">
+              <ChatStats />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
@@ -546,6 +553,20 @@ function App() {
                         }`}
                       >
                         📊 Tableau de Bord
+                      </button>
+                    )}
+
+                    {/* Chat Stats - admin seulement */}
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('chat-stats')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'chat-stats'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        💬 Chat
                       </button>
                     )}
 
