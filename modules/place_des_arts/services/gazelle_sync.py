@@ -8,6 +8,7 @@ Synchronise les demandes Place des Arts avec les rendez-vous Gazelle:
 - Met à jour les statuts
 """
 
+import re
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -21,6 +22,45 @@ from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
 
 logger = logging.getLogger(__name__)
+
+
+def extract_parking_amount(text: str) -> Optional[str]:
+    """
+    Extrait le montant de stationnement depuis un texte de description de service Gazelle.
+
+    Formats détectés (insensible à la casse):
+    - "stationnement : 9$"  / "stationnement: 9,50$"
+    - "Stationnement 9"     / "stationnement 12.50"
+    - "stat. 9$"            / "stat 9"  / "stat: 9$"
+    - "parking: 9$"         / "parking 9"
+    - Montants avec virgule ou point comme séparateur décimal
+
+    Retourne le montant sous forme de string (ex: "9.00") ou None si non trouvé.
+    """
+    if not text:
+        return None
+
+    # Pattern pour les variantes du mot "stationnement"
+    # stat, stat., statio, stationnement, parking
+    keyword = r'(?:stationnement|stationn\w*|stat\.?|parking)'
+
+    # Pattern pour le montant: nombre avec optionnel décimales (virgule ou point) et optionnel $
+    amount = r'(\d+(?:[.,]\d{1,2})?)\s*\$?'
+
+    # Chercher: keyword + séparateurs optionnels + montant
+    pattern = rf'{keyword}\s*[:=\-]?\s*{amount}'
+
+    match = re.search(pattern, text, re.IGNORECASE)
+    if match:
+        value_str = match.group(1).replace(',', '.')
+        try:
+            value = float(value_str)
+            if value > 0:
+                return f"{value:.2f}"
+        except ValueError:
+            pass
+
+    return None
 
 
 class GazelleSyncService:
@@ -209,8 +249,15 @@ class GazelleSyncService:
                                 print(f"   Demande: {appointment_date} - Salle {room}")
                                 print(f"   RV Gazelle: {apt_id}")
 
+                                # Extraire le montant de stationnement depuis la description Gazelle
+                                parking_amount = self._extract_parking_from_appointment(gazelle_apt)
+                                if parking_amount:
+                                    print(f"   🅿️ Stationnement détecté: {parking_amount} $")
+
                                 if not dry_run:
-                                    success = self._update_request_status(request_id, 'COMPLETED')
+                                    success = self._update_request_status(
+                                        request_id, 'COMPLETED', parking=parking_amount
+                                    )
                                     if success:
                                         completed_count += 1
                                         print(f"   💾 Statut mis à jour: COMPLETED")
@@ -456,7 +503,8 @@ class GazelleSyncService:
         self,
         request_id: str,
         appointment_id: str,
-        technician_id: Optional[str] = None
+        technician_id: Optional[str] = None,
+        parking: Optional[str] = None
     ) -> bool:
         """Lie une demande PDA à un RV Gazelle et met à jour le technicien."""
         try:
@@ -471,9 +519,13 @@ class GazelleSyncService:
             # Toujours mettre à jour le technicien depuis Gazelle (source de vérité)
             if technician_id:
                 update_data['technician_id'] = technician_id
-            
+
             # Marquer "CREATED_IN_GAZELLE" si le RV existe (même avec "À attribuer")
             update_data['status'] = 'CREATED_IN_GAZELLE'
+
+            # Mettre à jour le stationnement si détecté
+            if parking is not None:
+                update_data['parking'] = parking
 
             result = self.storage.client.table('place_des_arts_requests')\
                 .update(update_data)\
@@ -485,13 +537,28 @@ class GazelleSyncService:
             logger.error(f"Erreur lien demande {request_id}: {e}")
             return False
 
-    def _update_request_status(self, request_id: str, status: str) -> bool:
-        """Met à jour le statut d'une demande PDA."""
+    def _extract_parking_from_appointment(self, gazelle_apt: Dict) -> Optional[str]:
+        """
+        Extrait le montant de stationnement depuis la description/notes d'un RV Gazelle.
+
+        Cherche dans les champs 'description', 'notes' et 'title' du RV.
+        """
+        for field in ('description', 'notes', 'title'):
+            text = gazelle_apt.get(field) or ''
+            amount = extract_parking_amount(text)
+            if amount:
+                return amount
+        return None
+
+    def _update_request_status(self, request_id: str, status: str, parking: Optional[str] = None) -> bool:
+        """Met à jour le statut d'une demande PDA (et optionnellement le stationnement)."""
         try:
             update_data = {
                 'status': status,
                 'updated_at': datetime.now().isoformat()
             }
+            if parking is not None:
+                update_data['parking'] = parking
 
             result = self.storage.client.table('place_des_arts_requests')\
                 .update(update_data)\
