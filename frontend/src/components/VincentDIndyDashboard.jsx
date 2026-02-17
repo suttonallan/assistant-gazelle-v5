@@ -1410,6 +1410,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
             formatDateRelative={formatDateRelative}
             filterEtage={filterEtage}
             setFilterEtage={setFilterEtage}
+            handlePushToGazelle={handlePushToGazelle}
+            readyForPushCount={readyForPushCount}
+            pushInProgress={pushInProgress}
           />
         )}
     </div>

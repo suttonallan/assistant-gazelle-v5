@@ -81,7 +81,12 @@ export default function VDI_ManagementView({
   formatDateRelative,
   isPianoInTournee,
   filterEtage,
-  setFilterEtage
+  setFilterEtage,
+
+  // Sync Gazelle
+  handlePushToGazelle,
+  readyForPushCount,
+  pushInProgress
 }) {
 
   const SortIcon = ({ columnKey }) => {
@@ -225,6 +230,20 @@ export default function VDI_ManagementView({
           >
             {loading ? '⏳...' : '🔄'}
           </button>
+          {handlePushToGazelle && (
+            <button
+              onClick={handlePushToGazelle}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                readyForPushCount > 0
+                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              } disabled:opacity-50`}
+              disabled={pushInProgress || readyForPushCount === 0}
+              title={readyForPushCount > 0 ? `Envoyer ${readyForPushCount} piano(s) vers Gazelle` : 'Aucun piano à synchroniser'}
+            >
+              {pushInProgress ? '⏳ Envoi...' : `Sync Gazelle${readyForPushCount > 0 ? ` (${readyForPushCount})` : ''}`}
+            </button>
+          )}
         </div>
 
         {/* Filtres */}
