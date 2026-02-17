@@ -1091,7 +1091,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
         # Vérifier que la signature n'est pas déjà utilisée comme for_who
         # ═══════════════════════════════════════════════════════════════
         is_used_as_for_who = any(
-            req.get('for_who', '').lower().strip() == signature_lower
+            (req.get('for_who') or '').lower().strip() == signature_lower
             for req in requests
         )
 
