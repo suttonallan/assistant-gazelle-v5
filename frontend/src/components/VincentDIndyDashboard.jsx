@@ -634,7 +634,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'pending',
       _key: `pending-${p.id}`,
-      _sortDate: p.updated_at || '1970-01-01',
+      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
@@ -651,7 +651,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'validated_piano',
       _key: `vp-${p.id}`,
-      _sortDate: p.updated_at || '1970-01-01',
+      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
@@ -668,7 +668,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'pushed_piano',
       _key: `pp-${p.id}`,
-      _sortDate: p.updated_at || '1970-01-01',
+      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
@@ -767,7 +767,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       .map(h => ({
         _type: 'history',
         _key: `history-${h.id}`,
-        _sortDate: h.validated_at || h.created_at || '1970-01-01',
+        _sortDate: h.service_date || h.validated_at || h.created_at || '1970-01-01',
         entryId: h.id,
         pianoId: h.piano_id,
         gazelleId: h.gazelle_piano_id || h.piano_id,
