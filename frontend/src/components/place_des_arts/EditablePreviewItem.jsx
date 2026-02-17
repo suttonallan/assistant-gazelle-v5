@@ -180,22 +180,25 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Salle</label>
-          <select
+          <input
+            list="pda-rooms"
             value={editedFields.room}
             onChange={(e) => handleFieldChange('room', e.target.value)}
+            placeholder="Ex: MS, WP, E..."
             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">-- Sélectionner --</option>
-            <option value="WP">WP - Wilfrid-Pelletier</option>
-            <option value="TM">TM - Théâtre Maisonneuve</option>
-            <option value="MS">MS - Maison Symphonique</option>
-            <option value="SD">SD - Salle D</option>
-            <option value="5E">5E - Cinquième Salle</option>
-            <option value="C5">C5 - Cinquième Salle (ancien)</option>
-            <option value="SCL">SCL - Studio Claude-Léveillée</option>
-            <option value="TJD">TJD - Théâtre Jean-Duceppe</option>
-            <option value="ODM">ODM - Opéra de Montréal</option>
-          </select>
+          />
+          <datalist id="pda-rooms">
+            <option value="WP">Wilfrid-Pelletier</option>
+            <option value="TM">Théâtre Maisonneuve</option>
+            <option value="MS">Maison Symphonique</option>
+            <option value="SD">Salle D</option>
+            <option value="E">Salle E</option>
+            <option value="5E">Cinquième Salle</option>
+            <option value="C5">Cinquième Salle (ancien)</option>
+            <option value="SCL">Studio Claude-Léveillée</option>
+            <option value="TJD">Théâtre Jean-Duceppe</option>
+            <option value="ODM">Opéra de Montréal</option>
+          </datalist>
         </div>
 
         <div>
