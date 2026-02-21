@@ -363,15 +363,14 @@ class ClientIntelligenceService:
             else:
                 pls_status = {"needs_annual": None, "reason": "IA non disponible"}
 
-            # Warning PLS basé sur l'analyse
+            # Warning PLS basé sur l'analyse — flag court pour Niveau 1
             if pls_status.get('needs_annual') is True:
                 months = pls_status.get('months_since_last', '?')
-                warnings.append(f"PLS: entretien annuel dû ({months} mois depuis dernier service)")
+                warnings.append(f"PLS — entretien annuel dû ({months} mois)")
             elif pls_status.get('needs_annual') is False:
-                months = pls_status.get('months_since_last', '?')
-                # Pas de warning, mais info dans pls_status pour Niveau 2
+                pass  # PLS OK — affiché comme badge, pas de warning
             else:
-                warnings.append("Dampp-Chaser installé - Vérifier niveau d'eau")
+                pass  # PLS installé — affiché comme badge, détails en Niveau 2
 
         piano_info = asdict(PianoInfo(
             piano_id=piano_data.get('external_id', ''),
@@ -504,6 +503,39 @@ class ClientIntelligenceService:
         except:
             return None
 
+    # Types de timeline à garder (notes techniques utiles)
+    USEFUL_ENTRY_TYPES = (
+        'SERVICE_ENTRY_MANUAL',
+        'NOTE',
+        'APPOINTMENT',
+        'PIANO_MEASUREMENT',
+        'USER_COMMENT',
+        'ESTIMATE',
+        'SERVICE_ENTRY_AUTOMATED',
+    )
+
+    def _fetch_timeline_filtered(self, filter_field: str, filter_value: str,
+                                  limit: int = 20) -> list:
+        """Fetch timeline entries filtrées par entry_type (exclut le bruit système)."""
+        import requests as req
+        from urllib.parse import quote
+
+        types_csv = ",".join(self.USEFUL_ENTRY_TYPES)
+        url = (
+            f"{self.storage.api_url}/gazelle_timeline_entries?select=*"
+            f"&{filter_field}=eq.{quote(filter_value)}"
+            f"&entry_type=in.({types_csv})"
+            f"&order=occurred_at.desc"
+            f"&limit={limit}"
+        )
+        try:
+            resp = req.get(url, headers=self.storage._get_headers())
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            pass
+        return []
+
     def _get_client_notes(self, client_id: str, piano_id: str = None) -> List[Dict]:
         from datetime import date as date_type
         today_str = date_type.today().isoformat()  # "YYYY-MM-DD"
@@ -511,14 +543,28 @@ class ClientIntelligenceService:
         notes = []
         seen_texts = set()  # Éviter les doublons
 
-        # 1. Timeline par client
-        try:
-            timeline = self.storage.get_data('gazelle_timeline_entries',
-                                              filters={'client_id': client_id},
-                                              order_by='occurred_at.desc')
-            for t in timeline[:20]:
+        # 1. Timeline par client (filtrée par entry_type — exclut factures, notifs système, etc.)
+        timeline = self._fetch_timeline_filtered('client_id', client_id)
+        for t in timeline:
+            entry_date = (t.get('occurred_at', '') or '')[:10]
+            # Exclure les entrées d'aujourd'hui et futures
+            if entry_date and entry_date >= today_str:
+                continue
+            text = f"{t.get('title', '')} {t.get('description', '')}".strip()
+            if text and text not in seen_texts:
+                seen_texts.add(text)
+                notes.append({
+                    'date': entry_date,
+                    'text': text,
+                    'technician': t.get('user_id', ''),
+                    'source': 'timeline'
+                })
+
+        # 2. Timeline par piano (filtrée — important pour les déficiences liées au piano!)
+        if piano_id:
+            piano_timeline = self._fetch_timeline_filtered('piano_id', piano_id)
+            for t in piano_timeline:
                 entry_date = (t.get('occurred_at', '') or '')[:10]
-                # Exclure les entrées d'aujourd'hui et futures
                 if entry_date and entry_date >= today_str:
                     continue
                 text = f"{t.get('title', '')} {t.get('description', '')}".strip()
@@ -528,32 +574,8 @@ class ClientIntelligenceService:
                         'date': entry_date,
                         'text': text,
                         'technician': t.get('user_id', ''),
-                        'source': 'timeline'
+                        'source': 'piano_timeline'
                     })
-        except:
-            pass
-
-        # 2. Timeline par piano (important pour les déficiences liées au piano!)
-        if piano_id:
-            try:
-                piano_timeline = self.storage.get_data('gazelle_timeline_entries',
-                                                        filters={'piano_id': piano_id},
-                                                        order_by='occurred_at.desc')
-                for t in piano_timeline[:20]:
-                    entry_date = (t.get('occurred_at', '') or '')[:10]
-                    if entry_date and entry_date >= today_str:
-                        continue
-                    text = f"{t.get('title', '')} {t.get('description', '')}".strip()
-                    if text and text not in seen_texts:
-                        seen_texts.add(text)
-                        notes.append({
-                            'date': entry_date,
-                            'text': text,
-                            'technician': t.get('user_id', ''),
-                            'source': 'piano_timeline'
-                        })
-            except:
-                pass
 
         # 3. Appointments
         try:
@@ -605,15 +627,42 @@ class ClientIntelligenceService:
                 return []
 
             entries = response.json()
+
+            # Patterns de texte système à ignorer (pas de contenu utile)
+            estimate_noise = [
+                'estimate created', 'devis créé', 'soumission créée',
+                'estimate sent', 'devis envoyé', 'soumission envoyée',
+                'estimate #', 'devis #', 'soumission #',
+                'created for', 'sent to', 'envoyé à',
+            ]
+
             items = []
+            seen_estimate_ids = set()
             for entry in entries:
-                text = entry.get('description') or entry.get('title') or entry.get('summary') or ''
-                if text.strip():
-                    items.append({
-                        'date': (entry.get('occurred_at') or '')[:10],
-                        'text': text.strip(),
-                        'estimate_id': entry.get('estimate_id'),
-                    })
+                # Préférer description (contenu riche), puis title
+                text = entry.get('description') or entry.get('title') or ''
+                text = text.strip()
+
+                # Ignorer les entrées vides ou trop courtes
+                if not text or len(text) < 15:
+                    continue
+
+                # Ignorer les messages système (créations, envois)
+                text_lower = text.lower()
+                if any(noise in text_lower for noise in estimate_noise):
+                    continue
+
+                # Dédupliquer par estimate_id
+                est_id = entry.get('estimate_id')
+                if est_id in seen_estimate_ids:
+                    continue
+                seen_estimate_ids.add(est_id)
+
+                items.append({
+                    'date': (entry.get('occurred_at') or '')[:10],
+                    'text': text[:300],  # Limiter la longueur
+                    'estimate_id': est_id,
+                })
             return items
         except Exception as e:
             print(f"⚠️  Erreur fetch estimates: {e}")

@@ -42,6 +42,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟', label: 'Enlever chaussures' })
   if (profile?.courtesies?.includes('appeler avant')) profileIcons.push({ icon: '📞', label: 'Appeler avant' })
   if (profile?.payment_method) profileIcons.push({ icon: '💳', label: profile.payment_method })
+  if (piano?.dampp_chaser) profileIcons.push({ icon: '💧', label: 'PLS', highlight: true })
 
   // Collaboration : autres techniciens au même RV
   const collaboration = appointment?.collaboration || []
@@ -146,11 +147,15 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
             {profileIcons.map((item, idx) => (
               <span
                 key={idx}
-                className="bg-gray-100 px-3 py-1 rounded-full text-sm flex items-center gap-1"
+                className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 ${
+                  item.highlight
+                    ? 'bg-blue-100 text-blue-800 font-semibold'
+                    : 'bg-gray-100'
+                }`}
                 title={item.label}
               >
                 <span className="text-lg">{item.icon}</span>
-                <span className="text-gray-600 hidden sm:inline">{item.label}</span>
+                <span className={`hidden sm:inline ${item.highlight ? '' : 'text-gray-600'}`}>{item.label}</span>
               </span>
             ))}
           </div>

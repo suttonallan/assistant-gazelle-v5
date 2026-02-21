@@ -569,42 +569,70 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
 
     # Messages système à ignorer (pas des vrais services)
     ignore_patterns = [
+        # Confirmations
         'merci d\'avoir confirmé',
         'thank you for confirming',
         'votre rendez-vous avec piano technique',
         'your piano appointment',
-        'votre piano',  # Messages de confirmation
+        'votre piano',
         'your piano',
         'veuillez confirmer',
         'please confirm',
+        'le client a confirmé',
+        'client confirmed',
+        'confirmation',
+        # Créations / modifications de RV
         'a créé un rendez-vous',
         'created an appointment',
-        'rendez-vous avec',  # Notifications système
+        'rendez-vous avec',
         'appointment with',
+        'modification du rendez-vous',
+        'appointment was modified',
+        'appointment rescheduled',
+        'rendez-vous déplacé',
+        'rendez-vous reporté',
+        # Rappels
         'rappel',
         'reminder',
-        'confirmation',
-        'le client a confirmé',  # Auto-confirmation
-        'client confirmed',
-        'le statut du client',  # Changement de statut
+        # Statuts
+        'le statut du client',
         'client status',
         'a été modifié',
         'was changed',
-        'stationnement',  # Pas pertinent
-        'parking',
-        'client fusionné',  # Fusions système
-        'client merged',
-        'a été fusionné',
-        'was merged',
-        'completed appointment',  # Notifications de completion
+        # Complétion
+        'completed appointment',
         'appointment completed',
         'rendez-vous complété',
         'rendez-vous terminé',
         'has been completed',
-        'invoice created',  # Factures auto
+        # Factures / invoices
+        'invoice created',
         'facture créée',
-        'estimate created',  # Devis auto
+        'nouvelle facture',
+        'invoice #',
+        'facture #',
+        'invoice from piano technique',
+        'from piano technique montréal',
+        'facture de piano technique',
+        'invoice sent',
+        'facture envoyée',
+        'payment received',
+        'paiement reçu',
+        # Devis / estimates
+        'estimate created',
         'devis créé',
+        'estimate sent',
+        'devis envoyé',
+        'soumission envoyée',
+        'estimate #',
+        # Fusions
+        'client fusionné',
+        'client merged',
+        'a été fusionné',
+        'was merged',
+        # Stationnement
+        'stationnement',
+        'parking',
     ]
 
     history = []
