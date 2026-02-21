@@ -653,7 +653,7 @@ class ClientIntelligenceService:
         if not target_date:
             target_date = datetime.now().strftime('%Y-%m-%d')
 
-        filters = {'appointment_date': target_date}
+        filters = {'appointment_date': target_date, 'status': 'ACTIVE'}
         if technician_id:
             filters['technicien'] = technician_id
 
@@ -674,7 +674,7 @@ class ClientIntelligenceService:
             try:
                 all_day_appointments = self.storage.get_data(
                     'gazelle_appointments',
-                    filters={'appointment_date': target_date},
+                    filters={'appointment_date': target_date, 'status': 'ACTIVE'},
                     order_by='appointment_time.asc'
                 )
             except:
