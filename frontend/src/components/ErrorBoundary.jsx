@@ -30,7 +30,7 @@ class ErrorBoundary extends React.Component {
             <div className="text-sm text-gray-600 mb-4">
               Une erreur s'est produite lors du chargement de {this.props.componentName || 'ce composant'}.
             </div>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {this.state.error && (
               <details className="text-left text-xs text-gray-500 mb-4 p-2 bg-gray-50 rounded">
                 <summary className="cursor-pointer font-medium mb-2">Détails de l'erreur</summary>
                 <pre className="whitespace-pre-wrap overflow-auto">

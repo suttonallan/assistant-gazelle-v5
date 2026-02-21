@@ -993,7 +993,17 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
             </div>
             <div>
               <label className="text-xs text-gray-600">Salle</label>
-              <input type="text" value={createForm.room} onChange={(e) => setCreateForm({ ...createForm, room: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" />
+              <input list="pda-rooms-create" type="text" value={createForm.room} onChange={(e) => setCreateForm({ ...createForm, room: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1" placeholder="Ex: MS, WP, E..." />
+              <datalist id="pda-rooms-create">
+                <option value="WP">Wilfrid-Pelletier</option>
+                <option value="TM">Théâtre Maisonneuve</option>
+                <option value="MS">Maison Symphonique</option>
+                <option value="SD">Salle D</option>
+                <option value="E">Salle E</option>
+                <option value="5E">Cinquième Salle</option>
+                <option value="SCL">Studio Claude-Léveillée</option>
+                <option value="TJD">Théâtre Jean-Duceppe</option>
+              </datalist>
             </div>
             <div>
               <label className="text-xs text-gray-600">Pour qui</label>

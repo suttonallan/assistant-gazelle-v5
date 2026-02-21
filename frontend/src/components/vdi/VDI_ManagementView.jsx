@@ -81,7 +81,12 @@ export default function VDI_ManagementView({
   formatDateRelative,
   isPianoInTournee,
   filterEtage,
-  setFilterEtage
+  setFilterEtage,
+
+  // Sync Gazelle
+  handlePushToGazelle,
+  readyForPushCount,
+  pushInProgress
 }) {
 
   const SortIcon = ({ columnKey }) => {
@@ -225,6 +230,20 @@ export default function VDI_ManagementView({
           >
             {loading ? '⏳...' : '🔄'}
           </button>
+          {handlePushToGazelle && (
+            <button
+              onClick={handlePushToGazelle}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                readyForPushCount > 0
+                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              } disabled:opacity-50`}
+              disabled={pushInProgress || readyForPushCount === 0}
+              title={readyForPushCount > 0 ? `Envoyer ${readyForPushCount} piano(s) vers Gazelle` : 'Aucun piano à synchroniser'}
+            >
+              {pushInProgress ? '⏳ Envoi...' : `Sync Gazelle${readyForPushCount > 0 ? ` (${readyForPushCount})` : ''}`}
+            </button>
+          )}
         </div>
 
         {/* Filtres */}
@@ -262,7 +281,7 @@ export default function VDI_ManagementView({
               <span className="text-purple-600 font-medium text-sm">{selectedIds.size} sel.</span>
               <button 
                 onClick={() => batchSetStatus('top')} 
-                className="px-3 py-1 rounded text-sm bg-amber-400 hover:bg-amber-500"
+                className="px-3 py-1 rounded text-sm bg-orange-400 hover:bg-orange-500"
                 title="Marquer les pianos sélectionnés comme priorité élevée"
               >
                 → Top
@@ -452,7 +471,7 @@ export default function VDI_ManagementView({
       <div className="mt-4 bg-white rounded-lg shadow p-3 flex gap-4 text-sm flex-wrap">
         <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
         <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
-        <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-200 rounded"></span> Top (priorité)</span>
+        <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-orange-200 rounded"></span> Top (priorité)</span>
       </div>
 
       {/* Modal historique d'entretien — tableur */}

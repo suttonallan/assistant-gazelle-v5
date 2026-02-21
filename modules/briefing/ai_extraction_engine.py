@@ -147,6 +147,12 @@ TECHNICIAN_NAMES = {
     "usr_ofYggsCDt2JAVeNP": "Allan",
 }
 
+# Assistantes administratives — leurs entrées sont exclues de l'historique technique
+ADMIN_STAFF_IDS = {
+    "usr_tndhXmnT0iakT4HF",  # Louise
+    "usr_bbt59aCUqUaDWA8n",  # Margot
+}
+
 
 class AIExtractionEngine:
     """
@@ -542,8 +548,13 @@ def compute_client_since(notes: List[Dict]) -> Optional[str]:
 
 
 def resolve_technician_name(user_id: str) -> str:
-    """Résout un user_id Gazelle en nom lisible."""
-    return TECHNICIAN_NAMES.get(user_id, user_id or "")
+    """Résout un user_id Gazelle en nom lisible. Masque les IDs bruts inconnus."""
+    if user_id in ADMIN_STAFF_IDS:
+        return ""  # Pas un technicien
+    name = TECHNICIAN_NAMES.get(user_id, "")
+    if not name and user_id and user_id.startswith("usr_"):
+        return ""  # ID inconnu — ne pas afficher le code brut
+    return name or user_id or ""
 
 
 def build_technical_history(notes: List[Dict]) -> List[Dict]:
@@ -584,12 +595,30 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         'was changed',
         'stationnement',  # Pas pertinent
         'parking',
+        'client fusionné',  # Fusions système
+        'client merged',
+        'a été fusionné',
+        'was merged',
+        'completed appointment',  # Notifications de completion
+        'appointment completed',
+        'rendez-vous complété',
+        'rendez-vous terminé',
+        'has been completed',
+        'invoice created',  # Factures auto
+        'facture créée',
+        'estimate created',  # Devis auto
+        'devis créé',
     ]
 
     history = []
     seen_dates = set()
 
     for note in notes[:20]:  # Regarder plus de notes car on filtre beaucoup
+        # Exclure les entrées du personnel administratif (pas des techniciens)
+        tech_id = note.get('technician', '')
+        if tech_id in ADMIN_STAFF_IDS:
+            continue
+
         date = note.get('date', '')
         if not date or date in seen_dates:
             continue
