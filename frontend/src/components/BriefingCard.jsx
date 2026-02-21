@@ -235,15 +235,12 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
 
           {/* Profil detaille */}
           <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Profil client
-            </h4>
             <div className="space-y-1 text-sm">
-              {profile?.language && (
-                <div>Langue: <span className="font-medium">{
-                  profile.language === 'FR' ? 'Francais' :
-                  profile.language === 'EN' ? 'Anglais' : 'Bilingue'
-                }</span></div>
+              {profile?.language === 'EN' && (
+                <div>Langue: <span className="font-medium">Anglais</span></div>
+              )}
+              {profile?.language === 'BI' && (
+                <div>Langue: <span className="font-medium">Bilingue</span></div>
               )}
               {profile?.pets?.length > 0 && (
                 <div>Animaux: <span className="font-medium">{profile.pets.join(', ')}</span></div>
@@ -288,9 +285,6 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
           {/* Historique technique */}
           {technical_history?.length > 0 && (
             <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Historique technique
-              </h4>
               <div className="space-y-2">
                 {technical_history.map((visit, idx) => (
                   <div key={idx} className="text-sm border-l-2 border-gray-300 pl-3">

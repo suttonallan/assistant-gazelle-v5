@@ -332,8 +332,11 @@ class AIExtractionEngine:
         if lang and lang.get('value'):
             source = (lang.get('source') or '').lower()
             # La langue est déductible du texte global — on accepte si raisonnable
-            if lang['value'] in ('FR', 'EN', 'BI'):
+            if lang['value'] in ('FR', 'EN'):
                 validated['language'] = lang['value']
+            elif lang['value'] == 'BI' and self._citation_exists(source, raw_notes):
+                # Bilingue seulement si mention explicite prouvée dans les notes
+                validated['language'] = 'BI'
 
         # Animaux
         validated_pets = []

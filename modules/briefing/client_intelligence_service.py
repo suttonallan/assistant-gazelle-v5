@@ -119,10 +119,6 @@ class ClientIntelligenceService:
 
         if en_count > fr_count + 2:
             return "EN"
-        elif fr_count > en_count + 2:
-            return "FR"
-        elif en_count > 0 and fr_count > 0:
-            return "BI"
         return "FR"
 
     def _detect_pets_regex(self, text: str) -> List[str]:
@@ -363,15 +359,10 @@ class ClientIntelligenceService:
             else:
                 pls_status = {"needs_annual": None, "reason": "IA non disponible"}
 
-            # Warning PLS basé sur l'analyse
+            # Warning PLS seulement si entretien annuel est vraiment dû
             if pls_status.get('needs_annual') is True:
                 months = pls_status.get('months_since_last', '?')
                 warnings.append(f"PLS: entretien annuel dû ({months} mois depuis dernier service)")
-            elif pls_status.get('needs_annual') is False:
-                months = pls_status.get('months_since_last', '?')
-                # Pas de warning, mais info dans pls_status pour Niveau 2
-            else:
-                warnings.append("Dampp-Chaser installé - Vérifier niveau d'eau")
 
         piano_info = asdict(PianoInfo(
             piano_id=piano_data.get('external_id', ''),
@@ -504,6 +495,36 @@ class ClientIntelligenceService:
         except:
             return None
 
+    # Messages système à ignorer (confirmations, rappels, notifications — pas des vrais services)
+    SYSTEM_MESSAGE_PATTERNS = [
+        'merci d\'avoir confirmé',
+        'thank you for confirming',
+        'votre rendez-vous avec piano technique',
+        'your piano appointment',
+        'votre piano',
+        'your piano',
+        'veuillez confirmer',
+        'please confirm',
+        'a créé un rendez-vous',
+        'created an appointment',
+        'rendez-vous avec',
+        'appointment with',
+        'rappel',
+        'reminder',
+        'confirmation',
+        'le client a confirmé',
+        'client confirmed',
+        'le statut du client',
+        'client status',
+        'a été modifié',
+        'was changed',
+    ]
+
+    def _is_system_message(self, text: str) -> bool:
+        """Détecte les messages système (confirmations, rappels, notifications)."""
+        text_lower = text.lower()
+        return any(pattern in text_lower for pattern in self.SYSTEM_MESSAGE_PATTERNS)
+
     def _get_client_notes(self, client_id: str, piano_id: str = None) -> List[Dict]:
         from datetime import date as date_type
         today_str = date_type.today().isoformat()  # "YYYY-MM-DD"
@@ -522,7 +543,7 @@ class ClientIntelligenceService:
                 if entry_date and entry_date >= today_str:
                     continue
                 text = f"{t.get('title', '')} {t.get('description', '')}".strip()
-                if text and text not in seen_texts:
+                if text and text not in seen_texts and not self._is_system_message(text):
                     seen_texts.add(text)
                     notes.append({
                         'date': entry_date,
@@ -544,7 +565,7 @@ class ClientIntelligenceService:
                     if entry_date and entry_date >= today_str:
                         continue
                     text = f"{t.get('title', '')} {t.get('description', '')}".strip()
-                    if text and text not in seen_texts:
+                    if text and text not in seen_texts and not self._is_system_message(text):
                         seen_texts.add(text)
                         notes.append({
                             'date': entry_date,
@@ -566,7 +587,7 @@ class ClientIntelligenceService:
                 if appt_date and appt_date[:10] >= today_str:
                     continue
                 text = f"{a.get('title', '')} {a.get('description', '')} {a.get('notes', '')}".strip()
-                if text and text not in seen_texts:
+                if text and text not in seen_texts and not self._is_system_message(text):
                     seen_texts.add(text)
                     notes.append({
                         'date': appt_date,
