@@ -129,9 +129,9 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {confidence_score < 0.5 && (
-              <span className="bg-yellow-400 text-yellow-900 text-xs px-2 py-1 rounded-full">
-                Donnees limitees
+            {!client_since && (
+              <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full">
+                Premier RV
               </span>
             )}
           </div>
@@ -162,17 +162,23 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
         )}
 
         {/* Piano */}
-        {piano?.make && (
+        {(piano?.make || piano?.type) && (
           <div className="flex items-start gap-2">
             <span className="text-xl">🎹</span>
             <div>
               <div className="font-medium text-gray-900">
-                {piano.make} {piano.model}
+                {piano.make && piano.make.toLowerCase() !== 'unknown'
+                  ? `${piano.make} ${piano.model || ''}`
+                  : piano.type === 'UPRIGHT' ? 'Piano droit'
+                  : piano.type === 'GRAND' ? 'Piano à queue'
+                  : piano.type === 'BABY_GRAND' ? 'Petit queue'
+                  : 'Piano'}
                 {piano.year > 0 && <span className="text-gray-500 ml-1">({piano.year})</span>}
               </div>
               {piano.age_years > 0 && (
                 <div className="text-sm text-gray-500">
-                  {piano.age_years} ans {piano.type && `\u00B7 ${piano.type}`}
+                  {piano.age_years} ans
+                  {piano.type && piano.make && piano.make.toLowerCase() !== 'unknown' && ` \u00B7 ${piano.type}`}
                 </div>
               )}
             </div>
@@ -244,9 +250,8 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               Profil client
             </h4>
             <div className="space-y-1 text-sm">
-              {profile?.language && (
+              {profile?.language && profile.language !== 'FR' && (
                 <div>Langue: <span className="font-medium">{
-                  profile.language === 'FR' ? 'Francais' :
                   profile.language === 'EN' ? 'Anglais' : 'Bilingue'
                 }</span></div>
               )}
