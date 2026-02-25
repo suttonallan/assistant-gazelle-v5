@@ -110,7 +110,8 @@ function App() {
   }, [institutionsDropdownOpen])
 
   // Déterminer le rôle effectif (simulé ou réel)
-  const effectiveRole = simulatedRole || getUserRole(currentUser?.email)
+  // Le fallback currentUser.role est utilisé pour les techniciens temporaires VDI (pas d'email dans ROLES)
+  const effectiveRole = simulatedRole || getUserRole(currentUser?.email, currentUser?.role)
 
   // Fermer le dropdown Institutions quand le rôle change
   useEffect(() => {
@@ -309,6 +310,18 @@ function App() {
             <MaJournee currentUser={effectiveUser} />
           </ErrorBoundary>
         )
+      case 'technician_vdi':
+        // Techniciens temporaires — accès Vincent-d'Indy uniquement (vue technicien)
+        return (
+          <ErrorBoundary componentName="Vincent d'Indy (Technicien)">
+            <VincentDIndyDashboard
+              currentUser={effectiveUser}
+              initialView="technicien"
+              hideNickView={true}
+              hideLocationSelector={true}
+            />
+          </ErrorBoundary>
+        )
       case 'admin':
       default:
         // Dashboard admin unifié V6
@@ -398,9 +411,19 @@ function App() {
             </div>
 
             {/* Navigation conditionnelle par rôle */}
-            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe') && (
+            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe' || effectiveRole === 'technician_vdi') && (
               <nav className="flex gap-2">
-                {effectiveRole === 'nick' ? (
+                {effectiveRole === 'technician_vdi' ? (
+                  <>
+                    {/* Technicien temporaire VDI — bouton unique */}
+                    <button
+                      className="px-4 py-2 text-sm rounded-lg bg-blue-100 text-blue-700 font-medium"
+                      disabled
+                    >
+                      🎹 Vincent d'Indy
+                    </button>
+                  </>
+                ) : effectiveRole === 'nick' ? (
                   <>
                     {/* Inventaire - Nick */}
                     <button

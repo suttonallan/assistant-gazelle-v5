@@ -54,35 +54,51 @@ export const ROLES = {
   },
 
   margot: {
-    name: 'Margot (Assistante)',
+    name: 'Margot (Assistante + Technicienne)',
     email: 'margotcharignon@gmail.com',
     gazelleId: 'usr_bbt59aCUqUaDWA8n', // Margot Charignon dans Gazelle
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier les quantités
       'view_tours', // Peut voir les tournées
-      'use_assistant' // Margot peut utiliser l'assistant
+      'use_assistant', // Margot peut utiliser l'assistant
+      'edit_vdi' // Peut entrer des notes sur les pianos VD
     ],
-    dashboards: ['inventaire', 'tournees']
+    dashboards: ['inventaire', 'tournees', 'vincent-dindy']
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TECHNICIENS TEMPORAIRES — Accès Vincent-d'Indy uniquement
+  // Utilisé pour les weekends/événements avec techniciens supplémentaires
+  // ═══════════════════════════════════════════════════════════════════
+  technician_vdi: {
+    name: 'Technicien VDI (Temporaire)',
+    email: null, // Pas d'email — identifié par nom dans LoginScreen
+    gazelleId: null,
+    permissions: [
+      'edit_vdi' // Peut entrer des notes sur les pianos VD uniquement
+    ],
+    dashboards: ['vincent-dindy']
   }
 }
 
 /**
- * Détecte le rôle selon l'email de l'utilisateur
+ * Détecte le rôle selon l'email de l'utilisateur.
+ * Si l'email n'est pas trouvé dans ROLES, utilise le fallbackRole (ex: depuis LoginScreen).
  */
-export function getUserRole(userEmail) {
-  if (!userEmail) return 'admin' // Par défaut
+export function getUserRole(userEmail, fallbackRole = null) {
+  if (!userEmail) return fallbackRole || 'admin'
 
   const email = userEmail.toLowerCase()
 
   // Chercher le rôle correspondant
   for (const [roleName, roleConfig] of Object.entries(ROLES)) {
-    if (roleConfig.email.toLowerCase() === email) {
+    if (roleConfig.email && roleConfig.email.toLowerCase() === email) {
       return roleName
     }
   }
 
-  return 'admin' // Par défaut si non trouvé
+  return fallbackRole || 'admin'
 }
 
 /**
