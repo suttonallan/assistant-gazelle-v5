@@ -628,40 +628,36 @@ class ClientIntelligenceService:
 
             entries = response.json()
 
-            # Patterns de texte système à ignorer (pas de contenu utile)
+            # Texte générique à remplacer par "Soumission" (garder la date, c'est l'info utile)
             estimate_noise = [
                 'estimate created', 'devis créé', 'soumission créée',
                 'estimate sent', 'devis envoyé', 'soumission envoyée',
                 'estimate #', 'devis #', 'soumission #',
-                'estimation #',  # Format français avec accent
+                'estimation #',
                 'created for', 'sent to', 'envoyé à',
             ]
 
             items = []
             seen_estimate_ids = set()
             for entry in entries:
-                # Préférer description (contenu riche), puis title
-                text = entry.get('description') or entry.get('title') or ''
-                text = text.strip()
-
-                # Ignorer les entrées vides ou trop courtes
-                if not text or len(text) < 15:
-                    continue
-
-                # Ignorer les messages système (créations, envois)
-                text_lower = text.lower()
-                if any(noise in text_lower for noise in estimate_noise):
-                    continue
-
                 # Dédupliquer par estimate_id
                 est_id = entry.get('estimate_id')
                 if est_id in seen_estimate_ids:
                     continue
                 seen_estimate_ids.add(est_id)
 
+                # Préférer description (contenu riche), puis title
+                text = (entry.get('description') or entry.get('title') or '').strip()
+
+                # Si le texte est juste un message système, garder l'entrée mais
+                # remplacer par "Soumission" — la DATE est l'info utile
+                text_lower = (text or '').lower()
+                if not text or len(text) < 15 or any(noise in text_lower for noise in estimate_noise):
+                    text = 'Soumission'
+
                 items.append({
                     'date': (entry.get('occurred_at') or '')[:10],
-                    'text': text[:300],  # Limiter la longueur
+                    'text': text[:300],
                     'estimate_id': est_id,
                 })
             return items
