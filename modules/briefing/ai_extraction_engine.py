@@ -633,6 +633,19 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
         # Stationnement
         'stationnement',
         'parking',
+        # Exports / Mailchimp
+        'exporté vers mailchimp',
+        'exported to mailchimp',
+        'exporter depuis gazelle',
+        # Estimations / devis (références)
+        'estimation #',
+        'estimate #',
+        # Auto-confirmations client
+        'self-confirmed',
+        'self confirmed',
+        'a confirmé en ligne',
+        'confirmed online',
+        'confirmed appointment for',
     ]
 
     history = []
@@ -665,6 +678,18 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
 
         # Ignorer si "None" est le contenu principal
         if text.replace('None', '').strip() == '' or text.startswith('None '):
+            continue
+
+        # Ignorer les entrées qui sont juste un nom (prénom + nom, 2-3 mots max, pas de contenu technique)
+        words = text_lower.split()
+        if len(words) <= 3 and not any(c.isdigit() for c in text) and text_lower.startswith(('appointment ', 'rendez-vous ')):
+            continue
+        # Rejeter "Prénom Nom" seul (aucune valeur technique)
+        if len(words) <= 3 and all(w[0].isupper() for w in text.split() if w) and not any(c.isdigit() for c in text):
+            continue
+
+        # Ignorer "Mesure du piano prise" seule (redondant, les données sont dans piano_info)
+        if text_lower.startswith('mesure du piano prise') and len(text) < 40:
             continue
 
         seen_dates.add(date)

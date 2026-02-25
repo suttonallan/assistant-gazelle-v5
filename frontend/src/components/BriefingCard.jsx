@@ -36,8 +36,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
 
   // ── NIVEAU 1: Icônes rapides ──
   const profileIcons = []
-  if (profile?.language === 'EN') profileIcons.push({ icon: '🇬🇧', label: 'Anglophone' })
-  if (profile?.language === 'BI') profileIcons.push({ icon: '🇬🇧🇫🇷', label: 'Bilingue' })
+  if (profile?.language === 'EN' || profile?.language === 'BI') profileIcons.push({ icon: '🇬🇧', label: 'Anglophone' })
   if (profile?.pets?.length > 0) profileIcons.push({ icon: '🐕', label: profile.pets.join(', ') })
   if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟', label: 'Enlever chaussures' })
   if (profile?.courtesies?.includes('appeler avant')) profileIcons.push({ icon: '📞', label: 'Appeler avant' })
@@ -162,28 +161,31 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
         )}
 
         {/* Piano */}
-        {(piano?.make || piano?.type) && (
-          <div className="flex items-start gap-2">
-            <span className="text-xl">🎹</span>
-            <div>
-              <div className="font-medium text-gray-900">
-                {piano.make && piano.make.toLowerCase() !== 'unknown'
-                  ? `${piano.make} ${piano.model || ''}`
-                  : piano.type === 'UPRIGHT' ? 'Piano droit'
-                  : piano.type === 'GRAND' ? 'Piano à queue'
-                  : piano.type === 'BABY_GRAND' ? 'Petit queue'
-                  : 'Piano'}
-                {piano.year > 0 && <span className="text-gray-500 ml-1">({piano.year})</span>}
-              </div>
-              {piano.age_years > 0 && (
-                <div className="text-sm text-gray-500">
-                  {piano.age_years} ans
-                  {piano.type && piano.make && piano.make.toLowerCase() !== 'unknown' && ` \u00B7 ${piano.type}`}
+        {(piano?.make || piano?.type) && (() => {
+          const hasMake = piano.make && piano.make.toLowerCase() !== 'unknown'
+          const modelStr = piano.model && piano.model.toLowerCase() !== 'none' ? piano.model : ''
+          const typeLabel = piano.type === 'UPRIGHT' ? 'droit'
+            : piano.type === 'GRAND' ? 'à queue'
+            : piano.type === 'BABY_GRAND' ? 'petit queue' : ''
+          // Ex: "Yamaha U1 droit" ou "Piano droit" si marque inconnue
+          const pianoLabel = hasMake
+            ? `${piano.make}${modelStr ? ' ' + modelStr : ''}${typeLabel ? ' ' + typeLabel : ''}`
+            : `Piano ${typeLabel || ''}`
+          return (
+            <div className="flex items-start gap-2">
+              <span className="text-xl">🎹</span>
+              <div>
+                <div className="font-medium text-gray-900">
+                  {pianoLabel.trim()}
+                  {piano.year > 0 && <span className="text-gray-500 ml-1">({piano.year})</span>}
                 </div>
-              )}
+                {piano.age_years > 0 && (
+                  <div className="text-sm text-gray-500">{piano.age_years} ans</div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Warnings (toujours visibles) */}
         {hasWarnings && (
@@ -250,10 +252,8 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               Profil client
             </h4>
             <div className="space-y-1 text-sm">
-              {profile?.language && profile.language !== 'FR' && (
-                <div>Langue: <span className="font-medium">{
-                  profile.language === 'EN' ? 'Anglais' : 'Bilingue'
-                }</span></div>
+              {(profile?.language === 'EN' || profile?.language === 'BI') && (
+                <div>Langue: <span className="font-medium">Anglais</span></div>
               )}
               {profile?.pets?.length > 0 && (
                 <div>Animaux: <span className="font-medium">{profile.pets.join(', ')}</span></div>

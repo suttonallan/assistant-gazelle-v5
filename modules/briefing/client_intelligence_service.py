@@ -633,6 +633,7 @@ class ClientIntelligenceService:
                 'estimate created', 'devis créé', 'soumission créée',
                 'estimate sent', 'devis envoyé', 'soumission envoyée',
                 'estimate #', 'devis #', 'soumission #',
+                'estimation #',  # Format français avec accent
                 'created for', 'sent to', 'envoyé à',
             ]
 
