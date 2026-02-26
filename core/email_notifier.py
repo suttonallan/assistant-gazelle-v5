@@ -15,7 +15,7 @@ class EmailNotifier:
 
     # Configuration des destinataires (chargés depuis .env)
     RECIPIENTS = {
-        'nicolas': os.getenv('EMAIL_NICOLAS', 'nicolas@example.com'),
+        'nicolas': os.getenv('EMAIL_NICOLAS', 'nlessard@piano-tek.com'),
         'allan': os.getenv('EMAIL_ALLAN', 'allan@example.com'),
         'louise': os.getenv('EMAIL_LOUISE', 'louise@example.com'),
     }

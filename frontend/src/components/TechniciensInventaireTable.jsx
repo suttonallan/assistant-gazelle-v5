@@ -85,7 +85,7 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
         'Nicolas': 'nicolas',
         'Nick': 'nicolas',
         'nicolas': 'nicolas',
-        'nicolas@example.com': 'nicolas',
+        'nlessard@piano-tek.com': 'nicolas',
         'Allan': 'allan',
         'allan': 'allan',
         'allan@example.com': 'allan',

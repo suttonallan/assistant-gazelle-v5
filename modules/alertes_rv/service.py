@@ -20,7 +20,7 @@ ASSISTANTE_GAZELLE_ID = "usr_assistante"
 
 # Configuration des emails des techniciens (depuis .env)
 TECHNICIAN_EMAILS = {
-    'nicolas': os.getenv('EMAIL_NICOLAS', 'nicolas@pianotekinc.com'),
+    'nicolas': os.getenv('EMAIL_NICOLAS', 'nlessard@piano-tek.com'),
     'allan': os.getenv('EMAIL_ALLAN', 'asutton@piano-tek.com'),
     'jp': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
     'jean-philippe': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
@@ -60,11 +60,11 @@ class UnconfirmedAlertsService:
         """
         if not tech_info:
             # Fallback: Nicolas par défaut
-            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nicolas@pianotekinc.com'))
-        
+            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nlessard@piano-tek.com'))
+
         tech_name = tech_info.get("name", "").lower().strip()
         tech_email = tech_info.get("email", "")
-        
+
         # Identification par nom
         if 'nicolas' in tech_name or 'nick' in tech_name:
             return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', tech_email))
@@ -75,7 +75,7 @@ class UnconfirmedAlertsService:
         else:
             # Fallback: Nicolas par défaut si non reconnu
             print(f"⚠️ Technicien non reconnu: {tech_name} - routage vers Nicolas par défaut")
-            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nicolas@pianotekinc.com'))
+            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nlessard@piano-tek.com'))
 
     def _format_urgence_message(
         self,
