@@ -540,7 +540,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (piano.status === 'top') return 'bg-orange-200';
 
     // Priorité 3: À faire (jaune)
-    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
+    if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
 
