@@ -163,6 +163,7 @@ export function getUserPermissions(currentUser) {
     canViewAll: hasWildcard || roleConfig?.permissions?.includes('view_inventory'),
     canManageTours: hasWildcard || roleConfig?.permissions?.includes('create_tours') || roleConfig?.permissions?.includes('view_tours'),
     canUseAssistant: hasWildcard || roleConfig?.permissions?.includes('use_assistant'),
+    canUseSmartQueries: hasWildcard || ['admin', 'louise', 'margot'].includes(effectiveRole),
     permissions: roleConfig?.permissions || []
   }
 }
