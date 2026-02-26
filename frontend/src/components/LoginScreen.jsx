@@ -47,14 +47,12 @@ const USERS = [
   },
   // ═══════════════════════════════════════════════════════════════════
   // TECHNICIENS TEMPORAIRES — Weekend VDI
-  // Pour ajouter un technicien: décommenter et remplir le prénom + PIN
   // Chaque technicien voit SEULEMENT la vue technicien Vincent-d'Indy
   // Ses notes sont identifiées par son nom dans updated_by
   // ═══════════════════════════════════════════════════════════════════
-  // { id: 6, name: 'PRENOM_1', email: 'tech1@vdi-weekend.local', role: 'technician_vdi', pin: '6346', gazelleId: null },
-  // { id: 7, name: 'PRENOM_2', email: 'tech2@vdi-weekend.local', role: 'technician_vdi', pin: '6347', gazelleId: null },
-  // { id: 8, name: 'PRENOM_3', email: 'tech3@vdi-weekend.local', role: 'technician_vdi', pin: '6348', gazelleId: null },
-  // { id: 9, name: 'PRENOM_4', email: 'tech4@vdi-weekend.local', role: 'technician_vdi', pin: '6349', gazelleId: null },
+  { id: 6, name: 'Alexandre', email: 'alexandre@vdi-weekend.local', role: 'technician_vdi', pin: '6346', gazelleId: null },
+  { id: 7, name: 'Nikolas', email: 'nikolas@vdi-weekend.local', role: 'technician_vdi', pin: '6347', gazelleId: null },
+  { id: 8, name: 'Guillaume', email: 'guillaume@vdi-weekend.local', role: 'technician_vdi', pin: '6348', gazelleId: null },
 ]
 
 export default function LoginScreen({ onLogin }) {
