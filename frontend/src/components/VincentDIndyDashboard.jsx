@@ -331,15 +331,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     // Cycle à 3 états : blanc → jaune (à faire) → ambre (Top) → blanc
     let newStatus;
+    let label;
     if (piano.status === 'normal' || !piano.status) {
-      newStatus = 'proposed'; // Blanc → Jaune (à faire)
+      newStatus = 'proposed';
+      label = 'À faire';
     } else if (piano.status === 'proposed') {
-      newStatus = 'top'; // Jaune → Ambre (Top priorité)
+      newStatus = 'top';
+      label = 'Top priorité';
     } else if (piano.status === 'top') {
-      newStatus = 'normal'; // Ambre → Blanc (reset)
+      newStatus = 'normal';
+      label = 'Normal';
     } else {
-      newStatus = 'normal'; // Tout autre état → Blanc
+      newStatus = 'normal';
+      label = 'Normal';
     }
+
+    if (!window.confirm(`Changer le statut de ${piano.local || piano.piano} à « ${label} » ?`)) return;
 
     // Mise à jour optimiste
     setPianos(pianos.map(p =>
