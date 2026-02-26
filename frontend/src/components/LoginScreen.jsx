@@ -50,9 +50,9 @@ const USERS = [
   // Chaque technicien voit SEULEMENT la vue technicien Vincent-d'Indy
   // Ses notes sont identifiées par son nom dans updated_by
   // ═══════════════════════════════════════════════════════════════════
-  { id: 6, name: 'Alexandre', email: 'alexandre@vdi-weekend.local', role: 'technician_vdi', pin: '6346', gazelleId: null },
-  { id: 7, name: 'Nikolas', email: 'nikolas@vdi-weekend.local', role: 'technician_vdi', pin: '6347', gazelleId: null },
-  { id: 8, name: 'Guillaume', email: 'guillaume@vdi-weekend.local', role: 'technician_vdi', pin: '6348', gazelleId: null },
+  { id: 6, name: 'Alexandre', email: 'alexandre.bourke@gmail.com', role: 'technician_vdi', pin: '6346', gazelleId: null },
+  { id: 7, name: 'Nikolas', email: 'nikolas.gaudreault@gmail.com', role: 'technician_vdi', pin: '6347', gazelleId: null },
+  { id: 8, name: 'Guillaume', email: 'guillaume@laccordeur.ca', role: 'technician_vdi', pin: '6348', gazelleId: null },
 ]
 
 export default function LoginScreen({ onLogin }) {
