@@ -146,10 +146,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         updated_by: currentUser?.email || currentUser?.name || 'Unknown'
       };
 
-      // Préfixer le champ travail avec [Nom] pour identifier l'auteur
+      // Préfixer le champ travail avec [INITIALES] pour identifier l'auteur
       if (updatesWithUser.travail !== undefined && updatesWithUser.travail.trim() !== '') {
-        const name = currentUser?.name || 'Unknown';
-        const prefix = `[${name}]`;
+        const initials = currentUser?.initials || currentUser?.name?.[0] || '?';
+        const prefix = `[${initials}]`;
         if (!updatesWithUser.travail.startsWith(prefix)) {
           // Remplacer un éventuel préfixe existant d'un autre utilisateur
           const textWithoutPrefix = updatesWithUser.travail.replace(/^\[.+?\]\s*/, '');
