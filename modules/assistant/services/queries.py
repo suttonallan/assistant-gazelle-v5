@@ -27,7 +27,7 @@ class GazelleQueries:
         # Mapping email -> ID technicien Gazelle (usr_xxx)
         # Ces IDs correspondent aux users dans Gazelle
         self.technicien_mapping = {
-            'nicolas@pianotekinc.com': 'usr_HcCiFk7o0vZ9xAI0',  # Nick
+            'nlessard@piano-tek.com': 'usr_HcCiFk7o0vZ9xAI0',   # Nick
             'jp@pianotekinc.com': 'usr_ReUSmIJmBF86ilY1',        # Jean-Philippe
             'asutton@piano-tek.com': 'usr_ofYggsCDt2JAVeNP',     # Allan (admin ET technicien)
             'allan@pianotekinc.com': 'usr_ofYggsCDt2JAVeNP'      # Allan

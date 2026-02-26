@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, AlertTriangle, Calendar, Database, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { Bell, AlertTriangle, Calendar, Database, CheckCircle, XCircle, Clock, Mail } from 'lucide-react'
 
 /**
  * Tableau de Bord Unifié
@@ -12,6 +12,7 @@ import { Bell, AlertTriangle, Calendar, Database, CheckCircle, XCircle, Clock } 
 export default function TableauDeBord({ currentUser }) {
   const [unconfirmedAppointments, setUnconfirmedAppointments] = useState([])
   const [maintenanceAlerts, setMaintenanceAlerts] = useState([])
+  const [sentAlerts, setSentAlerts] = useState([])
   const [pianoHistory, setPianoHistory] = useState([])
   const [systemStatus, setSystemStatus] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -35,6 +36,7 @@ export default function TableauDeBord({ currentUser }) {
       await Promise.all([
         loadUnconfirmedAppointments(),
         loadMaintenanceAlerts(),
+        loadSentAlerts(),
         loadPianoHistory(),
         loadSystemStatus()
       ])
@@ -71,6 +73,20 @@ export default function TableauDeBord({ currentUser }) {
       }
     } catch (err) {
       console.error('[TableauDeBord] Erreur chargement maintenance:', err)
+    }
+  }
+
+  const loadSentAlerts = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/alertes-rv/history?limit=10`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSentAlerts(data.alerts || data || [])
+      }
+    } catch (err) {
+      console.error('[TableauDeBord] Erreur chargement alertes envoyées:', err)
     }
   }
 
@@ -292,6 +308,43 @@ export default function TableauDeBord({ currentUser }) {
           </div>
         </div>
       </div>
+
+      {/* Emails d'alerte envoyés */}
+      {sentAlerts.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <Mail className="h-5 w-5 text-blue-600" />
+            Emails d'alerte envoyés
+          </h2>
+          <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+            <div className="divide-y divide-gray-100">
+              {sentAlerts.slice(0, 8).map((alert, index) => (
+                <div key={index} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                  <div className="flex items-center gap-3">
+                    {alert.status === 'sent' ? (
+                      <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    )}
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">
+                        {alert.technician_name || 'Tech'}
+                      </span>
+                      <span className="text-sm text-gray-500 mx-1">—</span>
+                      <span className="text-sm text-gray-700">
+                        {alert.client_name || alert.title || 'RV non confirmé'}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-500 flex-shrink-0">
+                    {formatDate(alert.sent_at || alert.created_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Section Historique Pianos */}
       <div className="mb-8">

@@ -617,17 +617,20 @@ async def list_requests(
     # Inclure aussi "À attribuer" (usr_HihJsEgkmpTEziJo) si présent dans Gazelle
     # Mettre à jour le statut à CREATED_IN_GAZELLE si le RV existe dans Gazelle
     # Vérifier les incohérences entre PDA et Gazelle
+    # Extraire le stationnement depuis la description Gazelle
     appointment_ids = [r.get("appointment_id") for r in requests_data if r.get("appointment_id")]
     if appointment_ids:
         try:
-            # Récupérer les RV Gazelle correspondants
+            # Récupérer les RV Gazelle correspondants (inclure description/notes pour parking)
             gazelle_appts = storage.client.table('gazelle_appointments')\
-                .select('external_id,technicien')\
+                .select('external_id,technicien,description,notes')\
                 .in_('external_id', appointment_ids)\
                 .execute()
-            
+
             # Créer un index par external_id (inclure "À attribuer" aussi)
             tech_by_appt = {apt.get('external_id'): apt.get('technicien') for apt in (gazelle_appts.data or []) if apt.get('technicien')}
+            # Index complet des RV Gazelle par external_id (pour extraction parking)
+            appt_by_id = {apt.get('external_id'): apt for apt in (gazelle_appts.data or [])}
             # Liste des appointment_id trouvés dans Gazelle (même sans technicien)
             found_appt_ids = {apt.get('external_id') for apt in (gazelle_appts.data or [])}
             
@@ -676,6 +679,17 @@ async def list_requests(
                         else:
                             # Déjà synchronisé, pas besoin de mettre à jour
                             request["technician_from_gazelle"] = True
+
+                    # Extraire le stationnement depuis la description Gazelle si pas déjà rempli
+                    if not request.get("parking"):
+                        from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
+                        gazelle_apt_data = appt_by_id.get(appointment_id, {})
+                        for field in ('description', 'notes'):
+                            text = gazelle_apt_data.get(field) or ''
+                            parking_val = extract_parking_amount(text)
+                            if parking_val:
+                                request["parking"] = parking_val
+                                break
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     
@@ -1506,45 +1520,60 @@ async def check_completed_requests():
         
         # Mettre à jour les statuts ET les techniciens en base de données
         updated_count = 0
-        
+
         # Mettre à jour les demandes avec RV complété (déjà liées)
         for item in found_completed:
-            success = sync_service._update_request_status(item['request_id'], 'COMPLETED')
+            # Extraire le stationnement depuis la description Gazelle
+            gazelle_apt = gazelle_by_id.get(item['appointment_id'])
+            parking = sync_service._extract_parking_from_appointment(gazelle_apt) if gazelle_apt else None
+            if parking:
+                logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
+            success = sync_service._update_request_status(item['request_id'], 'COMPLETED', parking=parking)
             if success:
                 updated_count += 1
-        
+
         # Lier et mettre à jour les demandes avec RV complété (pas liées)
         for item in found_unlinked:
             apt_technician = None
-            # Récupérer le technicien du RV
+            parking = None
+            # Récupérer le technicien et le stationnement du RV
             gazelle_apt = gazelle_by_id.get(item['appointment_id'])
             if gazelle_apt:
                 apt_technician = gazelle_apt.get('technicien')
-            
+                parking = sync_service._extract_parking_from_appointment(gazelle_apt)
+                if parking:
+                    logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
+
             link_success = sync_service._link_request_to_appointment(
                 item['request_id'],
                 item['appointment_id'],
-                apt_technician
+                apt_technician,
+                parking=parking
             )
-            
+
             if link_success:
-                status_success = sync_service._update_request_status(item['request_id'], 'COMPLETED')
+                status_success = sync_service._update_request_status(item['request_id'], 'COMPLETED', parking=parking)
                 if status_success:
                     updated_count += 1
-        
+
         # Lier et mettre à jour les demandes avec RV trouvé mais pas "créé gazelle"
         for item in found_not_created:
             apt_technician = None
+            parking = None
             gazelle_apt = gazelle_by_id.get(item['appointment_id'])
             if gazelle_apt:
                 apt_technician = gazelle_apt.get('technicien')
-            
+                parking = sync_service._extract_parking_from_appointment(gazelle_apt)
+                if parking:
+                    logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
+
             link_success = sync_service._link_request_to_appointment(
                 item['request_id'],
                 item['appointment_id'],
-                apt_technician
+                apt_technician,
+                parking=parking
             )
-            
+
             if link_success:
                 updated_count += 1
         

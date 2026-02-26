@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from modules.assistant.services.parser import get_parser, QueryType
 from modules.assistant.services.queries import get_queries
 from modules.assistant.services.vector_search import get_vector_search
+from modules.assistant.services.smart_query_engine import get_smart_engine
 
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -98,40 +99,68 @@ async def chat(request: ChatRequest):
                 vector_search_used=False
             )
 
-        # 3. Cas spécial: Requête inconnue -> Utiliser vector search
-        # Seuil réduit à 0.1 pour accepter plus de requêtes en langage naturel
+        # 3. Cas spécial: Requête inconnue -> Smart Query Engine (apprentissage)
+        # puis fallback sur vector search si indisponible
         if query_type == QueryType.UNKNOWN or confidence < 0.1:
-            vector_search = get_vector_search()
-            results = vector_search.search(question, top_k=3)
+            # 3a. Essayer le Smart Query Engine (recettes apprises + LLM)
+            try:
+                smart_engine = get_smart_engine()
+                smart_result = smart_engine.answer(question, user_id=request.user_id)
 
-            if results:
-                # Formater la réponse avec les résultats vectoriels
-                answer = _format_vector_response(results)
-
-                return ChatResponse(
-                    question=question,
-                    answer=answer,
-                    query_type="vector_search",
-                    confidence=results[0]['similarity'] if results else 0.0,
-                    vector_search_used=True,
-                    vector_results=[
-                        {
-                            'text': r['text'][:200] + '...' if len(r['text']) > 200 else r['text'],
-                            'source': r['source'],
-                            'similarity': r['similarity']
+                if smart_result.get('source') not in ('unavailable', 'error', 'llm_failed'):
+                    source_label = "recette apprise" if smart_result['source'] == 'learned' else "analyse IA"
+                    return ChatResponse(
+                        question=question,
+                        answer=smart_result['answer'],
+                        query_type="smart_query",
+                        confidence=0.8 if smart_result['source'] == 'learned' else 0.6,
+                        data=smart_result.get('data'),
+                        vector_search_used=False,
+                        structured_data={
+                            'smart_query': {
+                                'source': smart_result['source'],
+                                'recipe_id': smart_result.get('recipe_id'),
+                                'count': smart_result.get('count', 0)
+                            }
                         }
-                        for r in results
-                    ] if results else []
-                )
-            else:
-                return ChatResponse(
-                    question=question,
-                    answer="Je n'ai pas trouvé d'information pertinente. Essayez de reformuler votre question ou utilisez `.aide` pour voir les commandes disponibles.",
-                    query_type="unknown",
-                    confidence=0.0,
-                    vector_search_used=True,
-                    vector_results=[]
-                )
+                    )
+            except Exception as smart_err:
+                print(f"⚠️  Smart Query Engine error: {smart_err}")
+
+            # 3b. Fallback: vector search
+            try:
+                vector_search = get_vector_search()
+                results = vector_search.search(question, top_k=3)
+
+                if results:
+                    answer = _format_vector_response(results)
+
+                    return ChatResponse(
+                        question=question,
+                        answer=answer,
+                        query_type="vector_search",
+                        confidence=results[0]['similarity'] if results else 0.0,
+                        vector_search_used=True,
+                        vector_results=[
+                            {
+                                'text': r['text'][:200] + '...' if len(r['text']) > 200 else r['text'],
+                                'source': r['source'],
+                                'similarity': r['similarity']
+                            }
+                            for r in results
+                        ] if results else []
+                    )
+            except Exception as vec_err:
+                print(f"⚠️  Vector search error: {vec_err}")
+
+            return ChatResponse(
+                question=question,
+                answer="Je n'ai pas trouvé d'information pertinente. Essayez de reformuler votre question ou utilisez `.aide` pour voir les commandes disponibles.",
+                query_type="unknown",
+                confidence=0.0,
+                vector_search_used=False,
+                vector_results=[]
+            )
 
         # 4. Exécuter la requête
         queries = get_queries()
@@ -662,6 +691,50 @@ async def add_client_feedback(client_id: str, payload: AdminFeedbackPayload):
         raise
     except Exception as e:
         print(f"❌ Erreur add_client_feedback {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/smart-recipes")
+async def list_smart_recipes():
+    """
+    Liste toutes les recettes apprises par le Smart Query Engine.
+    Utile pour l'admin pour voir/gérer les questions apprises.
+    """
+    try:
+        engine = get_smart_engine()
+        recipes = engine.list_recipes()
+        return {
+            "count": len(recipes),
+            "recipes": [
+                {
+                    "id": r.get("id"),
+                    "question": r.get("original_question"),
+                    "keywords": r.get("normalized_keywords", []),
+                    "category": r.get("category"),
+                    "times_used": r.get("times_used", 0),
+                    "last_used": r.get("last_used_at"),
+                    "created_at": r.get("created_at"),
+                    "created_by": r.get("created_by"),
+                }
+                for r in recipes
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/smart-recipes/{recipe_id}")
+async def delete_smart_recipe(recipe_id: int):
+    """Supprime une recette apprise."""
+    try:
+        engine = get_smart_engine()
+        success = engine.delete_recipe(recipe_id)
+        if success:
+            return {"success": True, "message": f"Recette {recipe_id} supprimée"}
+        raise HTTPException(status_code=404, detail="Recette non trouvée")
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

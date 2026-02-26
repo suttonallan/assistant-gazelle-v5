@@ -146,6 +146,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         updated_by: currentUser?.email || currentUser?.name || 'Unknown'
       };
 
+      // Préfixer le champ travail avec [INITIALES] pour identifier l'auteur
+      if (updatesWithUser.travail !== undefined && updatesWithUser.travail.trim() !== '') {
+        const initials = currentUser?.initials || currentUser?.name?.[0] || '?';
+        const prefix = `[${initials}]`;
+        if (!updatesWithUser.travail.startsWith(prefix)) {
+          // Remplacer un éventuel préfixe existant d'un autre utilisateur
+          const textWithoutPrefix = updatesWithUser.travail.replace(/^\[.+?\]\s*/, '');
+          updatesWithUser.travail = `${prefix} ${textWithoutPrefix}`;
+        }
+      }
+
       // Utiliser l'institution dynamique au lieu de vincent-dindy hardcodé
       const response = await fetch(`${API_URL}/api/${institution}/pianos/${pianoId}`, {
         method: 'PUT',
@@ -320,15 +331,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     // Cycle à 3 états : blanc → jaune (à faire) → ambre (Top) → blanc
     let newStatus;
+    let label;
     if (piano.status === 'normal' || !piano.status) {
-      newStatus = 'proposed'; // Blanc → Jaune (à faire)
+      newStatus = 'proposed';
+      label = 'À faire';
     } else if (piano.status === 'proposed') {
-      newStatus = 'top'; // Jaune → Ambre (Top priorité)
+      newStatus = 'top';
+      label = 'Top priorité';
     } else if (piano.status === 'top') {
-      newStatus = 'normal'; // Ambre → Blanc (reset)
+      newStatus = 'normal';
+      label = 'Normal';
     } else {
-      newStatus = 'normal'; // Tout autre état → Blanc
+      newStatus = 'normal';
+      label = 'Normal';
     }
+
+    if (!window.confirm(`Changer le statut de ${piano.local || piano.piano} à « ${label} » ?`)) return;
 
     // Mise à jour optimiste
     setPianos(pianos.map(p =>
@@ -529,7 +547,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (piano.status === 'top') return 'bg-orange-200';
 
     // Priorité 3: À faire (jaune)
-    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
+    if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
 

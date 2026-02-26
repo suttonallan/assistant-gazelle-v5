@@ -348,7 +348,7 @@ export default function VDI_ManagementView({
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"># Série</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">À faire (Nick)</th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">Note</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                 Visible
               </th>

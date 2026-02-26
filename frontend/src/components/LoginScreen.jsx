@@ -8,6 +8,7 @@ const USERS = [
   {
     id: 1,
     name: 'Allan',
+    initials: 'AS',
     email: ROLES.admin.email,
     role: 'admin',
     pin: '6342',
@@ -16,6 +17,7 @@ const USERS = [
   {
     id: 2,
     name: 'Louise',
+    initials: 'L',
     email: ROLES.louise.email,
     role: 'admin',
     pin: '6343',
@@ -24,6 +26,7 @@ const USERS = [
   {
     id: 3,
     name: 'Nick',
+    initials: 'NL',
     email: ROLES.nick.email,
     role: 'technician',
     pin: '6344',
@@ -32,6 +35,7 @@ const USERS = [
   {
     id: 4,
     name: 'JP',
+    initials: 'JP',
     email: ROLES.jeanphilippe.email,
     role: 'technician',
     pin: '6345',
@@ -40,11 +44,20 @@ const USERS = [
   {
     id: 5,
     name: 'Margot',
+    initials: 'MC',
     email: ROLES.margot.email,
     role: 'assistant',
     pin: '6341',
     gazelleId: 'usr_bbt59aCUqUaDWA8n'  // Margot Charignon dans Gazelle
   },
+  // ═══════════════════════════════════════════════════════════════════
+  // TECHNICIENS TEMPORAIRES — Weekend VDI
+  // Chaque technicien voit SEULEMENT la vue technicien Vincent-d'Indy
+  // Ses notes sont identifiées par leurs initiales dans le champ travail
+  // ═══════════════════════════════════════════════════════════════════
+  { id: 6, name: 'Alexandre', initials: 'AB', email: 'alexandre.bourke@gmail.com', role: 'technician_vdi', pin: '6346', gazelleId: null },
+  { id: 7, name: 'Nikolas', initials: 'NG', email: 'nikolas.gaudreault@gmail.com', role: 'technician_vdi', pin: '6347', gazelleId: null },
+  { id: 8, name: 'Guillaume', initials: 'GL', email: 'guillaume@laccordeur.ca', role: 'technician_vdi', pin: '6348', gazelleId: null },
 ]
 
 export default function LoginScreen({ onLogin }) {
