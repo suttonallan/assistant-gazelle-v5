@@ -718,6 +718,7 @@ function App() {
                 <option value="louise">Louise</option>
                 <option value="margot">Margot</option>
                 <option value="jeanphilippe">Jean-Philippe</option>
+                <option value="technician_vdi">Tech VDI (temporaire)</option>
               </select>
             )}
 
