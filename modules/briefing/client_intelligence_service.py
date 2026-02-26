@@ -166,6 +166,7 @@ class NarrativeBriefingService:
             asyncio.to_thread(self._batch_fetch_timeline, client_ids, piano_ids),
             asyncio.to_thread(self._batch_fetch_followups, client_ids),
             asyncio.to_thread(self._batch_fetch_estimates, client_ids, piano_ids),
+            asyncio.to_thread(self._batch_fetch_past_appointments, client_ids),
         ]
         # Only fetch all-day appointments if we need collaboration detection
         if technician_id:
@@ -180,7 +181,8 @@ class NarrativeBriefingService:
         timeline_data = results[2]
         followups_data = results[3]
         estimates_data = results[4]
-        all_day_appts = results[5] if technician_id else []
+        past_appts_data = results[5]
+        all_day_appts = results[6] if technician_id else []
 
         # 4. Generate narrative briefings in PARALLEL
         gen_tasks = []
@@ -193,6 +195,7 @@ class NarrativeBriefingService:
                 client=clients_data.get(cid, {}),
                 pianos=pianos_data.get(cid, []),
                 timeline=timeline_data.get(cid, []),
+                past_appointments=past_appts_data.get(cid, []),
                 followups=followups_data.get(cid, []),
                 estimates=estimates_data.get(cid, []),
                 technician_id=technician_id,
@@ -208,6 +211,7 @@ class NarrativeBriefingService:
 
     async def _generate_one_briefing(self, appt: Dict, client: Dict,
                                       pianos: List[Dict], timeline: List[Dict],
+                                      past_appointments: List[Dict],
                                       followups: List[Dict], estimates: List[Dict],
                                       technician_id: str, all_day_appts: List[Dict]) -> Optional[Dict]:
         """Generate a narrative briefing for ONE appointment."""
@@ -276,6 +280,7 @@ class NarrativeBriefingService:
                     client_since=client_since or "nouveau client",
                     piano_summary=piano_label or "Piano non spécifié",
                     timeline=timeline,
+                    past_appointments=past_appointments,
                     appt=appt,
                     feedback_notes=self.feedback_rules.get(cid, []),
                 )
@@ -325,6 +330,7 @@ class NarrativeBriefingService:
 
     def _call_narrative_ai(self, client_name: str, client_since: str,
                             piano_summary: str, timeline: List[Dict],
+                            past_appointments: List[Dict],
                             appt: Dict, feedback_notes: List[str]) -> tuple:
         """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
         today_str = date_type.today().isoformat()
@@ -351,6 +357,24 @@ class NarrativeBriefingService:
 
             if len(timeline_lines) >= 15:
                 break
+
+        # Add past appointments (contain rich descriptions/notes not in timeline)
+        for pa in past_appointments[:10]:
+            pa_date = (pa.get('appointment_date', '') or '')[:10]
+            if pa_date >= today_str:
+                continue
+            desc = (pa.get('description', '') or '').strip()
+            notes = (pa.get('notes', '') or '').strip()
+            # Only add if there's actual content beyond the client name
+            text = f"{desc} {notes}".strip()
+            if not text or len(text) < 15 or text == client_name:
+                continue
+            tech_name = resolve_technician_name(pa.get('technicien', ''))
+            timeline_lines.append(f"[{pa_date}] ({tech_name or 'Tech'}, RV) {text[:300]}")
+
+        # Sort by date descending and keep top 15
+        timeline_lines.sort(key=lambda l: l[:12], reverse=True)
+        timeline_lines = timeline_lines[:15]
 
         timeline_summary = "\n".join(timeline_lines) if timeline_lines else "(Aucun historique)"
 
@@ -533,6 +557,26 @@ class NarrativeBriefingService:
                                           order_by='appointment_time.asc')
         except Exception:
             return []
+
+    def _batch_fetch_past_appointments(self, client_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch past appointments for all clients (contain rich descriptions/notes).
+        Returns {client_id: [appointments]}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = (
+            f"{self.storage.api_url}/gazelle_appointments?"
+            f"client_external_id=in.({ids_csv})"
+            f"&order=appointment_date.desc"
+            f"&limit=50"
+        )
+        data = self._supabase_get(url)
+        result = {}
+        for a in data:
+            cid = a.get('client_external_id')
+            if cid:
+                result.setdefault(cid, []).append(a)
+        return result
 
     def _batch_fetch_clients(self, client_ids: List[str]) -> Dict[str, Dict]:
         """Fetch all clients in one query. Returns {client_id: client_data}."""
@@ -735,6 +779,10 @@ class NarrativeBriefingService:
             self._batch_fetch_estimates, [client_external_id], []
         )
 
+        past_appts = await asyncio.to_thread(
+            self._batch_fetch_past_appointments, [client_external_id]
+        )
+
         fake_appt = {
             'client_external_id': client_external_id,
             'piano_external_id': pianos[0].get('external_id') if pianos else None,
@@ -751,6 +799,7 @@ class NarrativeBriefingService:
             client=client,
             pianos=pianos or [],
             timeline=timeline.get(client_external_id, []),
+            past_appointments=past_appts.get(client_external_id, []),
             followups=followups.get(client_external_id, []),
             estimates=estimates.get(client_external_id, []),
             technician_id=None,
