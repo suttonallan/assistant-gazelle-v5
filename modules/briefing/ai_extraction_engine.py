@@ -557,6 +557,50 @@ def resolve_technician_name(user_id: str) -> str:
     return name or user_id or ""
 
 
+def _clean_service_summary(text: str) -> str:
+    """
+    Extrait le travail réel d'un texte brut Gazelle.
+
+    Le texte Gazelle contient typiquement:
+      {Nom client} {Piano type} {Marque Modèle Année, Série, Emplacement}.
+      * Service description - Xh (prix$)
+      {Piano type répété}...
+
+    On extrait les items de service (lignes avec *) et on nettoie.
+    """
+    import re
+
+    # 1. Extraire les items de service (commencent par * ou •)
+    service_items = re.findall(r'[*•]\s*(.+?)(?=\s*[*•]|\s*(?:Piano|Requested|$))', text)
+
+    if service_items:
+        cleaned = []
+        for item in service_items:
+            # Enlever les prix (1 025,00$) ou ($250.00)
+            item = re.sub(r'\s*[\(\[]?\$?\s*[\d\s,]+[\.,]\d{2}\s*\$?\s*[\)\]]?', '', item)
+            # Enlever durée isolée "- 7h" en fin
+            item = re.sub(r'\s*-\s*\d+h?\s*$', '', item)
+            item = item.strip(' -,.')
+            if item and len(item) > 3:
+                cleaned.append(item)
+        if cleaned:
+            return ' | '.join(cleaned)
+
+    # 2. Fallback: enlever le bruit du début (nom client + info piano)
+    # Pattern: texte avant le premier "." suivi d'un espace = en-tête à virer
+    parts = text.split('. ', 1)
+    if len(parts) > 1 and len(parts[1]) > 10:
+        text = parts[1]
+
+    # Enlever "Requested Services:" et variantes
+    text = re.sub(r'Requested Services:\s*', '', text)
+    # Enlever les répétitions de type/marque piano
+    text = re.sub(r'(?:Piano\s+(?:droit|à queue|grand)\s+)?(?:National Piano|Steinway|Yamaha|Kawai|Baldwin|Bösendorfer|Fazioli)\s*(?:Upright|Grand|Concert grand|Studio)?\s*', '', text, count=2)
+    text = ' '.join(text.split()).strip(' ,.')
+
+    return text[:200] if text else ''
+
+
 def build_technical_history(notes: List[Dict]) -> List[Dict]:
     """
     Construit l'historique technique à partir des notes brutes.
@@ -662,7 +706,7 @@ def build_technical_history(notes: List[Dict]) -> List[Dict]:
             "date": date,
             "technician": tech_name if tech_name else "Tech",
             "technician_id": tech_id,
-            "summary": clean_text[:200],
+            "summary": _clean_service_summary(clean_text),
         }
         history.append(entry)
 
