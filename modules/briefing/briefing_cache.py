@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Cache des briefings pour "Ma Journée".
+Cache des briefings pour "Ma Journée" V4.
 
-Pré-calcule les briefings pour aujourd'hui et demain pour un chargement instantané.
+Pré-calcule les briefings narratifs pour aujourd'hui et demain.
 Appelé par le cron de sync ou manuellement.
 """
 
 import json
+import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -15,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
-from modules.briefing.client_intelligence_service import ClientIntelligenceService
+from modules.briefing.client_intelligence_service import NarrativeBriefingService
 
 
 class BriefingCache:
@@ -23,17 +24,12 @@ class BriefingCache:
 
     def __init__(self):
         self.storage = SupabaseStorage(silent=True)
-        self.service = ClientIntelligenceService()
+        self.service = NarrativeBriefingService()
 
-    def warm_cache(self, days_ahead: int = 2) -> Dict:
+    async def warm_cache_async(self, days_ahead: int = 2) -> Dict:
         """
-        Pré-calcule les briefings pour aujourd'hui et les prochains jours.
-
-        Args:
-            days_ahead: Nombre de jours à pré-calculer (défaut: 2 = aujourd'hui + demain)
-
-        Returns:
-            Stats du pré-calcul
+        Pré-calcule les briefings (async version).
+        Called from FastAPI endpoints or other async contexts.
         """
         stats = {'dates': [], 'total_briefings': 0, 'cached': 0, 'errors': 0}
 
@@ -42,11 +38,9 @@ class BriefingCache:
             stats['dates'].append(target_date)
 
             try:
-                # Générer les briefings pour cette date
-                briefings = self.service.get_daily_briefings(target_date=target_date)
+                briefings = await self.service.get_daily_briefings(target_date=target_date)
                 stats['total_briefings'] += len(briefings)
 
-                # Sauvegarder en cache
                 cache_key = f"briefings_{target_date}"
                 cache_data = {
                     'date': target_date,
@@ -62,18 +56,22 @@ class BriefingCache:
             except Exception as e:
                 stats['errors'] += 1
                 print(f"❌ {target_date}: Erreur - {e}")
+                import traceback
+                traceback.print_exc()
 
         return stats
+
+    def warm_cache(self, days_ahead: int = 2) -> Dict:
+        """
+        Sync wrapper for warm_cache_async.
+        Used by sync callers (cron jobs, CLI).
+        """
+        return asyncio.run(self.warm_cache_async(days_ahead=days_ahead))
 
     def get_cached_briefings(self, target_date: str) -> Optional[List[Dict]]:
         """
         Récupère les briefings depuis le cache.
-
-        Args:
-            target_date: Date au format YYYY-MM-DD
-
-        Returns:
-            Liste des briefings ou None si pas en cache
+        Returns None if not cached or cache expired (>4h).
         """
         cache_key = f"briefings_{target_date}"
         cached = self._get_cache(cache_key)
@@ -81,7 +79,7 @@ class BriefingCache:
         if not cached:
             return None
 
-        # Vérifier la fraîcheur (max 4 heures)
+        # Check freshness (max 4 hours)
         generated_at = cached.get('generated_at', '')
         if generated_at:
             try:
@@ -90,7 +88,7 @@ class BriefingCache:
                 if age_hours > 4:
                     print(f"⚠️ Cache périmé ({age_hours:.1f}h)")
                     return None
-            except:
+            except Exception:
                 pass
 
         return cached.get('briefings', [])
@@ -98,7 +96,6 @@ class BriefingCache:
     def _save_cache(self, key: str, data: Dict):
         """Sauvegarde dans system_settings."""
         try:
-            # Upsert dans system_settings
             self.storage.client.table('system_settings').upsert({
                 'key': key,
                 'value': json.dumps(data),
@@ -124,10 +121,19 @@ class BriefingCache:
 
 
 def warm_briefing_cache():
-    """Fonction appelée par le cron pour pré-chauffer le cache."""
-    print("🔥 Pré-chargement des briefings...")
+    """Sync function called by cron/sync to pre-warm the cache."""
+    print("🔥 Pré-chargement des briefings V4...")
     cache = BriefingCache()
     stats = cache.warm_cache(days_ahead=2)
+    print(f"✅ Cache prêt: {stats['cached']} briefings pour {stats['dates']}")
+    return stats
+
+
+async def warm_briefing_cache_async():
+    """Async version called from FastAPI endpoints."""
+    print("🔥 Pré-chargement des briefings V4 (async)...")
+    cache = BriefingCache()
+    stats = await cache.warm_cache_async(days_ahead=2)
     print(f"✅ Cache prêt: {stats['cached']} briefings pour {stats['dates']}")
     return stats
 

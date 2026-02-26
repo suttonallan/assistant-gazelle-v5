@@ -2,15 +2,13 @@ import React, { useState } from 'react'
 import { API_URL } from '../utils/apiConfig'
 
 /**
- * BriefingCard V3 - Carte de briefing intelligent à deux niveaux
+ * BriefingCard V4 — Narrative-First Card
  *
- * NIVEAU 1 (coup d'oeil, 10 secondes):
- *   Heure + client + ancienneté + icônes + piano + warnings + paiement
+ * LEVEL 1 (always visible):
+ *   Header (time + name + client_since) + badges + piano + narrative + action items
  *
- * NIVEAU 2 (clic "Voir plus"):
- *   Profil détaillé + historique technique + PLS + follow-ups + courtoisies
- *
- * Anti-hallucination: chaque donnée vient de Gazelle via extraction validée.
+ * LEVEL 2 (expand):
+ *   Follow-ups, estimates, Allan's feedback
  */
 export default function BriefingCard({ briefing, currentUser, onFeedbackSaved }) {
   const [expanded, setExpanded] = useState(false)
@@ -23,36 +21,27 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
 
   const {
     appointment,
-    profile,
+    narrative,
+    action_items,
+    flags,
     piano,
-    technical_history,
-    estimate_items,
     client_name,
     client_since,
-    confidence_score,
     follow_ups,
-    extraction_mode,
+    estimate_items,
   } = briefing
 
-  // ── NIVEAU 1: Icônes rapides ──
-  const profileIcons = []
-  if (profile?.language === 'EN' || profile?.language === 'BI') profileIcons.push({ icon: '🇬🇧', label: 'Anglophone' })
-  if (profile?.pets?.length > 0) profileIcons.push({ icon: '🐕', label: profile.pets.join(', ') })
-  if (profile?.courtesies?.includes('enlever chaussures')) profileIcons.push({ icon: '👟', label: 'Enlever chaussures' })
-  if (profile?.courtesies?.includes('appeler avant')) profileIcons.push({ icon: '📞', label: 'Appeler avant' })
-  if (profile?.payment_method) profileIcons.push({ icon: '💳', label: profile.payment_method })
-  if (piano?.dampp_chaser) profileIcons.push({ icon: '💧', label: 'PLS', highlight: true })
+  // ── Badges ──
+  const badges = []
+  if (flags?.language === 'EN') badges.push({ icon: '🇬🇧', label: 'Anglophone', color: 'bg-red-100 text-red-800' })
+  if (flags?.language === 'BI') badges.push({ icon: '🇬🇧', label: 'Anglophone', color: 'bg-red-100 text-red-800' })
+  if (flags?.pls) badges.push({ icon: '💧', label: 'PLS', color: 'bg-blue-100 text-blue-800' })
 
-  // Collaboration : autres techniciens au même RV
+  // Collaboration
   const collaboration = appointment?.collaboration || []
-
-  // Dernière visite (Niveau 1 résumé)
-  const lastVisit = technical_history?.[0]
-  const hasWarnings = piano?.warnings?.length > 0
   const hasFollowUps = follow_ups?.length > 0
-
-  // PLS status pour Niveau 2
-  const plsStatus = piano?.pls_status || {}
+  const hasEstimates = estimate_items?.length > 0
+  const hasExpandableContent = hasFollowUps || hasEstimates || isAllan
 
   // ── Handlers ──
   const saveFeedback = async () => {
@@ -92,10 +81,10 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
         })
       })
       if (response.ok) {
-        onFeedbackSaved?.() // Refresh
+        onFeedbackSaved?.()
       }
     } catch (err) {
-      console.error('Erreur résolution:', err)
+      console.error('Erreur resolution:', err)
     } finally {
       setResolvingId(null)
     }
@@ -104,9 +93,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   return (
     <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-4 border border-gray-100">
 
-      {/* ══════════ NIVEAU 1: COUP D'OEIL (toujours visible) ══════════ */}
-
-      {/* Header */}
+      {/* ══════════ HEADER ══════════ */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-3 text-white">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -127,81 +114,36 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {!client_since && (
-              <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full">
-                Premier RV
-              </span>
-            )}
-          </div>
+          {!client_since && (
+            <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full font-medium">
+              Premier RV
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Body Niveau 1 */}
+      {/* ══════════ BODY — LEVEL 1 ══════════ */}
       <div className="p-4 space-y-3">
 
-        {/* Icones rapides */}
-        {profileIcons.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {profileIcons.map((item, idx) => (
-              <span
-                key={idx}
-                className={`px-3 py-1 rounded-full text-sm flex items-center gap-1 ${
-                  item.highlight
-                    ? 'bg-blue-100 text-blue-800 font-semibold'
-                    : 'bg-gray-100'
-                }`}
-                title={item.label}
-              >
-                <span className="text-lg">{item.icon}</span>
-                <span className={`hidden sm:inline ${item.highlight ? '' : 'text-gray-600'}`}>{item.label}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Badges + Piano (compact row) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {badges.map((badge, idx) => (
+            <span
+              key={idx}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1 ${badge.color}`}
+            >
+              <span>{badge.icon}</span>
+              <span>{badge.label}</span>
+            </span>
+          ))}
+          {flags?.piano_label && (
+            <span className="text-sm text-gray-600 flex items-center gap-1">
+              🎹 {flags.piano_label}
+            </span>
+          )}
+        </div>
 
-        {/* Piano */}
-        {(piano?.make || piano?.type) && (() => {
-          const hasMake = piano.make && piano.make.toLowerCase() !== 'unknown'
-          const modelStr = piano.model && piano.model.toLowerCase() !== 'none' ? piano.model : ''
-          const typeLabel = piano.type === 'UPRIGHT' ? 'droit'
-            : piano.type === 'GRAND' ? 'à queue'
-            : piano.type === 'BABY_GRAND' ? 'petit queue' : ''
-          // Ex: "Yamaha U1 droit" ou "Piano droit" si marque inconnue
-          const pianoLabel = hasMake
-            ? `${piano.make}${modelStr ? ' ' + modelStr : ''}${typeLabel ? ' ' + typeLabel : ''}`
-            : `Piano ${typeLabel || ''}`
-          return (
-            <div className="flex items-start gap-2">
-              <span className="text-xl">🎹</span>
-              <div>
-                <div className="font-medium text-gray-900">
-                  {pianoLabel.trim()}
-                  {piano.year > 0 && <span className="text-gray-500 ml-1">({piano.year})</span>}
-                </div>
-                {piano.age_years > 0 && (
-                  <div className="text-sm text-gray-500">{piano.age_years} ans</div>
-                )}
-              </div>
-            </div>
-          )
-        })()}
-
-        {/* Warnings (toujours visibles) */}
-        {hasWarnings && (
-          <div className="space-y-1">
-            {piano.warnings.map((warning, idx) => (
-              <div
-                key={idx}
-                className="bg-orange-50 border-l-4 border-orange-400 px-3 py-2 text-sm text-orange-800"
-              >
-                {warning}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Collaboration : autre(s) technicien(s) au même client */}
+        {/* Collaboration */}
         {collaboration.length > 0 && (
           <div className="bg-indigo-50 border-l-4 border-indigo-400 px-3 py-2 text-sm text-indigo-800">
             En collaboration avec {collaboration.map((c, idx) => (
@@ -213,169 +155,51 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
           </div>
         )}
 
-        {/* Dernier tech + date (Niveau 1 résumé) */}
-        {lastVisit && (
-          <div className="text-sm text-gray-600">
-            Dernier: <span className="font-medium">{lastVisit.technician}</span>, {lastVisit.date}
+        {/* ── NARRATIVE (the heart of V4) ── */}
+        {narrative && (
+          <div className="text-gray-800 text-sm leading-relaxed">
+            {narrative}
           </div>
         )}
 
-        {/* Follow-ups badge (Niveau 1 résumé) */}
-        {hasFollowUps && !expanded && (
-          <div className="bg-amber-50 border-l-4 border-amber-400 px-3 py-2 text-sm text-amber-800">
-            🔔 {follow_ups.length} suivi(s) en attente
-            {follow_ups.length <= 2 && follow_ups.map((fu, idx) => (
-              <div key={idx} className="ml-4 mt-1 text-amber-700">
-                → {fu.description}
+        {/* Action items */}
+        {action_items?.length > 0 && (
+          <div className="space-y-1">
+            {action_items.map((item, idx) => (
+              <div
+                key={idx}
+                className="flex items-start gap-2 text-sm bg-amber-50 border-l-4 border-amber-400 px-3 py-1.5 text-amber-900"
+              >
+                <span className="font-bold mt-0.5">→</span>
+                <span>{item}</span>
               </div>
             ))}
           </div>
         )}
 
-        {/* Bouton Voir plus / Voir moins */}
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="w-full text-center text-sm text-blue-600 hover:text-blue-800 font-medium py-1 border-t border-gray-100 mt-2"
-        >
-          {expanded ? 'Voir moins ▲' : 'Voir plus ▼'}
-        </button>
+        {/* Follow-ups badge (summary when collapsed) */}
+        {hasFollowUps && !expanded && (
+          <div className="text-xs text-amber-700 font-medium">
+            🔔 {follow_ups.length} suivi(s) en attente
+          </div>
+        )}
+
+        {/* Expand button */}
+        {hasExpandableContent && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="w-full text-center text-sm text-blue-600 hover:text-blue-800 font-medium py-1 border-t border-gray-100 mt-2"
+          >
+            {expanded ? 'Voir moins ▲' : 'Voir plus ▼'}
+          </button>
+        )}
       </div>
 
-      {/* ══════════ NIVEAU 2: DETAILS (expandable) ══════════ */}
-
+      {/* ══════════ LEVEL 2: EXPANDED DETAILS ══════════ */}
       {expanded && (
         <div className="border-t border-gray-200 p-4 space-y-4 bg-gray-50">
 
-          {/* Profil detaille */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Profil client
-            </h4>
-            <div className="space-y-1 text-sm">
-              {(profile?.language === 'EN' || profile?.language === 'BI') && (
-                <div>Langue: <span className="font-medium">Anglais</span></div>
-              )}
-              {profile?.pets?.length > 0 && (
-                <div>Animaux: <span className="font-medium">{profile.pets.join(', ')}</span></div>
-              )}
-              {profile?.courtesies?.length > 0 && (() => {
-                // Filtrer les courtoisies déjà affichées dans Stationnement ou Accès
-                const parkingLower = (profile.parking_info || '').toLowerCase().trim()
-                const accessLower = (profile.access_notes || '').toLowerCase().trim()
-                const filtered = profile.courtesies.filter(c => {
-                  const cLower = c.toLowerCase().trim()
-                  return cLower !== parkingLower && cLower !== accessLower
-                })
-                return filtered.length > 0 ? (
-                  <div>
-                    Courtoisies:
-                    {filtered.map((c, idx) => (
-                      <span key={idx} className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                ) : null
-              })()}
-              {profile?.personality && (
-                <div>Temperament: <span className="font-medium">{profile.personality}</span></div>
-              )}
-              {profile?.payment_method && (
-                <div>Paiement habituel: <span className="font-medium">{profile.payment_method}</span></div>
-              )}
-              {profile?.parking_info && (
-                <div>Stationnement: <span className="font-medium">{profile.parking_info}</span></div>
-              )}
-              {profile?.access_code && (
-                <div>Code: <span className="font-medium">{profile.access_code}</span></div>
-              )}
-              {profile?.access_notes && (
-                <div>Acces: <span className="font-medium">{profile.access_notes}</span></div>
-              )}
-            </div>
-          </div>
-
-          {/* Historique technique */}
-          {technical_history?.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Historique technique
-              </h4>
-              <div className="space-y-2">
-                {technical_history.map((visit, idx) => (
-                  <div key={idx} className="text-sm border-l-2 border-gray-300 pl-3">
-                    <div className="font-medium text-gray-800">
-                      {visit.date} — {visit.technician || 'Tech inconnu'}
-                    </div>
-                    {visit.summary && (
-                      <div className="text-gray-600 mt-0.5 text-xs leading-relaxed">
-                        {visit.summary.length > 150
-                          ? visit.summary.substring(0, 150) + '...'
-                          : visit.summary}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Soumission / Estimate */}
-          {estimate_items?.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Soumission
-              </h4>
-              <div className="space-y-2">
-                {estimate_items.map((item, idx) => (
-                  <div key={idx} className="text-sm border-l-2 border-green-400 pl-3 bg-green-50 rounded-r py-1.5 pr-2">
-                    {item.date && (
-                      <div className="text-xs text-gray-500 mb-0.5">{item.date}</div>
-                    )}
-                    <div className="text-gray-800 whitespace-pre-wrap">{item.text}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* PLS Status detaille */}
-          {piano?.dampp_chaser && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Piano Life Saver (PLS)
-              </h4>
-              <div className="text-sm space-y-1">
-                {plsStatus.last_service && (
-                  <div>
-                    Dernier service: <span className="font-medium">{plsStatus.last_service.date}</span>
-                    {' '}({plsStatus.last_service.type === 'basic' ? 'test + buvards' :
-                      plsStatus.last_service.type === 'annual' ? 'entretien annuel' : 'type inconnu'})
-                    {plsStatus.last_service.source && (
-                      <div className="text-xs text-gray-400 mt-0.5 italic">
-                        📎 {plsStatus.last_service.source}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {plsStatus.last_annual && plsStatus.last_annual !== plsStatus.last_service && (
-                  <div>
-                    Dernier entretien annuel: <span className="font-medium">{plsStatus.last_annual.date}</span>
-                    {plsStatus.months_since_annual && (
-                      <span className="text-gray-500 ml-1">({plsStatus.months_since_annual} mois)</span>
-                    )}
-                  </div>
-                )}
-                {plsStatus.reason && (
-                  <div className={`text-xs mt-1 ${plsStatus.needs_annual ? 'text-orange-700 font-medium' : 'text-gray-500'}`}>
-                    {plsStatus.reason}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Follow-ups detailles avec bouton resolution */}
+          {/* Follow-ups with resolve button */}
           {hasFollowUps && (
             <div>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
@@ -390,11 +214,6 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
                         {fu.category && <span className="capitalize">{fu.category}</span>}
                         {fu.detected_at && <span> — {fu.detected_at.substring(0, 10)}</span>}
                       </div>
-                      {fu.source_citation && (
-                        <div className="text-xs text-amber-500 italic mt-0.5">
-                          📎 {fu.source_citation}
-                        </div>
-                      )}
                     </div>
                     {fu.id && (
                       <button
@@ -411,50 +230,61 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
             </div>
           )}
 
-          {/* Mode extraction (debug info pour Allan) */}
-          {isAllan && extraction_mode && (
-            <div className="text-xs text-gray-400 text-right">
-              Mode: {extraction_mode === 'ai' ? 'IA' : 'Regex'} | {briefing.notes_analyzed || 0} notes
+          {/* Estimates */}
+          {hasEstimates && (
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Soumissions
+              </h4>
+              <div className="space-y-2">
+                {estimate_items.map((item, idx) => (
+                  <div key={idx} className="text-sm border-l-2 border-green-400 pl-3 bg-green-50 rounded-r py-1.5 pr-2">
+                    {item.date && (
+                      <div className="text-xs text-gray-500 mb-0.5">{item.date}</div>
+                    )}
+                    <div className="text-gray-800">{item.text}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-        </div>
-      )}
 
-      {/* ══════════ FOOTER: Feedback Allan ══════════ */}
-
-      {isAllan && (
-        <div className="border-t border-gray-100 px-4 py-2 bg-gray-50">
-          {!showFeedback ? (
-            <button
-              onClick={() => setShowFeedback(true)}
-              className="text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
-            >
-              <span>🧠</span> Ajuster l'Intelligence
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <textarea
-                value={feedbackValue}
-                onChange={(e) => setFeedbackValue(e.target.value)}
-                placeholder="Ex: Le client parle anglais, il a un chien nomme Rex, stationnement a l'arriere..."
-                className="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none"
-                rows={3}
-              />
-              <div className="flex gap-2">
+          {/* Allan feedback */}
+          {isAllan && (
+            <div className="border-t border-gray-200 pt-3">
+              {!showFeedback ? (
                 <button
-                  onClick={saveFeedback}
-                  disabled={saving || !feedbackValue.trim()}
-                  className="bg-purple-600 text-white text-sm px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50"
+                  onClick={() => setShowFeedback(true)}
+                  className="text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
                 >
-                  {saving ? '...' : 'Enregistrer'}
+                  <span>🧠</span> Ajuster l'Intelligence
                 </button>
-                <button
-                  onClick={() => setShowFeedback(false)}
-                  className="text-gray-600 text-sm px-3 py-1"
-                >
-                  Annuler
-                </button>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <textarea
+                    value={feedbackValue}
+                    onChange={(e) => setFeedbackValue(e.target.value)}
+                    placeholder="Ex: Le client parle anglais, il a un chien nommé Rex..."
+                    className="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none"
+                    rows={3}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveFeedback}
+                      disabled={saving || !feedbackValue.trim()}
+                      className="bg-purple-600 text-white text-sm px-3 py-1 rounded hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {saving ? '...' : 'Enregistrer'}
+                    </button>
+                    <button
+                      onClick={() => setShowFeedback(false)}
+                      className="text-gray-600 text-sm px-3 py-1"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
