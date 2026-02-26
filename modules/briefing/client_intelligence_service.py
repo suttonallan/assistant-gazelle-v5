@@ -237,8 +237,8 @@ class NarrativeBriefingService:
             # Piano label
             piano_label = self._compute_piano_label(piano)
 
-            # PLS badge
-            has_pls = piano.get('dampp_chaser_installed', False)
+            # PLS badge (default False if data missing)
+            has_pls = bool(piano.get('dampp_chaser_installed'))
 
             # Language detection (simple heuristic, not AI)
             language = self._detect_language_from_notes(timeline)
@@ -298,7 +298,7 @@ class NarrativeBriefingService:
                     "type": piano.get('type', ''),
                     "year": piano.get('year', 0),
                     "age_years": (datetime.now().year - piano['year']) if piano.get('year') and piano['year'] > 1800 else 0,
-                    "dampp_chaser": has_pls,
+                    "dampp_chaser": has_pls or False,
                 },
                 "appointment": {
                     "id": appt.get('external_id'),
