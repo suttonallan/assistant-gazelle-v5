@@ -63,6 +63,10 @@ export default function VDI_NotesView({ currentUser }) {
   const [editingText, setEditingText] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
+  // Admin identity switcher — enter notes as a guest tech
+  const [guestTechnicians, setGuestTechnicians] = useState([]);
+  const [impersonating, setImpersonating] = useState(null); // null = self, or { tech_token, tech_name }
+
   // Debounce timers
   const debounceTimers = useRef({});
   // Local note values (controlled textareas)
@@ -75,6 +79,8 @@ export default function VDI_NotesView({ currentUser }) {
 
   // ========== 1. Auto-provision token on mount ==========
   useEffect(() => {
+    // Skip if impersonating — token is set by switchIdentity
+    if (impersonating) return;
     const ensureToken = async () => {
       const name = resolveTechName(currentUser);
       try {
@@ -93,7 +99,43 @@ export default function VDI_NotesView({ currentUser }) {
       }
     };
     ensureToken();
-  }, [currentUser]);
+  }, [currentUser, impersonating]);
+
+  // ========== 1b. Load guest technicians for identity switcher (admin) ==========
+  useEffect(() => {
+    if (!isAdmin) return;
+    const loadGuests = async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/vdi/admin/guest-technicians`);
+        if (!r.ok) return;
+        const data = await r.json();
+        setGuestTechnicians(data.filter(g => g.active));
+      } catch (e) {
+        console.error('Erreur chargement invités:', e);
+      }
+    };
+    loadGuests();
+  }, [isAdmin]);
+
+  // ========== 1c. Switch identity to a guest tech ==========
+  const switchIdentity = (guest) => {
+    // Reset note state
+    localNotes.current = {};
+    lsRestored.current = new Set();
+    setSaveStatus({});
+    setExpandedId(null);
+    setPianos([]);
+
+    if (guest) {
+      setImpersonating(guest);
+      setTechToken(guest.tech_token);
+      setTechName(guest.tech_name);
+    } else {
+      // Back to self — useEffect will re-provision own token
+      setImpersonating(null);
+      setTechToken(null);
+    }
+  };
 
   // ========== 2. Load pianos when token is ready ==========
   const loadPianos = useCallback(async () => {
@@ -371,6 +413,47 @@ export default function VDI_NotesView({ currentUser }) {
 
   return (
     <div className="space-y-4">
+      {/* ===== IDENTITY SWITCHER (Admin only) ===== */}
+      {isAdmin && guestTechnicians.length > 0 && (
+        <div className={`rounded-lg shadow border overflow-hidden ${impersonating ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-200'}`}>
+          <div className="px-4 py-3">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Entrer les notes au nom de :
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => switchIdentity(null)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                  !impersonating
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Moi (Allan)
+              </button>
+              {guestTechnicians.map(g => (
+                <button
+                  key={g.tech_token}
+                  onClick={() => switchIdentity(g)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                    impersonating?.tech_token === g.tech_token
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {g.tech_name}
+                </button>
+              ))}
+            </div>
+            {impersonating && (
+              <div className="mt-2 text-sm text-purple-700 font-medium">
+                Les notes seront enregistrées sous le nom de <strong>{impersonating.tech_name}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ===== ADMIN PANEL ===== */}
       {isAdmin && (
         <div className="bg-white rounded-lg shadow border border-gray-200">
@@ -486,12 +569,14 @@ export default function VDI_NotesView({ currentUser }) {
       )}
 
       {/* ===== PIANO LIST — SAISIE RAPIDE ===== */}
-      <div className="bg-white rounded-lg shadow border border-gray-200">
-        <div className="px-4 py-3 border-b flex items-center justify-between">
+      <div className={`rounded-lg shadow border ${impersonating ? 'border-purple-300' : 'border-gray-200'} bg-white`}>
+        <div className={`px-4 py-3 border-b flex items-center justify-between ${impersonating ? 'bg-purple-50 border-purple-200' : ''}`}>
           <div className="flex items-center gap-2">
             <span className="text-lg">🎹</span>
             <span className="font-semibold text-gray-800">Saisie rapide</span>
-            <span className="text-sm text-gray-500">— {techName}</span>
+            <span className={`text-sm font-medium ${impersonating ? 'text-purple-700' : 'text-gray-500'}`}>
+              — {techName}{impersonating ? ' (proxy)' : ''}
+            </span>
           </div>
           <span className="text-xs text-gray-400">{pianos.length} pianos</span>
         </div>

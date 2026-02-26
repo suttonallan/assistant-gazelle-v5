@@ -39,9 +39,9 @@ export default function MaJournee({ currentUser }) {
     loadBriefings()
   }, [selectedDate, technicianId, showAllTechs])
 
-  const loadBriefings = async () => {
+  const loadBriefings = async (retryCount = 0) => {
     setLoading(true)
-    setError(null)
+    if (retryCount === 0) setError(null)
 
     try {
       let url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
@@ -62,11 +62,18 @@ export default function MaJournee({ currentUser }) {
 
       const data = await response.json()
       setBriefings(data.briefings || [])
+      setError(null)
+      setLoading(false)
     } catch (err) {
       console.error('Erreur chargement briefings:', err)
-      setError(err.message)
-    } finally {
-      setLoading(false)
+      // Retry automatique (cold start Render) — max 2 essais
+      if (retryCount < 2) {
+        setError('Serveur en démarrage... nouvelle tentative')
+        setTimeout(() => loadBriefings(retryCount + 1), 3000)
+      } else {
+        setError(err.message)
+        setLoading(false)
+      }
     }
   }
 

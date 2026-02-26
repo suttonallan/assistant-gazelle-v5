@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-Client Intelligence Service - "Ma Journée" V3
+Client Intelligence Service - "Ma Journee" V4 — Narrative Architecture
 
-Architecture HYBRIDE:
-- IA (GPT-4o-mini) pour extraction intelligente + validation anti-hallucination
-- Regex comme fallback si clé API absente
-- Calculs factuels (dates, durées) toujours côté Python
+ONE AI call per client → natural language briefing paragraph.
+Parallel processing via asyncio.gather() → ~4s instead of 35s.
 
-4 Piliers d'Intelligence:
-1. PROFIL HUMAIN: Langue, animaux, courtoisies, mode de paiement
-2. HISTORIQUE TECHNIQUE: Visites passées avec noms de techniciens résolus
-3. FICHE PIANO: Âge, avertissements, statut PLS
-4. SUIVIS: Items "à faire" persistants entre visites
+Flow:
+  1. Fetch appointments for the day
+  2. Batch-fetch all data (clients, pianos, timeline, follow-ups, estimates) in parallel
+  3. For each appointment, generate ONE narrative briefing (AI) + computed flags (Python)
+  4. Return flat list of briefings
 """
 
+import os
 import re
 import json
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime, date as date_type
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict, field
+from urllib.parse import quote
 
 import sys
 from pathlib import Path
@@ -26,440 +26,688 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
 from modules.briefing.ai_extraction_engine import (
-    AIExtractionEngine,
     compute_client_since,
     resolve_technician_name,
-    build_technical_history,
-    extract_follow_ups_regex,
     TECHNICIAN_NAMES,
+    ADMIN_STAFF_IDS,
+)
+
+try:
+    from anthropic import Anthropic
+except ImportError:
+    Anthropic = None
+
+import requests as http_requests
+
+
+# ═══════════════════════════════════════════════════════════════════
+# NARRATIVE PROMPT
+# ═══════════════════════════════════════════════════════════════════
+
+NARRATIVE_PROMPT = """Tu prépares un briefing pour un technicien de piano avant sa visite.
+Écris 2-4 phrases en français, comme un collègue qui résume l'essentiel avant que le tech parte.
+
+CONCENTRE-TOI SUR:
+- Ce que le tech devrait SAVOIR avant d'arriver (accès, animaux, langue si anglophone, personnalité)
+- Ce qui est ACTIONABLE (items à faire, pièces à apporter, choses à vérifier)
+- Ce qui est INHABITUEL ou mérite attention
+- L'historique pertinent (dernier tech, quand, quoi de notable)
+
+NE MENTIONNE PAS:
+- Les confirmations de RV, factures, rappels, statuts (bruit système)
+- Les infos triviales ou évidentes
+- Le nom de marque "Dampp-Chaser" — utilise "PLS" si pertinent
+
+Si c'est un premier RV (aucun historique), dis-le simplement.
+Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
+
+CLIENT: {client_name} ({client_since})
+PIANO: {piano_summary}
+
+NOTES DE SERVICE (les plus récentes en premier):
+{timeline_summary}
+
+CONTEXTE DU RV: {appointment_context}
+
+{feedback_context}
+
+Retourne UNIQUEMENT ce JSON:
+{{
+  "narrative": "Le paragraphe de briefing en français...",
+  "action_items": ["item actionable 1", "item actionable 2"]
+}}"""
+
+
+# Entry types to include in timeline queries
+USEFUL_ENTRY_TYPES = (
+    'SERVICE_ENTRY_MANUAL',
+    'NOTE',
+    'APPOINTMENT',
+    'PIANO_MEASUREMENT',
+    'USER_COMMENT',
+    'ESTIMATE',
+    'SERVICE_ENTRY_AUTOMATED',
 )
 
 
-@dataclass
-class ClientProfile:
-    """Profil humain du client"""
-    language: str = "FR"
-    pets: List[str] = None
-    courtesies: List[str] = None
-    personality: str = ""
-    parking_info: str = ""
-    access_notes: str = ""
-    payment_method: str = ""
-    access_code: str = ""
-
-    def __post_init__(self):
-        self.pets = self.pets or []
-        self.courtesies = self.courtesies or []
-
-
-@dataclass
-class PianoInfo:
-    """Fiche piano"""
-    piano_id: str = ""
-    make: str = ""
-    model: str = ""
-    year: int = 0
-    type: str = ""
-    age_years: int = 0
-    warnings: List[str] = None
-    dampp_chaser: bool = False
-    pls_status: Dict = None
-    special_notes: str = ""
-
-    def __post_init__(self):
-        self.warnings = self.warnings or []
-        self.pls_status = self.pls_status or {}
-        if self.year and self.year > 1800:
-            self.age_years = datetime.now().year - self.year
-
-
-class ClientIntelligenceService:
-    """Service de génération de briefings intelligents — V3 Hybride"""
+class NarrativeBriefingService:
+    """Service de briefings narratifs — V4 One-Shot Architecture"""
 
     def __init__(self):
         self.storage = SupabaseStorage(silent=True)
-        self.ai_engine = AIExtractionEngine()
-        self._load_training_feedback()
+        self.anthropic = self._init_anthropic()
+        self.feedback_rules = self._load_training_feedback()
 
-    def _load_training_feedback(self):
-        """Charge les corrections d'Allan depuis ai_training_feedback"""
-        self.feedback_rules = {}
+    def _init_anthropic(self):
+        """Initialize Anthropic client."""
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        if not api_key:
+            try:
+                settings = self.storage.get_data('system_settings', filters={'key': 'anthropic_api_key'})
+                if settings and settings[0].get('value'):
+                    api_key = settings[0]['value']
+            except Exception:
+                pass
+        if api_key and Anthropic:
+            return Anthropic(api_key=api_key)
+        print("⚠️  ANTHROPIC_API_KEY manquante — briefings sans narratif IA")
+        return None
+
+    def _load_training_feedback(self) -> Dict:
+        """Load Allan's corrections from ai_training_feedback."""
+        rules = {}
         try:
             data = self.storage.get_data('ai_training_feedback',
                                           filters={'is_active': True},
                                           order_by='created_at.desc')
             for fb in data:
                 client_id = fb.get('client_external_id')
-                if client_id not in self.feedback_rules:
-                    self.feedback_rules[client_id] = {}
+                if client_id not in rules:
+                    rules[client_id] = []
+                rules[client_id].append(fb.get('corrected_value', ''))
+        except Exception:
+            pass
+        return rules
 
-                category = fb.get('category', 'general')
-                field_name = fb.get('field_name')
-                self.feedback_rules[client_id][f"{category}.{field_name}"] = fb.get('corrected_value')
+    # ═══════════════════════════════════════════════════════════════
+    # MAIN ENTRY POINT
+    # ═══════════════════════════════════════════════════════════════
+
+    async def get_daily_briefings(self, technician_id: str = None,
+                                   exclude_technician_id: str = None,
+                                   target_date: str = None) -> List[Dict]:
+        """
+        Generate narrative briefings for all appointments on a given date.
+        Uses batch data fetching + parallel AI generation.
+        """
+        target_date = target_date or datetime.now().strftime('%Y-%m-%d')
+
+        # 1. Fetch appointments
+        appointments = await asyncio.to_thread(
+            self._fetch_appointments, target_date, technician_id, exclude_technician_id
+        )
+        if not appointments:
+            return []
+
+        # 2. Collect all needed IDs
+        client_ids = list(set(
+            a['client_external_id'] for a in appointments
+            if a.get('client_external_id')
+        ))
+        piano_ids = list(set(
+            a['piano_external_id'] for a in appointments
+            if a.get('piano_external_id')
+        ))
+
+        # 3. Batch fetch ALL data in parallel
+        fetch_tasks = [
+            asyncio.to_thread(self._batch_fetch_clients, client_ids),
+            asyncio.to_thread(self._batch_fetch_pianos, client_ids),
+            asyncio.to_thread(self._batch_fetch_timeline, client_ids, piano_ids),
+            asyncio.to_thread(self._batch_fetch_followups, client_ids),
+            asyncio.to_thread(self._batch_fetch_estimates, client_ids, piano_ids),
+            asyncio.to_thread(self._batch_fetch_past_appointments, client_ids),
+        ]
+        # Only fetch all-day appointments if we need collaboration detection
+        if technician_id:
+            fetch_tasks.append(
+                asyncio.to_thread(self._fetch_all_day_appointments, target_date)
+            )
+
+        results = await asyncio.gather(*fetch_tasks)
+
+        clients_data = results[0]
+        pianos_data = results[1]
+        timeline_data = results[2]
+        followups_data = results[3]
+        estimates_data = results[4]
+        past_appts_data = results[5]
+        all_day_appts = results[6] if technician_id else []
+
+        # 4. Generate narrative briefings in PARALLEL
+        gen_tasks = []
+        for appt in appointments:
+            cid = appt.get('client_external_id')
+            if not cid:
+                continue
+            gen_tasks.append(self._generate_one_briefing(
+                appt=appt,
+                client=clients_data.get(cid, {}),
+                pianos=pianos_data.get(cid, []),
+                timeline=timeline_data.get(cid, []),
+                past_appointments=past_appts_data.get(cid, []),
+                followups=followups_data.get(cid, []),
+                estimates=estimates_data.get(cid, []),
+                technician_id=technician_id,
+                all_day_appts=all_day_appts,
+            ))
+
+        briefings = await asyncio.gather(*gen_tasks)
+        return [b for b in briefings if b]
+
+    # ═══════════════════════════════════════════════════════════════
+    # PER-CLIENT BRIEFING GENERATION
+    # ═══════════════════════════════════════════════════════════════
+
+    async def _generate_one_briefing(self, appt: Dict, client: Dict,
+                                      pianos: List[Dict], timeline: List[Dict],
+                                      past_appointments: List[Dict],
+                                      followups: List[Dict], estimates: List[Dict],
+                                      technician_id: str, all_day_appts: List[Dict]) -> Optional[Dict]:
+        """Generate a narrative briefing for ONE appointment."""
+        try:
+            cid = appt.get('client_external_id', '')
+
+            # ── Match piano for this appointment ──
+            piano_id_from_appt = appt.get('piano_external_id')
+            piano = {}
+            if piano_id_from_appt and pianos:
+                piano = next((p for p in pianos if p.get('external_id') == piano_id_from_appt), {})
+            if not piano and pianos:
+                piano = self._match_piano_from_context(pianos, appt)
+
+            # ── Python-computed flags ──
+            client_name = (
+                client.get('company_name')
+                or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
+                or 'Client'
+            )
+
+            # Client since
+            client_since = compute_client_since(
+                [{'date': t.get('occurred_at', '')[:10]} for t in timeline]
+            )
+
+            # Piano label
+            piano_label = self._compute_piano_label(piano)
+
+            # PLS badge (default False if data missing)
+            has_pls = bool(piano.get('dampp_chaser_installed'))
+
+            # Language detection (simple heuristic, not AI)
+            language = self._detect_language_from_notes(timeline)
+
+            # Institution detection
+            institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
+                                    'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
+            is_institution = any(kw in client_name.lower() for kw in institution_keywords)
+            if is_institution:
+                language = None  # Not relevant for institutions
+
+            # Collaboration detection
+            collaboration = []
+            if technician_id and all_day_appts:
+                for other in all_day_appts:
+                    if (other.get('client_external_id') == cid
+                            and other.get('technicien', '') != technician_id
+                            and other.get('technicien')):
+                        collaboration.append({
+                            'technician_name': resolve_technician_name(other['technicien']),
+                            'time': (other.get('appointment_time', '') or '')[:5],
+                        })
+
+            # Estimate summary
+            estimate_items = self._format_estimates(estimates)
+
+            # ── Generate narrative via AI ──
+            narrative = "Aucune info particulière à signaler."
+            action_items = []
+
+            if self.anthropic:
+                narrative, action_items = await asyncio.to_thread(
+                    self._call_narrative_ai,
+                    client_name=client_name,
+                    client_since=client_since or "nouveau client",
+                    piano_summary=piano_label or "Piano non spécifié",
+                    timeline=timeline,
+                    past_appointments=past_appointments,
+                    appt=appt,
+                    feedback_notes=self.feedback_rules.get(cid, []),
+                )
+
+            # ── Build final briefing ──
+            return {
+                "client_id": cid,
+                "client_name": client_name,
+                "client_since": client_since,
+                "narrative": narrative,
+                "action_items": action_items,
+                "flags": {
+                    "language": language,
+                    "pls": has_pls,
+                    "piano_label": piano_label,
+                },
+                "piano": {
+                    "make": piano.get('make', ''),
+                    "model": piano.get('model', ''),
+                    "type": piano.get('type', ''),
+                    "year": piano.get('year', 0),
+                    "age_years": (datetime.now().year - piano['year']) if piano.get('year') and piano['year'] > 1800 else 0,
+                    "dampp_chaser": has_pls or False,
+                },
+                "appointment": {
+                    "id": appt.get('external_id'),
+                    "time": (appt.get('appointment_time', '') or '')[:5],
+                    "title": appt.get('title', ''),
+                    "description": appt.get('description', ''),
+                    "technician_id": appt.get('technicien'),
+                    "collaboration": collaboration,
+                },
+                "follow_ups": followups,
+                "estimate_items": estimate_items,
+                "generated_at": datetime.now().isoformat(),
+            }
+
         except Exception as e:
-            print(f"⚠️  Feedback non chargé: {e}")
+            print(f"❌ Erreur briefing {appt.get('client_external_id', '?')}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
-    def _apply_feedback(self, client_id: str, category: str, field_name: str, detected_value: Any) -> Any:
-        """Applique les corrections si elles existent"""
-        key = f"{category}.{field_name}"
-        if client_id in self.feedback_rules and key in self.feedback_rules[client_id]:
-            return self.feedback_rules[client_id][key]
-        return detected_value
+    # ═══════════════════════════════════════════════════════════════
+    # AI NARRATIVE GENERATION
+    # ═══════════════════════════════════════════════════════════════
 
-    # ═══════════════════════════════════════════════════════════════════
-    # FALLBACK REGEX (utilisé si pas de clé API OpenAI)
-    # ═══════════════════════════════════════════════════════════════════
+    def _call_narrative_ai(self, client_name: str, client_since: str,
+                            piano_summary: str, timeline: List[Dict],
+                            past_appointments: List[Dict],
+                            appt: Dict, feedback_notes: List[str]) -> tuple:
+        """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
+        today_str = date_type.today().isoformat()
 
-    def _detect_language_regex(self, text: str) -> str:
-        text_lower = text.lower()
-        en_words = ['the', 'and', 'please', 'thank', 'hello', 'good', 'call']
-        en_count = sum(1 for w in en_words if w in text_lower)
-        fr_words = ['le', 'la', 'les', 'et', 'merci', 'bonjour', 'svp']
-        fr_count = sum(1 for w in fr_words if w in text_lower)
+        # Format timeline for prompt (skip noise, keep last 15 useful entries)
+        timeline_lines = []
+        for entry in timeline[:30]:  # Look at more, keep 15
+            entry_date = (entry.get('occurred_at', '') or '')[:10]
+            if entry_date >= today_str:
+                continue
+
+            # Skip admin staff entries
+            user_id = entry.get('user_id', '')
+            if user_id in ADMIN_STAFF_IDS:
+                continue
+
+            text = f"{entry.get('title', '')} {entry.get('description', '')}".strip()
+            if not text or len(text) < 10:
+                continue
+
+            tech_name = resolve_technician_name(user_id)
+            entry_type = entry.get('entry_type', '')
+            timeline_lines.append(f"[{entry_date}] ({tech_name or 'Tech'}, {entry_type}) {text[:300]}")
+
+            if len(timeline_lines) >= 15:
+                break
+
+        # Add past appointments (contain rich descriptions/notes not in timeline)
+        for pa in past_appointments[:10]:
+            pa_date = (pa.get('appointment_date', '') or '')[:10]
+            if pa_date >= today_str:
+                continue
+            desc = (pa.get('description', '') or '').strip()
+            notes = (pa.get('notes', '') or '').strip()
+            # Only add if there's actual content beyond the client name
+            text = f"{desc} {notes}".strip()
+            if not text or len(text) < 15 or text == client_name:
+                continue
+            tech_name = resolve_technician_name(pa.get('technicien', ''))
+            timeline_lines.append(f"[{pa_date}] ({tech_name or 'Tech'}, RV) {text[:300]}")
+
+        # Sort by date descending and keep top 15
+        timeline_lines.sort(key=lambda l: l[:12], reverse=True)
+        timeline_lines = timeline_lines[:15]
+
+        timeline_summary = "\n".join(timeline_lines) if timeline_lines else "(Aucun historique)"
+
+        # Appointment context
+        appt_context = f"{appt.get('title', '')} {appt.get('description', '')} {appt.get('notes', '')}".strip()
+        if not appt_context:
+            appt_context = "Accord standard"
+
+        # Feedback context (Allan's corrections)
+        feedback_context = ""
+        if feedback_notes:
+            feedback_context = "CORRECTIONS D'ALLAN (prioritaires, intègre-les au briefing):\n"
+            for note in feedback_notes[:5]:
+                if note:
+                    feedback_context += f"- {note}\n"
+
+        prompt = NARRATIVE_PROMPT.format(
+            client_name=client_name,
+            client_since=client_since,
+            piano_summary=piano_summary,
+            timeline_summary=timeline_summary,
+            appointment_context=appt_context,
+            feedback_context=feedback_context,
+        )
+
+        try:
+            response = self.anthropic.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=500,
+                temperature=0.2,
+                system="Tu retournes UNIQUEMENT du JSON valide sans markdown. Sois concis et utile.",
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            raw = response.content[0].text.strip()
+            # Clean markdown fences if present
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```$', '', raw)
+
+            result = json.loads(raw)
+            narrative = result.get('narrative', 'Aucune info particulière à signaler.')
+            action_items = result.get('action_items', [])
+            # Filter empty items
+            action_items = [item for item in action_items if item and len(item) > 3]
+            return narrative, action_items
+
+        except Exception as e:
+            print(f"⚠️  Narrative AI error: {e}")
+            return "Aucune info particulière à signaler.", []
+
+    # ═══════════════════════════════════════════════════════════════
+    # PYTHON-COMPUTED FLAGS
+    # ═══════════════════════════════════════════════════════════════
+
+    def _compute_piano_label(self, piano: Dict) -> str:
+        """Build a human-readable piano label. E.g. 'Yamaha U1 droit (2015, 11 ans)'"""
+        if not piano:
+            return ""
+
+        make = piano.get('make', '')
+        model = piano.get('model', '')
+        ptype = piano.get('type', '')
+        year = piano.get('year', 0)
+
+        has_make = make and make.lower() != 'unknown'
+        has_model = model and model.lower() not in ('none', 'unknown', '')
+
+        type_label = {
+            'UPRIGHT': 'droit', 'GRAND': 'à queue',
+            'BABY_GRAND': 'petit queue',
+        }.get(ptype, '')
+
+        if has_make:
+            label = make
+            if has_model:
+                label += f" {model}"
+            if type_label:
+                label += f" {type_label}"
+        elif type_label:
+            label = f"Piano {type_label}"
+        else:
+            return ""
+
+        if year and year > 1800:
+            age = datetime.now().year - year
+            label += f" ({year}, {age} ans)"
+
+        return label
+
+    def _detect_language_from_notes(self, timeline: List[Dict]) -> Optional[str]:
+        """Simple heuristic: detect EN/BI from timeline text. Returns None if FR (default)."""
+        all_text = " ".join(
+            f"{t.get('title', '')} {t.get('description', '')}"
+            for t in timeline[:15]
+        ).lower()
+
+        if not all_text.strip():
+            return None
+
+        en_words = ['the ', ' and ', 'please', 'thank', 'hello', 'good morning',
+                     'call me', 'don\'t', 'won\'t', 'can\'t', 'should']
+        fr_words = ['le ', ' la ', ' les ', ' et ', 'merci', 'bonjour', 'svp',
+                     'rendez-vous', 'veuillez', 'prochaine']
+
+        en_count = sum(1 for w in en_words if w in all_text)
+        fr_count = sum(1 for w in fr_words if w in all_text)
 
         if en_count > fr_count + 2:
             return "EN"
-        return "FR"
+        if en_count > 0 and fr_count > 0 and en_count >= 2:
+            return "BI"
+        return None  # FR is default, don't flag it
 
-    def _detect_pets_regex(self, text: str) -> List[str]:
-        pets = []
-        text_lower = text.lower()
-        patterns = [
-            r'(?:chien|dog)\s+(?:appelé|nommé|named)?\s*(\w+)',
-            r'(?:chat|cat)\s+(?:appelé|nommé|named)?\s*(\w+)',
-            r'attention\s+(?:au|à)\s+(?:chien|chat)',
+    def _format_estimates(self, estimates: List[Dict]) -> List[Dict]:
+        """Format estimate entries for display."""
+        items = []
+        seen_ids = set()
+        estimate_noise = [
+            'estimate created', 'devis créé', 'soumission créée',
+            'estimate sent', 'devis envoyé', 'soumission envoyée',
+            'estimate #', 'devis #', 'soumission #', 'estimation #',
+            'created for', 'sent to', 'envoyé à',
         ]
-        for pattern in patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for m in matches:
-                if m and len(m) > 2:
-                    pets.append(m)
+        for entry in estimates:
+            est_id = entry.get('estimate_id')
+            if est_id in seen_ids:
+                continue
+            seen_ids.add(est_id)
 
-        if 'chien' in text_lower or 'dog' in text_lower:
-            if not pets:
-                pets.append('chien présent')
-        if 'chat' in text_lower or 'cat' in text_lower:
-            if not pets:
-                pets.append('chat présent')
+            text = (entry.get('description') or entry.get('title') or '').strip()
+            text_lower = text.lower()
+            if not text or len(text) < 15 or any(noise in text_lower for noise in estimate_noise):
+                text = 'Soumission'
 
-        return list(set(pets))
+            items.append({
+                'date': (entry.get('occurred_at') or '')[:10],
+                'text': text[:300],
+                'estimate_id': est_id,
+            })
+        return items
 
-    def _detect_courtesies_regex(self, text: str) -> List[str]:
-        courtesies = []
-        text_lower = text.lower()
-        patterns = {
-            'enlever chaussures': [r'\benlever?\s+(?:les\s+)?chaussures\b', r'\bshoes?\s+off\b'],
-            'offre café': [r'\boffre\s+(?:un\s+)?(?:café|thé)\b', r'\boffers?\s+(?:coffee|tea)\b'],
-            'stationnement arrière': [r'\bstationn\w*\s+(?:en\s+)?arrière\b', r'\bparking\s+(?:in\s+)?(?:the\s+)?back\b'],
-            'sonnette ne fonctionne pas': [r'\bsonnette\s+(?:ne\s+)?(?:fonctionne|marche)\s*(?:pas|plus)?\b', r'\bcogner\b'],
-            'appeler avant': [r'\bappeler\s+avant\b', r'\bcall\s+before\b'],
-        }
-        for courtesy, regex_list in patterns.items():
-            for pattern in regex_list:
-                if re.search(pattern, text_lower):
-                    courtesies.append(courtesy)
-                    break
-        return courtesies
+    # ═══════════════════════════════════════════════════════════════
+    # BATCH DATA FETCHING
+    # ═══════════════════════════════════════════════════════════════
 
-    # ═══════════════════════════════════════════════════════════════════
-    # GÉNÉRATION DE BRIEFING
-    # ═══════════════════════════════════════════════════════════════════
+    def _supabase_get(self, url: str) -> list:
+        """Helper: GET from Supabase REST API."""
+        try:
+            resp = http_requests.get(url, headers=self.storage._get_headers(), timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as e:
+            print(f"⚠️  Supabase GET error: {e}")
+        return []
 
-    def generate_briefing(self, client_external_id: str,
-                          appointment_context: Dict = None) -> Dict[str, Any]:
-        """
-        Génère un briefing complet pour un client.
-        Mode hybride: IA si disponible, regex en fallback.
-        """
+    def _fetch_appointments(self, target_date: str, technician_id: str = None,
+                             exclude_technician_id: str = None) -> List[Dict]:
+        """Fetch appointments for a given date."""
+        filters = {'appointment_date': target_date}
+        if technician_id:
+            filters['technicien'] = technician_id
+        try:
+            appointments = self.storage.get_data('gazelle_appointments',
+                                                  filters=filters,
+                                                  order_by='appointment_time.asc')
+        except Exception:
+            appointments = []
 
-        # 1. Récupérer les données client
-        client = self._get_client(client_external_id)
-        if not client:
-            return {"error": "Client non trouvé"}
+        if exclude_technician_id:
+            appointments = [a for a in appointments if a.get('technicien') != exclude_technician_id]
 
-        # 2. Récupérer les pianos du client
-        pianos = self._get_client_pianos(client_external_id)
+        return appointments
 
-        # 3. Matcher le piano pour ce RV
-        # PRIORITÉ: utiliser piano_external_id du RV si disponible (lien direct Gazelle)
-        piano_data = {}
-        piano_id_from_appointment = appointment_context.get('piano_external_id') if appointment_context else None
+    def _fetch_all_day_appointments(self, target_date: str) -> List[Dict]:
+        """Fetch ALL appointments for a day (for collaboration detection)."""
+        try:
+            return self.storage.get_data('gazelle_appointments',
+                                          filters={'appointment_date': target_date},
+                                          order_by='appointment_time.asc')
+        except Exception:
+            return []
 
-        if piano_id_from_appointment and pianos:
-            # Lien direct: chercher le piano par son ID
-            for p in pianos:
-                if p.get('external_id') == piano_id_from_appointment:
-                    piano_data = p
-                    break
-
-        # Fallback: matcher par contexte texte si pas de lien direct
-        if not piano_data and pianos:
-            piano_data = self._match_piano_from_context(pianos, appointment_context)
-
-        # 4. Récupérer les notes (timeline + appointments) - INCLUT le piano_id pour les déficiences
-        piano_id = piano_data.get('external_id') if piano_data else None
-        notes = self._get_client_notes(client_external_id, piano_id=piano_id)
-
-        # 5. EXTRACTION: IA si disponible, sinon regex
-        if self.ai_engine.is_available and notes:
-            ai_raw = self.ai_engine.extract_client_intelligence(notes, piano_data)
-            if ai_raw:
-                extraction = self.ai_engine.validate_extraction(ai_raw, notes)
-            else:
-                extraction = self._fallback_regex_extraction(notes)
-        else:
-            extraction = self._fallback_regex_extraction(notes)
-
-        # 6. PILIER 1: Profil Humain (IA enrichi)
-        # Détecter si c'est une institution (langue non pertinente)
-        client_name = client.get('company_name') or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
-        institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
-                                'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
-        is_institution = any(kw in client_name.lower() for kw in institution_keywords)
-
-        parking_info = (extraction.get('access_info') or {}).get('parking', '')
-        all_courtesies = self._format_courtesies(extraction.get('courtesies', []))
-
-        # Dédupliquer : retirer des courtoisies ce qui est déjà dans parking/accès
-        if parking_info:
-            parking_lower = parking_info.lower().strip()
-            all_courtesies = [
-                c for c in all_courtesies
-                if c.lower().strip() != parking_lower
-            ]
-
-        profile = ClientProfile(
-            language='' if is_institution else self._apply_feedback(
-                client_external_id, 'profile', 'language',
-                extraction.get('language', 'FR')
-            ),
-            pets=self._format_pets(extraction.get('pets', [])) if not is_institution else [],
-            courtesies=all_courtesies,
-            personality=extraction.get('personality', ''),
-            payment_method=extraction.get('payment_method', ''),
-            parking_info=parking_info,
-            access_code=(extraction.get('access_info') or {}).get('access_code', ''),
-            access_notes=(extraction.get('access_info') or {}).get('special_instructions', ''),
+    def _batch_fetch_past_appointments(self, client_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch past appointments for all clients (contain rich descriptions/notes).
+        Returns {client_id: [appointments]}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = (
+            f"{self.storage.api_url}/gazelle_appointments?"
+            f"client_external_id=in.({ids_csv})"
+            f"&order=appointment_date.desc"
+            f"&limit=50"
         )
-
-        # 7. PILIER 2: Historique Technique (données factuelles Python)
-        technical_history = build_technical_history(notes)
-
-        # 8. PILIER 3: Fiche Piano
-        piano_info = self._build_piano_info(piano_data, notes)
-
-        # 9. PILIER 4: Suivis ouverts
-        follow_ups = self._get_open_follow_ups(client_external_id)
-
-        # Ajouter les nouveaux follow-ups détectés par l'IA
-        ai_follow_ups = extraction.get('follow_ups', [])
-        if ai_follow_ups:
-            self._save_new_follow_ups(client_external_id, piano_data.get('external_id'), ai_follow_ups)
-
-        # FALLBACK: Extraire "à faire" et déficiences via regex si pas d'IA ou si vide
-        if not ai_follow_ups and notes:
-            regex_follow_ups = extract_follow_ups_regex(notes)
-            for rfu in regex_follow_ups:
-                # Ajouter seulement si pas déjà dans la liste
-                if not any(f.get('description', '').lower() == rfu['description'].lower() for f in follow_ups):
-                    follow_ups.append(rfu)
-
-        # 10. Client depuis combien de temps
-        client_since = compute_client_since(notes)
-
-        # 10b. PILIER 5: Soumissions/Estimates liées au piano
-        estimate_items = self._get_piano_estimates(piano_data.get('external_id'), client_external_id)
-
-        # 11. Construire le briefing final
-        briefing = {
-            "client_id": client_external_id,
-            "client_name": client.get('company_name') or f"{client.get('first_name', '')} {client.get('last_name', '')}".strip(),
-            "client_since": client_since,
-            "profile": asdict(profile),
-            "technical_history": technical_history,
-            "piano": piano_info,
-            "estimate_items": estimate_items,
-            "follow_ups": follow_ups,
-            "confidence_score": 0.85 if (self.ai_engine.is_available and notes) else (0.5 if notes else 0.3),
-            "extraction_mode": "ai" if self.ai_engine.is_available else "regex",
-            "notes_analyzed": len(notes),
-            "generated_at": datetime.now().isoformat(),
-        }
-
-        # 12. Sauvegarder dans client_intelligence (cache)
-        self._save_intelligence(client_external_id, briefing)
-
-        return briefing
-
-    def _fallback_regex_extraction(self, notes: List[Dict]) -> Dict:
-        """Extraction regex quand l'IA n'est pas disponible."""
-        all_text = " ".join([n.get('text', '') for n in notes])
-        return {
-            'language': self._detect_language_regex(all_text),
-            'pets': [{'type': p, 'name': None, 'source': ''} for p in self._detect_pets_regex(all_text)],
-            'courtesies': [{'description': c, 'source': ''} for c in self._detect_courtesies_regex(all_text)],
-            'payment_method': None,
-            'follow_ups': [],
-            'personality': None,
-            'access_info': {},
-        }
-
-    def _format_pets(self, pets_data: List[Dict]) -> List[str]:
-        """Formate les données animaux en strings lisibles."""
-        result = []
-        for pet in pets_data:
-            if isinstance(pet, str):
-                result.append(pet)
-                continue
-            pet_type = pet.get('type', '')
-            name = pet.get('name')
-            if name:
-                result.append(f"{pet_type}: {name}")
-            else:
-                result.append(f"{pet_type} présent")
+        data = self._supabase_get(url)
+        result = {}
+        for a in data:
+            cid = a.get('client_external_id')
+            if cid:
+                result.setdefault(cid, []).append(a)
         return result
 
-    def _format_courtesies(self, courtesies_data: List[Dict]) -> List[str]:
-        """Formate les courtoisies en strings lisibles."""
-        result = []
-        for c in courtesies_data:
-            if isinstance(c, str):
-                result.append(c)
-                continue
-            desc = c.get('description', '')
-            if desc:
-                result.append(desc)
+    def _batch_fetch_clients(self, client_ids: List[str]) -> Dict[str, Dict]:
+        """Fetch all clients in one query. Returns {client_id: client_data}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = f"{self.storage.api_url}/gazelle_clients?external_id=in.({ids_csv})"
+        data = self._supabase_get(url)
+        return {c['external_id']: c for c in data if c.get('external_id')}
+
+    def _batch_fetch_pianos(self, client_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch all pianos for all clients. Returns {client_id: [pianos]}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = f"{self.storage.api_url}/gazelle_pianos?client_external_id=in.({ids_csv})"
+        data = self._supabase_get(url)
+        result = {}
+        for p in data:
+            cid = p.get('client_external_id')
+            if cid:
+                result.setdefault(cid, []).append(p)
         return result
 
-    def _build_piano_info(self, piano_data: Dict, notes: List[Dict]) -> Dict:
-        """Construit la fiche piano avec statut PLS intelligent."""
-        if not piano_data:
+    def _batch_fetch_timeline(self, client_ids: List[str], piano_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch timeline entries for all clients + pianos. Returns {client_id: [entries]}."""
+        if not client_ids:
             return {}
 
-        year = piano_data.get('year') or 0
-        age = datetime.now().year - year if year > 1800 else 0
+        types_csv = ",".join(USEFUL_ENTRY_TYPES)
+        result = {}
 
-        warnings = []
-        if age > 80:
-            warnings.append("Piano > 80 ans - Fragilité mécanique")
-        elif age > 40:
-            warnings.append("Piano mature (> 40 ans) - Attention particulière")
+        # Fetch by client_id
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = (
+            f"{self.storage.api_url}/gazelle_timeline_entries?select=*"
+            f"&client_id=in.({ids_csv})"
+            f"&entry_type=in.({types_csv})"
+            f"&order=occurred_at.desc"
+            f"&limit=200"
+        )
+        client_entries = self._supabase_get(url)
+        for entry in client_entries:
+            cid = entry.get('client_id')
+            if cid:
+                result.setdefault(cid, []).append(entry)
 
-        # Analyse PLS
-        pls_status = {}
-        if piano_data.get('dampp_chaser_installed'):
-            if self.ai_engine.is_available and notes:
-                pls_raw = self.ai_engine.analyze_pls_services(notes)
-                if pls_raw:
-                    pls_status = self.ai_engine.validate_pls_analysis(
-                        pls_raw, notes, piano_data
-                    )
-                else:
-                    pls_status = {"needs_annual": None, "reason": "Analyse PLS non disponible"}
-            else:
-                pls_status = {"needs_annual": None, "reason": "IA non disponible"}
-
-            # Warning PLS seulement si entretien annuel est vraiment dû
-            if pls_status.get('needs_annual') is True:
-                months = pls_status.get('months_since_last', '?')
-                warnings.append(f"PLS: entretien annuel dû ({months} mois depuis dernier service)")
-
-        piano_info = asdict(PianoInfo(
-            piano_id=piano_data.get('external_id', ''),
-            make=piano_data.get('make', ''),
-            model=piano_data.get('model', ''),
-            year=year,
-            type=piano_data.get('type', ''),
-            age_years=age,
-            warnings=warnings,
-            dampp_chaser=piano_data.get('dampp_chaser_installed', False),
-            pls_status=pls_status,
-        ))
-
-        return piano_info
-
-    # ═══════════════════════════════════════════════════════════════════
-    # FOLLOW-UPS (SUIVI PERSISTANT)
-    # ═══════════════════════════════════════════════════════════════════
-
-    def _get_open_follow_ups(self, client_id: str) -> List[Dict]:
-        """Récupère les follow-ups ouverts pour un client."""
-        try:
-            items = self.storage.get_data(
-                'follow_up_items',
-                filters={'client_external_id': client_id, 'status': 'open'},
-                order_by='detected_at.desc'
+        # Fetch by piano_id (may catch entries linked to piano but not client)
+        if piano_ids:
+            piano_csv = ",".join(quote(pid) for pid in piano_ids)
+            url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries?select=*"
+                f"&piano_id=in.({piano_csv})"
+                f"&entry_type=in.({types_csv})"
+                f"&order=occurred_at.desc"
+                f"&limit=100"
             )
-            return [
-                {
+            piano_entries = self._supabase_get(url)
+            # Add piano entries to the correct client (deduplicate by external_id)
+            seen_ids = {e.get('external_id') for entries in result.values() for e in entries if e.get('external_id')}
+            for entry in piano_entries:
+                if entry.get('external_id') in seen_ids:
+                    continue
+                cid = entry.get('client_id')
+                if cid:
+                    result.setdefault(cid, []).append(entry)
+
+        # Sort each client's entries by date desc
+        for cid in result:
+            result[cid].sort(key=lambda e: e.get('occurred_at', ''), reverse=True)
+
+        return result
+
+    def _batch_fetch_followups(self, client_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch open follow-ups for all clients. Returns {client_id: [items]}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = (
+            f"{self.storage.api_url}/follow_up_items?"
+            f"client_external_id=in.({ids_csv})"
+            f"&status=eq.open"
+            f"&order=detected_at.desc"
+        )
+        data = self._supabase_get(url)
+        result = {}
+        for item in data:
+            cid = item.get('client_external_id')
+            if cid:
+                result.setdefault(cid, []).append({
                     "id": item.get('id'),
                     "category": item.get('category'),
                     "description": item.get('description'),
                     "source_citation": item.get('source_citation'),
                     "detected_at": item.get('detected_at'),
-                }
-                for item in items
-            ]
-        except Exception:
-            return []
+                })
+        return result
 
-    def _save_new_follow_ups(self, client_id: str, piano_id: Optional[str],
-                              ai_follow_ups: List[Dict]):
-        """Sauvegarde les nouveaux follow-ups détectés par l'IA."""
-        for fu in ai_follow_ups:
-            try:
-                record = {
-                    'client_external_id': client_id,
-                    'piano_external_id': piano_id,
-                    'category': fu.get('category', 'action'),
-                    'description': fu.get('description', ''),
-                    'source_citation': fu.get('source', ''),
-                    'status': 'open',
-                    'detected_by': 'ai_extraction',
-                }
-                # Upsert pour éviter les doublons (unique index sur client+description WHERE open)
-                self.storage.upsert_data(
-                    'follow_up_items', record,
-                    conflict_column='client_external_id,description'
-                )
-            except Exception as e:
-                # Duplicate ou erreur — on continue
-                pass
+    def _batch_fetch_estimates(self, client_ids: List[str], piano_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch estimate-linked timeline entries. Returns {client_id: [entries]}."""
+        if not client_ids:
+            return {}
+        ids_csv = ",".join(quote(cid) for cid in client_ids)
+        url = (
+            f"{self.storage.api_url}/gazelle_timeline_entries?select=*"
+            f"&client_id=in.({ids_csv})"
+            f"&estimate_id=not.is.null"
+            f"&order=occurred_at.desc"
+            f"&limit=30"
+        )
+        data = self._supabase_get(url)
+        result = {}
+        for entry in data:
+            cid = entry.get('client_id')
+            if cid:
+                result.setdefault(cid, []).append(entry)
+        return result
 
-    def resolve_follow_up(self, item_id: str, resolved_by: str = None,
-                           resolution_note: str = None) -> bool:
-        """Marque un follow-up comme résolu."""
-        try:
-            self.storage.client.table('follow_up_items').update({
-                'status': 'resolved',
-                'resolved_at': datetime.now().isoformat(),
-                'resolved_by': resolved_by,
-                'resolution_note': resolution_note,
-                'updated_at': datetime.now().isoformat(),
-            }).eq('id', item_id).execute()
-            return True
-        except Exception as e:
-            print(f"❌ Erreur résolution follow-up: {e}")
-            return False
+    # ═══════════════════════════════════════════════════════════════
+    # PIANO MATCHING (unchanged from V3)
+    # ═══════════════════════════════════════════════════════════════
 
-    # ═══════════════════════════════════════════════════════════════════
-    # PIANO MATCHING (inchangé)
-    # ═══════════════════════════════════════════════════════════════════
-
-    def _match_piano_from_context(self, pianos: List[Dict],
-                                    appointment_context: Dict = None) -> Dict:
-        """Trouve le piano correspondant au RV basé sur la description/titre."""
+    def _match_piano_from_context(self, pianos: List[Dict], appt: Dict) -> Dict:
+        """Find the piano matching the appointment based on description/title."""
         if not pianos:
             return {}
         if len(pianos) == 1:
             return pianos[0]
-        if not appointment_context:
-            return pianos[0]
 
         search_text = " ".join([
-            appointment_context.get('title', ''),
-            appointment_context.get('description', ''),
-            appointment_context.get('notes', ''),
+            appt.get('title', ''), appt.get('description', ''), appt.get('notes', ''),
         ]).lower()
 
         if not search_text.strip():
@@ -483,321 +731,86 @@ class ClientIntelligenceService:
 
         return pianos[0]
 
-    # ═══════════════════════════════════════════════════════════════════
-    # DATA ACCESS (inchangé)
-    # ═══════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════
+    # FOLLOW-UP RESOLUTION (kept for API endpoint)
+    # ═══════════════════════════════════════════════════════════════
 
-    def _get_client(self, client_id: str) -> Optional[Dict]:
+    def resolve_follow_up(self, item_id: str, resolved_by: str = None,
+                           resolution_note: str = None) -> bool:
+        """Mark a follow-up as resolved."""
         try:
-            clients = self.storage.get_data('gazelle_clients',
-                                            filters={'external_id': client_id})
-            return clients[0] if clients else None
-        except:
-            return None
-
-    # Messages système à ignorer (confirmations, rappels, notifications — pas des vrais services)
-    SYSTEM_MESSAGE_PATTERNS = [
-        'merci d\'avoir confirmé',
-        'thank you for confirming',
-        'votre rendez-vous avec piano technique',
-        'your piano appointment',
-        'votre piano',
-        'your piano',
-        'veuillez confirmer',
-        'please confirm',
-        'a créé un rendez-vous',
-        'created an appointment',
-        'rendez-vous avec',
-        'appointment with',
-        'rappel',
-        'reminder',
-        'confirmation',
-        'le client a confirmé',
-        'client confirmed',
-        'le statut du client',
-        'client status',
-        'a été modifié',
-        'was changed',
-    ]
-
-    def _is_system_message(self, text: str) -> bool:
-        """Détecte les messages système (confirmations, rappels, notifications)."""
-        text_lower = text.lower()
-        return any(pattern in text_lower for pattern in self.SYSTEM_MESSAGE_PATTERNS)
-
-    def _get_client_notes(self, client_id: str, piano_id: str = None) -> List[Dict]:
-        from datetime import date as date_type
-        today_str = date_type.today().isoformat()  # "YYYY-MM-DD"
-
-        notes = []
-        seen_texts = set()  # Éviter les doublons
-
-        # 1. Timeline par client
-        try:
-            timeline = self.storage.get_data('gazelle_timeline_entries',
-                                              filters={'client_id': client_id},
-                                              order_by='occurred_at.desc')
-            for t in timeline[:20]:
-                entry_date = (t.get('occurred_at', '') or '')[:10]
-                # Exclure les entrées d'aujourd'hui et futures
-                if entry_date and entry_date >= today_str:
-                    continue
-                text = f"{t.get('title', '')} {t.get('description', '')}".strip()
-                if text and text not in seen_texts and not self._is_system_message(text):
-                    seen_texts.add(text)
-                    notes.append({
-                        'date': entry_date,
-                        'text': text,
-                        'technician': t.get('user_id', ''),
-                        'source': 'timeline'
-                    })
-        except:
-            pass
-
-        # 2. Timeline par piano (important pour les déficiences liées au piano!)
-        if piano_id:
-            try:
-                piano_timeline = self.storage.get_data('gazelle_timeline_entries',
-                                                        filters={'piano_id': piano_id},
-                                                        order_by='occurred_at.desc')
-                for t in piano_timeline[:20]:
-                    entry_date = (t.get('occurred_at', '') or '')[:10]
-                    if entry_date and entry_date >= today_str:
-                        continue
-                    text = f"{t.get('title', '')} {t.get('description', '')}".strip()
-                    if text and text not in seen_texts and not self._is_system_message(text):
-                        seen_texts.add(text)
-                        notes.append({
-                            'date': entry_date,
-                            'text': text,
-                            'technician': t.get('user_id', ''),
-                            'source': 'piano_timeline'
-                        })
-            except:
-                pass
-
-        # 3. Appointments
-        try:
-            appts = self.storage.get_data('gazelle_appointments',
-                                           filters={'client_external_id': client_id},
-                                           order_by='start_datetime.desc')
-            for a in appts[:10]:
-                appt_date = a.get('appointment_date', '') or ''
-                # Exclure les RV d'aujourd'hui et futurs
-                if appt_date and appt_date[:10] >= today_str:
-                    continue
-                text = f"{a.get('title', '')} {a.get('description', '')} {a.get('notes', '')}".strip()
-                if text and text not in seen_texts and not self._is_system_message(text):
-                    seen_texts.add(text)
-                    notes.append({
-                        'date': appt_date,
-                        'text': text,
-                        'technician': a.get('technicien', ''),
-                        'source': 'appointment'
-                    })
-        except:
-            pass
-
-        return notes
-
-    def _get_piano_estimates(self, piano_id: str, client_id: str) -> List[Dict]:
-        """Récupère les entrées timeline liées à une soumission pour ce piano."""
-        if not piano_id and not client_id:
-            return []
-        try:
-            import requests
-            from urllib.parse import quote
-
-            url = f"{self.storage.api_url}/gazelle_timeline_entries"
-            url += "?select=*"
-            url += "&estimate_id=not.is.null"  # Seulement les entrées avec soumission
-            url += "&order=occurred_at.desc"
-            url += "&limit=5"
-
-            # Filtrer par piano ou client
-            if piano_id:
-                url += f"&piano_id=eq.{quote(piano_id)}"
-            elif client_id:
-                url += f"&client_id=eq.{quote(client_id)}"
-
-            headers = self.storage._get_headers()
-            response = requests.get(url, headers=headers)
-            if response.status_code != 200:
-                return []
-
-            entries = response.json()
-            items = []
-            for entry in entries:
-                text = entry.get('description') or entry.get('title') or entry.get('summary') or ''
-                if text.strip():
-                    items.append({
-                        'date': (entry.get('occurred_at') or '')[:10],
-                        'text': text.strip(),
-                        'estimate_id': entry.get('estimate_id'),
-                    })
-            return items
-        except Exception as e:
-            print(f"⚠️  Erreur fetch estimates: {e}")
-            return []
-
-    def _get_client_pianos(self, client_id: str) -> List[Dict]:
-        try:
-            return self.storage.get_data('gazelle_pianos',
-                                          filters={'client_external_id': client_id})
-        except:
-            return []
-
-    def _save_intelligence(self, client_id: str, briefing: Dict):
-        try:
-            record = {
-                'client_external_id': client_id,
-                'profile_data': briefing.get('profile', {}),
-                'technical_history': briefing.get('technical_history', []),
-                'piano_info': briefing.get('piano', {}),
-                'confidence_score': briefing.get('confidence_score', 0.5),
-                'notes_analyzed_count': briefing.get('notes_analyzed', 0),
-                'last_generated_at': datetime.now().isoformat(),
+            self.storage.client.table('follow_up_items').update({
+                'status': 'resolved',
+                'resolved_at': datetime.now().isoformat(),
+                'resolved_by': resolved_by,
+                'resolution_note': resolution_note,
                 'updated_at': datetime.now().isoformat(),
-            }
-            self.storage.upsert_data('client_intelligence', record,
-                                      conflict_column='client_external_id')
+            }).eq('id', item_id).execute()
+            return True
         except Exception as e:
-            print(f"⚠️  Erreur sauvegarde intelligence: {e}")
+            print(f"❌ Erreur résolution follow-up: {e}")
+            return False
 
-    # ═══════════════════════════════════════════════════════════════════
-    # BRIEFINGS DU JOUR (inchangé sauf format)
-    # ═══════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════
+    # SINGLE CLIENT BRIEFING (for /client/{id} endpoint)
+    # ═══════════════════════════════════════════════════════════════
 
-    def get_daily_briefings(self, technician_id: str = None,
-                            exclude_technician_id: str = None,
-                            target_date: str = None) -> List[Dict]:
-        if not target_date:
-            target_date = datetime.now().strftime('%Y-%m-%d')
+    async def generate_single_briefing(self, client_external_id: str) -> Dict:
+        """Generate a briefing for a single client (no appointment context)."""
+        client = await asyncio.to_thread(
+            lambda: (self.storage.get_data('gazelle_clients', filters={'external_id': client_external_id}) or [None])[0]
+        )
+        if not client:
+            return {"error": "Client non trouvé"}
 
-        filters = {'appointment_date': target_date, 'status': 'ACTIVE'}
-        if technician_id:
-            filters['technicien'] = technician_id
+        pianos = await asyncio.to_thread(
+            lambda: self.storage.get_data('gazelle_pianos', filters={'client_external_id': client_external_id})
+        )
 
-        try:
-            appointments = self.storage.get_data('gazelle_appointments',
-                                                  filters=filters,
-                                                  order_by='appointment_time.asc')
-        except:
-            appointments = []
+        timeline = await asyncio.to_thread(
+            self._batch_fetch_timeline, [client_external_id], []
+        )
 
-        if exclude_technician_id:
-            appointments = [a for a in appointments
-                           if a.get('technicien') != exclude_technician_id]
+        followups = await asyncio.to_thread(
+            self._batch_fetch_followups, [client_external_id]
+        )
 
-        # Charger TOUS les RV du jour pour détecter les collaborations
-        all_day_appointments = []
-        if technician_id:
-            try:
-                all_day_appointments = self.storage.get_data(
-                    'gazelle_appointments',
-                    filters={'appointment_date': target_date, 'status': 'ACTIVE'},
-                    order_by='appointment_time.asc'
-                )
-            except:
-                all_day_appointments = []
+        estimates = await asyncio.to_thread(
+            self._batch_fetch_estimates, [client_external_id], []
+        )
 
-        briefings = []
-        for appt in appointments:
-            client_id = appt.get('client_external_id')
-            if not client_id:
-                continue
+        past_appts = await asyncio.to_thread(
+            self._batch_fetch_past_appointments, [client_external_id]
+        )
 
-            appointment_context = {
-                'title': appt.get('title', ''),
-                'description': appt.get('description', ''),
-                'notes': appt.get('notes', ''),
-                'piano_external_id': appt.get('piano_external_id'),  # 🔗 Lien direct vers le piano
-            }
+        fake_appt = {
+            'client_external_id': client_external_id,
+            'piano_external_id': pianos[0].get('external_id') if pianos else None,
+            'external_id': None,
+            'appointment_time': '',
+            'title': '',
+            'description': '',
+            'notes': '',
+            'technicien': '',
+        }
 
-            briefing = self.generate_briefing(client_id, appointment_context)
-
-            # Détecter collaboration : autres techs au même client le même jour
-            collaboration = []
-            if technician_id and all_day_appointments:
-                for other in all_day_appointments:
-                    other_tech = other.get('technicien', '')
-                    other_client = other.get('client_external_id', '')
-                    if other_client == client_id and other_tech and other_tech != technician_id:
-                        collaboration.append({
-                            'technician_id': other_tech,
-                            'technician_name': resolve_technician_name(other_tech),
-                            'time': (other.get('appointment_time', '') or '')[:5],
-                        })
-
-            briefing['appointment'] = {
-                'id': appt.get('external_id'),
-                'time': appt.get('appointment_time', '')[:5],
-                'title': appt.get('title', ''),
-                'description': appt.get('description', ''),
-                'technician_id': appt.get('technicien'),
-                'collaboration': collaboration,
-            }
-
-            briefings.append(briefing)
-
-        return briefings
-
-    def format_briefing_card(self, briefing: Dict) -> str:
-        """Formate un briefing en texte concis pour affichage mobile."""
-        lines = []
-
-        appt = briefing.get('appointment', {})
-        client_since = briefing.get('client_since', '')
-        since_str = f" ({client_since})" if client_since else ""
-        lines.append(f"⏰ {appt.get('time', '?')} - {briefing.get('client_name', 'Client')}{since_str}")
-        lines.append("─" * 30)
-
-        profile = briefing.get('profile', {})
-        icons = []
-        if profile.get('language') == 'EN':
-            icons.append("🇬🇧")
-        if profile.get('pets'):
-            icons.append("🐕 " + ", ".join(profile['pets']))
-        courtesies = profile.get('courtesies') or []
-        if 'enlever chaussures' in courtesies:
-            icons.append("👟❌")
-        if 'offre café' in courtesies:
-            icons.append("☕")
-        if profile.get('payment_method'):
-            icons.append(f"💳 {profile['payment_method']}")
-        if icons:
-            lines.append(" ".join(icons))
-
-        piano = briefing.get('piano', {})
-        if piano and piano.get('make'):
-            piano_line = f"🎹 {piano.get('make', '')} {piano.get('model', '')}"
-            if piano.get('year'):
-                piano_line += f" ({piano.get('year')})"
-            lines.append(piano_line)
-            for warning in (piano.get('warnings') or []):
-                lines.append(f"   ⚠️ {warning}")
-
-        # Dernière visite
-        history = briefing.get('technical_history', [])
-        if history:
-            h = history[0]
-            tech = h.get('technician', '')
-            date = h.get('date', '')
-            lines.append(f"📋 Dernier: {tech}, {date}")
-
-        # Follow-ups ouverts
-        follow_ups = briefing.get('follow_ups', [])
-        if follow_ups:
-            lines.append(f"🔔 {len(follow_ups)} suivi(s) en attente")
-            for fu in follow_ups[:2]:
-                lines.append(f"   → {fu.get('description', '')}")
-
-        return "\n".join(lines)
+        result = await self._generate_one_briefing(
+            appt=fake_appt,
+            client=client,
+            pianos=pianos or [],
+            timeline=timeline.get(client_external_id, []),
+            past_appointments=past_appts.get(client_external_id, []),
+            followups=followups.get(client_external_id, []),
+            estimates=estimates.get(client_external_id, []),
+            technician_id=None,
+            all_day_appts=[],
+        )
+        return result or {"error": "Erreur de génération"}
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# API FEEDBACK (Allan Only)
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════
+# BACKWARD COMPATIBILITY — save_feedback (used by briefing_routes.py)
+# ═══════════════════════════════════════════════════════════════════
 
 def save_feedback(client_id: str, category: str, field_name: str,
                   original_value: str, corrected_value: str,
@@ -820,24 +833,5 @@ def save_feedback(client_id: str, category: str, field_name: str,
         return False
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# TEST
-# ═══════════════════════════════════════════════════════════════════════
-
-if __name__ == "__main__":
-    print("=" * 60)
-    print("TEST CLIENT INTELLIGENCE SERVICE V3")
-    print("=" * 60)
-
-    service = ClientIntelligenceService()
-    print(f"Mode: {'IA' if service.ai_engine.is_available else 'Regex fallback'}")
-
-    print("\n📅 Briefings du jour:")
-    briefings = service.get_daily_briefings()
-
-    if not briefings:
-        print("   Aucun RV aujourd'hui")
-    else:
-        for b in briefings[:3]:
-            print("\n" + service.format_briefing_card(b))
-            print()
+# Keep old class name as alias for backward compatibility during transition
+ClientIntelligenceService = NarrativeBriefingService
