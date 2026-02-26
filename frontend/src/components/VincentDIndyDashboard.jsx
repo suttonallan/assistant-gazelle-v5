@@ -146,6 +146,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         updated_by: currentUser?.email || currentUser?.name || 'Unknown'
       };
 
+      // Préfixer le champ travail avec [Nom] pour identifier l'auteur
+      if (updatesWithUser.travail !== undefined && updatesWithUser.travail.trim() !== '') {
+        const name = currentUser?.name || 'Unknown';
+        const prefix = `[${name}]`;
+        if (!updatesWithUser.travail.startsWith(prefix)) {
+          // Remplacer un éventuel préfixe existant d'un autre utilisateur
+          const textWithoutPrefix = updatesWithUser.travail.replace(/^\[.+?\]\s*/, '');
+          updatesWithUser.travail = `${prefix} ${textWithoutPrefix}`;
+        }
+      }
+
       // Utiliser l'institution dynamique au lieu de vincent-dindy hardcodé
       const response = await fetch(`${API_URL}/api/${institution}/pianos/${pianoId}`, {
         method: 'PUT',
