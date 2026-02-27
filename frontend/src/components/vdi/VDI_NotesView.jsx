@@ -66,6 +66,9 @@ export default function VDI_NotesView({ currentUser }) {
   // Admin identity switcher — enter notes as a guest tech
   const [guestTechnicians, setGuestTechnicians] = useState([]);
   const [impersonating, setImpersonating] = useState(null); // null = self, or { tech_token, tech_name }
+  const [showAddGuest, setShowAddGuest] = useState(false);
+  const [newGuestName, setNewGuestName] = useState('');
+  const [addingGuest, setAddingGuest] = useState(false);
 
   // Debounce timers
   const debounceTimers = useRef({});
@@ -102,20 +105,25 @@ export default function VDI_NotesView({ currentUser }) {
   }, [currentUser, impersonating]);
 
   // ========== 1b. Load guest technicians for identity switcher (admin) ==========
-  useEffect(() => {
+  // Permanent staff names to exclude from the guest list
+  const permanentStaff = TECHNICIENS_LISTE.map(t => t.prenom.toLowerCase());
+
+  const loadGuests = useCallback(async () => {
     if (!isAdmin) return;
-    const loadGuests = async () => {
-      try {
-        const r = await fetch(`${API_URL}/api/vdi/admin/guest-technicians`);
-        if (!r.ok) return;
-        const data = await r.json();
-        setGuestTechnicians(data.filter(g => g.active));
-      } catch (e) {
-        console.error('Erreur chargement invités:', e);
-      }
-    };
-    loadGuests();
+    try {
+      const r = await fetch(`${API_URL}/api/vdi/admin/guest-technicians`);
+      if (!r.ok) return;
+      const data = await r.json();
+      // Filter: active AND not permanent staff
+      setGuestTechnicians(data.filter(g =>
+        g.active && !permanentStaff.includes(g.tech_name.toLowerCase())
+      ));
+    } catch (e) {
+      console.error('Erreur chargement invités:', e);
+    }
   }, [isAdmin]);
+
+  useEffect(() => { loadGuests(); }, [loadGuests]);
 
   // ========== 1c. Switch identity to a guest tech ==========
   const switchIdentity = (guest) => {
@@ -134,6 +142,32 @@ export default function VDI_NotesView({ currentUser }) {
       // Back to self — useEffect will re-provision own token
       setImpersonating(null);
       setTechToken(null);
+    }
+  };
+
+  // ========== 1d. Create a new guest technician ==========
+  const createGuestTech = async () => {
+    const name = newGuestName.trim();
+    if (!name) return;
+    setAddingGuest(true);
+    try {
+      const r = await fetch(`${API_URL}/api/vdi/admin/guest-technicians`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tech_name: name }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const created = await r.json();
+      setNewGuestName('');
+      setShowAddGuest(false);
+      await loadGuests();
+      // Auto-switch to the new tech
+      switchIdentity({ tech_token: created.tech_token, tech_name: created.tech_name });
+    } catch (e) {
+      console.error('Erreur création invité:', e);
+      alert('Erreur: ' + e.message);
+    } finally {
+      setAddingGuest(false);
     }
   };
 
@@ -414,7 +448,7 @@ export default function VDI_NotesView({ currentUser }) {
   return (
     <div className="space-y-4">
       {/* ===== IDENTITY SWITCHER (Admin only) ===== */}
-      {isAdmin && guestTechnicians.length > 0 && (
+      {isAdmin && (
         <div className={`rounded-lg shadow border overflow-hidden ${impersonating ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-200'}`}>
           <div className="px-4 py-3">
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
@@ -444,6 +478,41 @@ export default function VDI_NotesView({ currentUser }) {
                   {g.tech_name}
                 </button>
               ))}
+              {/* Add new guest tech */}
+              {!showAddGuest ? (
+                <button
+                  onClick={() => setShowAddGuest(true)}
+                  className="px-3 py-1.5 text-sm font-medium rounded-full border-2 border-dashed border-gray-300 text-gray-400 hover:border-purple-400 hover:text-purple-500 transition-colors"
+                >
+                  + Ajouter
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={newGuestName}
+                    onChange={(e) => setNewGuestName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && createGuestTech()}
+                    placeholder="Prénom du tech"
+                    className="px-2.5 py-1 text-sm border border-purple-300 rounded-full w-36 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    autoFocus
+                    disabled={addingGuest}
+                  />
+                  <button
+                    onClick={createGuestTech}
+                    disabled={!newGuestName.trim() || addingGuest}
+                    className="px-2.5 py-1 text-sm font-medium rounded-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {addingGuest ? '...' : 'OK'}
+                  </button>
+                  <button
+                    onClick={() => { setShowAddGuest(false); setNewGuestName(''); }}
+                    className="px-2 py-1 text-sm text-gray-400 hover:text-gray-600"
+                  >
+                    x
+                  </button>
+                </div>
+              )}
             </div>
             {impersonating && (
               <div className="mt-2 text-sm text-purple-700 font-medium">

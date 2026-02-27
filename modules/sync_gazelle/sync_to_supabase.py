@@ -987,12 +987,12 @@ class GazelleToSupabaseSync:
             print(f"✅ {self.stats['appointments']['synced']} rendez-vous synchronisés")
 
             # ═══════════════════════════════════════════════════════════════════
-            # VERROU SÉCURITÉ #3: Protection contre suppression massive
-            # NETTOYAGE DÉSACTIVÉ PAR DÉFAUT - Trop risqué si l'API Gazelle
-            # retourne des données incomplètes (timeout, erreur réseau)
+            # NETTOYAGE RV ANNULÉS: Marquer comme CANCELLED (pas supprimer)
+            # Quand un RV disparaît de l'API Gazelle, on le marque CANCELLED
+            # dans Supabase plutôt que de le supprimer. C'est réversible et
+            # empêche les RV fantômes d'apparaître dans "Ma Journée".
             # ═══════════════════════════════════════════════════════════════════
-            ENABLE_APPOINTMENT_CLEANUP = False  # ⚠️ DÉSACTIVÉ pour sécurité
-            MAX_DELETIONS_ALLOWED = 5  # Seuil de sécurité si activé
+            MAX_CANCELLATIONS_ALLOWED = 10  # Seuil de sécurité
 
             try:
                 print("\n🧹 Vérification des rendez-vous supprimés/annulés dans Gazelle...")
@@ -1001,54 +1001,53 @@ class GazelleToSupabaseSync:
                 gazelle_ids = {appt.get('id') for appt in api_appointments if appt.get('id')}
                 print(f"   📋 {len(gazelle_ids)} rendez-vous actifs dans Gazelle")
 
-                # 2. Récupérer tous les external_id depuis Supabase pour la même période
+                # 2. Récupérer tous les external_id ACTIFS depuis Supabase pour la même période
                 if start_date_override:
                     date_filter = start_date_override
                 else:
                     date_filter = start_dt.strftime('%Y-%m-%d')
 
-                url = f"{self.storage.api_url}/gazelle_appointments?appointment_date=gte.{date_filter}&select=external_id"
+                url = f"{self.storage.api_url}/gazelle_appointments?appointment_date=gte.{date_filter}&status=neq.CANCELLED&select=external_id"
                 response = requests.get(url, headers=self.storage._get_headers())
 
                 if response.status_code == 200:
                     supabase_appointments = response.json()
                     supabase_ids = {appt['external_id'] for appt in supabase_appointments if appt.get('external_id')}
-                    print(f"   📋 {len(supabase_ids)} rendez-vous dans Supabase (période synchronisée)")
+                    print(f"   📋 {len(supabase_ids)} rendez-vous actifs dans Supabase (période synchronisée)")
 
-                    # 3. Identifier les RV potentiellement à supprimer
-                    ids_to_delete = supabase_ids - gazelle_ids
+                    # 3. Identifier les RV absents de Gazelle (annulés)
+                    ids_to_cancel = supabase_ids - gazelle_ids
 
-                    if ids_to_delete:
-                        print(f"   ℹ️  {len(ids_to_delete)} rendez-vous absents de Gazelle (possiblement annulés)")
+                    if ids_to_cancel:
+                        print(f"   ℹ️  {len(ids_to_cancel)} rendez-vous absents de Gazelle (annulés)")
 
-                        # VERROU: Logger les IDs sans les supprimer
-                        for external_id in list(ids_to_delete)[:10]:  # Max 10 pour le log
-                            print(f"      - {external_id}")
-                        if len(ids_to_delete) > 10:
-                            print(f"      ... et {len(ids_to_delete) - 10} autres")
+                        for ext_id in list(ids_to_cancel)[:10]:
+                            print(f"      - {ext_id}")
+                        if len(ids_to_cancel) > 10:
+                            print(f"      ... et {len(ids_to_cancel) - 10} autres")
 
-                        if not ENABLE_APPOINTMENT_CLEANUP:
-                            print(f"   🔒 SUPPRESSION DÉSACTIVÉE (sécurité) - Aucun RV supprimé")
-                            print(f"   💡 Pour activer: ENABLE_APPOINTMENT_CLEANUP = True")
-                        elif len(ids_to_delete) > MAX_DELETIONS_ALLOWED:
-                            print(f"   🚨 ALERTE: {len(ids_to_delete)} > {MAX_DELETIONS_ALLOWED} (seuil max)")
-                            print(f"   🔒 SUPPRESSION BLOQUÉE - Trop de RV à supprimer (possible erreur API)")
-                            print(f"   💡 Vérifiez manuellement ces IDs avant de supprimer")
+                        if len(ids_to_cancel) > MAX_CANCELLATIONS_ALLOWED:
+                            print(f"   🚨 ALERTE: {len(ids_to_cancel)} > {MAX_CANCELLATIONS_ALLOWED} (seuil max)")
+                            print(f"   🔒 MARQUAGE BLOQUÉ - Trop de RV à annuler (possible erreur API)")
                         else:
-                            # Suppression autorisée (< seuil ET flag activé)
-                            print(f"   ⚠️  Suppression de {len(ids_to_delete)} RV (< seuil {MAX_DELETIONS_ALLOWED})")
-                            deleted_count = 0
-                            for external_id in ids_to_delete:
-                                delete_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
-                                delete_response = requests.delete(delete_url, headers=self.storage._get_headers())
+                            # Marquer comme CANCELLED (réversible, pas de suppression)
+                            cancelled_count = 0
+                            for ext_id in ids_to_cancel:
+                                patch_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}"
+                                headers = self.storage._get_headers()
+                                patch_data = {
+                                    'status': 'CANCELLED',
+                                    'updated_at': format_for_supabase(datetime.now())
+                                }
+                                patch_response = requests.patch(patch_url, headers=headers, json=patch_data)
 
-                                if delete_response.status_code in [200, 204]:
-                                    deleted_count += 1
-                                    print(f"      ✓ Supprimé: {external_id}")
+                                if patch_response.status_code in [200, 204]:
+                                    cancelled_count += 1
+                                    print(f"      ✓ Marqué CANCELLED: {ext_id}")
                                 else:
-                                    print(f"      ⚠️  Erreur suppression {external_id}: {delete_response.status_code}")
+                                    print(f"      ⚠️  Erreur marquage {ext_id}: {patch_response.status_code}")
 
-                            print(f"   ✅ {deleted_count}/{len(ids_to_delete)} rendez-vous supprimés de Supabase")
+                            print(f"   ✅ {cancelled_count}/{len(ids_to_cancel)} rendez-vous marqués CANCELLED")
                     else:
                         print(f"   ✅ Aucun rendez-vous obsolète détecté")
                 else:

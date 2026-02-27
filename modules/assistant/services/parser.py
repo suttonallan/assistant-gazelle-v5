@@ -400,6 +400,12 @@ class ConversationalParser:
 - `combien de rv ce mois` - Nombre de RV
 - `stats cette semaine` - Statistiques
 
+**Questions libres (admin/assistantes):**
+- `quelles sont les dernières églises accordées ?`
+- `combien avons-nous chargé pour remplacer des marteaux ?`
+- `clients à Laval pas vus depuis 1 an ?`
+- L'assistant apprend de chaque nouvelle question !
+
 **Aide:**
 - `.aide` ou `.help` - Affiche ce message
 """

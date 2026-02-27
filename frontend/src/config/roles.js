@@ -54,16 +54,17 @@ export const ROLES = {
   },
 
   margot: {
-    name: 'Margot (Assistante)',
+    name: 'Margot (Assistante + Technicienne)',
     email: 'margotcharignon@gmail.com',
     gazelleId: 'usr_bbt59aCUqUaDWA8n', // Margot Charignon dans Gazelle
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier les quantités
       'view_tours', // Peut voir les tournées
-      'use_assistant' // Margot peut utiliser l'assistant
+      'use_assistant', // Margot peut utiliser l'assistant
+      'edit_vdi' // Peut entrer des notes sur les pianos VD
     ],
-    dashboards: ['inventaire', 'tournees']
+    dashboards: ['inventaire', 'tournees', 'vincent-dindy']
   },
 
   // Techniciens temporaires VDI
@@ -72,8 +73,8 @@ export const ROLES = {
     email: null,
     gazelleId: null,
     initials: 'AB',
-    permissions: ['view_inventory', 'view_tours'],
-    dashboards: ['tournees']
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
+    dashboards: ['vincent-dindy']
   },
 
   nikolas: {
@@ -81,8 +82,8 @@ export const ROLES = {
     email: null,
     gazelleId: null,
     initials: 'NG',
-    permissions: ['view_inventory', 'view_tours'],
-    dashboards: ['tournees']
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
+    dashboards: ['vincent-dindy']
   },
 
   guillaume: {
@@ -90,27 +91,28 @@ export const ROLES = {
     email: null,
     gazelleId: null,
     initials: 'GL',
-    permissions: ['view_inventory', 'view_tours'],
-    dashboards: ['tournees']
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
+    dashboards: ['vincent-dindy']
   }
 }
 
 /**
- * Détecte le rôle selon l'email de l'utilisateur
+ * Détecte le rôle selon l'email de l'utilisateur.
+ * Si l'email n'est pas trouvé dans ROLES, utilise le fallbackRole (ex: depuis LoginScreen).
  */
-export function getUserRole(userEmail) {
-  if (!userEmail) return 'admin' // Par défaut
+export function getUserRole(userEmail, fallbackRole = null) {
+  if (!userEmail) return fallbackRole || 'admin'
 
   const email = userEmail.toLowerCase()
 
   // Chercher le rôle correspondant
   for (const [roleName, roleConfig] of Object.entries(ROLES)) {
-    if (roleConfig.email.toLowerCase() === email) {
+    if (roleConfig.email && roleConfig.email.toLowerCase() === email) {
       return roleName
     }
   }
 
-  return 'admin' // Par défaut si non trouvé
+  return fallbackRole || 'admin'
 }
 
 /**
@@ -175,6 +177,7 @@ export function getUserPermissions(currentUser) {
     canViewAll: hasWildcard || roleConfig?.permissions?.includes('view_inventory'),
     canManageTours: hasWildcard || roleConfig?.permissions?.includes('create_tours') || roleConfig?.permissions?.includes('view_tours'),
     canUseAssistant: hasWildcard || roleConfig?.permissions?.includes('use_assistant'),
+    canUseSmartQueries: hasWildcard || ['admin', 'louise', 'margot'].includes(effectiveRole),
     permissions: roleConfig?.permissions || []
   }
 }
