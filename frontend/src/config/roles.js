@@ -67,17 +67,31 @@ export const ROLES = {
     dashboards: ['inventaire', 'tournees', 'vincent-dindy']
   },
 
-  // ═══════════════════════════════════════════════════════════════════
-  // TECHNICIENS TEMPORAIRES — Accès Vincent-d'Indy uniquement
-  // Utilisé pour les weekends/événements avec techniciens supplémentaires
-  // ═══════════════════════════════════════════════════════════════════
-  technician_vdi: {
-    name: 'Technicien VDI (Temporaire)',
-    email: null, // Pas d'email — identifié par nom dans LoginScreen
+  // Techniciens temporaires VDI
+  alexandre: {
+    name: 'Alexandre (VDI)',
+    email: null,
     gazelleId: null,
-    permissions: [
-      'edit_vdi' // Peut entrer des notes sur les pianos VD uniquement
-    ],
+    initials: 'AB',
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
+    dashboards: ['vincent-dindy']
+  },
+
+  nikolas: {
+    name: 'Nikolas (VDI)',
+    email: null,
+    gazelleId: null,
+    initials: 'NG',
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
+    dashboards: ['vincent-dindy']
+  },
+
+  guillaume: {
+    name: 'Guillaume (VDI)',
+    email: null,
+    gazelleId: null,
+    initials: 'GL',
+    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
     dashboards: ['vincent-dindy']
   }
 }

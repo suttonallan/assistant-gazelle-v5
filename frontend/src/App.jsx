@@ -133,7 +133,8 @@ function App() {
     name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
     role: simulatedRole,
     id: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId || currentUser?.id, // ⭐ ID Gazelle du rôle simulé (pour le chat)
-    gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId // Alias pour compatibilité
+    gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId, // Alias pour compatibilité
+    initials: ROLES[simulatedRole]?.initials || null // Initiales pour préfixe travail VDI
   } : {
     ...currentUser,
     // ⭐ FIX: Garantir que l'ID Gazelle est disponible pour le chat
@@ -310,15 +311,17 @@ function App() {
             <MaJournee currentUser={effectiveUser} />
           </ErrorBoundary>
         )
-      case 'technician_vdi':
-        // Techniciens temporaires — accès Vincent-d'Indy uniquement (vue technicien)
+      case 'alexandre':
+      case 'nikolas':
+      case 'guillaume':
+        // Techniciens temporaires VDI — vue technicien directe
         return (
-          <ErrorBoundary componentName="Vincent d'Indy (Technicien)">
+          <ErrorBoundary componentName="Vincent d'Indy (Tech VDI)">
             <VincentDIndyDashboard
               currentUser={effectiveUser}
+              institution="vincent-dindy"
               initialView="technicien"
               hideNickView={true}
-              hideLocationSelector={true}
             />
           </ErrorBoundary>
         )
@@ -718,7 +721,9 @@ function App() {
                 <option value="louise">Louise</option>
                 <option value="margot">Margot</option>
                 <option value="jeanphilippe">Jean-Philippe</option>
-                <option value="technician_vdi">Tech VDI (temporaire)</option>
+                <option value="alexandre">Alexandre (AB)</option>
+                <option value="nikolas">Nikolas (NG)</option>
+                <option value="guillaume">Guillaume (GL)</option>
               </select>
             )}
 

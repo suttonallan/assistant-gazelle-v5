@@ -171,7 +171,7 @@ export default function VDI_TechnicianView({
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
                 piano.status === 'top' ? 'bg-amber-100' :
-                (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) ? 'bg-yellow-100' :
+                piano.status === 'proposed' ? 'bg-yellow-100' :
                 'bg-white'
               }`}>
                 {/* Ligne principale - cliquable */}
@@ -190,8 +190,6 @@ export default function VDI_TechnicianView({
                       }>{piano.service_status === 'pushed' ? '✓✓' : '✓'}</span>
                     ) : hasTravail ? (
                       <span className="text-blue-500 text-xs">📝</span>
-                    ) : piano.last_validated_at ? (
-                      <span className="text-green-500 text-sm font-bold" title="Validé">✓</span>
                     ) : null}
                     {/* Save status dot when collapsed */}
                     {!isExpanded && saveStatus[piano.id] === 'modified' && (

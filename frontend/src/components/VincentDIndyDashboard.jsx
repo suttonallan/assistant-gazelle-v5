@@ -459,13 +459,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
+    // Auto-préfixer les initiales du technicien (ex: [AB], [NG], [GL])
+    let noteToSave = noteValue;
+    const initials = currentUser?.initials;
+    if (initials && noteToSave.trim() && !noteToSave.startsWith(`[${initials}]`)) {
+      noteToSave = noteToSave.replace(/^\[.+?\]\s*/, '');
+      noteToSave = `[${initials}] ${noteToSave}`;
+    }
+
     // Mise à jour optimiste
     setPianos(pianos.map(p =>
-      p.id === id ? { ...p, travail: noteValue, status: noteValue ? 'work_in_progress' : p.status } : p
+      p.id === id ? { ...p, travail: noteToSave, status: noteToSave ? 'work_in_progress' : p.status } : p
     ));
 
     // Sauvegarder le piano via API
-    await savePianoToAPI(id, { travail: noteValue });
+    await savePianoToAPI(id, { travail: noteToSave });
   };
 
 
@@ -521,7 +529,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return {
       total: pianos.length,
       top: pianos.filter(p => p && p.status === 'top').length,
-      proposed: pianos.filter(p => p && (p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== ''))).length,
+      proposed: pianos.filter(p => p && p.status === 'proposed').length,
       completed: pianos.filter(p => p && p.status === 'completed').length,
     };
   }, [pianos]);
@@ -546,7 +554,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 2: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-orange-200';
 
-    // Priorité 3: À faire (jaune)
+    // Priorité 3: Proposé (jaune)
     if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
@@ -898,7 +906,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           alert(`${data.cleaned_count} piano(s) nettoyé(s). Tournée terminée.`);
           const cleanedIds = new Set(data.piano_ids);
           setPianos(pianos.map(p =>
-            cleanedIds.has(p.id) ? { ...p, travail: '', aFaire: '', observations: '', status: 'normal', service_status: null, is_work_completed: false } : p
+            cleanedIds.has(p.id) ? { ...p, travail: '', aFaire: '', observations: '', status: 'normal', service_status: null, is_work_completed: false, last_validated_at: null } : p
           ));
         } else {
           alert('Erreur: ' + (data.detail || JSON.stringify(data)));
