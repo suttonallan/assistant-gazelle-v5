@@ -1868,6 +1868,7 @@ async def tournee_terminee():
                 'status': 'normal',
                 'is_work_completed': False,
                 'service_status': None,
+                'last_validated_at': None,
             }, institution_slug='vincent-dindy')
             cleaned.append(piano_id)
 

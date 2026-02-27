@@ -64,6 +64,34 @@ export const ROLES = {
       'use_assistant' // Margot peut utiliser l'assistant
     ],
     dashboards: ['inventaire', 'tournees']
+  },
+
+  // Techniciens temporaires VDI
+  alexandre: {
+    name: 'Alexandre (VDI)',
+    email: null,
+    gazelleId: null,
+    initials: 'AB',
+    permissions: ['view_inventory', 'view_tours'],
+    dashboards: ['tournees']
+  },
+
+  nikolas: {
+    name: 'Nikolas (VDI)',
+    email: null,
+    gazelleId: null,
+    initials: 'NG',
+    permissions: ['view_inventory', 'view_tours'],
+    dashboards: ['tournees']
+  },
+
+  guillaume: {
+    name: 'Guillaume (VDI)',
+    email: null,
+    gazelleId: null,
+    initials: 'GL',
+    permissions: ['view_inventory', 'view_tours'],
+    dashboards: ['tournees']
   }
 }
 

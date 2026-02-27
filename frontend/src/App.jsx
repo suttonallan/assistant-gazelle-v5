@@ -132,7 +132,8 @@ function App() {
     name: ROLES[simulatedRole]?.name.split(' ')[0] || currentUser?.name, // Premier mot du nom
     role: simulatedRole,
     id: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId || currentUser?.id, // ⭐ ID Gazelle du rôle simulé (pour le chat)
-    gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId // Alias pour compatibilité
+    gazelleId: ROLES[simulatedRole]?.gazelleId || currentUser?.gazelleId, // Alias pour compatibilité
+    initials: ROLES[simulatedRole]?.initials || null // Initiales pour préfixe travail VDI
   } : {
     ...currentUser,
     // ⭐ FIX: Garantir que l'ID Gazelle est disponible pour le chat
@@ -307,6 +308,20 @@ function App() {
         return (
           <ErrorBoundary componentName="Ma Journée">
             <MaJournee currentUser={effectiveUser} />
+          </ErrorBoundary>
+        )
+      case 'alexandre':
+      case 'nikolas':
+      case 'guillaume':
+        // Techniciens temporaires VDI — vue technicien directe
+        return (
+          <ErrorBoundary componentName="Vincent d'Indy (Tech VDI)">
+            <VincentDIndyDashboard
+              currentUser={effectiveUser}
+              institution="vincent-dindy"
+              initialView="technicien"
+              hideNickView={true}
+            />
           </ErrorBoundary>
         )
       case 'admin':
@@ -695,6 +710,9 @@ function App() {
                 <option value="louise">Louise</option>
                 <option value="margot">Margot</option>
                 <option value="jeanphilippe">Jean-Philippe</option>
+                <option value="alexandre">Alexandre (AB)</option>
+                <option value="nikolas">Nikolas (NG)</option>
+                <option value="guillaume">Guillaume (GL)</option>
               </select>
             )}
 
