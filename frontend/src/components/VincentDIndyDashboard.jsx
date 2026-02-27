@@ -660,14 +660,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'pending',
       _key: `pending-${p.id}`,
-      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
+      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
       travail: p.travail,
-      serviceDate: p.dernierAccord || '',
+      serviceDate: p.updated_at || '',
       status: 'pending',
     })), [pianos]);
 
@@ -677,14 +677,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'validated_piano',
       _key: `vp-${p.id}`,
-      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
+      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
       travail: p.travail || '',
-      serviceDate: p.dernierAccord || '',
+      serviceDate: p.updated_at || '',
       status: 'validated',
     })), [pianos]);
 
@@ -694,14 +694,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     .map(p => ({
       _type: 'pushed_piano',
       _key: `pp-${p.id}`,
-      _sortDate: p.dernierAccord || p.updated_at || '1970-01-01',
+      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
       travail: p.travail || '',
-      serviceDate: p.dernierAccord || '',
+      serviceDate: p.updated_at || '',
       status: 'pushed',
     })), [pianos]);
 
