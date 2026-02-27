@@ -171,7 +171,7 @@ export default function VDI_TechnicianView({
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
                 piano.status === 'top' ? 'bg-amber-100' :
-                (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) ? 'bg-yellow-100' :
+                piano.status === 'proposed' ? 'bg-yellow-100' :
                 'bg-white'
               }`}>
                 {/* Ligne principale - cliquable */}

@@ -503,7 +503,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return {
       total: pianos.length,
       top: pianos.filter(p => p && p.status === 'top').length,
-      proposed: pianos.filter(p => p && (p.status === 'proposed' || (p.aFaire && p.aFaire.trim() !== ''))).length,
+      proposed: pianos.filter(p => p && p.status === 'proposed').length,
       completed: pianos.filter(p => p && p.status === 'completed').length,
     };
   }, [pianos]);
@@ -528,8 +528,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 2: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-orange-200';
 
-    // Priorité 3: À faire (jaune)
-    if (piano.status === 'proposed' || (piano.aFaire && piano.aFaire.trim() !== '')) {
+    // Priorité 3: Proposé (jaune)
+    if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
 
