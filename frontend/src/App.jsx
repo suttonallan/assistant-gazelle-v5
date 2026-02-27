@@ -273,12 +273,10 @@ function App() {
           )
         } else if (currentView === 'tournees') {
           return (
-            <ErrorBoundary componentName="Vincent d'Indy (Tournées)">
-              <VincentDIndyDashboard 
-                currentUser={effectiveUser} 
-                initialView="technicien"
-                hideNickView={true}
-                hideLocationSelector={true}
+            <ErrorBoundary componentName="Vincent d'Indy">
+              <VincentDIndyDashboard
+                currentUser={effectiveUser}
+                institution="vincent-dindy"
               />
             </ErrorBoundary>
           )
