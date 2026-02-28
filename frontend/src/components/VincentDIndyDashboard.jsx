@@ -452,6 +452,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
+  // Technicien - marquer un piano comme terminé (bouton ✓)
+  const markWorkCompleted = async (id, completed = true) => {
+    setPianos(pianos.map(p =>
+      p.id === id ? { ...p, is_work_completed: completed } : p
+    ));
+    await savePianoToAPI(id, { is_work_completed: completed });
+  };
+
   // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
   // Accepte la valeur en paramètre pour le mode auto-save
   const saveTravail = async (id, value) => {
@@ -1369,6 +1377,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               travailInput={travailInput}
               setTravailInput={setTravailInput}
               saveTravail={saveTravail}
+              markWorkCompleted={markWorkCompleted}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}
               pianosFiltres={pianosFiltres}
