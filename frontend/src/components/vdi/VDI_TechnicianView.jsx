@@ -172,7 +172,7 @@ export default function VDI_TechnicianView({
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
                 piano.is_work_completed ? 'bg-green-100' :
-                piano.status === 'top' ? 'bg-amber-100' :
+                piano.status === 'top' ? 'bg-orange-200 border-l-4 border-orange-500' :
                 piano.status === 'proposed' ? 'bg-yellow-100' :
                 'bg-white'
               }`}>
