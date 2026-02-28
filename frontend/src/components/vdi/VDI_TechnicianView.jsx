@@ -43,8 +43,9 @@ export default function VDI_TechnicianView({
   travailInput,
   setTravailInput,
 
-  // Actions — saveTravail is used for auto-save now
+  // Actions
   saveTravail,
+  markWorkCompleted,
 
   // Utilitaires
   moisDepuisAccord,
@@ -170,6 +171,7 @@ export default function VDI_TechnicianView({
 
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
+                piano.is_work_completed ? 'bg-green-100' :
                 piano.status === 'top' ? 'bg-amber-100' :
                 piano.status === 'proposed' ? 'bg-yellow-100' :
                 'bg-white'
@@ -188,6 +190,8 @@ export default function VDI_TechnicianView({
                       <span className="text-green-500 text-sm font-bold" title={
                         piano.service_status === 'pushed' ? 'Poussé vers Gazelle' : 'Validé par Nicolas'
                       }>{piano.service_status === 'pushed' ? '✓✓' : '✓'}</span>
+                    ) : piano.is_work_completed ? (
+                      <span className="text-green-500 text-sm font-bold" title="Terminé">✓</span>
                     ) : hasTravail ? (
                       <span className="text-blue-500 text-xs">📝</span>
                     ) : null}
@@ -255,6 +259,20 @@ export default function VDI_TechnicianView({
                         </div>
                       )}
                     </div>
+
+                    {/* Bouton Terminé */}
+                    {!piano.service_status && markWorkCompleted && (
+                      <button
+                        onClick={() => markWorkCompleted(piano.id, !piano.is_work_completed)}
+                        className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+                          piano.is_work_completed
+                            ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                            : 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
+                        }`}
+                      >
+                        {piano.is_work_completed ? 'Rouvrir' : '✓ Terminé'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
