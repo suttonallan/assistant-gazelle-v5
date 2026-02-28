@@ -634,17 +634,35 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      console.log('[À valider] Données brutes:', data.entries?.slice(0, 2));
+      // Filtrer les types non pertinents (USER_COMMENT, SYSTEM_MESSAGE)
+      const HIDDEN_TYPES = ['USER_COMMENT', 'SYSTEM_MESSAGE'];
+      const raw = (data.entries || [])
+        .filter(e => !HIDDEN_TYPES.includes(e.type))
+        .map(e => ({
+          date: e.date || '',
+          text: e.summary || e.comment || '',
+          entry_type: e.type || 'NOTE',
+          user: e.user || '',
+          source: e.source || 'gazelle'
+        }))
+        .filter(e => e.text.trim());
 
-      const entries = (data.entries || []).map(e => ({
-        date: e.date || '',
-        text: e.summary || e.comment || '',
-        entry_type: e.type || 'NOTE',
-        user: e.user || '',
-        source: e.source || 'gazelle'
-      })).filter(e => e.text.trim());
-
-      console.log('[À valider] Entrées transformées:', entries.slice(0, 2));
+      // Fusionner PIANO_MEASUREMENT dans le SERVICE du même jour
+      const byDate = {};
+      const entries = [];
+      for (const e of raw) {
+        const day = e.date?.substring(0, 10);
+        if (e.entry_type === 'PIANO_MEASUREMENT') {
+          if (byDate[day] && !byDate[day].text.includes(e.text)) {
+            byDate[day].text += ` — Mesure: ${e.text}`;
+          }
+          continue; // Ne pas afficher séparément
+        }
+        if (e.entry_type === 'SERVICE' || e.entry_type === 'SERVICE_ENTRY_MANUAL') {
+          byDate[day] = e;
+        }
+        entries.push(e);
+      }
 
       setGazelleHistoryData(prev => ({
         ...prev,
@@ -721,13 +739,32 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
       if (!r.ok) return;
       const data = await r.json();
-      const entries = (data.entries || []).map(e => ({
-        date: e.date || '',
-        text: e.summary || e.comment || '',
-        entry_type: e.type || 'NOTE',
-        user: e.user || '',
-        source: e.source || 'gazelle'
-      })).filter(e => e.text.trim());
+      const HIDDEN_TYPES = ['USER_COMMENT', 'SYSTEM_MESSAGE'];
+      const raw = (data.entries || [])
+        .filter(e => !HIDDEN_TYPES.includes(e.type))
+        .map(e => ({
+          date: e.date || '',
+          text: e.summary || e.comment || '',
+          entry_type: e.type || 'NOTE',
+          user: e.user || '',
+          source: e.source || 'gazelle'
+        }))
+        .filter(e => e.text.trim());
+      const byDate = {};
+      const entries = [];
+      for (const e of raw) {
+        const day = e.date?.substring(0, 10);
+        if (e.entry_type === 'PIANO_MEASUREMENT') {
+          if (byDate[day] && !byDate[day].text.includes(e.text)) {
+            byDate[day].text += ` — Mesure: ${e.text}`;
+          }
+          continue;
+        }
+        if (e.entry_type === 'SERVICE' || e.entry_type === 'SERVICE_ENTRY_MANUAL') {
+          byDate[day] = e;
+        }
+        entries.push(e);
+      }
       setGazelleHistoryData(prev => ({ ...prev, [idToFetch]: entries }));
     } catch (e) {
       setGazelleHistoryData(prev => ({ ...prev, [idToFetch]: [] }));
