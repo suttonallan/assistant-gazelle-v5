@@ -412,9 +412,9 @@ function App() {
             </div>
 
             {/* Navigation conditionnelle par rôle */}
-            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe' || effectiveRole === 'technician_vdi') && (
+            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe' || effectiveRole === 'alexandre' || effectiveRole === 'nikolas' || effectiveRole === 'guillaume') && (
               <nav className="flex gap-2">
-                {effectiveRole === 'technician_vdi' ? (
+                {(effectiveRole === 'alexandre' || effectiveRole === 'nikolas' || effectiveRole === 'guillaume') ? (
                   <>
                     {/* Technicien temporaire VDI — bouton unique */}
                     <button
