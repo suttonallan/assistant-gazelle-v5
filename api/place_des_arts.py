@@ -1069,8 +1069,18 @@ async def preview_email(payload: PreviewRequest):
             else:
                 appt_date_iso = str(appt_date)
         
+        # Extraire request_date si parsée
+        req_date = req.get('request_date')
+        req_date_iso = None
+        if req_date:
+            if isinstance(req_date, str):
+                req_date_iso = req_date.split('T')[0] if 'T' in req_date else req_date
+            elif hasattr(req_date, 'date'):
+                req_date_iso = req_date.date().isoformat()
+
         preview.append({
             "appointment_date": appt_date_iso,
+            "request_date": req_date_iso,
             "room": req.get('room') or None,
             "for_who": req.get('for_who') or None,
             "diapason": req.get('diapason') or None,
@@ -1156,7 +1166,7 @@ async def import_preview(payload: ImportPreviewRequest):
 
                 row = {
                     "id": f"pda_preview_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
-                    "request_date": today_iso,
+                    "request_date": item.get("request_date") or today_iso,
                     "appointment_date": appointment_date or None,  # Permettre None si pas de date
                     "room": item.get("room") or "",
                     "room_original": item.get("room"),
