@@ -699,14 +699,15 @@ async def list_requests(
 @router.get("/export")
 async def export_csv():
     """
-    Export CSV simple (toutes les demandes, limit 2000, tri date desc).
+    Export CSV enrichi avec les notes de service Gazelle.
+    Colonnes ordonnées pour lisibilité.
     """
     import csv
     import io
 
     storage = get_storage()
 
-    # Récupérer les données en JSON
+    # Récupérer les demandes PDA
     url = f"{storage.api_url}/place_des_arts_requests?select=*&order=appointment_date.desc&limit=2000"
     resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
@@ -720,11 +721,37 @@ async def export_csv():
             headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"}
         )
 
-    # Convertir en CSV
+    # Enrichir avec les descriptions de service Gazelle
+    apt_ids = [r.get('appointment_id') for r in data if r.get('appointment_id')]
+    gazelle_map = {}
+    if apt_ids:
+        try:
+            gazelle_result = storage.client.table('gazelle_appointments')\
+                .select('external_id,description,notes')\
+                .in_('external_id', apt_ids)\
+                .execute()
+            gazelle_map = {
+                a['external_id']: a.get('description') or a.get('notes') or ''
+                for a in (gazelle_result.data or [])
+            }
+        except Exception as e:
+            logging.warning(f"Erreur enrichissement Gazelle pour export: {e}")
+
+    # Colonnes ordonnées pour lisibilité
+    fieldnames = [
+        'appointment_date', 'time', 'room', 'for_who', 'piano',
+        'diapason', 'requester', 'technician_id', 'status',
+        'billing_amount', 'parking', 'notes', 'gazelle_service_notes',
+        'request_date', 'appointment_id', 'id',
+    ]
+
+    # Construire les lignes avec la colonne enrichie
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
-    writer.writerows(data)
+    for row in data:
+        row['gazelle_service_notes'] = gazelle_map.get(row.get('appointment_id'), '')
+        writer.writerow(row)
 
     csv_content = output.getvalue()
     output.close()
@@ -1663,6 +1690,35 @@ async def check_completed_requests():
             except Exception as e:
                 logging.warning(f"Erreur synchronisation techniciens en base: {e}")
         
+        # Détecter les RV Gazelle PDA sans demande correspondante (orphelins)
+        orphan_services = []
+        try:
+            # Récupérer TOUTES les demandes PDA (incluant COMPLETED/BILLED)
+            all_pda_result = storage.client.table('place_des_arts_requests')\
+                .select('appointment_id')\
+                .execute()
+            linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
+
+            for apt in gazelle_appointments:
+                title = (apt.get('title') or '').upper()
+                if 'PLACE DES ARTS' not in title:
+                    continue
+                if apt.get('external_id') in linked_apt_ids:
+                    continue
+                orphan_services.append({
+                    'appointment_id': apt.get('external_id'),
+                    'date': (apt.get('appointment_date') or '')[:10],
+                    'time': apt.get('appointment_time', ''),
+                    'title': apt.get('title', ''),
+                    'technician_id': apt.get('technicien'),
+                    'status': apt.get('status', ''),
+                    'description': apt.get('description') or apt.get('notes') or '',
+                })
+            if orphan_services:
+                logging.info(f"🔍 {len(orphan_services)} service(s) Gazelle PDA sans demande correspondante")
+        except Exception as e:
+            logging.warning(f"Erreur détection orphelins: {e}")
+
         return {
             "success": True,
             "checked": len(all_requests),
@@ -1670,6 +1726,7 @@ async def check_completed_requests():
             "found_unlinked": len(found_unlinked),
             "found_not_created": len(found_not_created),
             "updated": updated_count,
+            "orphan_services": orphan_services,
             "details": {
                 "completed": found_completed,
                 "unlinked": found_unlinked,
@@ -1677,7 +1734,7 @@ async def check_completed_requests():
             },
             "message": f"{updated_count} demande(s) mise(s) à jour ({len(found_completed)} complétées, {len(found_unlinked)} liées et complétées, {len(found_not_created)} liées)"
         }
-        
+
     except Exception as e:
         logging.error(f"Erreur vérification complétés: {e}", exc_info=True)
         raise HTTPException(

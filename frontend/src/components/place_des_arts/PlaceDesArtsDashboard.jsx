@@ -40,6 +40,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [roomFilter, setRoomFilter] = useState('')
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('asc')
+  const [orphanServices, setOrphanServices] = useState([])
+  const [addingOrphan, setAddingOrphan] = useState(null) // appointment_id en cours d'ajout
 
   // Sélection
   const [selectedIds, setSelectedIds] = useState([])
@@ -450,6 +452,13 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         setError(`⚠️ ${syncData.warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}`)
       }
 
+      // Détecter les services Gazelle orphelins
+      if (checkData.orphan_services?.length > 0) {
+        setOrphanServices(checkData.orphan_services)
+      } else {
+        setOrphanServices([])
+      }
+
     } catch (err) {
       setError(err.message || 'Erreur lors de la synchronisation')
     }
@@ -457,6 +466,37 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const handleExport = () => {
     window.open(`${API_URL}/api/place-des-arts/export`, '_blank')
+  }
+
+  const handleAddOrphan = async (orphan) => {
+    setAddingOrphan(orphan.appointment_id)
+    try {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointment_date: orphan.date || null,
+          time: orphan.time || '',
+          room: '',
+          for_who: orphan.title || '',
+          technician_id: orphan.technician_id || null,
+          notes: orphan.description || '',
+          appointment_id: orphan.appointment_id,
+          status: orphan.status === 'completed' ? 'COMPLETED' : 'CONFIRMED',
+        })
+      })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw new Error(err.detail || `Erreur ${resp.status}`)
+      }
+      // Retirer de la liste orpheline
+      setOrphanServices(prev => prev.filter(o => o.appointment_id !== orphan.appointment_id))
+      await fetchData()
+    } catch (err) {
+      alert(`Erreur ajout: ${err.message}`)
+    } finally {
+      setAddingOrphan(null)
+    }
   }
 
   const updateCellRaw = async (id, field, value, retries = 2) => {
@@ -1149,6 +1189,38 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         {infoMessage && (
           <div className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded">
             {infoMessage}
+          </div>
+        )}
+
+        {orphanServices.length > 0 && (
+          <div className="bg-amber-50 border border-amber-300 rounded-md px-4 py-3 mt-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-amber-800">
+                ⚠️ {orphanServices.length} service(s) PDA dans Gazelle sans demande
+              </span>
+              <button
+                onClick={() => setOrphanServices([])}
+                className="text-amber-600 hover:text-amber-800 text-xs"
+              >
+                ✕ Fermer
+              </button>
+            </div>
+            <div className="space-y-1">
+              {orphanServices.map((o) => (
+                <div key={o.appointment_id} className="flex items-center justify-between bg-white rounded px-3 py-2 text-sm border border-amber-200">
+                  <span className="text-gray-800">
+                    {o.date} — {o.title}{o.technician_id ? ` (${o.technician_id})` : ''}
+                  </span>
+                  <button
+                    onClick={() => handleAddOrphan(o)}
+                    disabled={addingOrphan === o.appointment_id}
+                    className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {addingOrphan === o.appointment_id ? '...' : '+ Ajouter'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
