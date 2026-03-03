@@ -935,6 +935,43 @@ async def delete_requests(payload: DeleteRequest):
     return result
 
 
+@router.post("/requests/create")
+async def create_request(payload: Dict[str, Any]):
+    """Crée manuellement une demande PDA."""
+    try:
+        today_iso = datetime.now(timezone.utc).date().isoformat()
+        row = {
+            "id": f"pda_manual_{int(datetime.now(timezone.utc).timestamp())}",
+            "request_date": today_iso,
+            "appointment_date": payload.get("appointment_date") or None,
+            "room": payload.get("room") or "",
+            "room_original": payload.get("room"),
+            "for_who": payload.get("for_who") or "",
+            "diapason": payload.get("diapason") or "",
+            "requester": payload.get("requester") or "",
+            "piano": payload.get("piano") or "",
+            "time": payload.get("time") or "",
+            "technician_id": payload.get("technician_id") or None,
+            "status": "PENDING",
+            "notes": payload.get("notes") or "",
+            "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
+            "parking": payload.get("parking") or "",
+        }
+
+        manager = get_manager()
+        result = manager.import_csv([row], on_conflict="update")
+
+        if result.get("errors"):
+            raise HTTPException(status_code=400, detail=str(result["errors"]))
+
+        return {"success": True, "message": "Demande créée", "id": row["id"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur création demande: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/requests/find-duplicates")
 async def find_duplicates():
     """
