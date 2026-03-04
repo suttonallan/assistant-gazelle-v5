@@ -503,11 +503,12 @@ class NarrativeBriefingService:
             return None
 
         patterns = [
-            r'chien\s*[:=]\s*([A-ZÀ-Ü][a-zà-ÿ]+)',
-            r'chien\s+(?:nommé|appelé|s\'appelle)\s+([A-ZÀ-Ü][a-zà-ÿ]+)',
-            r'dog\s*[:=]\s*([A-Z][a-z]+)',
-            r'🐕\s*[:=]?\s*([A-ZÀ-Ü][a-zà-ÿ]+)',
-            r'🐶\s*[:=]?\s*([A-ZÀ-Ü][a-zà-ÿ]+)',
+            r'chien\s*[:=]\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'chien\s+(?:nommé|appelé|s\'appelle)\s+([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'chien\s+([A-ZÀ-Ü][a-zà-ÿ]+)',           # "Chien Tom" — format naturel
+            r'dog\s*[:=]\s*([A-Za-z][a-z]+)',
+            r'🐕\s*[:=]?\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'🐶\s*[:=]?\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
         ]
         for pattern in patterns:
             match = re.search(pattern, all_text, re.IGNORECASE)
