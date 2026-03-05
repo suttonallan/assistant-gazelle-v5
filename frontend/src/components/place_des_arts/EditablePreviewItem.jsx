@@ -12,6 +12,7 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
   const [isEditing, setIsEditing] = useState(true)
   const [editedFields, setEditedFields] = useState({
     appointment_date: item.appointment_date || '',
+    request_date: item.request_date || '',
     room: item.room || '',
     for_who: item.for_who || '',
     diapason: item.diapason || '',
@@ -107,6 +108,10 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
 
         <div className="grid grid-cols-2 gap-2">
           <div>
+            <span className="font-medium text-gray-600">Demande:</span>
+            <span className="ml-2">{editedFields.request_date || '—'}</span>
+          </div>
+          <div>
             <span className="font-medium text-gray-600">Date RDV:</span>
             <span className="ml-2">{item.appointment_date || '—'}</span>
             {item.time && <span className="ml-2 text-gray-600">{item.time}</span>}
@@ -156,7 +161,28 @@ export default function EditablePreviewItem({ item, index, rawText, currentUser,
         </span>
       </div>
 
+      {/* Avertissement si date de la demande manquante */}
+      {!editedFields.request_date && (
+        <div className="bg-amber-50 border border-amber-300 rounded px-3 py-2 text-amber-800 text-xs">
+          La <strong>date de la demande</strong> n'a pas pu être détectée. Ajustez-la manuellement ci-dessous.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={`block text-xs font-medium mb-1 ${!editedFields.request_date ? 'text-amber-700' : 'text-gray-700'}`}>
+            Date de la demande {!editedFields.request_date && '*'}
+          </label>
+          <input
+            type="date"
+            value={editedFields.request_date}
+            onChange={(e) => handleFieldChange('request_date', e.target.value)}
+            className={`w-full px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+              !editedFields.request_date ? 'border-amber-400 bg-amber-50' : 'border-gray-300'
+            }`}
+          />
+        </div>
+
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Date RDV</label>
           <input

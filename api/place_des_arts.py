@@ -699,9 +699,10 @@ async def list_requests(
 @router.get("/export")
 async def export_csv(month: str = None):
     """
-    Export CSV des demandes Place des Arts.
+    Export CSV enrichi des demandes Place des Arts.
     Si month est fourni (format YYYY-MM), filtre par ce mois.
     Sinon exporte tout (limit 2000, tri date desc).
+    Colonnes ordonnées pour lisibilité.
     """
     import csv
     import io
@@ -728,11 +729,37 @@ async def export_csv(month: str = None):
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
-    # Convertir en CSV
+    # Enrichir avec les descriptions de service Gazelle
+    apt_ids = [r.get('appointment_id') for r in data if r.get('appointment_id')]
+    gazelle_map = {}
+    if apt_ids:
+        try:
+            gazelle_result = storage.client.table('gazelle_appointments')\
+                .select('external_id,description,notes')\
+                .in_('external_id', apt_ids)\
+                .execute()
+            gazelle_map = {
+                a['external_id']: a.get('description') or a.get('notes') or ''
+                for a in (gazelle_result.data or [])
+            }
+        except Exception as e:
+            logging.warning(f"Erreur enrichissement Gazelle pour export: {e}")
+
+    # Colonnes ordonnées pour lisibilité
+    fieldnames = [
+        'appointment_date', 'time', 'room', 'for_who', 'piano',
+        'diapason', 'requester', 'technician_id', 'status',
+        'billing_amount', 'parking', 'notes', 'gazelle_service_notes',
+        'request_date', 'appointment_id', 'id',
+    ]
+
+    # Construire les lignes avec la colonne enrichie
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
-    writer.writerows(data)
+    for row in data:
+        row['gazelle_service_notes'] = gazelle_map.get(row.get('appointment_id'), '')
+        writer.writerow(row)
 
     csv_content = output.getvalue()
     output.close()
@@ -943,6 +970,43 @@ async def delete_requests(payload: DeleteRequest):
     return result
 
 
+@router.post("/requests/create")
+async def create_request(payload: Dict[str, Any]):
+    """Crée manuellement une demande PDA."""
+    try:
+        today_iso = datetime.now(timezone.utc).date().isoformat()
+        row = {
+            "id": f"pda_manual_{int(datetime.now(timezone.utc).timestamp())}",
+            "request_date": today_iso,
+            "appointment_date": payload.get("appointment_date") or None,
+            "room": payload.get("room") or "",
+            "room_original": payload.get("room"),
+            "for_who": payload.get("for_who") or "",
+            "diapason": payload.get("diapason") or "",
+            "requester": payload.get("requester") or "",
+            "piano": payload.get("piano") or "",
+            "time": payload.get("time") or "",
+            "technician_id": payload.get("technician_id") or None,
+            "status": "PENDING",
+            "notes": payload.get("notes") or "",
+            "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
+            "parking": payload.get("parking") or "",
+        }
+
+        manager = get_manager()
+        result = manager.import_csv([row], on_conflict="update")
+
+        if result.get("errors"):
+            raise HTTPException(status_code=400, detail=str(result["errors"]))
+
+        return {"success": True, "message": "Demande créée", "id": row["id"]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Erreur création demande: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/requests/find-duplicates")
 async def find_duplicates():
     """
@@ -1077,8 +1141,18 @@ async def preview_email(payload: PreviewRequest):
             else:
                 appt_date_iso = str(appt_date)
         
+        # Extraire request_date si parsée
+        req_date = req.get('request_date')
+        req_date_iso = None
+        if req_date:
+            if isinstance(req_date, str):
+                req_date_iso = req_date.split('T')[0] if 'T' in req_date else req_date
+            elif hasattr(req_date, 'date'):
+                req_date_iso = req_date.date().isoformat()
+
         preview.append({
             "appointment_date": appt_date_iso,
+            "request_date": req_date_iso,
             "room": req.get('room') or None,
             "for_who": req.get('for_who') or None,
             "diapason": req.get('diapason') or None,
@@ -1164,7 +1238,7 @@ async def import_preview(payload: ImportPreviewRequest):
 
                 row = {
                     "id": f"pda_preview_{idx:04d}_{int(datetime.now(timezone.utc).timestamp())}",
-                    "request_date": today_iso,
+                    "request_date": item.get("request_date") or today_iso,
                     "appointment_date": appointment_date or None,  # Permettre None si pas de date
                     "room": item.get("room") or "",
                     "room_original": item.get("room"),
@@ -1624,6 +1698,35 @@ async def check_completed_requests():
             except Exception as e:
                 logging.warning(f"Erreur synchronisation techniciens en base: {e}")
         
+        # Détecter les RV Gazelle PDA sans demande correspondante (orphelins)
+        orphan_services = []
+        try:
+            # Récupérer TOUTES les demandes PDA (incluant COMPLETED/BILLED)
+            all_pda_result = storage.client.table('place_des_arts_requests')\
+                .select('appointment_id')\
+                .execute()
+            linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
+
+            for apt in gazelle_appointments:
+                title = (apt.get('title') or '').upper()
+                if 'PLACE DES ARTS' not in title:
+                    continue
+                if apt.get('external_id') in linked_apt_ids:
+                    continue
+                orphan_services.append({
+                    'appointment_id': apt.get('external_id'),
+                    'date': (apt.get('appointment_date') or '')[:10],
+                    'time': apt.get('appointment_time', ''),
+                    'title': apt.get('title', ''),
+                    'technician_id': apt.get('technicien'),
+                    'status': apt.get('status', ''),
+                    'description': apt.get('description') or apt.get('notes') or '',
+                })
+            if orphan_services:
+                logging.info(f"🔍 {len(orphan_services)} service(s) Gazelle PDA sans demande correspondante")
+        except Exception as e:
+            logging.warning(f"Erreur détection orphelins: {e}")
+
         return {
             "success": True,
             "checked": len(all_requests),
@@ -1631,6 +1734,7 @@ async def check_completed_requests():
             "found_unlinked": len(found_unlinked),
             "found_not_created": len(found_not_created),
             "updated": updated_count,
+            "orphan_services": orphan_services,
             "details": {
                 "completed": found_completed,
                 "unlinked": found_unlinked,
@@ -1638,7 +1742,7 @@ async def check_completed_requests():
             },
             "message": f"{updated_count} demande(s) mise(s) à jour ({len(found_completed)} complétées, {len(found_unlinked)} liées et complétées, {len(found_not_created)} liées)"
         }
-        
+
     except Exception as e:
         logging.error(f"Erreur vérification complétés: {e}", exc_info=True)
         raise HTTPException(
