@@ -123,9 +123,6 @@ class UnconfirmedAlertsService:
             Nombre de RV nettoyés
         """
         try:
-            from core.gazelle_api_client import GazelleAPIClient
-            gazelle_client = GazelleAPIClient()
-            
             # Récupérer tous les RV de la date dans Supabase
             date_str = target_date.isoformat()
             supabase_appointments = (
@@ -139,35 +136,25 @@ class UnconfirmedAlertsService:
             if not supabase_appointments.data:
                 return 0
             
-            # Récupérer TOUS les RV depuis Gazelle (pas de filtre par date)
-            # Car certains RV peuvent exister sans startDate
-            # Limite augmentée à 500 pour être sûr de trouver tous les RV
-            gazelle_appointments = gazelle_client.get_appointments(limit=500)
-            gazelle_ids = {apt.get('id') for apt in gazelle_appointments if apt.get('id')}
+            # Réutiliser le cache du checker pour éviter un appel API redondant
+            gazelle_cache = self.checker._load_gazelle_appointments_cache()
+            gazelle_ids = set(gazelle_cache.keys())
             
             # Identifier les RV fantômes (dans Supabase mais vraiment absents de Gazelle)
             ghost_count = 0
             for supabase_apt in supabase_appointments.data:
                 external_id = supabase_apt.get('external_id')
                 if external_id and external_id not in gazelle_ids:
-                    # Vérifier une dernière fois que le RV n'existe vraiment pas
-                    # (même sans technicien ou date, s'il existe dans Gazelle, on le garde)
-                    exists_in_gazelle = any(apt.get('id') == external_id for apt in gazelle_appointments)
-                    
-                    if not exists_in_gazelle:
-                        # Le RV n'existe vraiment plus dans Gazelle - marquer comme annulé
-                        apt_id = supabase_apt.get('id')
-                        try:
-                            self.storage.client.table('gazelle_appointments').update({
-                                'status': 'CANCELLED'
-                            }).eq('id', apt_id).execute()
-                            ghost_count += 1
-                            print(f"   🧹 RV fantôme nettoyé: {supabase_apt.get('title', 'N/A')[:50]} ({external_id})")
-                        except Exception as e:
-                            print(f"   ⚠️ Erreur nettoyage RV {external_id}: {e}")
-                    else:
-                        # Le RV existe dans Gazelle (même sans technicien/date) - on le garde
-                        print(f"   ℹ️ RV {external_id} existe dans Gazelle (sans technicien/date) - conservé")
+                    # Le RV n'existe plus dans Gazelle - marquer comme annulé
+                    apt_id = supabase_apt.get('id')
+                    try:
+                        self.storage.client.table('gazelle_appointments').update({
+                            'status': 'CANCELLED'
+                        }).eq('id', apt_id).execute()
+                        ghost_count += 1
+                        print(f"   🧹 RV fantôme nettoyé: {supabase_apt.get('title', 'N/A')[:50]} ({external_id})")
+                    except Exception as e:
+                        print(f"   ⚠️ Erreur nettoyage RV {external_id}: {e}")
             
             if ghost_count > 0:
                 print(f"✅ {ghost_count} RV fantôme(s) nettoyé(s) pour {date_str}")
@@ -181,30 +168,24 @@ class UnconfirmedAlertsService:
     def _verify_appointment_exists_in_gazelle(self, external_id: str) -> bool:
         """
         Vérifie une dernière fois si un RV existe dans Gazelle avant d'envoyer une alerte.
-        
+        Utilise le cache du checker pour éviter des appels API redondants.
+
         Args:
             external_id: ID externe du rendez-vous
-            
+
         Returns:
-            True si le RV existe dans Gazelle, False sinon
+            True si le RV existe dans Gazelle (ou en cas d'erreur — on envoie l'alerte quand même)
+            False si le RV n'existe définitivement plus
         """
         try:
-            from core.gazelle_api_client import GazelleAPIClient
-            gazelle_client = GazelleAPIClient()
-            
-            # Limite augmentée à 500 pour être sûr de trouver tous les RV
-            appointments = gazelle_client.get_appointments(limit=500)
-            
-            for apt in appointments:
-                if apt.get('id') == external_id:
-                    return True
-            
-            return False
-            
+            # Réutiliser le cache déjà chargé par le checker
+            cache = self.checker._load_gazelle_appointments_cache()
+            return external_id in cache
+
         except Exception as e:
             print(f"⚠️ Erreur vérification finale pour {external_id}: {e}")
-            # En cas d'erreur, on ne bloque pas l'envoi (mais on log l'erreur)
-            return True  # Permettre l'envoi en cas d'erreur API
+            # En cas d'erreur, on permet l'envoi — mieux vaut alerter que manquer
+            return True
 
     def send_alerts(
         self,

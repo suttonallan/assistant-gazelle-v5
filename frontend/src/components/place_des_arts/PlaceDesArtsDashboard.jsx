@@ -465,7 +465,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }
 
   const handleExport = () => {
-    window.open(`${API_URL}/api/place-des-arts/export`, '_blank')
+    const params = monthFilter ? `?month=${monthFilter}` : ''
+    window.open(`${API_URL}/api/place-des-arts/export${params}`, '_blank')
   }
 
   const handleAddOrphan = async (orphan) => {

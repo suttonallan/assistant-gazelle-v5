@@ -234,38 +234,50 @@ class AppointmentChecker:
 
         return None
 
+    def _load_gazelle_appointments_cache(self) -> Dict[str, dict]:
+        """
+        Charge tous les RV Gazelle en cache (une seule fois par exécution).
+        Retourne un dict {external_id: appointment_data}.
+        """
+        if not hasattr(self, '_gazelle_appointments_cache'):
+            try:
+                # Un seul appel API, SANS limite, pour avoir tous les RV
+                all_appointments = self.gazelle_client.get_appointments()
+                self._gazelle_appointments_cache = {
+                    apt.get('id'): apt for apt in all_appointments if apt.get('id')
+                }
+                print(f"   📋 Cache Gazelle chargé: {len(self._gazelle_appointments_cache)} RV")
+            except Exception as e:
+                print(f"⚠️ Erreur chargement cache Gazelle: {e}")
+                self._gazelle_appointments_cache = {}
+        return self._gazelle_appointments_cache
+
     def _check_confirmed_in_gazelle(self, external_id: str) -> bool:
         """
         Vérifie si un RV est confirmé dans Gazelle en récupérant confirmedByClient depuis l'API.
-        
+
         Args:
             external_id: ID externe du rendez-vous (ex: evt_xxx)
-            
+
         Returns:
-            True si le RV est confirmé OU s'il n'existe plus dans Gazelle (pour l'exclure des alertes)
-            False si le RV existe mais n'est pas confirmé
+            True si le RV est confirmé par le client
+            False si le RV n'est pas confirmé OU en cas d'erreur (sécuritaire: on alerte)
         """
         try:
-            # Récupérer les appointments depuis Gazelle
-            # Limite augmentée à 500 pour être sûr de trouver tous les RV
-            appointments = self.gazelle_client.get_appointments(limit=500)
-            
-            # Chercher le RV par external_id
-            for apt in appointments:
-                if apt.get('id') == external_id:
-                    confirmed = apt.get('confirmedByClient', False)
-                    # Si le RV existe dans Gazelle, retourner son statut de confirmation
-                    return bool(confirmed)
-            
-            # Si le RV n'est pas trouvé dans Gazelle, il a probablement été supprimé/annulé/déplacé
-            # On retourne True pour l'exclure des alertes (il n'existe plus)
-            print(f"   ℹ️ RV {external_id} non trouvé dans Gazelle - exclu des alertes")
-            return True  # Exclure des alertes car n'existe plus
-            
+            cache = self._load_gazelle_appointments_cache()
+
+            if external_id in cache:
+                confirmed = cache[external_id].get('confirmedByClient', False)
+                return bool(confirmed)
+
+            # RV non trouvé dans Gazelle — on considère NON confirmé pour ne pas manquer d'alerte
+            print(f"   ⚠️ RV {external_id} non trouvé dans Gazelle - traité comme NON confirmé")
+            return False
+
         except Exception as e:
             print(f"⚠️ Erreur vérification confirmedByClient pour {external_id}: {e}")
-            # En cas d'erreur, on exclut des alertes pour éviter les faux positifs
-            return True
+            # En cas d'erreur, on traite comme NON confirmé — mieux vaut une alerte de trop que zéro
+            return False
 
     def format_alert_message(
         self,

@@ -697,9 +697,11 @@ async def list_requests(
 
 
 @router.get("/export")
-async def export_csv():
+async def export_csv(month: str = None):
     """
-    Export CSV enrichi avec les notes de service Gazelle.
+    Export CSV enrichi des demandes Place des Arts.
+    Si month est fourni (format YYYY-MM), filtre par ce mois.
+    Sinon exporte tout (limit 2000, tri date desc).
     Colonnes ordonnées pour lisibilité.
     """
     import csv
@@ -707,18 +709,24 @@ async def export_csv():
 
     storage = get_storage()
 
-    # Récupérer les demandes PDA
+    # Construire l'URL avec filtre mois si fourni
     url = f"{storage.api_url}/place_des_arts_requests?select=*&order=appointment_date.desc&limit=2000"
+    if month:
+        # month = "YYYY-MM" → filtrer appointment_date entre début et fin du mois
+        url += f"&appointment_date=gte.{month}-01&appointment_date=lt.{month}-32"
+
     resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
     data = resp.json()
+    filename = f"place_des_arts_{month}.csv" if month else "place_des_arts.csv"
+
     if not data:
         return StreamingResponse(
             iter(["Aucune donnée"]),
             media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
     # Enrichir avec les descriptions de service Gazelle
@@ -759,7 +767,7 @@ async def export_csv():
     return StreamingResponse(
         iter([csv_content]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=place_des_arts.csv"}
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 

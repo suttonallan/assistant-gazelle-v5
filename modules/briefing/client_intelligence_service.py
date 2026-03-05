@@ -247,6 +247,9 @@ class NarrativeBriefingService:
             # Language detection (simple heuristic, not AI)
             language = self._detect_language_from_notes(timeline)
 
+            # Dog name detection
+            dog_name = self._detect_dog_from_notes(timeline)
+
             # Institution detection
             institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
                                     'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
@@ -296,6 +299,7 @@ class NarrativeBriefingService:
                     "language": language,
                     "pls": has_pls,
                     "piano_label": piano_label,
+                    "dog_name": dog_name,
                 },
                 "piano": {
                     "make": piano.get('make', ''),
@@ -488,6 +492,29 @@ class NarrativeBriefingService:
         if en_count > 0 and fr_count > 0 and en_count >= 2:
             return "BI"
         return None  # FR is default, don't flag it
+
+    def _detect_dog_from_notes(self, timeline: List[Dict]) -> Optional[str]:
+        """Extract dog name from timeline notes. Returns name or None."""
+        all_text = " ".join(
+            f"{t.get('title', '')} {t.get('description', '')}"
+            for t in timeline
+        )
+        if not all_text.strip():
+            return None
+
+        patterns = [
+            r'chien\s*[:=]\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'chien\s+(?:nommé|appelé|s\'appelle)\s+([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'chien\s+([A-ZÀ-Ü][a-zà-ÿ]+)',           # "Chien Tom" — format naturel
+            r'dog\s*[:=]\s*([A-Za-z][a-z]+)',
+            r'🐕\s*[:=]?\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            r'🐶\s*[:=]?\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, all_text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return None
 
     def _format_estimates(self, estimates: List[Dict]) -> List[Dict]:
         """Format estimate entries for display."""
