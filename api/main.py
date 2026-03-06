@@ -399,7 +399,7 @@ async def zoom_webhook_health():
         "status": "ok",
         "service": "zoom-webhook",
         "zoom_secret_token_configured": bool(os.getenv('ZOOM_SECRET_TOKEN')),
-        "email_notifier_configured": bool(os.getenv('SENDGRID_API_KEY'))
+        "email_notifier_configured": bool(os.getenv('RESEND_API_KEY'))
     }
 
 

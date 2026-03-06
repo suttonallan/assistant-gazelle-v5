@@ -3,37 +3,38 @@
 Module d'envoi d'emails pour les alertes RV.
 
 Supporte deux méthodes:
-1. SendGrid API (recommandé pour production cloud)
+1. Resend API (production cloud) - migré de SendGrid mars 2026
 2. SMTP Gmail (fallback pour dev local)
 """
 
 import os
+import resend
 from typing import List, Optional
 from datetime import datetime
 
 
 class EmailSender:
-    """Envoie des emails d'alerte via SendGrid ou SMTP."""
+    """Envoie des emails d'alerte via Resend ou SMTP."""
 
-    def __init__(self, method: str = 'sendgrid'):
+    def __init__(self, method: str = 'resend'):
         """
         Initialise l'envoyeur d'emails.
 
         Args:
-            method: 'sendgrid' ou 'smtp'
+            method: 'resend' ou 'smtp'
         """
         self.method = method
-        # Utiliser asutton@piano-tek.com qui est vérifié dans SendGrid
-        self.from_email = os.getenv('ALERT_FROM_EMAIL', 'asutton@piano-tek.com')
+        self.from_email = os.getenv('ALERT_FROM_EMAIL', os.getenv('EMAIL_FROM', 'onboarding@resend.dev'))
         self.from_name = os.getenv('ALERT_FROM_NAME', 'Assistant Gazelle Alertes')
 
-        if method == 'sendgrid':
-            sendgrid_api_key_raw = os.getenv('SENDGRID_API_KEY')
-            # Retirer les espaces et sauts de ligne (problème courant dans .env)
-            self.sendgrid_api_key = sendgrid_api_key_raw.strip() if sendgrid_api_key_raw else None
-            if not self.sendgrid_api_key:
-                print("⚠️ SENDGRID_API_KEY non défini, bascule sur SMTP")
+        if method == 'resend':
+            resend_api_key_raw = os.getenv('RESEND_API_KEY')
+            self.resend_api_key = resend_api_key_raw.strip() if resend_api_key_raw else None
+            if not self.resend_api_key:
+                print("⚠️ RESEND_API_KEY non défini, bascule sur SMTP")
                 self.method = 'smtp'
+            else:
+                resend.api_key = self.resend_api_key
 
     def send_email(
         self,
@@ -54,45 +55,38 @@ class EmailSender:
         Returns:
             bool: True si succès
         """
-        if self.method == 'sendgrid':
-            return self._send_via_sendgrid(to_email, to_name, subject, html_content)
+        if self.method == 'resend':
+            return self._send_via_resend(to_email, to_name, subject, html_content)
         else:
             return self._send_via_smtp(to_email, to_name, subject, html_content)
 
-    def _send_via_sendgrid(
+    def _send_via_resend(
         self,
         to_email: str,
         to_name: str,
         subject: str,
         html_content: str
     ) -> bool:
-        """Envoie via SendGrid API."""
+        """Envoie via Resend API."""
         try:
-            from sendgrid import SendGridAPIClient
-            from sendgrid.helpers.mail import Mail, Email, To, Content
+            from_str = f"{self.from_name} <{self.from_email}>"
 
-            message = Mail(
-                from_email=Email(self.from_email, self.from_name),
-                to_emails=To(to_email, to_name),
-                subject=subject,
-                html_content=Content("text/html", html_content)
-            )
+            response = resend.Emails.send({
+                "from": from_str,
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content,
+            })
 
-            sg = SendGridAPIClient(self.sendgrid_api_key)
-            response = sg.send(message)
-
-            if response.status_code in [200, 202]:
-                print(f"✅ Email envoyé à {to_email} (SendGrid)")
+            if response and response.get("id"):
+                print(f"✅ Email envoyé à {to_email} (Resend, id: {response['id']})")
                 return True
             else:
-                print(f"⚠️ SendGrid status {response.status_code}")
+                print(f"⚠️ Resend erreur: {response}")
                 return False
 
-        except ImportError:
-            print("⚠️ SendGrid library non installée: pip install sendgrid")
-            return False
         except Exception as e:
-            print(f"❌ Erreur SendGrid: {e}")
+            print(f"❌ Erreur Resend: {e}")
             return False
 
     def _send_via_smtp(

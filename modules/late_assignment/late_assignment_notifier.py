@@ -172,7 +172,7 @@ class LateAssignmentNotifier:
             success = self.email_notifier.send_email(
                 to_emails=[email],
                 subject=subject,
-                html_content=plain_content.replace('\n', '<br>'),  # Simple conversion pour SendGrid
+                html_content=plain_content.replace('\n', '<br>'),  # Simple conversion pour Resend
                 plain_content=plain_content
             )
             

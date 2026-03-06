@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
 Module pour envoyer des notifications par email.
-Utilise SendGrid pour l'envoi d'emails (alertes humidité, erreurs système, etc.)
+Utilise Resend pour l'envoi d'emails (alertes humidité, erreurs système, etc.)
+Historique: Migration de SendGrid vers Resend (mars 2026) - essai gratuit SendGrid expiré.
 """
 
 import os
+import resend
 from typing import Optional, List
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content
 
 
 class EmailNotifier:
-    """Gère l'envoi d'emails via SendGrid."""
+    """Gère l'envoi d'emails via Resend."""
 
     # Configuration des destinataires (chargés depuis .env)
     RECIPIENTS = {
@@ -20,20 +20,23 @@ class EmailNotifier:
         'louise': os.getenv('EMAIL_LOUISE', 'louise@example.com'),
     }
 
-    # Email expéditeur (TOUJOURS asutton@piano-tek.com - seule adresse autorisée dans SendGrid)
-    FROM_EMAIL = 'asutton@piano-tek.com'  # Forcé - ne pas utiliser EMAIL_FROM
+    # Email expéditeur - utilise onboarding@resend.dev tant que le domaine n'est pas vérifié
+    # Une fois piano-tek.com vérifié dans Resend, changer pour asutton@piano-tek.com
+    FROM_EMAIL = os.getenv('EMAIL_FROM', 'onboarding@resend.dev')
     FROM_NAME = os.getenv('EMAIL_FROM_NAME', 'Assistant Gazelle')
 
     def __init__(self):
-        """Initialise le client SendGrid."""
-        api_key_raw = os.getenv('SENDGRID_API_KEY')
+        """Initialise le client Resend."""
+        api_key_raw = os.getenv('RESEND_API_KEY')
         # Retirer les espaces et sauts de ligne (problème courant dans .env)
         self.api_key = api_key_raw.strip() if api_key_raw else None
         if not self.api_key:
-            print("⚠️ SENDGRID_API_KEY non configurée - emails désactivés")
+            print("⚠️ RESEND_API_KEY non configurée - emails désactivés")
             self.client = None
         else:
-            self.client = SendGridAPIClient(self.api_key)
+            resend.api_key = self.api_key
+            self.client = True
+            print("✅ Resend initialisé avec succès")
 
     def send_email(
         self,
@@ -55,30 +58,29 @@ class EmailNotifier:
             True si envoyé avec succès
         """
         if not self.client:
-            print("⚠️ Client SendGrid non initialisé - email non envoyé")
+            print("⚠️ Client Resend non initialisé - email non envoyé")
             return False
 
         try:
-            # Créer l'email
-            message = Mail(
-                from_email=Email(self.FROM_EMAIL, self.FROM_NAME),
-                to_emails=[To(email) for email in to_emails],
-                subject=subject,
-                html_content=Content("text/html", html_content)
-            )
+            from_str = f"{self.FROM_NAME} <{self.FROM_EMAIL}>"
 
-            # Ajouter contenu texte si fourni
+            params = {
+                "from": from_str,
+                "to": to_emails,
+                "subject": subject,
+                "html": html_content,
+            }
+
             if plain_content:
-                message.plain_text_content = Content("text/plain", plain_content)
+                params["text"] = plain_content
 
-            # Envoyer
-            response = self.client.send(message)
+            response = resend.Emails.send(params)
 
-            if response.status_code in [200, 202]:
-                print(f"✅ Email envoyé avec succès à {len(to_emails)} destinataire(s)")
+            if response and response.get("id"):
+                print(f"✅ Email envoyé avec succès à {len(to_emails)} destinataire(s) (id: {response['id']})")
                 return True
             else:
-                print(f"⚠️ Erreur SendGrid {response.status_code}: {response.body}")
+                print(f"⚠️ Erreur Resend: {response}")
                 return False
 
         except Exception as e:
