@@ -63,6 +63,8 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                     node {
                         id
                         companyName
+                        personalNotes
+                        preferenceNotes
                         status
                         tags
                         createdAt

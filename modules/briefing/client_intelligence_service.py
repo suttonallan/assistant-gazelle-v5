@@ -48,7 +48,7 @@ NARRATIVE_PROMPT = """Tu prépares un briefing pour un technicien de piano avant
 Écris 2-4 phrases en français, comme un collègue qui résume l'essentiel avant que le tech parte.
 
 CONCENTRE-TOI SUR:
-- Ce que le tech devrait SAVOIR avant d'arriver (accès, animaux, langue si anglophone, personnalité)
+- Ce que le tech devrait SAVOIR avant d'arriver (accès, animaux, enfants, langue si anglophone, personnalité)
 - Ce qui est ACTIONABLE (items à faire, pièces à apporter, choses à vérifier)
 - Ce qui est INHABITUEL ou mérite attention
 - L'historique pertinent (dernier tech, quand, quoi de notable)
@@ -63,6 +63,15 @@ Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler.
 
 CLIENT: {client_name} ({client_since})
 PIANO: {piano_summary}
+
+NOTES PERSONNELLES DU CLIENT:
+{personal_notes}
+
+PRÉFÉRENCES DU CLIENT:
+{preference_notes}
+
+NOTES DU PIANO:
+{piano_notes}
 
 NOTES DE SERVICE (les plus récentes en premier):
 {timeline_summary}
@@ -250,6 +259,9 @@ class NarrativeBriefingService:
             # Dog name detection
             dog_name = self._detect_dog_from_notes(timeline)
 
+            # Children names detection
+            children_names = self._detect_children_from_notes(timeline)
+
             # Institution detection
             institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
                                     'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
@@ -286,6 +298,9 @@ class NarrativeBriefingService:
                     past_appointments=past_appointments,
                     appt=appt,
                     feedback_notes=self.feedback_rules.get(cid, []),
+                    personal_notes=client.get('personal_notes', '') or '',
+                    preference_notes=client.get('preference_notes', '') or '',
+                    piano_notes=piano.get('notes', '') or '',
                 )
 
             # ── Build final briefing ──
@@ -300,6 +315,7 @@ class NarrativeBriefingService:
                     "pls": has_pls,
                     "piano_label": piano_label,
                     "dog_name": dog_name,
+                    "children_names": children_names,
                 },
                 "piano": {
                     "make": piano.get('make', ''),
@@ -335,7 +351,9 @@ class NarrativeBriefingService:
     def _call_narrative_ai(self, client_name: str, client_since: str,
                             piano_summary: str, timeline: List[Dict],
                             past_appointments: List[Dict],
-                            appt: Dict, feedback_notes: List[str]) -> tuple:
+                            appt: Dict, feedback_notes: List[str],
+                            personal_notes: str = "", preference_notes: str = "",
+                            piano_notes: str = "") -> tuple:
         """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
         today_str = date_type.today().isoformat()
 
@@ -399,6 +417,9 @@ class NarrativeBriefingService:
             client_name=client_name,
             client_since=client_since,
             piano_summary=piano_summary,
+            personal_notes=personal_notes or "(Aucune)",
+            preference_notes=preference_notes or "(Aucune)",
+            piano_notes=piano_notes or "(Aucune)",
             timeline_summary=timeline_summary,
             appointment_context=appt_context,
             feedback_context=feedback_context,
@@ -515,6 +536,42 @@ class NarrativeBriefingService:
             if match:
                 return match.group(1).strip()
         return None
+
+    def _detect_children_from_notes(self, timeline: List[Dict]) -> Optional[str]:
+        """Extract children names from timeline notes. Returns comma-separated names or None."""
+        all_text = " ".join(
+            f"{t.get('title', '')} {t.get('description', '')}"
+            for t in timeline
+        )
+        if not all_text.strip():
+            return None
+
+        names = []
+        patterns = [
+            # "enfants: Sophie, Lucas" or "enfants = Sophie et Lucas"
+            r'enfants?\s*[:=]\s*([A-ZÀ-Üa-zà-ÿ][\w\sà-ÿ,&et]+)',
+            # "children: Sophie, Lucas"
+            r'children\s*[:=]\s*([A-Za-z][\w\s,&and]+)',
+            # "fils: Lucas" / "fille: Sophie"
+            r'(?:fils|fille|son|daughter)\s*[:=]\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            # "fils nommé Lucas" / "fille nommée Sophie"
+            r'(?:fils|fille)\s+(?:nommée?|appelée?|s\'appelle)\s+([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+            # "👧: Sophie" / "👦: Lucas"
+            r'[👧👦👶🧒]\s*[:=]?\s*([A-ZÀ-Üa-zà-ÿ][a-zà-ÿ]+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, all_text, re.IGNORECASE)
+            if match:
+                raw = match.group(1).strip()
+                # Split on common separators: comma, &, "et", "and"
+                parts = re.split(r'\s*[,&]\s*|\s+et\s+|\s+and\s+', raw)
+                for part in parts:
+                    name = part.strip().rstrip('.')
+                    if name and len(name) >= 2 and name[0].isupper():
+                        names.append(name)
+                if names:
+                    break
+        return ", ".join(names) if names else None
 
     def _format_estimates(self, estimates: List[Dict]) -> List[Dict]:
         """Format estimate entries for display."""

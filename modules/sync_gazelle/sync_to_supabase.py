@@ -359,6 +359,10 @@ class GazelleToSupabaseSync:
                             city = default_location.get('municipality')
                             postal_code = default_location.get('postalCode')
 
+                    # Notes personnelles et préférences du client
+                    personal_notes = client_data.get('personalNotes', '') or ''
+                    preference_notes = client_data.get('preferenceNotes', '') or ''
+
                     # Préparer données pour Supabase
                     client_record = {
                         'external_id': external_id,
@@ -371,6 +375,8 @@ class GazelleToSupabaseSync:
                         # Note: 'address' n'existe pas dans gazelle_clients, seulement city et postal_code
                         'city': city,
                         'postal_code': postal_code,
+                        'personal_notes': personal_notes.strip() if personal_notes else None,
+                        'preference_notes': preference_notes.strip() if preference_notes else None,
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }

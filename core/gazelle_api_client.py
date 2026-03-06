@@ -285,6 +285,8 @@ class GazelleAPIClient:
                 nodes {
                     id
                     companyName
+                    personalNotes
+                    preferenceNotes
                     status
                     tags
                     createdAt
