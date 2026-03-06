@@ -204,6 +204,7 @@ async def chat(request: ChatRequest):
                         'client_city': appt.get('client_city', ''),
                         'client_phone': appt.get('client_phone', ''),
                         'client_notes': appt.get('client_notes', ''),
+                        'preference_notes': appt.get('preference_notes', ''),
                         'associated_contacts': appt.get('associated_contacts', []),
                         'service_history_notes': appt.get('service_history_notes', []),
                         'pianos': appt.get('pianos', [])
@@ -489,8 +490,9 @@ async def get_client_details(client_id: str):
         
         # Pour les clients uniquement: enrichissement complet
         if is_client:
-            # Notes client
-            details['client_notes'] = entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            # Notes client (notes personnelles + préférences depuis Gazelle)
+            details['client_notes'] = entity.get('personal_notes', '') or entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            details['preference_notes'] = entity.get('preference_notes', '')
             
             # Pianos avec leurs notes
             try:
@@ -648,6 +650,7 @@ async def get_client_details(client_id: str):
         else:
             # Pour les contacts: pas d'enrichissement
             details['client_notes'] = ''
+            details['preference_notes'] = ''
             details['pianos'] = []
             details['service_history'] = []
             details['associated_contacts'] = []
@@ -1141,7 +1144,8 @@ def _enrich_appointments(appointments: list, queries) -> list:
             appt['client_address'] = entity.get('address', '')
             appt['client_city'] = entity.get('city', '')
             appt['client_phone'] = entity.get('phone', '')
-            appt['client_notes'] = entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            appt['client_notes'] = entity.get('personal_notes', '') or entity.get('notes', '') or entity.get('note', '') or entity.get('description', '')
+            appt['preference_notes'] = entity.get('preference_notes', '')
             
             # Récupérer les pianos avec leurs notes
             try:

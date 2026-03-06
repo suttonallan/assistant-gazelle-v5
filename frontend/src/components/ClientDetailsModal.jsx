@@ -98,12 +98,22 @@ export default function ClientDetailsModal({ clientId, onClose, onAskQuestion })
                 </div>
               </div>
 
-              {/* Notes client */}
+              {/* Notes personnelles du client */}
               {details.client_notes && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-2">Notes Client</h3>
+                  <h3 className="text-lg font-semibold mb-2">Notes personnelles</h3>
                   <div className="bg-yellow-50 p-4 rounded border-l-4 border-yellow-400">
                     <p className="text-sm text-gray-700 whitespace-pre-wrap">{details.client_notes}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes de préférences du client */}
+              {details.preference_notes && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Préférences</h3>
+                  <div className="bg-blue-50 p-4 rounded border-l-4 border-blue-400">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{details.preference_notes}</p>
                   </div>
                 </div>
               )}

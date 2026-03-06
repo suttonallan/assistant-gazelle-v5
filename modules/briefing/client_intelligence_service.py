@@ -64,6 +64,15 @@ Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler.
 CLIENT: {client_name} ({client_since})
 PIANO: {piano_summary}
 
+NOTES PERSONNELLES DU CLIENT:
+{personal_notes}
+
+PRÉFÉRENCES DU CLIENT:
+{preference_notes}
+
+NOTES DU PIANO:
+{piano_notes}
+
 NOTES DE SERVICE (les plus récentes en premier):
 {timeline_summary}
 
@@ -289,6 +298,9 @@ class NarrativeBriefingService:
                     past_appointments=past_appointments,
                     appt=appt,
                     feedback_notes=self.feedback_rules.get(cid, []),
+                    personal_notes=client.get('personal_notes', '') or '',
+                    preference_notes=client.get('preference_notes', '') or '',
+                    piano_notes=piano.get('notes', '') or '',
                 )
 
             # ── Build final briefing ──
@@ -339,7 +351,9 @@ class NarrativeBriefingService:
     def _call_narrative_ai(self, client_name: str, client_since: str,
                             piano_summary: str, timeline: List[Dict],
                             past_appointments: List[Dict],
-                            appt: Dict, feedback_notes: List[str]) -> tuple:
+                            appt: Dict, feedback_notes: List[str],
+                            personal_notes: str = "", preference_notes: str = "",
+                            piano_notes: str = "") -> tuple:
         """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
         today_str = date_type.today().isoformat()
 
@@ -403,6 +417,9 @@ class NarrativeBriefingService:
             client_name=client_name,
             client_since=client_since,
             piano_summary=piano_summary,
+            personal_notes=personal_notes or "(Aucune)",
+            preference_notes=preference_notes or "(Aucune)",
+            piano_notes=piano_notes or "(Aucune)",
             timeline_summary=timeline_summary,
             appointment_context=appt_context,
             feedback_context=feedback_context,
