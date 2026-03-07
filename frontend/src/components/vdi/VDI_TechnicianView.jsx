@@ -87,7 +87,7 @@ export default function VDI_TechnicianView({
       } catch {
         setSaveStatus(prev => ({ ...prev, [pianoId]: 'error' }));
       }
-    }, 500);
+    }, 2000);
   }, [saveTravail, setTravailInput]);
 
   const institutions = [
