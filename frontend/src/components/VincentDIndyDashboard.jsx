@@ -457,7 +457,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     setPianos(pianos.map(p =>
       p.id === id ? { ...p, is_work_completed: completed } : p
     ));
-    await savePianoToAPI(id, { is_work_completed: completed });
+    await savePianoToAPI(id, { isWorkCompleted: completed });
   };
 
   // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
