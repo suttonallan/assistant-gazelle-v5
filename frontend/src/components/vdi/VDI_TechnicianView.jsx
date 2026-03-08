@@ -186,6 +186,20 @@ export default function VDI_TechnicianView({
                     <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Petit bouton rapide pour marquer terminé (sans ouvrir) */}
+                    {!piano.service_status && markWorkCompleted && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); markWorkCompleted(piano.id, !piano.is_work_completed); }}
+                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${
+                          piano.is_work_completed
+                            ? 'bg-green-500 text-white'
+                            : 'bg-gray-200 text-gray-500 hover:bg-green-100 hover:text-green-700'
+                        }`}
+                        title={piano.is_work_completed ? 'Rouvrir' : 'Marquer terminé'}
+                      >
+                        {piano.is_work_completed ? '✓' : '○'}
+                      </button>
+                    )}
                     {piano.service_status ? (
                       <span className="text-green-500 text-sm font-bold" title={
                         piano.service_status === 'pushed' ? 'Poussé vers Gazelle' : 'Validé par Nicolas'
