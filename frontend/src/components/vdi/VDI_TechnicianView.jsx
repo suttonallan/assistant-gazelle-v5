@@ -187,7 +187,7 @@ export default function VDI_TechnicianView({
                   </div>
                   <div className="flex items-center gap-2">
                     {/* Petit bouton rapide pour marquer terminé (sans ouvrir) */}
-                    {!piano.service_status && markWorkCompleted && (
+                    {markWorkCompleted && (
                       <button
                         onClick={(e) => { e.stopPropagation(); markWorkCompleted(piano.id, !piano.is_work_completed); }}
                         className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${
@@ -274,8 +274,8 @@ export default function VDI_TechnicianView({
                       )}
                     </div>
 
-                    {/* Bouton Terminé */}
-                    {!piano.service_status && markWorkCompleted && (
+                    {/* Bouton Terminé — disponible même pour pianos poussés */}
+                    {markWorkCompleted && (
                       <button
                         onClick={() => markWorkCompleted(piano.id, !piano.is_work_completed)}
                         className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors ${
