@@ -251,7 +251,7 @@ export default function VDI_NotesView({ currentUser }) {
         setSaveStatus(prev => ({ ...prev, [pianoId]: 'error' }));
         // Keep localStorage so nothing is lost
       }
-    }, 500);
+    }, 2000);
   };
 
   // ========== 5. Admin actions ==========
