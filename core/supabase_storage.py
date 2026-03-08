@@ -147,16 +147,17 @@ class SupabaseStorage:
             # UPSERT : insère si n'existe pas, met à jour sinon
             # Header special pour UPSERT : resolution=merge-duplicates
             headers = self._get_headers()
-            headers["Prefer"] = "resolution=merge-duplicates"
+            headers["Prefer"] = "resolution=merge-duplicates,return=representation"
 
             url = f"{self.api_url}/{self.table}"
             response = requests.post(url, headers=headers, json=data)
 
-            if response.status_code in [200, 201]:
+            if response.status_code in [200, 201, 204]:
                 print(f"✅ Piano {piano_id} sauvegardé dans Supabase pour {institution_slug} (UPSERT)")
                 return True
             else:
                 print(f"❌ Erreur Supabase {response.status_code}: {response.text}")
+                print(f"   Données envoyées: {list(data.keys())}")
                 return False
 
         except Exception as e:

@@ -516,7 +516,14 @@ async def update_institution_piano(
         success = storage.update_piano(piano_id, update_data, institution_slug=institution)
 
         if not success:
-            raise HTTPException(status_code=500, detail="Échec sauvegarde Supabase")
+            # Retry sans les colonnes optionnelles qui pourraient ne pas exister en base
+            optional_cols = ['completed_at', 'validated_at']
+            retry_data = {k: v for k, v in update_data.items() if k not in optional_cols}
+            if retry_data != update_data:
+                logging.warning(f"⚠️ Retry sans colonnes optionnelles: {[c for c in optional_cols if c in update_data]}")
+                success = storage.update_piano(piano_id, retry_data, institution_slug=institution)
+            if not success:
+                raise HTTPException(status_code=500, detail="Échec sauvegarde Supabase")
 
         return {
             "success": True,
