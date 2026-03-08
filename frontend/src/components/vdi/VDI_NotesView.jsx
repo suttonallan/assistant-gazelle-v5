@@ -710,7 +710,7 @@ export default function VDI_NotesView({ currentUser }) {
                     <div className="pt-3">
                       {piano.serialNumber && (
                         <div className="text-xs text-gray-500 mb-2">
-                          Série: {piano.serialNumber} — {piano.type === 'GRAND' ? 'Queue' : 'Droit'}
+                          Série: {piano.serialNumber} — {piano.type === 'G' || piano.type === 'B' ? 'Queue' : 'Droit'}
                         </div>
                       )}
                       <textarea
