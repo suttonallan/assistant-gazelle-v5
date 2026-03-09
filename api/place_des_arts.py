@@ -26,6 +26,7 @@ from core.gazelle_api_client import GazelleAPIClient  # noqa: E402
 from modules.place_des_arts.services.event_parser import EventParser  # noqa: E402
 from modules.place_des_arts.services.event_manager import EventManager  # noqa: E402
 from modules.place_des_arts.services.email_parser import parse_email_text  # noqa: E402
+from modules.place_des_arts.services.concert_search import rechercher_concert  # noqa: E402
 
 router = APIRouter(prefix="/place-des-arts", tags=["place-des-arts"])
 
@@ -2038,3 +2039,23 @@ async def get_today_appointments():
             status_code=500,
             detail=f"Erreur lors de la récupération des rendez-vous: {str(e)}"
         )
+
+
+# ── Recherche de concerts ──────────────────────────────────────────
+
+@router.get("/concert-search")
+async def search_concert_program(
+    for_who: str = Query(..., description="Nom de l'artiste ou ensemble"),
+    date: Optional[str] = Query(None, description="Date du rendez-vous (YYYY-MM-DD)"),
+    room: Optional[str] = Query(None, description="Code salle (WP, TM, MS, etc.)"),
+):
+    """
+    Recherche le programme de concert sur placedesarts.com
+    pour un artiste/ensemble donné, avec date et salle optionnelles.
+    """
+    result = await rechercher_concert(
+        for_who=for_who,
+        appointment_date=date,
+        room=room,
+    )
+    return result
