@@ -1025,11 +1025,14 @@ async def create_request(payload: Dict[str, Any]):
             "piano": payload.get("piano") or "",
             "time": payload.get("time") or "",
             "technician_id": payload.get("technician_id") or None,
-            "status": "PENDING",
+            "status": payload.get("status") or "PENDING",
             "notes": payload.get("notes") or "",
             "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
             "parking": payload.get("parking") or "",
         }
+        # Lier au RV Gazelle si appointment_id fourni (ex: ajout depuis orphelin)
+        if payload.get("appointment_id"):
+            row["appointment_id"] = payload["appointment_id"]
 
         manager = get_manager()
         result = manager.import_csv([row], on_conflict="update")

@@ -515,6 +515,10 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const handleAddOrphan = async (orphan) => {
     setAddingOrphan(orphan.appointment_id)
     try {
+      // Nettoyer le titre: retirer le préfixe "PLACE DES ARTS - " pour for_who
+      const cleanTitle = (orphan.title || '')
+        .replace(/^PLACE\s*DES\s*ARTS\s*[-–—:]\s*/i, '')
+        .trim()
       const resp = await fetch(`${API_URL}/api/place-des-arts/requests/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -522,7 +526,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           appointment_date: orphan.date || null,
           time: orphan.time || '',
           room: '',
-          for_who: orphan.title || '',
+          for_who: cleanTitle || orphan.title || '',
           technician_id: orphan.technician_id || null,
           notes: orphan.description || '',
           appointment_id: orphan.appointment_id,
