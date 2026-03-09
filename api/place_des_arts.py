@@ -713,8 +713,11 @@ async def export_csv(month: str = None):
     # Construire l'URL avec filtre mois si fourni
     url = f"{storage.api_url}/place_des_arts_requests?select=*&order=appointment_date.desc&limit=2000"
     if month:
-        # month = "YYYY-MM" → filtrer appointment_date entre début et fin du mois
-        url += f"&appointment_date=gte.{month}-01&appointment_date=lt.{month}-32"
+        # month = "YYYY-MM" → filtrer appointment_date entre début et premier jour du mois suivant
+        from calendar import monthrange
+        year, mon = int(month[:4]), int(month[5:7])
+        last_day = monthrange(year, mon)[1]
+        url += f"&appointment_date=gte.{month}-01&appointment_date=lte.{month}-{last_day}"
 
     resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
