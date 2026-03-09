@@ -713,8 +713,11 @@ async def export_csv(month: str = None):
     # Construire l'URL avec filtre mois si fourni
     url = f"{storage.api_url}/place_des_arts_requests?select=*&order=appointment_date.desc&limit=2000"
     if month:
-        # month = "YYYY-MM" → filtrer appointment_date entre début et fin du mois
-        url += f"&appointment_date=gte.{month}-01&appointment_date=lt.{month}-32"
+        # month = "YYYY-MM" → filtrer appointment_date entre début et premier jour du mois suivant
+        from calendar import monthrange
+        year, mon = int(month[:4]), int(month[5:7])
+        last_day = monthrange(year, mon)[1]
+        url += f"&appointment_date=gte.{month}-01&appointment_date=lte.{month}-{last_day}"
 
     resp = requests.get(url, headers=storage._get_headers())
     if resp.status_code != 200:
@@ -1708,11 +1711,16 @@ async def check_completed_requests():
                 .execute()
             linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
 
+            # Récupérer les orphelins ignorés
+            dismissed_ids = _get_dismissed_orphan_ids(storage)
+
             for apt in gazelle_appointments:
                 title = (apt.get('title') or '').upper()
                 if 'PLACE DES ARTS' not in title:
                     continue
                 if apt.get('external_id') in linked_apt_ids:
+                    continue
+                if apt.get('external_id') in dismissed_ids:
                     continue
                 orphan_services.append({
                     'appointment_id': apt.get('external_id'),
@@ -2059,3 +2067,71 @@ async def search_concert_program(
         room=room,
     )
     return result
+
+
+# ── Services orphelins ignorés ─────────────────────────────────────
+
+def _get_dismissed_orphan_ids(storage) -> set:
+    """Récupère les appointment_ids des orphelins ignorés depuis system_settings."""
+    try:
+        result = storage.client.table('system_settings')\
+            .select('value')\
+            .eq('key', 'pda_dismissed_orphans')\
+            .execute()
+        if result.data and result.data[0].get('value'):
+            import json
+            ids = json.loads(result.data[0]['value']) if isinstance(result.data[0]['value'], str) else result.data[0]['value']
+            return set(ids) if isinstance(ids, list) else set()
+    except Exception as e:
+        logging.warning(f"Erreur lecture orphelins ignorés: {e}")
+    return set()
+
+
+def _save_dismissed_orphan_ids(storage, ids: set):
+    """Sauvegarde les appointment_ids des orphelins ignorés dans system_settings."""
+    import json
+    value = json.dumps(sorted(ids))
+    try:
+        # Upsert dans system_settings
+        storage.client.table('system_settings')\
+            .upsert({'key': 'pda_dismissed_orphans', 'value': value}, on_conflict='key')\
+            .execute()
+    except Exception as e:
+        logging.error(f"Erreur sauvegarde orphelins ignorés: {e}")
+        raise
+
+
+@router.post("/orphans/dismiss")
+async def dismiss_orphan(body: dict):
+    """Ignorer un service orphelin (persistant)."""
+    appointment_id = body.get('appointment_id')
+    if not appointment_id:
+        raise HTTPException(status_code=400, detail="appointment_id requis")
+
+    storage = get_storage()
+    ids = _get_dismissed_orphan_ids(storage)
+    ids.add(appointment_id)
+    _save_dismissed_orphan_ids(storage, ids)
+    return {"success": True, "dismissed_count": len(ids)}
+
+
+@router.post("/orphans/restore")
+async def restore_orphan(body: dict):
+    """Restaurer un service orphelin précédemment ignoré."""
+    appointment_id = body.get('appointment_id')
+    if not appointment_id:
+        raise HTTPException(status_code=400, detail="appointment_id requis")
+
+    storage = get_storage()
+    ids = _get_dismissed_orphan_ids(storage)
+    ids.discard(appointment_id)
+    _save_dismissed_orphan_ids(storage, ids)
+    return {"success": True, "dismissed_count": len(ids)}
+
+
+@router.get("/orphans/dismissed")
+async def list_dismissed_orphans():
+    """Liste les IDs des orphelins ignorés."""
+    storage = get_storage()
+    ids = _get_dismissed_orphan_ids(storage)
+    return {"dismissed_ids": sorted(ids), "count": len(ids)}
