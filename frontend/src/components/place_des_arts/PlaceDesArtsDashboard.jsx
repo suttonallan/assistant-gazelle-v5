@@ -1241,13 +1241,21 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                   <span className="text-gray-800">
                     {o.date} — {o.title}{o.technician_id ? ` (${o.technician_id})` : ''}
                   </span>
-                  <button
-                    onClick={() => handleAddOrphan(o)}
-                    disabled={addingOrphan === o.appointment_id}
-                    className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {addingOrphan === o.appointment_id ? '...' : '+ Ajouter'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setOrphanServices(prev => prev.filter(x => x.appointment_id !== o.appointment_id))}
+                      className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    >
+                      Ignorer
+                    </button>
+                    <button
+                      onClick={() => handleAddOrphan(o)}
+                      disabled={addingOrphan === o.appointment_id}
+                      className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {addingOrphan === o.appointment_id ? '...' : '+ Ajouter'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
