@@ -733,19 +733,51 @@ async def export_csv(month: str = None):
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
 
-    # Enrichir avec les descriptions de service Gazelle
+    # Enrichir avec les descriptions de service Gazelle + service history
     apt_ids = [r.get('appointment_id') for r in data if r.get('appointment_id')]
     gazelle_map = {}
+    service_history_map = {}
     if apt_ids:
         try:
             gazelle_result = storage.client.table('gazelle_appointments')\
-                .select('external_id,description,notes')\
+                .select('external_id,description,notes,piano_external_id,appointment_date')\
                 .in_('external_id', apt_ids)\
                 .execute()
             gazelle_map = {
                 a['external_id']: a.get('description') or a.get('notes') or ''
                 for a in (gazelle_result.data or [])
             }
+
+            # Récupérer le service history depuis gazelle_timeline_entries
+            # Lien: même piano_external_id + même date que le RV
+            piano_date_to_apt = {}  # (piano_id, date) → apt_external_id
+            piano_ids_set = set()
+            for a in (gazelle_result.data or []):
+                pid = a.get('piano_external_id')
+                dt = (a.get('appointment_date') or '')[:10]
+                if pid and dt:
+                    piano_ids_set.add(pid)
+                    piano_date_to_apt[(pid, dt)] = a['external_id']
+
+            if piano_ids_set:
+                timeline_result = storage.client.table('gazelle_timeline_entries')\
+                    .select('piano_id,occurred_at,title,description,entry_type')\
+                    .in_('piano_id', list(piano_ids_set))\
+                    .in_('entry_type', ['APPOINTMENT_COMPLETION', 'NOTE', 'SERVICE_ENTRY_MANUAL'])\
+                    .order('occurred_at', desc=True)\
+                    .limit(500)\
+                    .execute()
+
+                for te in (timeline_result.data or []):
+                    te_date = (te.get('occurred_at') or '')[:10]
+                    te_piano = te.get('piano_id')
+                    apt_id = piano_date_to_apt.get((te_piano, te_date))
+                    if apt_id:
+                        desc = te.get('description') or te.get('title') or ''
+                        if desc:
+                            existing = service_history_map.get(apt_id, '')
+                            service_history_map[apt_id] = f"{existing} | {desc}".strip(' |') if existing else desc
+
         except Exception as e:
             logging.warning(f"Erreur enrichissement Gazelle pour export: {e}")
 
@@ -754,15 +786,17 @@ async def export_csv(month: str = None):
         'appointment_date', 'time', 'room', 'for_who', 'piano',
         'diapason', 'requester', 'technician_id', 'status',
         'billing_amount', 'parking', 'notes', 'gazelle_service_notes',
-        'request_date', 'appointment_id', 'id',
+        'service_history', 'request_date', 'appointment_id', 'id',
     ]
 
-    # Construire les lignes avec la colonne enrichie
+    # Construire les lignes avec les colonnes enrichies
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
     writer.writeheader()
     for row in data:
-        row['gazelle_service_notes'] = gazelle_map.get(row.get('appointment_id'), '')
+        apt_id = row.get('appointment_id', '')
+        row['gazelle_service_notes'] = gazelle_map.get(apt_id, '')
+        row['service_history'] = service_history_map.get(apt_id, '')
         writer.writerow(row)
 
     csv_content = output.getvalue()
