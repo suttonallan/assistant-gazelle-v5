@@ -498,6 +498,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     window.open(`${API_URL}/api/place-des-arts/export${params}`, '_blank')
   }
 
+  const handleDismissOrphan = async (orphan) => {
+    try {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/orphans/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointment_id: orphan.appointment_id })
+      })
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      setOrphanServices(prev => prev.filter(o => o.appointment_id !== orphan.appointment_id))
+    } catch (err) {
+      alert(`Erreur: ${err.message}`)
+    }
+  }
+
   const handleAddOrphan = async (orphan) => {
     setAddingOrphan(orphan.appointment_id)
     try {
@@ -1243,7 +1257,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                   </span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setOrphanServices(prev => prev.filter(x => x.appointment_id !== o.appointment_id))}
+                      onClick={() => handleDismissOrphan(o)}
                       className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
                     >
                       Ignorer
