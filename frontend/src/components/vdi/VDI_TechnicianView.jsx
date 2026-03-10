@@ -226,7 +226,7 @@ export default function VDI_TechnicianView({
                     {/* Infos */}
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div><span className="text-gray-500">Série:</span> {piano.serie}</div>
-                      <div><span className="text-gray-500">Type:</span> {piano.type === 'D' ? 'Droit' : 'Queue'}</div>
+                      <div><span className="text-gray-500">Type:</span> {piano.type === 'G' || piano.type === 'B' ? 'Queue' : 'Droit'}</div>
                       <div><span className="text-gray-500">Dernier:</span> {formatDateRelative(piano.dernierAccord)}</div>
                       <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
                     </div>

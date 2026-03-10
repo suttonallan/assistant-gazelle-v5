@@ -212,44 +212,42 @@ class GazelleToSupabaseSync:
                 # Heures normales: buffer de 5 minutes
                 scheduled_send_at = now + timedelta(minutes=5)
             
-            # Vérifier si une entrée pending existe déjà pour ce RV+technicien
-            # Si oui, mettre à jour l'heure d'envoi (reset du timer)
-            check_url = f"{self.storage.api_url}/late_assignment_queue?appointment_external_id=eq.{appointment_external_id}&technician_id=eq.{technician_id}&status=eq.pending"
+            # Anti-doublon: vérifier si une entrée pending OU sent existe déjà
+            # pour ce RV+technicien+date (une seule requête pour éviter race conditions)
+            check_url = (
+                f"{self.storage.api_url}/late_assignment_queue"
+                f"?appointment_external_id=eq.{appointment_external_id}"
+                f"&technician_id=eq.{technician_id}"
+                f"&appointment_date=eq.{appointment_date}"
+                f"&status=in.(pending,sent)"
+            )
             check_response = requests.get(check_url, headers=self.storage._get_headers())
 
             if check_response.status_code == 200:
                 existing = check_response.json()
                 if existing and len(existing) > 0:
-                    # Mettre à jour l'heure d'envoi (reset du timer)
-                    update_url = f"{self.storage.api_url}/late_assignment_queue?id=eq.{existing[0]['id']}"
-                    update_headers = self.storage._get_headers()
-                    update_headers["Prefer"] = "return=representation"
+                    # Si une entrée sent existe, c'est un doublon complet
+                    sent_entries = [e for e in existing if e.get('status') == 'sent']
+                    if sent_entries:
+                        print(f"⏭️  Alerte déjà envoyée pour RV {appointment_external_id} → tech {technician_id} → doublon ignoré")
+                        return
 
-                    update_data = {
-                        'scheduled_send_at': scheduled_send_at.isoformat(),
-                        'updated_at': now.isoformat()
-                    }
+                    # Si une entrée pending existe, reset le timer
+                    pending_entry = next((e for e in existing if e.get('status') == 'pending'), None)
+                    if pending_entry:
+                        update_url = f"{self.storage.api_url}/late_assignment_queue?id=eq.{pending_entry['id']}"
+                        update_headers = self.storage._get_headers()
+                        update_headers["Prefer"] = "return=representation"
 
-                    update_response = requests.patch(update_url, headers=update_headers, json=update_data)
-                    if update_response.status_code in [200, 204]:
-                        print(f"🔄 Alerte mise à jour (reset timer) pour RV {appointment_external_id} → tech {technician_id}")
-                    return
+                        update_data = {
+                            'scheduled_send_at': scheduled_send_at.isoformat(),
+                            'updated_at': now.isoformat()
+                        }
 
-            # Anti-doublon: vérifier si une alerte a DÉJÀ été envoyée récemment
-            # pour ce même RV+technicien (évite d'envoyer 2x le même email)
-            sent_check_url = (
-                f"{self.storage.api_url}/late_assignment_queue"
-                f"?appointment_external_id=eq.{appointment_external_id}"
-                f"&technician_id=eq.{technician_id}"
-                f"&status=eq.sent"
-                f"&appointment_date=eq.{appointment_date}"
-            )
-            sent_response = requests.get(sent_check_url, headers=self.storage._get_headers())
-            if sent_response.status_code == 200:
-                already_sent = sent_response.json()
-                if already_sent and len(already_sent) > 0:
-                    print(f"⏭️  Alerte déjà envoyée pour RV {appointment_external_id} → tech {technician_id} → doublon ignoré")
-                    return
+                        update_response = requests.patch(update_url, headers=update_headers, json=update_data)
+                        if update_response.status_code in [200, 204]:
+                            print(f"🔄 Alerte mise à jour (reset timer) pour RV {appointment_external_id} → tech {technician_id}")
+                        return
             
             # Créer une nouvelle entrée
             queue_entry = {
