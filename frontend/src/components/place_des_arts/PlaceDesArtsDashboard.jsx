@@ -47,8 +47,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   // Sélection
   const [selectedIds, setSelectedIds] = useState([])
 
-  // Recherche concert
-  const [concertSearch, setConcertSearch] = useState({}) // { [requestId]: { loading, data, error } }
+  // Recherche concert — liens directs (pas de scraping, PDA bloque les bots)
+  const [concertSearch, setConcertSearch] = useState({}) // { [requestId]: { query, googleUrl, pdaUrl } }
 
   // Import email
   const [rawText, setRawText] = useState('')
@@ -89,22 +89,13 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     fetchStats()
   }, [fetchData])
 
-  // Recherche de programme de concert pour une demande
-  const handleConcertSearch = useCallback(async (item) => {
+  // Recherche de programme de concert — liens directs (PDA bloque le scraping)
+  const handleConcertSearch = useCallback((item) => {
     if (!item.for_who) return
-    const id = item.id
-    setConcertSearch(prev => ({ ...prev, [id]: { loading: true, data: null, error: null } }))
-    try {
-      const params = new URLSearchParams({ for_who: item.for_who })
-      if (item.appointment_date) params.append('date', item.appointment_date.slice(0, 10))
-      if (item.room) params.append('room', item.room)
-      const resp = await fetch(`${API_URL}/api/place-des-arts/concert-search?${params}`)
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const data = await resp.json()
-      setConcertSearch(prev => ({ ...prev, [id]: { loading: false, data, error: null } }))
-    } catch (err) {
-      setConcertSearch(prev => ({ ...prev, [id]: { loading: false, data: null, error: err.message } }))
-    }
+    const query = item.for_who.trim()
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(`site:placedesarts.com ${query}`)}`
+    const pdaUrl = 'https://www.placedesarts.com/fr/programmation'
+    setConcertSearch(prev => ({ ...prev, [item.id]: { query, googleUrl, pdaUrl } }))
   }, [])
 
   const closeConcertSearch = useCallback((id) => {
@@ -1694,50 +1685,40 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                       />
                     ) : (
-                      <div className="flex items-center gap-1">
+                      <div className="relative flex items-center gap-1">
                         <span>{it.for_who || '—'}</span>
                         {it.for_who && (
                           <button
-                            onClick={() => (concertSearch[it.id]?.data || concertSearch[it.id]?.error) ? closeConcertSearch(it.id) : handleConcertSearch(it)}
+                            onClick={() => concertSearch[it.id] ? closeConcertSearch(it.id) : handleConcertSearch(it)}
                             className="text-blue-500 hover:text-blue-700 text-xs flex-shrink-0"
                             title="Rechercher le programme du concert"
                           >
-                            {concertSearch[it.id]?.loading ? '...' : (concertSearch[it.id]?.data || concertSearch[it.id]?.error) ? '✕' : '🔍'}
+                            {concertSearch[it.id] ? '✕' : '🔍'}
                           </button>
                         )}
-                        {concertSearch[it.id]?.data && (
-                          <div className="absolute z-50 mt-8 bg-white border border-gray-300 rounded shadow-lg p-3 text-xs w-80">
-                            <div className="font-semibold mb-1">
-                              Programme — {concertSearch[it.id].data.query}
+                        {concertSearch[it.id] && (
+                          <div className="absolute z-50 top-6 left-0 bg-white border border-gray-300 rounded shadow-lg p-3 text-xs w-72">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold">🎵 {concertSearch[it.id].query}</span>
+                              <button onClick={() => closeConcertSearch(it.id)} className="text-gray-400 hover:text-gray-700 text-sm leading-none">✕</button>
                             </div>
-                            {concertSearch[it.id].data.found ? (
-                              <ul className="space-y-1">
-                                {concertSearch[it.id].data.results.map((r, idx) => (
-                                  <li key={idx}>
-                                    <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                      {r.titre}
-                                    </a>
-                                    {r.date_spectacle && <span className="text-gray-500 ml-1">({r.date_spectacle})</span>}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p className="text-gray-500">{concertSearch[it.id].data.message}</p>
-                            )}
-                            {concertSearch[it.id].data.search_url && (
-                              <a
-                                href={concertSearch[it.id].data.search_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block mt-2 text-blue-500 hover:underline"
-                              >
-                                Rechercher sur placedesarts.com
-                              </a>
-                            )}
+                            <a
+                              href={concertSearch[it.id].googleUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block mb-1 text-blue-600 hover:underline"
+                            >
+                              🔍 Rechercher sur Google
+                            </a>
+                            <a
+                              href={concertSearch[it.id].pdaUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block text-blue-600 hover:underline"
+                            >
+                              📋 Programmation PDA
+                            </a>
                           </div>
-                        )}
-                        {concertSearch[it.id]?.error && !concertSearch[it.id]?.data && (
-                          <span className="text-red-500 text-xs ml-1" title={concertSearch[it.id].error}>Erreur</span>
                         )}
                       </div>
                     )}
