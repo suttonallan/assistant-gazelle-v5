@@ -1698,11 +1698,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         <span>{it.for_who || '—'}</span>
                         {it.for_who && (
                           <button
-                            onClick={() => concertSearch[it.id]?.data ? closeConcertSearch(it.id) : handleConcertSearch(it)}
+                            onClick={() => (concertSearch[it.id]?.data || concertSearch[it.id]?.error) ? closeConcertSearch(it.id) : handleConcertSearch(it)}
                             className="text-blue-500 hover:text-blue-700 text-xs flex-shrink-0"
                             title="Rechercher le programme du concert"
                           >
-                            {concertSearch[it.id]?.loading ? '...' : concertSearch[it.id]?.data ? '✕' : '🔍'}
+                            {concertSearch[it.id]?.loading ? '...' : (concertSearch[it.id]?.data || concertSearch[it.id]?.error) ? '✕' : '🔍'}
                           </button>
                         )}
                         {concertSearch[it.id]?.data && (
@@ -1724,18 +1724,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                             ) : (
                               <p className="text-gray-500">{concertSearch[it.id].data.message}</p>
                             )}
-                            <a
-                              href={concertSearch[it.id].data.search_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block mt-2 text-blue-500 hover:underline"
-                            >
-                              Voir sur placedesarts.com
-                            </a>
+                            {concertSearch[it.id].data.search_url && (
+                              <a
+                                href={concertSearch[it.id].data.search_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block mt-2 text-blue-500 hover:underline"
+                              >
+                                Rechercher sur placedesarts.com
+                              </a>
+                            )}
                           </div>
                         )}
-                        {concertSearch[it.id]?.error && (
-                          <span className="text-red-500 text-xs ml-1" title={concertSearch[it.id].error}>!</span>
+                        {concertSearch[it.id]?.error && !concertSearch[it.id]?.data && (
+                          <span className="text-red-500 text-xs ml-1" title={concertSearch[it.id].error}>Erreur</span>
                         )}
                       </div>
                     )}
