@@ -356,6 +356,13 @@ class EventManager:
         else:
             payload[db_field] = value
 
+        # Auto-détection stationnement dans for_who ou notes
+        if db_field in ("for_who", "notes") and isinstance(value, str):
+            from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
+            parking_val = extract_parking_amount(value)
+            if parking_val:
+                payload["parking"] = parking_val
+
         url = f"{self.storage.api_url}/place_des_arts_requests?id=eq.{request_id}"
         hdrs = self.storage._get_headers().copy()
         hdrs["Prefer"] = "return=representation"

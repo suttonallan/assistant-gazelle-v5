@@ -690,6 +690,14 @@ async def list_requests(
                             parking_val = extract_parking_amount(text)
                             if parking_val:
                                 request["parking"] = parking_val
+                                # Persister en base pour les prochains chargements
+                                try:
+                                    storage.client.table('place_des_arts_requests')\
+                                        .update({'parking': parking_val})\
+                                        .eq('id', request.get('id'))\
+                                        .execute()
+                                except Exception as pe:
+                                    logging.warning(f"Erreur persistance parking {request.get('id')}: {pe}")
                                 break
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
@@ -1030,6 +1038,14 @@ async def create_request(payload: Dict[str, Any]):
             "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
             "parking": payload.get("parking") or "",
         }
+        # Auto-détection stationnement dans for_who ou notes
+        if not row["parking"]:
+            from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
+            for text_field in (row.get("for_who", ""), row.get("notes", "")):
+                parking_val = extract_parking_amount(text_field)
+                if parking_val:
+                    row["parking"] = parking_val
+                    break
         # Lier au RV Gazelle si appointment_id fourni (ex: ajout depuis orphelin)
         if payload.get("appointment_id"):
             row["appointment_id"] = payload["appointment_id"]
