@@ -359,6 +359,7 @@ class GazelleSyncService:
 
             result = self.storage.client.table('gazelle_appointments')\
                 .select('*')\
+                .eq('client_external_id', self.PDA_CLIENT_ID)\
                 .gte('appointment_date', cutoff_date)\
                 .order('appointment_date')\
                 .execute()
@@ -446,8 +447,8 @@ class GazelleSyncService:
 
             # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
             if request_for_who:
-                # Extraire les mots significatifs (plus de 3 caractères)
-                for_who_words = [w for w in request_for_who.split() if len(w) > 3]
+                # Extraire les mots significatifs (2+ caractères pour inclure ONJ, OSM, etc.)
+                for_who_words = [w for w in request_for_who.split() if len(w) > 2]
                 for word in for_who_words:
                     if word in apt_title:
                         score += 3
@@ -476,6 +477,11 @@ class GazelleSyncService:
             if score > best_score:
                 best_score = score
                 best_match = apt
+
+        # Seuil minimum: même jour seul (score=1) ne suffit pas
+        # Il faut au moins un critère supplémentaire (for_who, salle, ou heure)
+        if best_score < 2:
+            return None
 
         return best_match
 
@@ -514,7 +520,7 @@ class GazelleSyncService:
             # Matching par for_who dans le titre Gazelle
             req_for_who = (req.get('for_who') or '').upper().strip()
             if req_for_who:
-                for_who_words = [w for w in req_for_who.split() if len(w) > 3]
+                for_who_words = [w for w in req_for_who.split() if len(w) > 2]
                 if any(word in apt_title for word in for_who_words):
                     return req
 
