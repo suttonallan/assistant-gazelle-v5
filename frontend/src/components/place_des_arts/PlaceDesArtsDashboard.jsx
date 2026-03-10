@@ -41,7 +41,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('asc')
   const [orphanServices, setOrphanServices] = useState([])
-  const [addingOrphan, setAddingOrphan] = useState(null) // appointment_id en cours d'ajout
+  const [addingOrphan, setAddingOrphan] = useState(null) // appointment_id en cours de sauvegarde
+  const [orphanPreview, setOrphanPreview] = useState(null) // formulaire prévisualisation orphelin
 
   // Sélection
   const [selectedIds, setSelectedIds] = useState([])
@@ -512,29 +513,39 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }
 
-  const handleAddOrphan = async (orphan) => {
-    setAddingOrphan(orphan.appointment_id)
+  const handleAddOrphan = (orphan) => {
+    // Ouvrir le formulaire de prévisualisation au lieu de créer directement
+    const cleanTitle = (orphan.title || '')
+      .replace(/^PLACE\s*DES\s*ARTS\s*[-–—:]\s*/i, '')
+      .trim()
+    setOrphanPreview({
+      appointment_id: orphan.appointment_id,
+      appointment_date: orphan.date || '',
+      time: orphan.time || '',
+      room: '',
+      for_who: cleanTitle || orphan.title || '',
+      technician_id: orphan.technician_id || null,
+      notes: orphan.description || '',
+      status: orphan.status === 'completed' ? 'COMPLETED' : 'CONFIRMED',
+    })
+  }
+
+  const handleConfirmOrphan = async () => {
+    if (!orphanPreview) return
+    setAddingOrphan(orphanPreview.appointment_id)
     try {
       const resp = await fetch(`${API_URL}/api/place-des-arts/requests/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          appointment_date: orphan.date || null,
-          time: orphan.time || '',
-          room: '',
-          for_who: orphan.title || '',
-          technician_id: orphan.technician_id || null,
-          notes: orphan.description || '',
-          appointment_id: orphan.appointment_id,
-          status: orphan.status === 'completed' ? 'COMPLETED' : 'CONFIRMED',
-        })
+        body: JSON.stringify(orphanPreview)
       })
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}))
         throw new Error(err.detail || `Erreur ${resp.status}`)
       }
-      // Retirer de la liste orpheline
-      setOrphanServices(prev => prev.filter(o => o.appointment_id !== orphan.appointment_id))
+      // Retirer de la liste orpheline et fermer le formulaire
+      setOrphanServices(prev => prev.filter(o => o.appointment_id !== orphanPreview.appointment_id))
+      setOrphanPreview(null)
       await fetchData()
     } catch (err) {
       alert(`Erreur ajout: ${err.message}`)
@@ -1251,25 +1262,80 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
             </div>
             <div className="space-y-1">
               {orphanServices.map((o) => (
-                <div key={o.appointment_id} className="flex items-center justify-between bg-white rounded px-3 py-2 text-sm border border-amber-200">
-                  <span className="text-gray-800">
-                    {o.date} — {o.title}{o.technician_id ? ` (${o.technician_id})` : ''}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleDismissOrphan(o)}
-                      className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                    >
-                      Ignorer
-                    </button>
-                    <button
-                      onClick={() => handleAddOrphan(o)}
-                      disabled={addingOrphan === o.appointment_id}
-                      className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {addingOrphan === o.appointment_id ? '...' : '+ Ajouter'}
-                    </button>
+                <div key={o.appointment_id}>
+                  <div className="flex items-center justify-between bg-white rounded px-3 py-2 text-sm border border-amber-200">
+                    <span className="text-gray-800">
+                      {o.date} — {o.title}{o.technician_id ? ` (${o.technician_id})` : ''}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDismissOrphan(o)}
+                        className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                      >
+                        Ignorer
+                      </button>
+                      <button
+                        onClick={() => handleAddOrphan(o)}
+                        disabled={addingOrphan === o.appointment_id}
+                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {addingOrphan === o.appointment_id ? '...' : '+ Ajouter'}
+                      </button>
+                    </div>
                   </div>
+                  {/* Formulaire de prévisualisation inline */}
+                  {orphanPreview && orphanPreview.appointment_id === o.appointment_id && (
+                    <div className="bg-blue-50 border border-blue-300 rounded-b px-4 py-3 -mt-0.5 space-y-3">
+                      <div className="text-xs font-medium text-blue-800 mb-2">Prévisualisation — ajustez les champs avant de confirmer</div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Date du RV</label>
+                          <input type="date" value={orphanPreview.appointment_date}
+                            onChange={(e) => setOrphanPreview(p => ({ ...p, appointment_date: e.target.value }))}
+                            className="w-full text-sm border border-gray-300 rounded px-2 py-1" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Heure</label>
+                          <input type="text" value={orphanPreview.time} placeholder="ex: 09:00"
+                            onChange={(e) => setOrphanPreview(p => ({ ...p, time: e.target.value }))}
+                            className="w-full text-sm border border-gray-300 rounded px-2 py-1" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Pour qui</label>
+                          <input type="text" value={orphanPreview.for_who}
+                            onChange={(e) => setOrphanPreview(p => ({ ...p, for_who: e.target.value }))}
+                            className="w-full text-sm border border-gray-300 rounded px-2 py-1" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Salle</label>
+                          <input type="text" value={orphanPreview.room} placeholder="ex: Salle Wilfrid-Pelletier"
+                            onChange={(e) => setOrphanPreview(p => ({ ...p, room: e.target.value }))}
+                            className="w-full text-sm border border-gray-300 rounded px-2 py-1" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                        <input type="text" value={orphanPreview.notes}
+                          onChange={(e) => setOrphanPreview(p => ({ ...p, notes: e.target.value }))}
+                          className="w-full text-sm border border-gray-300 rounded px-2 py-1" />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={handleConfirmOrphan}
+                          disabled={addingOrphan === orphanPreview.appointment_id}
+                          className="text-xs px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {addingOrphan === orphanPreview.appointment_id ? 'Enregistrement...' : 'Confirmer'}
+                        </button>
+                        <button
+                          onClick={() => setOrphanPreview(null)}
+                          className="text-xs px-3 py-1.5 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

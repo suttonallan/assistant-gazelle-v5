@@ -478,7 +478,53 @@ class GazelleSyncService:
                 best_match = apt
 
         return best_match
-    
+
+    def _find_matching_appointment_for_orphan(
+        self,
+        gazelle_apt: Dict,
+        pda_requests: List[Dict]
+    ) -> Optional[Dict]:
+        """
+        Vérifie si un RV Gazelle correspond à une demande PDA existante (sans lien appointment_id).
+        Matching inverse: on part du RV Gazelle et on cherche une demande correspondante par date + titre.
+        Retourne la demande si trouvée, None sinon.
+        """
+        import re
+
+        apt_date_str = gazelle_apt.get('appointment_date', '')
+        if not apt_date_str:
+            return None
+        apt_date = apt_date_str[:10]
+        apt_title = (gazelle_apt.get('title') or '').upper()
+
+        for req in pda_requests:
+            # Déjà liée à un autre RV — pas candidate
+            if req.get('appointment_id'):
+                continue
+
+            req_date_str = req.get('appointment_date', '')
+            if not req_date_str:
+                continue
+            req_date = str(req_date_str)[:10]
+
+            # Même jour obligatoire
+            if req_date != apt_date:
+                continue
+
+            # Matching par for_who dans le titre Gazelle
+            req_for_who = (req.get('for_who') or '').upper().strip()
+            if req_for_who:
+                for_who_words = [w for w in req_for_who.split() if len(w) > 3]
+                if any(word in apt_title for word in for_who_words):
+                    return req
+
+            # Matching par salle dans le titre Gazelle
+            req_room = (req.get('room') or '').upper().strip()
+            if req_room and req_room in apt_title:
+                return req
+
+        return None
+
     # IDs des vrais techniciens (pas "À attribuer")
     # Inclure aussi les IDs alternatifs qui correspondent aux mêmes techniciens
     REAL_TECHNICIAN_IDS = {

@@ -1025,11 +1025,14 @@ async def create_request(payload: Dict[str, Any]):
             "piano": payload.get("piano") or "",
             "time": payload.get("time") or "",
             "technician_id": payload.get("technician_id") or None,
-            "status": "PENDING",
+            "status": payload.get("status") or "PENDING",
             "notes": payload.get("notes") or "",
             "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
             "parking": payload.get("parking") or "",
         }
+        # Lier au RV Gazelle si appointment_id fourni (ex: ajout depuis orphelin)
+        if payload.get("appointment_id"):
+            row["appointment_id"] = payload["appointment_id"]
 
         manager = get_manager()
         result = manager.import_csv([row], on_conflict="update")
@@ -1741,9 +1744,11 @@ async def check_completed_requests():
         try:
             # Récupérer TOUTES les demandes PDA (incluant COMPLETED/BILLED)
             all_pda_result = storage.client.table('place_des_arts_requests')\
-                .select('appointment_id')\
+                .select('appointment_id,appointment_date,for_who,room,time')\
                 .execute()
             linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
+            # Garder aussi toutes les demandes pour le matching par scoring
+            all_pda_requests = all_pda_result.data or []
 
             # Récupérer les orphelins ignorés
             dismissed_ids = _get_dismissed_orphan_ids(storage)
@@ -1755,6 +1760,10 @@ async def check_completed_requests():
                 if apt.get('external_id') in linked_apt_ids:
                     continue
                 if apt.get('external_id') in dismissed_ids:
+                    continue
+                # Vérifier par scoring si une demande existante (sans appointment_id) correspond
+                matched = sync_service._find_matching_appointment_for_orphan(apt, all_pda_requests)
+                if matched:
                     continue
                 orphan_services.append({
                     'appointment_id': apt.get('external_id'),
