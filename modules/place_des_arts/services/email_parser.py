@@ -204,6 +204,14 @@ def normalize_room(room_text: str) -> str:
         if key in room_lower:
             return code
 
+    # "Salle E" ou juste "E" → garder comme "Salle E"
+    if room_lower in ('salle e', 'e'):
+        return 'Salle E'
+
+    # ODM (Opéra de Montréal / Espace culturel Georges-Émile-Lapalme)
+    if room_text.upper() == 'ODM':
+        return 'ODM'
+
     # Si aucune correspondance, retourner tel quel (majuscules si c'est un code court)
     if len(room_text) <= 10 and room_text.isupper():
         return room_text
@@ -516,7 +524,7 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
     room_patterns = [
         (r'(5e)\s+salle', r'\1'),  # "5E salle" → 5E (DOIT être avant les autres patterns)
         (r'\b(ms|wp|tm|tjd|5e|scl|cl)\b', r'\1'),  # Codes standards + CL (Claude-Léveillée)
-        (r'salle\s+([a-z])(?:\s|,|$)', r'\1'),  # Salle D → D (lettre seule, pas début d'un mot)
+        (r'salle\s+([a-z])(?:\s|,|$)', r'\1'),  # Salle D → D, Salle E → Salle E
         (r'maison\s+symphonique', 'MS'),
         (r'wilfrid[-\s]?pelletier', 'WP'),
         (r'théâtre\s+maisonneuve', 'TM'),
@@ -530,10 +538,8 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
         if match:
             if replacement.startswith(r'\1'):
                 room_code = match.group(1).upper()
-                # Normaliser CL → SCL
-                if room_code == 'CL':
-                    room_code = 'SCL'
-                result['room'] = room_code
+                # Normaliser via normalize_room
+                result['room'] = normalize_room(room_code)
             else:
                 result['room'] = replacement
             result['confidence'] += 0.15
@@ -709,6 +715,9 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             # Codes de requester valides (initiales connues)
             known_requester_codes = ['IC', 'AJ', 'PT']
             line_upper = line.strip().upper()
+            # "Piano Tech" / "Piano Tek" → PT
+            if line.strip().lower() in ('piano tech', 'piano tek'):
+                return True
             # Seulement si c'est exactement un code connu (pas "ODM" ou autres codes)
             return bool(line_upper in known_requester_codes)
 
@@ -770,12 +779,17 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
 
             lower = ls.lower()
             has_brand = any(kw.lower() in lower for kw in [k.lower() for k in piano_keywords])
-            has_piano_word = ('piano de' in lower) or (lower.startswith('piano ')) or (' piano ' in lower)
+            has_piano_word = (('piano de' in lower) or (lower.startswith('piano ')) or (' piano ' in lower)) and lower not in ('piano tech', 'piano tek')
             is_concert_label = 'concert' in lower and 'piano' in lower and not has_brand
 
-            # Skip room lines ONLY if they don't contain piano brand/keyword
+            # Si la salle est déjà détectée et la ligne matche un code de salle,
+            # traiter comme for_who potentiel (ex: "ODM" = Opéra de Montréal)
+            # au lieu de simplement ignorer la ligne
             if result.get('room') and any(kw.upper() in ls.upper() for kw in room_keywords):
                 if not has_brand and not has_piano_word:
+                    # Si for_who pas encore trouvé, utiliser ce code comme for_who
+                    if candidate_for_who is None and found_data_block and not has_structured_data:
+                        candidate_for_who = ls
                     continue
 
             # Mark when we enter the structured data block (after date/room)
@@ -879,9 +893,12 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
                     'isabelle': 'IC',
                     'isabelle clairoux': 'IC',
                     'isabelle constantineau': 'IC',
-                    'clairoux': 'IC',  # Nom de famille seul
-                    # Ajouter d'autres mappings ici au besoin
-                    # 'nom': 'CODE',
+                    'clairoux': 'IC',
+                    'piano tech': 'PT',
+                    'piano tek': 'PT',
+                    'annie jenkins': 'AJ',
+                    'annie': 'AJ',
+                    'jenkins': 'AJ',
                 }
                 for name, code in requester_mapping.items():
                     if name in requester_lower:
@@ -1006,7 +1023,9 @@ def parse_email_text(email_text: str) -> List[Dict]:
             cleaned_lines.append(line_stripped)
 
     # Détection de début de bloc: date avec mois reconnu (FR/EN)
-    months = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|janv|f[eé]v|fev|avr|mai|juin|juil|aou|ao[uû]t|sept|oct|nov|d[eé]c|mars)"
+    # IMPORTANT: inclure les mois complets (avril, octobre, etc.) AVANT les abréviations
+    # pour que le regex matche correctement avec \b
+    months = r"(janvier|février|fevrier|mars|avril|mai|juin|juillet|ao[uû]t|aout|septembre|octobre|novembre|d[eé]cembre|decembre|january|february|march|april|may|june|july|august|september|october|november|december|janv|f[eé]v|fev|feb|mar|apr|avr|jun|jun|jul|juil|aug|aou|sep|sept|oct|nov|d[eé]c|dec|jan)"
     date_pattern = re.compile(rf'^(\d{{1,2}})[-/\s]+{months}\b', re.IGNORECASE)
     # Pattern pour détecter une date n'importe où dans une ligne (pour le bloc en cours)
     date_anywhere_pattern = re.compile(rf'(\d{{1,2}})[-/\s]+{months}', re.IGNORECASE)
@@ -1143,6 +1162,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
         'isabelle constantineau': 'IC', 'constantineau': 'IC',
         'annie jenkins': 'AJ', 'annie': 'AJ', 'jenkins': 'AJ',
         'patricia': 'PT',
+        'piano tech': 'PT', 'piano tek': 'PT',
     }
     for req in requests:
         req_name = (req.get('requester') or '').lower().strip()
@@ -1151,6 +1171,14 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 if name in req_name:
                     req['requester'] = code
                     break
+
+    # Post-traitement: request_date — si non détectée, utiliser aujourd'hui
+    # Quand plusieurs demandes arrivent d'un seul email, la date de la demande
+    # est la même pour toutes (date de réception du courriel)
+    today_str = current_date.strftime('%Y-%m-%d')
+    for req in requests:
+        if not req.get('request_date'):
+            req['request_date'] = today_str
 
     return requests
 
