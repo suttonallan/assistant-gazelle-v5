@@ -526,6 +526,45 @@ def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
         raise
 
 
+def task_scan_pda_emails():
+    """
+    Scan Gmail pour les nouvelles demandes PDA.
+
+    Lit la boîte info@piano-tek.com, parse les emails de
+    @placedesarts.com et @operademontreal.com, crée les demandes
+    automatiquement et envoie un récapitulatif par email.
+
+    Exécuté toutes les heures (heures ouvrables).
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("📬 SCAN GMAIL - DEMANDES PDA")
+        print("=" * 70)
+
+        from modules.place_des_arts.services.email_processor import get_email_processor
+
+        processor = get_email_processor()
+        result = processor.run_scan()
+
+        print(f"   Emails trouvés: {result.get('emails_found', 0)}")
+        print(f"   Emails traités: {result.get('emails_processed', 0)}")
+        print(f"   Demandes créées: {result.get('requests_created', 0)}")
+        print(f"   Confirmations: {result.get('confirmations_sent', 0)}")
+
+        if result.get('errors'):
+            for err in result['errors']:
+                print(f"   ⚠️ {err}")
+
+        print("=" * 70 + "\n")
+        return result
+
+    except Exception as e:
+        print(f"\n❌ Erreur scan PDA emails: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
 # ============================================================
 # CONFIGURATION DU SCHEDULER
 # ============================================================
@@ -626,6 +665,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Toutes les heures (7h-21h) - Sync Appointments configurée")
+
+    # Toutes les heures (heures ouvrables 8h-18h) - Scan Gmail pour demandes PDA
+    scheduler.add_job(
+        task_scan_pda_emails,
+        trigger=CronTrigger(hour='8-18', minute=30, timezone='America/Montreal'),
+        id='scan_pda_emails_hourly',
+        name='Scan Gmail PDA (horaire 8h30-18h30)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Toutes les heures (8h30-18h30) - Scan Gmail PDA configurée")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")

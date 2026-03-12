@@ -2194,3 +2194,94 @@ async def list_dismissed_orphans():
     storage = get_storage()
     ids = _get_dismissed_orphan_ids(storage)
     return {"dismissed_ids": sorted(ids), "count": len(ids)}
+
+
+# ------------------------------------------------------------
+# Scanner Gmail - Import automatique des demandes PDA
+# ------------------------------------------------------------
+
+@router.post("/email-scanner/run")
+async def run_email_scanner():
+    """
+    Déclenche manuellement un scan Gmail pour les demandes PDA.
+
+    Scanne la boîte info@piano-tek.com pour les emails de
+    @placedesarts.com et @operademontreal.com, parse les demandes,
+    les crée dans l'assistant et envoie un récapitulatif.
+    """
+    try:
+        from modules.place_des_arts.services.email_processor import get_email_processor
+        processor = get_email_processor()
+        result = processor.run_scan()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        logging.error(f"Erreur scan Gmail manuel: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/email-scanner/history")
+async def email_scanner_history(limit: int = Query(default=20, le=100)):
+    """
+    Historique des emails PDA traités automatiquement.
+
+    Retourne les derniers emails scannés avec leur statut,
+    nombre de demandes créées, etc.
+    """
+    try:
+        from modules.place_des_arts.services.email_processor import get_email_processor
+        processor = get_email_processor()
+        history = processor.get_scan_history(limit=limit)
+        return {
+            "success": True,
+            "history": history,
+            "count": len(history)
+        }
+    except Exception as e:
+        logging.error(f"Erreur lecture historique scanner: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/email-scanner/status")
+async def email_scanner_status():
+    """
+    Statut du scanner Gmail (connecté, dernière exécution, etc.).
+    """
+    try:
+        from core.gmail_scanner import get_gmail_scanner, OAUTH_CREDENTIALS_PATH, TOKEN_PATH
+        scanner = get_gmail_scanner()
+
+        status = {
+            "credentials_configured": os.path.exists(OAUTH_CREDENTIALS_PATH),
+            "token_exists": os.path.exists(TOKEN_PATH),
+            "gmail_connected": False,
+            "last_scan": None,
+        }
+
+        # Tester la connexion
+        if scanner.initialize():
+            status["gmail_connected"] = True
+
+        # Dernier scan
+        from modules.place_des_arts.services.email_processor import get_email_processor
+        processor = get_email_processor()
+        history = processor.get_scan_history(limit=1)
+        if history:
+            status["last_scan"] = {
+                "time": history[0].get("processed_at"),
+                "emails_found": history[0].get("requests_created", 0),
+                "status": history[0].get("status"),
+            }
+
+        return {"success": True, **status}
+    except Exception as e:
+        logging.error(f"Erreur statut scanner: {e}", exc_info=True)
+        return {
+            "success": False,
+            "credentials_configured": False,
+            "token_exists": False,
+            "gmail_connected": False,
+            "error": str(e)
+        }
