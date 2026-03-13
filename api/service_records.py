@@ -521,13 +521,13 @@ async def push_validated_to_gazelle(
                 "updated_at": now_iso,
             }).eq("id", record["id"]).execute()
 
-        # 5. Vider le champ "à faire" des overlays — le travail est fait et archivé
+        # 5. Nettoyer les overlays legacy (travail, service_status)
+        # NOTE: a_faire n'est PAS vidé — Nicolas le vide manuellement quand il estime que c'est fait
         try:
             from core.supabase_storage import SupabaseStorage
             storage = SupabaseStorage(silent=True)
             for pid in piano_ids:
                 storage.update_piano(pid, {
-                    "a_faire": "",
                     "travail": "",
                     "service_status": None,
                     "is_work_completed": False,
