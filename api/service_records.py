@@ -521,6 +521,21 @@ async def push_validated_to_gazelle(
                 "updated_at": now_iso,
             }).eq("id", record["id"]).execute()
 
+        # 5. Vider le champ "à faire" des overlays — le travail est fait et archivé
+        try:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+            for pid in piano_ids:
+                storage.update_piano(pid, {
+                    "a_faire": "",
+                    "travail": "",
+                    "service_status": None,
+                    "is_work_completed": False,
+                }, institution_slug=institution)
+            logging.info(f"🧹 Overlays nettoyés pour {len(piano_ids)} piano(s) après push")
+        except Exception as e:
+            logging.warning(f"⚠️ Nettoyage overlays après push: {e}")
+
         logging.info(f"✅ Push lot terminé: {len(records)} fiches, event {event_id}")
 
         return {

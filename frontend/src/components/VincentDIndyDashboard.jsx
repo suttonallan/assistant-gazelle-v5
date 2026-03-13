@@ -1251,7 +1251,24 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                           <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
                           <td className="px-3 py-2 font-medium whitespace-nowrap">{row.local}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-gray-600">{row.pianoName}</td>
-                          <td className="px-3 py-2 text-xs text-gray-600">{row.aFaire || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600">
+                            {row.aFaire ? (
+                              <div className="flex items-start gap-1">
+                                <span className="flex-1">{row.aFaire}</span>
+                                {(row._type === 'pending' || row._type === 'validated_piano') && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
+                                      await savePianoToAPI(row.pianoId, { aFaire: '' });
+                                    }}
+                                    className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
+                                    title="Effacer (travail fait)"
+                                  >✕</button>
+                                )}
+                              </div>
+                            ) : '-'}
+                          </td>
                           <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
                             <NotesCell row={row} />
                           </td>
