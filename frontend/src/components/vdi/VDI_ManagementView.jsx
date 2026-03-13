@@ -418,12 +418,25 @@ export default function VDI_ManagementView({
                         autoFocus
                       />
                     ) : (
-                      <span
-                        className="text-sm cursor-text"
-                        onClick={() => { setEditingAFaireId(piano.id); setAFaireInput(piano.aFaire || ''); }}
-                      >
-                        {piano.aFaire || <span className="text-gray-400">Cliquer...</span>}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="text-sm cursor-text flex-1"
+                          onClick={() => { setEditingAFaireId(piano.id); setAFaireInput(piano.aFaire || ''); }}
+                        >
+                          {piano.aFaire || <span className="text-gray-400">Cliquer...</span>}
+                        </span>
+                        {piano.aFaire && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setPianos(pianos.map(p => p.id === piano.id ? { ...p, aFaire: '' } : p));
+                              await savePianoToAPI(piano.id, { aFaire: '' });
+                            }}
+                            className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
+                            title="Effacer"
+                          >✕</button>
+                        )}
+                      </div>
                     )}
                   </td>
 

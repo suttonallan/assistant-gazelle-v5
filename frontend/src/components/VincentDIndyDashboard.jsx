@@ -860,8 +860,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         };
       });
 
-    // Liste unifiée, anti-chronologique
-    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos, ...historyRows]
+    // Liste unifiée, anti-chronologique — exclure les historyRows (pushed) déjà archivés
+    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos]
       .sort((a, b) => (b._sortDate || '').localeCompare(a._sortDate || ''));
 
     const pendingCount = pendingPianos.length;
@@ -1255,17 +1255,15 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                             {row.aFaire ? (
                               <div className="flex items-start gap-1">
                                 <span className="flex-1">{row.aFaire}</span>
-                                {(row._type === 'pending' || row._type === 'validated_piano') && (
-                                  <button
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
-                                      await savePianoToAPI(row.pianoId, { aFaire: '' });
-                                    }}
-                                    className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
-                                    title="Effacer (travail fait)"
-                                  >✕</button>
-                                )}
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
+                                    await savePianoToAPI(row.pianoId, { aFaire: '' });
+                                  }}
+                                  className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
+                                  title="Effacer"
+                                >✕</button>
                               </div>
                             ) : '-'}
                           </td>
