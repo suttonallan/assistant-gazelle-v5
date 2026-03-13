@@ -1883,6 +1883,31 @@ async def tournee_terminee():
             }, institution_slug='vincent-dindy')
             cleaned.append(piano_id)
 
+    # Aussi nettoyer les fiches de service actives (draft/completed) orphelines
+    # après une tournée terminée — les fiches pushed restent comme historique
+    sr_cleaned = 0
+    try:
+        from supabase import create_client as _create_sb
+        sb = _create_sb(
+            os.getenv("SUPABASE_URL"),
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        # Supprimer les fiches draft/completed qui traînent (pas encore validées)
+        orphan_resp = (
+            sb.table("piano_service_records")
+            .select("id,piano_id,status")
+            .eq("institution_slug", "vincent-dindy")
+            .in_("status", ["draft", "completed"])
+            .execute()
+        )
+        for rec in (orphan_resp.data or []):
+            sb.table("piano_service_records").delete().eq("id", rec["id"]).execute()
+            sr_cleaned += 1
+        if sr_cleaned:
+            logging.info(f"🧹 {sr_cleaned} fiche(s) de service orpheline(s) supprimée(s)")
+    except Exception as e:
+        logging.warning(f"⚠️ Nettoyage fiches de service: {e}")
+
     logging.info(f"🧹 Tournée terminée: {len(cleaned)} piano(s) nettoyé(s)")
 
     return {

@@ -211,6 +211,12 @@ async def upsert_service_notes(
         except Exception:
             pass
 
+        # Nettoyer le champ travail de l'overlay legacy pour éviter qu'il réapparaisse
+        try:
+            storage.update_piano(piano_id, {"travail": ""}, institution_slug=institution)
+        except Exception:
+            pass
+
         new_record = {
             "piano_id": piano_id,
             "institution_slug": institution,

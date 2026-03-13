@@ -457,10 +457,12 @@ async def get_institution_pianos(
                 or gz_piano.get('calculatedLastService', '')
             )
 
-            # Travail : priorité fiche de service active > overlay legacy
-            sr_travail = sr.get('travail', '') or ''
-            sr_observations = sr.get('observations', '') or ''
-            legacy_travail = updates.get('travail', '')
+            # Travail : si une fiche de service active existe, l'utiliser
+            # même si son contenu est vide (ne PAS retomber sur l'overlay legacy)
+            has_active_sr = bool(sr.get('id'))
+            sr_travail = sr.get('travail', '') if has_active_sr else ''
+            sr_observations = sr.get('observations', '') if has_active_sr else ''
+            legacy_travail = updates.get('travail', '') if not has_active_sr else ''
 
             piano = {
                 "id": gz_id,
@@ -476,10 +478,10 @@ async def get_institution_pianos(
                 "prochainAccord": gz_piano.get('calculatedNextService', ''),
                 "status": updates.get('status', 'normal'),
                 "aFaire": updates.get('a_faire', '') if institution != 'orford' else (updates.get('a_faire', '') if updates.get('a_faire') else ''),
-                # Priorité: fiche de service active > overlay legacy
-                "travail": sr_travail if sr_travail else legacy_travail,
-                "observations": sr_observations if sr_observations else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
-                "is_work_completed": sr.get('status') == 'completed' if sr else updates.get('is_work_completed', False),
+                # Si fiche de service active → utiliser ses données, sinon legacy overlay
+                "travail": sr_travail if has_active_sr else legacy_travail,
+                "observations": sr_observations if has_active_sr else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
+                "is_work_completed": sr.get('status') == 'completed' if has_active_sr else updates.get('is_work_completed', False),
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,
                 "hasNonTag": has_non_tag,
