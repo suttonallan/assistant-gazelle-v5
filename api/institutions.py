@@ -376,6 +376,42 @@ async def get_institution_pianos(
         storage = get_supabase_storage()
         supabase_updates = storage.get_all_piano_updates(institution_slug=institution)
 
+        # 2b. Charger fiches de service actives (draft/completed/validated)
+        service_records_by_piano = {}
+        last_pushed_by_piano = {}
+        try:
+            from supabase import create_client as _create_client
+            _sb = _create_client(
+                os.getenv("SUPABASE_URL"),
+                os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            )
+            # Fiches actives
+            active_resp = (
+                _sb.table("piano_service_records")
+                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at")
+                .eq("institution_slug", institution)
+                .in_("status", ["draft", "completed", "validated"])
+                .execute()
+            )
+            for rec in (active_resp.data or []):
+                service_records_by_piano[rec["piano_id"]] = rec
+
+            # Dernières fiches poussées (pour "Dernier")
+            pushed_resp = (
+                _sb.table("piano_service_records")
+                .select("piano_id,completed_at,completed_by")
+                .eq("institution_slug", institution)
+                .eq("status", "pushed")
+                .order("completed_at", desc=True)
+                .execute()
+            )
+            for rec in (pushed_resp.data or []):
+                pid = rec["piano_id"]
+                if pid not in last_pushed_by_piano:
+                    last_pushed_by_piano[pid] = rec
+        except Exception as e:
+            logging.warning(f"⚠️ Chargement fiches de service: {e}")
+
         # 3. Fusion
         pianos = []
         for gz_piano in gazelle_pianos:
@@ -410,6 +446,22 @@ async def get_institution_pianos(
             piano_type = gz_piano.get('type', 'UPRIGHT')
             type_letter = piano_type[0].upper() if piano_type else 'D'
 
+            # Fiche de service active pour ce piano
+            sr = service_records_by_piano.get(gz_id, {})
+            last_pushed = last_pushed_by_piano.get(gz_id, {})
+
+            # "Dernier" = completed_at de la dernière fiche poussée si disponible,
+            # sinon fallback sur calculatedLastService de Gazelle
+            dernier_service = (
+                last_pushed.get('completed_at')
+                or gz_piano.get('calculatedLastService', '')
+            )
+
+            # Travail : priorité fiche de service active > overlay legacy
+            sr_travail = sr.get('travail', '') or ''
+            sr_observations = sr.get('observations', '') or ''
+            legacy_travail = updates.get('travail', '')
+
             piano = {
                 "id": gz_id,
                 "gazelleId": gz_id,
@@ -420,20 +472,29 @@ async def get_institution_pianos(
                 "type": type_letter,
                 "usage": "",
                 "dernierAccord": gz_piano.get('calculatedLastService', ''),
+                "dernierService": dernier_service,
                 "prochainAccord": gz_piano.get('calculatedNextService', ''),
                 "status": updates.get('status', 'normal'),
-                # Pour Orford: ne pas inclure les notes Gazelle dans aFaire et observations
-                # Seulement afficher les notes créées dans l'Assistant (Supabase)
                 "aFaire": updates.get('a_faire', '') if institution != 'orford' else (updates.get('a_faire', '') if updates.get('a_faire') else ''),
-                "travail": updates.get('travail', ''),
-                "observations": updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else ''),
-                "is_work_completed": updates.get('is_work_completed', False),
+                # Priorité: fiche de service active > overlay legacy
+                "travail": sr_travail if sr_travail else legacy_travail,
+                "observations": sr_observations if sr_observations else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
+                "is_work_completed": sr.get('status') == 'completed' if sr else updates.get('is_work_completed', False),
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,
                 "hasNonTag": has_non_tag,
                 "is_hidden": updates.get('is_hidden', False),
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),
-                "institution": institution
+                "institution": institution,
+                # Fiches de service
+                "service_record": {
+                    "id": sr.get("id"),
+                    "status": sr.get("status"),
+                    "completed_at": sr.get("completed_at"),
+                    "completed_by": sr.get("completed_by"),
+                    "technician_email": sr.get("technician_email"),
+                } if sr else None,
+                "last_service_completed_at": last_pushed.get("completed_at"),
             }
 
             pianos.append(piano)
