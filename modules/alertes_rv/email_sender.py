@@ -2,39 +2,56 @@
 """
 Module d'envoi d'emails pour les alertes RV.
 
-Supporte deux méthodes:
-1. Resend API (production cloud) - migré de SendGrid mars 2026
-2. SMTP Gmail (fallback pour dev local)
+Utilise Gmail API (OAuth2) en priorité, avec fallback sur Resend puis SMTP.
+Historique: SendGrid → Resend → Gmail API (mars 2026).
 """
 
 import os
-import resend
-from typing import List, Optional
+from typing import List
 from datetime import datetime
 
 
 class EmailSender:
-    """Envoie des emails d'alerte via Resend ou SMTP."""
+    """Envoie des emails d'alerte via Gmail API, Resend ou SMTP."""
 
-    def __init__(self, method: str = 'resend'):
+    def __init__(self, method: str = 'gmail'):
         """
         Initialise l'envoyeur d'emails.
 
         Args:
-            method: 'resend' ou 'smtp'
+            method: 'gmail', 'resend' ou 'smtp' (gmail par défaut)
         """
         self.method = method
+        self._gmail_sender = None
         self.from_email = os.getenv('ALERT_FROM_EMAIL', os.getenv('EMAIL_FROM', 'onboarding@resend.dev'))
         self.from_name = os.getenv('ALERT_FROM_NAME', 'Assistant Gazelle Alertes')
 
-        if method == 'resend':
-            resend_api_key_raw = os.getenv('RESEND_API_KEY')
-            self.resend_api_key = resend_api_key_raw.strip() if resend_api_key_raw else None
-            if not self.resend_api_key:
-                print("⚠️ RESEND_API_KEY non défini, bascule sur SMTP")
-                self.method = 'smtp'
-            else:
-                resend.api_key = self.resend_api_key
+        # Essayer Gmail API en priorité (même si method='resend' ou 'sendgrid')
+        try:
+            from core.gmail_sender import get_gmail_sender
+            gmail = get_gmail_sender()
+            if gmail.is_available:
+                self._gmail_sender = gmail
+                self.method = 'gmail'
+                return
+        except Exception:
+            pass
+
+        # Fallback sur Resend si demandé
+        if method in ('resend', 'sendgrid'):
+            try:
+                import resend
+                resend_api_key_raw = os.getenv('RESEND_API_KEY')
+                self.resend_api_key = resend_api_key_raw.strip() if resend_api_key_raw else None
+                if self.resend_api_key:
+                    resend.api_key = self.resend_api_key
+                    self.method = 'resend'
+                    return
+            except Exception:
+                pass
+
+        # Dernier fallback : SMTP
+        self.method = 'smtp'
 
     def send_email(
         self,
@@ -55,7 +72,13 @@ class EmailSender:
         Returns:
             bool: True si succès
         """
-        if self.method == 'resend':
+        if self.method == 'gmail' and self._gmail_sender:
+            return self._gmail_sender.send_email(
+                to_emails=[to_email],
+                subject=subject,
+                html_content=html_content,
+            )
+        elif self.method == 'resend':
             return self._send_via_resend(to_email, to_name, subject, html_content)
         else:
             return self._send_via_smtp(to_email, to_name, subject, html_content)
@@ -67,8 +90,9 @@ class EmailSender:
         subject: str,
         html_content: str
     ) -> bool:
-        """Envoie via Resend API."""
+        """Envoie via Resend API (fallback)."""
         try:
+            import resend
             from_str = f"{self.from_name} <{self.from_email}>"
 
             response = resend.Emails.send({
@@ -96,7 +120,7 @@ class EmailSender:
         subject: str,
         html_content: str
     ) -> bool:
-        """Envoie via SMTP Gmail (fallback)."""
+        """Envoie via SMTP Gmail (dernier fallback)."""
         try:
             import smtplib
             from email.mime.multipart import MIMEMultipart
