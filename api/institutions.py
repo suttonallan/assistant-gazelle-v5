@@ -385,16 +385,39 @@ async def get_institution_pianos(
                 os.getenv("SUPABASE_URL"),
                 os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             )
-            # Fiches actives
+            # Fiches actives — ignorer les vieux brouillons/completed jamais poussés
+            # (fiches orphelines de sessions précédentes)
+            from datetime import datetime, timedelta
+            stale_cutoff = (datetime.utcnow() - timedelta(days=14)).isoformat()
+
             active_resp = (
                 _sb.table("piano_service_records")
-                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at")
+                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at,updated_at")
                 .eq("institution_slug", institution)
                 .in_("status", ["draft", "completed", "validated"])
                 .execute()
             )
+            stale_ids = []
             for rec in (active_resp.data or []):
+                updated = rec.get("updated_at") or rec.get("started_at") or ""
+                # Les fiches validated sont toujours pertinentes (en attente de push)
+                # Seuls les draft/completed anciens sont filtrés
+                if rec["status"] in ("draft", "completed") and updated < stale_cutoff:
+                    stale_ids.append(rec["id"])
+                    continue
                 service_records_by_piano[rec["piano_id"]] = rec
+
+            # Nettoyer les vieilles fiches en arrière-plan (les marquer abandoned)
+            if stale_ids:
+                logging.info(f"🧹 {len(stale_ids)} fiche(s) de service périmée(s) détectée(s), nettoyage...")
+                for sid in stale_ids:
+                    try:
+                        _sb.table("piano_service_records").update({
+                            "status": "abandoned",
+                            "updated_at": datetime.utcnow().isoformat()
+                        }).eq("id", sid).execute()
+                    except Exception as cleanup_err:
+                        logging.warning(f"⚠️ Nettoyage fiche {sid}: {cleanup_err}")
 
             # Dernières fiches poussées (pour "Dernier")
             pushed_resp = (

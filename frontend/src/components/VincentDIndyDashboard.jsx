@@ -942,9 +942,30 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     };
 
-    // "Tournée terminée" n'est plus nécessaire — le push nettoie automatiquement
-    // les fiches (elles passent à "pushed" et ne s'affichent plus comme actives)
-    const handleTourneeTerminee = null;
+    // Nettoyage des anciens services (overlays legacy + fiches orphelines)
+    const handleCleanup = async () => {
+      if (!confirm('Nettoyer tous les anciens services résiduels? Cela va:\n- Vider les notes legacy des overlays\n- Abandonner les fiches draft/completed orphelines')) return;
+      setTourneeInProgress(true);
+      try {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/tournee-terminee?institution_slug=${institution}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await r.json();
+        if (data.success) {
+          alert(`Nettoyage terminé: ${data.total_cleaned} entrée(s) nettoyée(s).`);
+          await loadPianosFromAPI();
+          await loadServiceHistory();
+        } else {
+          alert('Erreur: ' + (data.detail || JSON.stringify(data)));
+        }
+      } catch (e) {
+        alert('Erreur nettoyage: ' + e.message);
+      } finally {
+        setTourneeInProgress(false);
+      }
+    };
 
     const handleSaveHistoryEdit = async () => {
       if (!editingHistoryId) return;
@@ -1179,6 +1200,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                   {pushInProgress ? 'Envoi...' : `Pousser vers Gazelle (${validatedCount})`}
                 </button>
               )}
+              <button
+                onClick={handleCleanup}
+                disabled={tourneeInProgress}
+                className="px-3 py-1.5 text-xs font-medium bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              >
+                {tourneeInProgress ? 'Nettoyage...' : 'Nettoyer anciens'}
+              </button>
             </div>
           </div>
 
