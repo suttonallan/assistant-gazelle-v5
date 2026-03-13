@@ -453,15 +453,29 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   };
 
   // Technicien - marquer un piano comme terminé (bouton ✓)
+  // Utilise la nouvelle API fiches de service
   const markWorkCompleted = async (id, completed = true) => {
+    // Mise à jour optimiste
     setPianos(pianos.map(p =>
       p.id === id ? { ...p, is_work_completed: completed } : p
     ));
-    await savePianoToAPI(id, { isWorkCompleted: completed });
+
+    const inst = selectedInstitutionForTechnician || institution;
+    try {
+      await fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed_by: currentUser?.email || currentUser?.name || '' })
+      });
+    } catch (e) {
+      console.error('Erreur markWorkCompleted via service-records:', e);
+      // Fallback: ancienne API
+      await savePianoToAPI(id, { isWorkCompleted: completed });
+    }
   };
 
   // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
-  // Accepte la valeur en paramètre pour le mode auto-save
+  // Utilise la nouvelle API fiches de service
   const saveTravail = async (id, value) => {
     const noteValue = value !== undefined ? value : travailInput;
     const piano = pianos.find(p => p.id === id);
@@ -480,8 +494,21 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       p.id === id ? { ...p, travail: noteToSave, status: noteToSave ? 'work_in_progress' : p.status } : p
     ));
 
-    // Sauvegarder le piano via API
-    await savePianoToAPI(id, { travail: noteToSave });
+    const inst = selectedInstitutionForTechnician || institution;
+    try {
+      await fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/notes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          travail: noteToSave,
+          technician_email: currentUser?.email || ''
+        })
+      });
+    } catch (e) {
+      console.error('Erreur saveTravail via service-records:', e);
+      // Fallback: ancienne API
+      await savePianoToAPI(id, { travail: noteToSave });
+    }
   };
 
 

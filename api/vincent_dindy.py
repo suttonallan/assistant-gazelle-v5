@@ -1332,9 +1332,12 @@ class PushToGazelleRequest(BaseModel):
     dry_run: bool = False                   # Test sans push réel
 
 
-@router.post("/push-to-gazelle", response_model=Dict[str, Any])
+@router.post("/push-to-gazelle", response_model=Dict[str, Any], deprecated=True)
 async def push_to_gazelle(request: PushToGazelleRequest):
     """
+    ⚠️ DÉPRÉCIÉ — Utiliser POST /service-records/{institution}/push à la place.
+    Ce endpoint reste actif pour compatibilité mais sera supprimé.
+
     Push manuel de pianos vers Gazelle.
 
     Processus:
@@ -1621,9 +1624,10 @@ async def edit_service_history(entry_id: str, body: ServiceHistoryEditRequest):
     return {"edited": True, "entry_id": entry_id}
 
 
-@router.post("/service-history/push-tournee", response_model=Dict[str, Any])
+@router.post("/service-history/push-tournee", response_model=Dict[str, Any], deprecated=True)
 async def push_tournee(body: ServiceHistoryPushRequest):
     """
+    ⚠️ DÉPRÉCIÉ — Utiliser POST /service-records/{institution}/push à la place.
     Pousse toutes les entrées validées vers Gazelle en UN SEUL rendez-vous multi-pianos.
     Pattern identique au bundle-push VDI :
     1. Activer pianos INACTIVE → ACTIVE

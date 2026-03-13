@@ -24,9 +24,16 @@ from datetime import datetime
 
 
 def main():
-    """Exécute le push automatique quotidien."""
+    """
+    Exécute le push automatique quotidien.
+
+    ⚠️ DÉPRÉCIÉ: Ce script utilise l'ancien GazellePushService (par piano).
+    Le nouveau système utilise piano_service_records + POST /service-records/{institution}/push.
+    Ce script reste actif pour compatibilité pendant la transition.
+    """
     print(f"\n{'='*80}")
     print(f"PUSH AUTOMATIQUE QUOTIDIEN VERS GAZELLE")
+    print(f"⚠️  MODE LEGACY — Nouveau système: /service-records/push")
     print(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*80}\n")
 
