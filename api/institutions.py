@@ -460,9 +460,12 @@ async def get_institution_pianos(
             # Travail : si une fiche de service active existe, l'utiliser
             # même si son contenu est vide (ne PAS retomber sur l'overlay legacy)
             has_active_sr = bool(sr.get('id'))
+            has_pushed_sr = bool(last_pushed.get('completed_at'))
             sr_travail = sr.get('travail', '') if has_active_sr else ''
             sr_observations = sr.get('observations', '') if has_active_sr else ''
-            legacy_travail = updates.get('travail', '') if not has_active_sr else ''
+            # Legacy overlay : ignorer si fiche active OU si des fiches pushed existent
+            # (les anciennes notes overlay ne doivent plus s'afficher après un push)
+            legacy_travail = updates.get('travail', '') if (not has_active_sr and not has_pushed_sr) else ''
 
             piano = {
                 "id": gz_id,
