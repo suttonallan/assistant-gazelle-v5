@@ -407,6 +407,20 @@ async def push_validated_to_gazelle(
                 "updated_at": now_iso,
             }).eq("id", record["id"]).execute()
 
+        # Nettoyer overlays (même en mode skip)
+        try:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+            for pid in piano_ids:
+                storage.update_piano(pid, {
+                    "travail": "",
+                    "service_status": None,
+                    "is_work_completed": False,
+                }, institution_slug=institution)
+            logging.info(f"🧹 Overlays nettoyés (skip) pour {len(piano_ids)} piano(s)")
+        except Exception as e:
+            logging.warning(f"⚠️ Nettoyage overlays skip: {e}")
+
         return {
             "success": True,
             "pushed_count": len(records),

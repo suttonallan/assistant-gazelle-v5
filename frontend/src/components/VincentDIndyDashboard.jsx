@@ -274,6 +274,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
+      // Exclure les pianos avec fiche validée/pushed — ceux-ci sont dans l'onglet "À valider"
+      result = result.filter(p => {
+        const srStatus = p.service_record?.status;
+        return srStatus !== 'validated';
+      });
+
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
       if (showOnlyProposed) {
         result = result.filter(p => p.status === 'proposed');
