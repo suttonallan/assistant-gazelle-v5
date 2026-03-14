@@ -274,10 +274,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure les pianos avec fiche validée/pushed — ceux-ci sont dans l'onglet "À valider"
+      // Exclure les pianos terminés/validés — ceux-ci sont dans l'onglet "À valider"
       result = result.filter(p => {
         const srStatus = p.service_record?.status;
-        return srStatus !== 'validated';
+        // Masquer validated ET completed (fiche de service)
+        if (srStatus === 'validated' || srStatus === 'completed') return false;
+        // Masquer aussi les pianos avec ancien flag is_work_completed (legacy overlay)
+        if (!srStatus && p.is_work_completed) return false;
+        return true;
       });
 
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
@@ -715,10 +719,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ Données "À VALIDER" — calculées avant les early returns pour respecter les hooks ============
   // Utilise service_record.status (nouveau système piano_service_records)
   // Pianos pending = ont une fiche draft ou completed (technicien a travaillé)
+  // Inclut aussi les pianos avec ancien flag is_work_completed (legacy overlay sans service_record)
   const pendingPianos = useMemo(() => pianos
     .filter(p => {
       const srStatus = p.service_record?.status;
-      return srStatus === 'draft' || srStatus === 'completed';
+      if (srStatus === 'draft' || srStatus === 'completed') return true;
+      // Legacy: ancien flag is_work_completed sans fiche de service
+      if (!srStatus && p.is_work_completed) return true;
+      return false;
     })
     .map(p => ({
       _type: 'pending',
@@ -732,7 +740,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       travail: p.travail,
       serviceDate: p.service_record?.completed_at || p.updated_at || '',
       status: 'pending',
-      isCompleted: p.service_record?.status === 'completed',
+      isCompleted: p.service_record?.status === 'completed' || (!p.service_record?.status && p.is_work_completed),
     })), [pianos]);
 
   // Pianos validés (notes visibles, en attente de push)
