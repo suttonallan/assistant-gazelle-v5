@@ -166,14 +166,17 @@ export default function VDI_TechnicianView({
         ) : (
           pianosFiltres.map(piano => {
             const isExpanded = expandedPianoId === piano.id;
-            const mois = moisDepuisAccord(piano.dernierAccord);
+            const dateDernier = piano.dernierService || piano.dernierAccord;
+            const mois = moisDepuisAccord(dateDernier);
             const hasTravail = piano.travail && piano.travail.trim() !== '';
 
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
+                piano.service_record?.status === 'validated' ? 'bg-blue-50 border-l-4 border-blue-400' :
                 piano.is_work_completed ? 'bg-green-100' :
                 piano.status === 'top' ? 'bg-orange-200 border-l-4 border-orange-500' :
                 piano.status === 'proposed' ? 'bg-yellow-100' :
+                hasTravail ? 'bg-blue-50' :
                 'bg-white'
               }`}>
                 {/* Ligne principale - cliquable */}
@@ -200,21 +203,19 @@ export default function VDI_TechnicianView({
                         {piano.is_work_completed ? '✓' : '○'}
                       </button>
                     )}
-                    {piano.service_status ? (
-                      <span className="text-green-500 text-sm font-bold" title={
-                        piano.service_status === 'pushed' ? 'Poussé vers Gazelle' : 'Validé par Nicolas'
-                      }>{piano.service_status === 'pushed' ? '✓✓' : '✓'}</span>
+                    {piano.service_record?.status === 'validated' ? (
+                      <span className="text-blue-600 text-sm font-bold" title="Validé par Nicolas">✓N</span>
                     ) : piano.is_work_completed ? (
                       <span className="text-green-500 text-sm font-bold" title="Terminé">✓</span>
                     ) : hasTravail ? (
-                      <span className="text-blue-500 text-xs">📝</span>
+                      <span className="text-blue-500 text-xs" title="En cours">📝</span>
                     ) : null}
                     {/* Save status dot when collapsed */}
                     {!isExpanded && saveStatus[piano.id] === 'modified' && (
                       <span className="w-2 h-2 rounded-full bg-amber-400" title="Non sauvegardé" />
                     )}
                     <span className={`text-sm ${mois >= 6 ? 'text-orange-500' : 'text-gray-400'}`}>
-                      {formatDateRelative(piano.dernierAccord)}
+                      {formatDateRelative(dateDernier)}
                     </span>
                     <span className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
                   </div>
@@ -226,8 +227,8 @@ export default function VDI_TechnicianView({
                     {/* Infos */}
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div><span className="text-gray-500">Série:</span> {piano.serie}</div>
-                      <div><span className="text-gray-500">Type:</span> {piano.type === 'D' ? 'Droit' : 'Queue'}</div>
-                      <div><span className="text-gray-500">Dernier:</span> {formatDateRelative(piano.dernierAccord)}</div>
+                      <div><span className="text-gray-500">Type:</span> {piano.type === 'G' || piano.type === 'B' ? 'Queue' : 'Droit'}</div>
+                      <div><span className="text-gray-500">Dernier:</span> {formatDateRelative(piano.dernierService || piano.dernierAccord)}</div>
                       <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
                     </div>
 
@@ -238,40 +239,41 @@ export default function VDI_TechnicianView({
                       </div>
                     )}
 
-                    {/* Bannière lecture seule si validé/poussé */}
-                    {piano.service_status && (
-                      <div className={`text-xs font-medium rounded px-2 py-1.5 ${
-                        piano.service_status === 'pushed'
-                          ? 'bg-gray-100 text-gray-600'
-                          : 'bg-green-100 text-green-700'
-                      }`}>
-                        {piano.service_status === 'pushed'
-                          ? 'Poussé vers Gazelle — lecture seule'
-                          : 'Validé par Nicolas — lecture seule'}
+                    {/* Bannière lecture seule si validé par Nicolas */}
+                    {piano.service_record?.status === 'validated' && (
+                      <div className="text-xs font-medium rounded px-2 py-1.5 bg-blue-100 text-blue-700">
+                        Validé par Nicolas — en attente de push vers Gazelle
                       </div>
                     )}
 
                     {/* Textarea auto-save */}
                     <div>
-                      <textarea
-                        value={travailInput}
-                        onChange={(e) => handleTravailChange(piano.id, e.target.value)}
-                        className={`w-full border rounded-lg p-3 text-sm h-24 resize-y focus:outline-none ${
-                          piano.service_status
-                            ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
-                            : 'border-gray-300 focus:ring-2 focus:ring-blue-300 focus:border-blue-400'
-                        }`}
-                        placeholder="Notes d'accord, observations..."
-                        autoFocus={!piano.service_status}
-                        disabled={!!piano.service_status}
-                        readOnly={!!piano.service_status}
-                      />
-                      {!piano.service_status && (
-                        <div className="flex justify-between items-center mt-1">
-                          <div className="text-xs text-gray-400">auto-save</div>
-                          <SaveBadge status={saveStatus[piano.id]} />
-                        </div>
-                      )}
+                      {(() => {
+                        const isLocked = piano.service_record?.status === 'validated';
+                        return (
+                          <>
+                            <textarea
+                              value={travailInput}
+                              onChange={(e) => handleTravailChange(piano.id, e.target.value)}
+                              className={`w-full border rounded-lg p-3 text-sm h-24 resize-y focus:outline-none ${
+                                isLocked
+                                  ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
+                                  : 'border-gray-300 focus:ring-2 focus:ring-blue-300 focus:border-blue-400'
+                              }`}
+                              placeholder="Notes d'accord, observations..."
+                              autoFocus={!isLocked}
+                              disabled={isLocked}
+                              readOnly={isLocked}
+                            />
+                            {!isLocked && (
+                              <div className="flex justify-between items-center mt-1">
+                                <div className="text-xs text-gray-400">auto-save</div>
+                                <SaveBadge status={saveStatus[piano.id]} />
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* Bouton Terminé — disponible même pour pianos poussés */}

@@ -566,6 +566,92 @@ def task_scan_pda_emails():
 
 
 # ============================================================
+# RAPPEL VALIDATION FICHES DE SERVICE (17h)
+# ============================================================
+
+def task_rappel_validation():
+    """
+    Envoie un rappel à Nicolas s'il y a des fiches de service
+    complétées en attente de validation.
+    """
+    print("\n" + "="*60)
+    print("📧 RAPPEL VALIDATION FICHES DE SERVICE")
+    print("="*60)
+
+    try:
+        import os
+        from supabase import create_client
+        from core.email_notifier import EmailNotifier
+
+        sb_url = os.getenv("SUPABASE_URL")
+        sb_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not sb_url or not sb_key:
+            print("⚠️ Config Supabase manquante, rappel annulé")
+            return
+
+        sb = create_client(sb_url, sb_key)
+
+        # Chercher fiches completed (en attente de validation)
+        response = (
+            sb.table("piano_service_records")
+            .select("piano_id,institution_slug,completed_at,completed_by,technician_email,travail")
+            .eq("status", "completed")
+            .order("completed_at", desc=True)
+            .execute()
+        )
+
+        records = response.data or []
+        if not records:
+            print("✅ Aucune fiche en attente de validation")
+            return
+
+        # Grouper par institution
+        by_institution = {}
+        for r in records:
+            inst = r.get("institution_slug", "?")
+            by_institution.setdefault(inst, []).append(r)
+
+        # Construire l'email
+        lines = []
+        for inst, recs in by_institution.items():
+            lines.append(f"<h3>{inst} — {len(recs)} piano(s)</h3>")
+            lines.append("<ul>")
+            for r in recs[:10]:  # Max 10 par institution
+                tech = r.get("completed_by") or r.get("technician_email") or "?"
+                travail_preview = (r.get("travail") or "")[:60]
+                lines.append(f"<li><b>{r['piano_id']}</b> — {tech}: {travail_preview}</li>")
+            if len(recs) > 10:
+                lines.append(f"<li>... et {len(recs) - 10} autre(s)</li>")
+            lines.append("</ul>")
+
+        html_content = f"""
+        <h2>📋 Fiches de service à valider</h2>
+        <p>{len(records)} fiche(s) complétée(s) par les techniciens aujourd'hui, en attente de validation.</p>
+        {"".join(lines)}
+        <hr>
+        <p style="color: #666; font-size: 12px;">Rappel automatique — Assistant Gazelle V5</p>
+        """
+
+        notifier = EmailNotifier()
+        if notifier.client:
+            nicolas_email = os.getenv('EMAIL_NICOLAS', 'nlessard@piano-tek.com')
+            info_email = os.getenv('EMAIL_INFO', 'info@piano-tek.com')
+            notifier.send_email(
+                to_emails=[nicolas_email, info_email],
+                subject=f"📋 {len(records)} fiche(s) de service à valider",
+                html_content=html_content
+            )
+            print(f"✅ Rappel envoyé à {nicolas_email} et {info_email}: {len(records)} fiche(s)")
+        else:
+            print("⚠️ Email notifier non configuré")
+
+    except Exception as e:
+        print(f"❌ Erreur rappel validation: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+# ============================================================
 # CONFIGURATION DU SCHEDULER
 # ============================================================
 
@@ -676,6 +762,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Toutes les heures (8h30-18h30) - Scan Gmail PDA configurée")
+
+    # 17:00 - Rappel validation fiches de service
+    scheduler.add_job(
+        task_rappel_validation,
+        trigger=CronTrigger(hour=17, minute=0, timezone='America/Montreal'),
+        id='rappel_validation',
+        name='Rappel validation fiches de service',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 17:00 - Rappel validation fiches de service configuré")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
