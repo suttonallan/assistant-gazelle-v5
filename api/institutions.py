@@ -385,10 +385,9 @@ async def get_institution_pianos(
                 os.getenv("SUPABASE_URL"),
                 os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             )
-            # Fiches actives — ignorer les vieux brouillons/completed jamais poussés
-            # (fiches orphelines de sessions précédentes)
+            # Fiches actives — récupérer toutes les fiches draft/completed/validated
             from datetime import datetime, timedelta
-            stale_cutoff = (datetime.utcnow() - timedelta(days=14)).isoformat()
+            stale_cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
 
             active_resp = (
                 _sb.table("piano_service_records")
@@ -400,16 +399,16 @@ async def get_institution_pianos(
             stale_ids = []
             for rec in (active_resp.data or []):
                 updated = rec.get("updated_at") or rec.get("started_at") or ""
-                # Les fiches validated sont toujours pertinentes (en attente de push)
-                # Seuls les draft/completed anciens sont filtrés
-                if rec["status"] in ("draft", "completed") and updated < stale_cutoff:
+                # Seuls les vieux DRAFT vides (orphelins de session) sont nettoyés
+                # Les completed et validated sont TOUJOURS gardés (travail réel)
+                if rec["status"] == "draft" and not (rec.get("travail") or "").strip() and updated < stale_cutoff:
                     stale_ids.append(rec["id"])
                     continue
                 service_records_by_piano[rec["piano_id"]] = rec
 
-            # Nettoyer les vieilles fiches en arrière-plan (les marquer abandoned)
+            # Nettoyer les vieilles fiches draft vides en arrière-plan
             if stale_ids:
-                logging.info(f"🧹 {len(stale_ids)} fiche(s) de service périmée(s) détectée(s), nettoyage...")
+                logging.info(f"🧹 {len(stale_ids)} brouillon(s) vide(s) orphelin(s) détecté(s), nettoyage...")
                 for sid in stale_ids:
                     try:
                         _sb.table("piano_service_records").update({
@@ -470,8 +469,8 @@ async def get_institution_pianos(
             type_letter = piano_type[0].upper() if piano_type else 'D'
 
             # Fiche de service active pour ce piano
-            sr = service_records_by_piano.get(gz_id, {})
-            last_pushed = last_pushed_by_piano.get(gz_id, {})
+            sr = service_records_by_piano.get(gz_id) or {}
+            last_pushed = last_pushed_by_piano.get(gz_id) or {}
 
             # "Dernier" = completed_at de la dernière fiche poussée si disponible,
             # sinon fallback sur calculatedLastService de Gazelle
@@ -486,9 +485,9 @@ async def get_institution_pianos(
             has_pushed_sr = bool(last_pushed.get('completed_at'))
             sr_travail = sr.get('travail', '') if has_active_sr else ''
             sr_observations = sr.get('observations', '') if has_active_sr else ''
-            # Legacy overlay : ignorer si fiche active OU si des fiches pushed existent
-            # (les anciennes notes overlay ne doivent plus s'afficher après un push)
-            legacy_travail = updates.get('travail', '') if (not has_active_sr and not has_pushed_sr) else ''
+            # Legacy overlay : TOUJOURS ignorer — le nouveau système piano_service_records
+            # est la seule source pour le champ travail
+            legacy_travail = ''
 
             piano = {
                 "id": gz_id,
@@ -521,7 +520,7 @@ async def get_institution_pianos(
                     "completed_at": sr.get("completed_at"),
                     "completed_by": sr.get("completed_by"),
                     "technician_email": sr.get("technician_email"),
-                } if sr else None,
+                } if sr.get("id") else None,
                 "last_service_completed_at": last_pushed.get("completed_at"),
             }
 
