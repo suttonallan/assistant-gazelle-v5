@@ -340,8 +340,10 @@ async def update_piano(piano_id: str, update: PianoUpdate):
         # Sauvegarder les modifications dans Supabase
         storage = get_supabase_storage()
 
-        # Garde : empêcher la modification de travail/a_faire si le piano est validé ou poussé
-        if update.travail is not None or update.aFaire is not None:
+        # Garde : empêcher la modification de travail si le piano est validé ou poussé
+        # Exception : effacer aFaire (valeur vide) est toujours permis — c'est une action de gestion
+        is_clearing_a_faire = update.aFaire is not None and update.aFaire.strip() == ''
+        if update.travail is not None or (update.aFaire is not None and not is_clearing_a_faire):
             existing = storage.get_all_piano_updates(institution_slug='vincent-dindy')
             piano_state = existing.get(piano_id, {})
             if piano_state.get('service_status') in ('validated', 'pushed'):
