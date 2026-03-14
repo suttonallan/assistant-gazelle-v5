@@ -154,7 +154,28 @@ async def get_pianos(include_inactive: bool = False):
 
         logging.info(f"☁️  {len(supabase_updates)} modifications Supabase trouvées pour vincent-dindy")
 
-        # 2b. Charger les dernières validations depuis vdi_service_history
+        # 2b. Charger fiches de service actives (draft/completed/validated)
+        service_records_by_piano = {}
+        try:
+            import supabase as _sb_mod
+            _sb = _sb_mod.create_client(
+                os.getenv("SUPABASE_URL"),
+                os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            )
+            sr_resp = (
+                _sb.table("piano_service_records")
+                .select("*")
+                .eq("institution_slug", "vincent-dindy")
+                .in_("status", ["draft", "completed", "validated"])
+                .execute()
+            )
+            for rec in (sr_resp.data or []):
+                service_records_by_piano[rec["piano_id"]] = rec
+            logging.info(f"📋 {len(service_records_by_piano)} fiches de service actives")
+        except Exception as e:
+            logging.warning(f"⚠️ Chargement fiches de service échoué: {e}")
+
+        # 2c. Charger les dernières validations depuis vdi_service_history
         validation_statuses = {}
         try:
             r = _sh_table_request(
@@ -213,30 +234,47 @@ async def get_pianos(include_inactive: bool = False):
             else:
                 type_letter = 'D'
 
+            # Fiche de service active pour ce piano
+            sr = service_records_by_piano.get(gz_id, {})
+            has_active_sr = bool(sr.get('id'))
+
+            # Si fiche active → utiliser ses données, sinon legacy overlay
+            travail = sr.get('travail', '') if has_active_sr else updates.get('travail', '')
+            observations = sr.get('observations', '') if has_active_sr else updates.get('observations', gz_piano.get('notes', ''))
+            is_work_completed = sr.get('status') == 'completed' if has_active_sr else updates.get('is_work_completed', False)
+
             piano = {
-                "id": gz_id,  # TOUJOURS utiliser gazelleId comme clé unique (car les serials peuvent être dupliqués)
+                "id": gz_id,
                 "gazelleId": gz_id,
                 "local": gz_piano.get('location', ''),
                 "piano": gz_piano.get('make', ''),
                 "modele": gz_piano.get('model', ''),
                 "serie": serial,
                 "type": type_letter,
-                "usage": "",  # Pas disponible dans Gazelle
+                "usage": "",
                 "dernierAccord": gz_piano.get('calculatedLastService', ''),
                 "prochainAccord": gz_piano.get('calculatedNextService', ''),
                 "status": updates.get('status', 'normal'),
                 "aFaire": updates.get('a_faire', ''),
-                "travail": updates.get('travail', ''),
-                "observations": updates.get('observations', gz_piano.get('notes', '')),
-                "is_work_completed": updates.get('is_work_completed', False),  # Checkbox "Travail complété"
-                "sync_status": updates.get('sync_status', 'pending'),  # État de synchronisation avec Gazelle
-                "tags": tags,  # Tags depuis Gazelle (source unique de vérité)
-                "hasNonTag": has_non_tag,  # Flag pour indiquer si le piano est masqué par défaut
-                "is_hidden": updates.get('is_hidden', False),  # Masquer de l'inventaire (False par défaut)
-                "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),  # Status Gazelle
-                "updated_at": updates.get('updated_at', ''),  # Dernière modification des notes
-                "last_validated_at": validation_statuses.get(gz_id, ''),  # Dernière validation par Nicolas
-                "service_status": updates.get('service_status', None),  # Lifecycle tournée: None → validated → pushed
+                "travail": travail,
+                "observations": observations,
+                "is_work_completed": is_work_completed,
+                "sync_status": updates.get('sync_status', 'pending'),
+                "tags": tags,
+                "hasNonTag": has_non_tag,
+                "is_hidden": updates.get('is_hidden', False),
+                "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),
+                "updated_at": updates.get('updated_at', ''),
+                "last_validated_at": validation_statuses.get(gz_id, ''),
+                "service_status": updates.get('service_status', None),
+                # Fiche de service (même format que institutions.py)
+                "service_record": {
+                    "id": sr.get("id"),
+                    "status": sr.get("status"),
+                    "completed_at": sr.get("completed_at"),
+                    "completed_by": sr.get("completed_by"),
+                    "technician_email": sr.get("technician_email"),
+                } if has_active_sr else None,
             }
 
             pianos.append(piano)
