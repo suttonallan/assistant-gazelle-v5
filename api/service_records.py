@@ -586,12 +586,17 @@ async def push_validated_to_gazelle(
 @router.get("/{institution}/history")
 async def get_push_history(
     institution: str = PathParam(...),
-    limit: int = Query(50, description="Nombre max de fiches")
+    limit: int = Query(200, description="Nombre max de fiches")
 ):
-    """Historique des fiches poussées vers Gazelle."""
+    """
+    Historique unifié : fiches poussées (piano_service_records)
+    + entrées legacy (vdi_service_history).
+    Triées par date décroissante.
+    """
     sb = _get_supabase()
 
-    response = (
+    # 1. Nouveau système : piano_service_records pushed
+    new_resp = (
         sb.table(TABLE)
         .select("*")
         .eq("institution_slug", institution)
@@ -600,10 +605,64 @@ async def get_push_history(
         .limit(limit)
         .execute()
     )
+    new_records = new_resp.data or []
+
+    # 2. Ancien système : vdi_service_history (validated + pushed)
+    legacy_records = []
+    try:
+        legacy_resp = (
+            sb.table("vdi_service_history")
+            .select("*")
+            .eq("institution_slug", institution)
+            .in_("status", ["validated", "pushed"])
+            .order("validated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        # Convertir au format piano_service_records pour le frontend
+        for rec in (legacy_resp.data or []):
+            legacy_records.append({
+                "id": rec.get("id"),
+                "piano_id": rec.get("piano_id"),
+                "institution_slug": rec.get("institution_slug"),
+                "piano_local": rec.get("piano_local", ""),
+                "piano_name": rec.get("piano_name", ""),
+                "status": rec.get("status", "pushed"),
+                "travail": rec.get("travail", ""),
+                "a_faire": rec.get("a_faire", ""),
+                "observations": rec.get("observations", ""),
+                "completed_at": rec.get("service_date") or rec.get("validated_at"),
+                "validated_at": rec.get("validated_at"),
+                "validated_by": rec.get("validated_by"),
+                "pushed_at": rec.get("pushed_at"),
+                "gazelle_event_id": rec.get("gazelle_event_id"),
+                "source": "legacy",
+            })
+    except Exception as e:
+        logging.warning(f"⚠️ Chargement historique legacy: {e}")
+
+    # 3. Dédoublonner par piano_id + date (éviter doublons si migré)
+    seen = set()
+    merged = []
+    for rec in new_records:
+        key = f"{rec.get('piano_id')}_{rec.get('pushed_at', '')[:10]}"
+        if key not in seen:
+            seen.add(key)
+            merged.append(rec)
+    for rec in legacy_records:
+        key = f"{rec.get('piano_id')}_{(rec.get('pushed_at') or rec.get('validated_at', ''))[:10]}"
+        if key not in seen:
+            seen.add(key)
+            merged.append(rec)
+
+    # 4. Trier par date décroissante
+    def sort_key(r):
+        return r.get("pushed_at") or r.get("validated_at") or r.get("completed_at") or ""
+    merged.sort(key=sort_key, reverse=True)
 
     return {
-        "records": response.data or [],
-        "count": len(response.data or [])
+        "records": merged[:limit],
+        "count": len(merged[:limit])
     }
 
 

@@ -126,7 +126,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const loadServiceHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/service-records/${institution}/history?limit=100`);
+      const r = await fetch(`${API_URL}/api/service-records/${institution}/history?limit=200`);
       if (r.ok) {
         const data = await r.json();
         // Transformer les records en format compatible avec l'affichage historique
@@ -838,13 +838,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoLookup = {};
     pianos.forEach(p => { pianoLookup[p.id] = p; });
 
-    // Dédoublonner : exclure les pianos déjà représentés par pendingPianos/validatedPianos
-    const livePianoIds = new Set([
-      ...pendingPianos.map(p => p.pianoId),
-      ...validatedPianos.map(p => p.pianoId),
-    ]);
+    // Historique complet : tous les services poussés/validés (lecture seule)
+    // Les pianos en cours (pending/validated) apparaissent séparément avec "À valider"
     const historyRows = serviceHistory
-      .filter(h => !livePianoIds.has(h.piano_id))
       .map(h => {
         const piano = pianoLookup[h.piano_id] || {};
         return {
