@@ -476,6 +476,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   };
 
+  // Effacer le champ "À faire" d'un piano (accessible depuis vue technicien et gestion)
+  const clearAFaire = async (pianoId) => {
+    setPianos(pianos.map(p => p.id === pianoId ? { ...p, aFaire: '' } : p));
+    await savePianoToAPI(pianoId, { aFaire: '' });
+  };
+
   // Technicien - marquer un piano comme terminé (bouton ✓)
   // Utilise la nouvelle API fiches de service
   const markWorkCompleted = async (id, completed = true) => {
@@ -1401,6 +1407,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               setTravailInput={setTravailInput}
               saveTravail={saveTravail}
               markWorkCompleted={markWorkCompleted}
+              clearAFaire={clearAFaire}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}
               pianosFiltres={pianosFiltres}
