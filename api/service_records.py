@@ -211,6 +211,12 @@ async def upsert_service_notes(
         except Exception:
             pass
 
+        # Nettoyer le champ travail de l'overlay legacy pour éviter qu'il réapparaisse
+        try:
+            storage.update_piano(piano_id, {"travail": ""}, institution_slug=institution)
+        except Exception:
+            pass
+
         new_record = {
             "piano_id": piano_id,
             "institution_slug": institution,
@@ -514,6 +520,21 @@ async def push_validated_to_gazelle(
                 "gazelle_event_id": event_id,
                 "updated_at": now_iso,
             }).eq("id", record["id"]).execute()
+
+        # 5. Nettoyer les overlays legacy (travail, service_status)
+        # NOTE: a_faire n'est PAS vidé — Nicolas le vide manuellement quand il estime que c'est fait
+        try:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+            for pid in piano_ids:
+                storage.update_piano(pid, {
+                    "travail": "",
+                    "service_status": None,
+                    "is_work_completed": False,
+                }, institution_slug=institution)
+            logging.info(f"🧹 Overlays nettoyés pour {len(piano_ids)} piano(s) après push")
+        except Exception as e:
+            logging.warning(f"⚠️ Nettoyage overlays après push: {e}")
 
         logging.info(f"✅ Push lot terminé: {len(records)} fiches, event {event_id}")
 

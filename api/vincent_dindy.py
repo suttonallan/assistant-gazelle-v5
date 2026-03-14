@@ -1848,47 +1848,69 @@ async def push_tournee(body: ServiceHistoryPushRequest):
 # ==========================================
 
 @router.post("/service-history/tournee-terminee", response_model=Dict[str, Any])
-async def tournee_terminee():
+async def tournee_terminee(institution_slug: str = "vincent-dindy"):
     """
-    Nettoie tous les pianos dont le service a été poussé vers Gazelle.
-    Remet l'ardoise à zéro : vide travail/a_faire, reset service_status.
-    Ne touche PAS à Gazelle — juste l'affichage local.
-    Précondition : aucun piano en état 'validated' (doit être poussé d'abord).
+    Nettoyage complet après une tournée :
+    1. Vide le champ 'travail' des overlays legacy (vincent_dindy_piano_updates)
+    2. Marque les fiches draft/completed orphelines comme 'abandoned'
+    3. Remet service_status/is_work_completed à zéro sur les overlays
     """
     storage = get_supabase_storage()
-    all_updates = storage.get_all_piano_updates(institution_slug='vincent-dindy')
+    all_updates = storage.get_all_piano_updates(institution_slug=institution_slug)
 
-    # Vérifier qu'il n'y a pas de pianos validés non poussés
-    validated_remaining = [pid for pid, d in all_updates.items()
-                          if d.get('service_status') == 'validated']
-    if validated_remaining:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{len(validated_remaining)} piano(s) validé(s) non poussé(s). "
-                   "Poussez vers Gazelle avant de terminer la tournée."
-        )
-
-    # Nettoyer tous les pianos avec service_status='pushed'
-    cleaned = []
+    # 1. Nettoyer les overlays legacy qui ont du travail résiduel
+    cleaned_overlays = 0
     for piano_id, data in all_updates.items():
-        if data.get('service_status') == 'pushed':
-            storage.update_piano(piano_id, {
-                'travail': '',
-                'a_faire': '',
-                'observations': '',
-                'status': 'normal',
-                'is_work_completed': False,
-                'service_status': None,
-                'last_validated_at': None,
-            }, institution_slug='vincent-dindy')
-            cleaned.append(piano_id)
+        needs_clean = False
+        clean_data = {}
+        if data.get('travail', '').strip():
+            clean_data['travail'] = ''
+            needs_clean = True
+        if data.get('service_status'):
+            clean_data['service_status'] = None
+            needs_clean = True
+        if data.get('is_work_completed'):
+            clean_data['is_work_completed'] = False
+            needs_clean = True
+        if needs_clean:
+            storage.update_piano(piano_id, clean_data, institution_slug=institution_slug)
+            cleaned_overlays += 1
 
-    logging.info(f"🧹 Tournée terminée: {len(cleaned)} piano(s) nettoyé(s)")
+    # 2. Marquer les fiches draft/completed orphelines comme 'abandoned'
+    sr_cleaned = 0
+    try:
+        from supabase import create_client as _create_sb
+        sb = _create_sb(
+            os.getenv("SUPABASE_URL"),
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        )
+        orphan_resp = (
+            sb.table("piano_service_records")
+            .select("id,piano_id,status")
+            .eq("institution_slug", institution_slug)
+            .in_("status", ["draft", "completed"])
+            .execute()
+        )
+        from datetime import datetime
+        now = datetime.utcnow().isoformat()
+        for rec in (orphan_resp.data or []):
+            sb.table("piano_service_records").update({
+                "status": "abandoned",
+                "updated_at": now
+            }).eq("id", rec["id"]).execute()
+            sr_cleaned += 1
+        if sr_cleaned:
+            logging.info(f"🧹 {sr_cleaned} fiche(s) de service orpheline(s) abandonnées")
+    except Exception as e:
+        logging.warning(f"⚠️ Nettoyage fiches de service: {e}")
+
+    logging.info(f"🧹 Tournée terminée: {cleaned_overlays} overlay(s) nettoyé(s), {sr_cleaned} fiche(s) abandonnée(s)")
 
     return {
         "success": True,
-        "cleaned_count": len(cleaned),
-        "piano_ids": cleaned,
+        "cleaned_overlays": cleaned_overlays,
+        "cleaned_service_records": sr_cleaned,
+        "total_cleaned": cleaned_overlays + sr_cleaned,
     }
 
 

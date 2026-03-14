@@ -122,20 +122,38 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   }, [institution]); // Recharger les pianos si l'institution change
 
-  // Charger l'historique des services validés/poussés
+  // Charger l'historique des services poussés (nouveau système piano_service_records)
   const loadServiceHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/vincent-dindy/service-history?limit=200`);
+      const r = await fetch(`${API_URL}/api/service-records/${institution}/history?limit=100`);
       if (r.ok) {
-        setServiceHistory(await r.json());
+        const data = await r.json();
+        // Transformer les records en format compatible avec l'affichage historique
+        const records = (data.records || []).map(rec => ({
+          id: rec.id,
+          piano_id: rec.piano_id,
+          gazelle_piano_id: rec.piano_id,
+          piano_local: rec.piano_local || '',
+          piano_name: rec.piano_name || '',
+          a_faire: rec.a_faire || '',
+          travail: rec.travail || '',
+          observations: rec.observations || '',
+          service_date: rec.completed_at || rec.pushed_at || '',
+          validated_at: rec.validated_at || '',
+          pushed_at: rec.pushed_at || '',
+          status: rec.status,
+          gazelle_event_id: rec.gazelle_event_id || '',
+          created_at: rec.created_at || '',
+        }));
+        setServiceHistory(records);
       }
     } catch (e) {
       console.error('Erreur chargement historique:', e);
     } finally {
       setHistoryLoading(false);
     }
-  }, []);
+  }, [institution]);
 
   // Fonction pour sauvegarder un piano via l'API
   const savePianoToAPI = async (pianoId, updates) => {
@@ -689,56 +707,48 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   };
 
   // ============ Données "À VALIDER" — calculées avant les early returns pour respecter les hooks ============
-  // Pianos pending (pas encore validés, ont du travail, pas de service_status)
+  // Utilise service_record.status (nouveau système piano_service_records)
+  // Pianos pending = ont une fiche draft ou completed (technicien a travaillé)
   const pendingPianos = useMemo(() => pianos
-    .filter(p => p.travail && p.travail.trim() !== '' && !p.service_status)
+    .filter(p => {
+      const srStatus = p.service_record?.status;
+      return srStatus === 'draft' || srStatus === 'completed';
+    })
     .map(p => ({
       _type: 'pending',
       _key: `pending-${p.id}`,
-      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
+      _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
       travail: p.travail,
-      serviceDate: p.updated_at || '',
+      serviceDate: p.service_record?.completed_at || p.updated_at || '',
       status: 'pending',
+      isCompleted: p.service_record?.status === 'completed',
     })), [pianos]);
 
   // Pianos validés (notes visibles, en attente de push)
   const validatedPianos = useMemo(() => pianos
-    .filter(p => p.service_status === 'validated')
+    .filter(p => p.service_record?.status === 'validated')
     .map(p => ({
       _type: 'validated_piano',
       _key: `vp-${p.id}`,
-      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
+      _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
       travail: p.travail || '',
-      serviceDate: p.updated_at || '',
+      serviceDate: p.service_record?.completed_at || p.updated_at || '',
       status: 'validated',
     })), [pianos]);
 
-  // Pianos poussés (notes visibles, en attente fin tournée)
-  const pushedPianos = useMemo(() => pianos
-    .filter(p => p.service_status === 'pushed')
-    .map(p => ({
-      _type: 'pushed_piano',
-      _key: `pp-${p.id}`,
-      _sortDate: p.updated_at || p.dernierAccord || '1970-01-01',
-      pianoId: p.id,
-      gazelleId: p.gazelleId || p.id,
-      local: p.local,
-      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-      aFaire: p.aFaire || '',
-      travail: p.travail || '',
-      serviceDate: p.updated_at || '',
-      status: 'pushed',
-    })), [pianos]);
+  // Pianos poussés — plus besoin car le push nettoie les fiches
+  // Les fiches pushed sont dans l'historique (piano_service_records avec status=pushed)
+  const pushedPianos = useMemo(() => [], []);
 
   // Fonction de chargement d'historique Gazelle (définie ici pour le useEffect)
   const loadGazelleHistoryForPreload = useCallback(async (pianoId, gazelleId) => {
@@ -817,44 +827,51 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // ============ VUE "À VALIDER" — liste unifiée avec historique ============
   if (currentView === 'vdi') {
-    // Entrées historique (from vdi_service_history — validated + pushed passés)
-    // Dédoublonner : exclure les pianos déjà représentés par validatedPianos/pushedPianos
+    // Entrées historique (from piano_service_records pushed)
+    // Enrichir avec les données piano locales (local, nom)
+    const pianoLookup = {};
+    pianos.forEach(p => { pianoLookup[p.id] = p; });
+
+    // Dédoublonner : exclure les pianos déjà représentés par pendingPianos/validatedPianos
     const livePianoIds = new Set([
+      ...pendingPianos.map(p => p.pianoId),
       ...validatedPianos.map(p => p.pianoId),
-      ...pushedPianos.map(p => p.pianoId),
     ]);
     const historyRows = serviceHistory
       .filter(h => !livePianoIds.has(h.piano_id))
-      .map(h => ({
-        _type: 'history',
-        _key: `history-${h.id}`,
-        _sortDate: h.service_date || h.validated_at || h.created_at || '1970-01-01',
-        entryId: h.id,
-        pianoId: h.piano_id,
-        gazelleId: h.gazelle_piano_id || h.piano_id,
-        local: h.piano_local || '',
-        pianoName: h.piano_name || '',
-        aFaire: h.a_faire || '',
-        travail: h.travail || '',
-        serviceDate: h.service_date || '',
-        status: h.status,
-        validatedAt: h.validated_at,
-        pushedAt: h.pushed_at,
-        gazelleEventId: h.gazelle_event_id,
-      }));
+      .map(h => {
+        const piano = pianoLookup[h.piano_id] || {};
+        return {
+          _type: 'history',
+          _key: `history-${h.id}`,
+          _sortDate: h.service_date || h.validated_at || h.created_at || '1970-01-01',
+          entryId: h.id,
+          pianoId: h.piano_id,
+          gazelleId: h.piano_id,
+          local: h.piano_local || piano.local || '',
+          pianoName: h.piano_name || `${piano.piano || ''}${piano.modele ? ` ${piano.modele}` : ''}`,
+          aFaire: h.a_faire || '',
+          travail: h.travail || '',
+          serviceDate: h.service_date || '',
+          status: h.status,
+          validatedAt: h.validated_at,
+          pushedAt: h.pushed_at,
+          gazelleEventId: h.gazelle_event_id,
+        };
+      });
 
-    // Liste unifiée, anti-chronologique
-    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos, ...historyRows]
+    // Liste unifiée, anti-chronologique — exclure les historyRows (pushed) déjà archivés
+    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos]
       .sort((a, b) => (b._sortDate || '').localeCompare(a._sortDate || ''));
 
     const pendingCount = pendingPianos.length;
     const validatedCount = validatedPianos.length;
     const pushedCount = pushedPianos.length;
 
-    // --- Actions ---
+    // --- Actions --- (utilise le nouveau système piano_service_records)
     const handleValidate = async (pianoId) => {
       try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/validate`, {
+        const r = await fetch(`${API_URL}/api/service-records/${institution}/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -863,10 +880,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           }),
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        // Optimistic update : garder les notes, mettre service_status='validated'
-        setPianos(pianos.map(p =>
-          p.id === pianoId ? { ...p, service_status: 'validated', last_validated_at: new Date().toISOString() } : p
-        ));
+        // Recharger pianos pour refléter le nouveau status de la fiche
+        await loadPianosFromAPI();
         await loadServiceHistory();
       } catch (e) {
         alert('Erreur validation: ' + e.message);
@@ -875,10 +890,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     const handleValidateAll = async () => {
       if (pendingCount === 0) return;
-      if (!confirm(`Valider ${pendingCount} piano(s)?`)) return;
+      // Ne valider que les fiches "completed" (technicien a cliqué Terminé)
+      const completedPianos = pendingPianos.filter(p => p.isCompleted);
+      if (completedPianos.length === 0) {
+        alert('Aucun piano marqué "Terminé" par le technicien. Seuls les pianos terminés peuvent être validés.');
+        return;
+      }
+      if (!confirm(`Valider ${completedPianos.length} piano(s) terminé(s)?`)) return;
       try {
-        const ids = pendingPianos.map(p => p.pianoId);
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/validate`, {
+        const ids = completedPianos.map(p => p.pianoId);
+        const r = await fetch(`${API_URL}/api/service-records/${institution}/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -887,10 +908,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           }),
         });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        // Optimistic : garder les notes, mettre service_status='validated'
-        setPianos(pianos.map(p =>
-          ids.includes(p.id) ? { ...p, service_status: 'validated', last_validated_at: new Date().toISOString() } : p
-        ));
+        await loadPianosFromAPI();
         await loadServiceHistory();
       } catch (e) {
         alert('Erreur validation: ' + e.message);
@@ -902,22 +920,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       if (!confirm(`Pousser ${validatedCount} piano(s) validé(s) vers Gazelle?`)) return;
       setPushInProgress(true);
       try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/push-tournee`, {
+        const r = await fetch(`${API_URL}/api/service-records/${institution}/push`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
         const data = await r.json();
-        if (data.success || data.pushed_count > 0) {
-          alert(`${data.pushed_count} entrée(s) poussée(s) vers Gazelle.`);
-          // Optimistic : service_status → 'pushed'
-          const pushedIds = validatedPianos.map(p => p.pianoId);
-          setPianos(pianos.map(p =>
-            pushedIds.includes(p.id) ? { ...p, service_status: 'pushed' } : p
-          ));
+        if (data.success && data.pushed_count > 0) {
+          alert(`${data.pushed_count} fiche(s) poussée(s) vers Gazelle.`);
+        } else if (data.pushed_count === 0) {
+          alert('Aucune fiche à pousser.');
         } else {
           alert('Erreur: ' + JSON.stringify(data));
         }
+        await loadPianosFromAPI();
         await loadServiceHistory();
       } catch (e) {
         alert('Erreur push: ' + e.message);
@@ -926,27 +942,24 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     };
 
-    const handleTourneeTerminee = async () => {
-      if (pushedCount === 0) return;
-      if (!confirm(`Terminer la tournée? ${pushedCount} piano(s) seront nettoyé(s) (notes effacées de l'affichage).`)) return;
+    // Nettoyage des anciens services (overlays legacy + fiches orphelines)
+    const handleCleanup = async () => {
+      if (!confirm('Nettoyer tous les anciens services résiduels? Cela va:\n- Vider les notes legacy des overlays\n- Abandonner les fiches draft/completed orphelines')) return;
       setTourneeInProgress(true);
       try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/tournee-terminee`, {
+        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/tournee-terminee?institution_slug=${institution}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({}),
         });
         const data = await r.json();
         if (data.success) {
-          alert(`${data.cleaned_count} piano(s) nettoyé(s). Tournée terminée.`);
-          const cleanedIds = new Set(data.piano_ids);
-          setPianos(pianos.map(p =>
-            cleanedIds.has(p.id) ? { ...p, travail: '', aFaire: '', observations: '', status: 'normal', service_status: null, is_work_completed: false, last_validated_at: null } : p
-          ));
+          alert(`Nettoyage terminé: ${data.total_cleaned} entrée(s) nettoyée(s).`);
+          await loadPianosFromAPI();
+          await loadServiceHistory();
         } else {
           alert('Erreur: ' + (data.detail || JSON.stringify(data)));
         }
-        await loadServiceHistory();
       } catch (e) {
         alert('Erreur nettoyage: ' + e.message);
       } finally {
@@ -1095,18 +1108,19 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               <div className="flex gap-1.5">
                 <button
                   onClick={async () => {
-                    // Sauvegarder dans vdi_service_history (l'entrée la plus récente pour ce piano)
-                    const histEntry = serviceHistory.find(h => h.piano_id === row.pianoId && h.status === 'validated');
-                    if (histEntry) {
-                      await fetch(`${API_URL}/api/vincent-dindy/service-history/${histEntry.id}`, {
+                    // Sauvegarder via l'API service-records (fiche active du piano)
+                    try {
+                      await fetch(`${API_URL}/api/service-records/${institution}/piano/${row.pianoId}/notes`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ travail: editingHistoryText }),
                       });
+                    } catch (e) {
+                      console.error('Erreur sauvegarde:', e);
                     }
                     setEditingHistoryId(null);
                     setEditingHistoryText('');
-                    await loadServiceHistory();
+                    await loadPianosFromAPI();
                   }}
                   className="px-2 py-1 text-xs font-medium rounded bg-green-500 text-white hover:bg-green-600"
                 >Sauvegarder</button>
@@ -1127,42 +1141,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         );
       }
 
-      // Pushed piano (live) → read-only
-      if (row._type === 'pushed_piano') {
+      // History entries (pushed) → read-only
+      if (row._type === 'history') {
         return <div className="whitespace-pre-wrap text-gray-500">{row.travail}</div>;
-      }
-
-      // History validated (from vdi_service_history, past entries) → editable
-      if (row.status === 'validated' && row._type === 'history') {
-        if (editingHistoryId === row.entryId) {
-          return (
-            <div className="space-y-1.5">
-              <textarea
-                value={editingHistoryText}
-                onChange={(e) => setEditingHistoryText(e.target.value)}
-                className="w-full border border-green-300 rounded p-2 text-xs h-24 resize-y focus:outline-none focus:ring-2 focus:ring-green-300"
-                autoFocus
-              />
-              <div className="flex gap-1.5">
-                <button
-                  onClick={handleSaveHistoryEdit}
-                  className="px-2 py-1 text-xs font-medium rounded bg-green-500 text-white hover:bg-green-600"
-                >Sauvegarder</button>
-                <button
-                  onClick={() => setEditingHistoryId(null)}
-                  className="px-2 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300"
-                >Annuler</button>
-              </div>
-            </div>
-          );
-        }
-        return (
-          <div
-            onClick={() => { setEditingHistoryId(row.entryId); setEditingHistoryText(row.travail); }}
-            className="whitespace-pre-wrap cursor-pointer hover:bg-green-50 hover:text-green-700 rounded px-1 -mx-1 py-0.5 transition-colors"
-            title="Cliquer pour modifier"
-          >{row.travail}</div>
-        );
       }
 
       // Pushed → read-only
@@ -1192,9 +1173,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                   {validatedCount} validé{validatedCount > 1 ? 's' : ''} (à pousser)
                 </span>
               )}
-              {pushedCount > 0 && (
+              {serviceHistory.length > 0 && (
                 <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-1 rounded-full">
-                  {pushedCount} poussé{pushedCount > 1 ? 's' : ''}
+                  {serviceHistory.length} historique
                 </span>
               )}
               {allRows.length === 0 && !historyLoading && (
@@ -1219,15 +1200,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                   {pushInProgress ? 'Envoi...' : `Pousser vers Gazelle (${validatedCount})`}
                 </button>
               )}
-              {pushedCount > 0 && validatedCount === 0 && (
-                <button
-                  onClick={handleTourneeTerminee}
-                  disabled={tourneeInProgress}
-                  className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                >
-                  {tourneeInProgress ? 'Nettoyage...' : `Tournée terminée (${pushedCount})`}
-                </button>
-              )}
+              <button
+                onClick={handleCleanup}
+                disabled={tourneeInProgress}
+                className="px-3 py-1.5 text-xs font-medium bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              >
+                {tourneeInProgress ? 'Nettoyage...' : 'Nettoyer anciens'}
+              </button>
             </div>
           </div>
 
@@ -1272,7 +1251,22 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                           <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
                           <td className="px-3 py-2 font-medium whitespace-nowrap">{row.local}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-gray-600">{row.pianoName}</td>
-                          <td className="px-3 py-2 text-xs text-gray-600">{row.aFaire || '-'}</td>
+                          <td className="px-3 py-2 text-xs text-gray-600">
+                            {row.aFaire ? (
+                              <div className="flex items-start gap-1">
+                                <span className="flex-1">{row.aFaire}</span>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
+                                    await savePianoToAPI(row.pianoId, { aFaire: '' });
+                                  }}
+                                  className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
+                                  title="Effacer"
+                                >✕</button>
+                              </div>
+                            ) : '-'}
+                          </td>
                           <td className="px-3 py-2 text-xs text-gray-800 max-w-md">
                             <NotesCell row={row} />
                           </td>

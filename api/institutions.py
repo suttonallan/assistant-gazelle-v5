@@ -385,16 +385,39 @@ async def get_institution_pianos(
                 os.getenv("SUPABASE_URL"),
                 os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             )
-            # Fiches actives
+            # Fiches actives — ignorer les vieux brouillons/completed jamais poussés
+            # (fiches orphelines de sessions précédentes)
+            from datetime import datetime, timedelta
+            stale_cutoff = (datetime.utcnow() - timedelta(days=14)).isoformat()
+
             active_resp = (
                 _sb.table("piano_service_records")
-                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at")
+                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at,updated_at")
                 .eq("institution_slug", institution)
                 .in_("status", ["draft", "completed", "validated"])
                 .execute()
             )
+            stale_ids = []
             for rec in (active_resp.data or []):
+                updated = rec.get("updated_at") or rec.get("started_at") or ""
+                # Les fiches validated sont toujours pertinentes (en attente de push)
+                # Seuls les draft/completed anciens sont filtrés
+                if rec["status"] in ("draft", "completed") and updated < stale_cutoff:
+                    stale_ids.append(rec["id"])
+                    continue
                 service_records_by_piano[rec["piano_id"]] = rec
+
+            # Nettoyer les vieilles fiches en arrière-plan (les marquer abandoned)
+            if stale_ids:
+                logging.info(f"🧹 {len(stale_ids)} fiche(s) de service périmée(s) détectée(s), nettoyage...")
+                for sid in stale_ids:
+                    try:
+                        _sb.table("piano_service_records").update({
+                            "status": "abandoned",
+                            "updated_at": datetime.utcnow().isoformat()
+                        }).eq("id", sid).execute()
+                    except Exception as cleanup_err:
+                        logging.warning(f"⚠️ Nettoyage fiche {sid}: {cleanup_err}")
 
             # Dernières fiches poussées (pour "Dernier")
             pushed_resp = (
@@ -457,10 +480,15 @@ async def get_institution_pianos(
                 or gz_piano.get('calculatedLastService', '')
             )
 
-            # Travail : priorité fiche de service active > overlay legacy
-            sr_travail = sr.get('travail', '') or ''
-            sr_observations = sr.get('observations', '') or ''
-            legacy_travail = updates.get('travail', '')
+            # Travail : si une fiche de service active existe, l'utiliser
+            # même si son contenu est vide (ne PAS retomber sur l'overlay legacy)
+            has_active_sr = bool(sr.get('id'))
+            has_pushed_sr = bool(last_pushed.get('completed_at'))
+            sr_travail = sr.get('travail', '') if has_active_sr else ''
+            sr_observations = sr.get('observations', '') if has_active_sr else ''
+            # Legacy overlay : ignorer si fiche active OU si des fiches pushed existent
+            # (les anciennes notes overlay ne doivent plus s'afficher après un push)
+            legacy_travail = updates.get('travail', '') if (not has_active_sr and not has_pushed_sr) else ''
 
             piano = {
                 "id": gz_id,
@@ -476,10 +504,10 @@ async def get_institution_pianos(
                 "prochainAccord": gz_piano.get('calculatedNextService', ''),
                 "status": updates.get('status', 'normal'),
                 "aFaire": updates.get('a_faire', '') if institution != 'orford' else (updates.get('a_faire', '') if updates.get('a_faire') else ''),
-                # Priorité: fiche de service active > overlay legacy
-                "travail": sr_travail if sr_travail else legacy_travail,
-                "observations": sr_observations if sr_observations else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
-                "is_work_completed": sr.get('status') == 'completed' if sr else updates.get('is_work_completed', False),
+                # Si fiche de service active → utiliser ses données, sinon legacy overlay
+                "travail": sr_travail if has_active_sr else legacy_travail,
+                "observations": sr_observations if has_active_sr else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
+                "is_work_completed": sr.get('status') == 'completed' if has_active_sr else updates.get('is_work_completed', False),
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,
                 "hasNonTag": has_non_tag,
