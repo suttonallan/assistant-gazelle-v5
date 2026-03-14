@@ -126,7 +126,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const loadServiceHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/service-records/${institution}/history?limit=100`);
+      const r = await fetch(`${API_URL}/api/service-records/${institution}/history?limit=200`);
       if (r.ok) {
         const data = await r.json();
         // Transformer les records en format compatible avec l'affichage historique
@@ -274,14 +274,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure les pianos terminés/validés — ceux-ci sont dans l'onglet "À valider"
+      // Exclure les pianos avec fiche completed ou validated — ceux-ci sont dans l'onglet "À valider"
       result = result.filter(p => {
         const srStatus = p.service_record?.status;
-        // Masquer validated ET completed (fiche de service)
-        if (srStatus === 'validated' || srStatus === 'completed') return false;
-        // Masquer aussi les pianos avec ancien flag is_work_completed (legacy overlay)
-        if (!srStatus && p.is_work_completed) return false;
-        return true;
+        return srStatus !== 'validated' && srStatus !== 'completed';
       });
 
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
@@ -719,14 +715,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ Données "À VALIDER" — calculées avant les early returns pour respecter les hooks ============
   // Utilise service_record.status (nouveau système piano_service_records)
   // Pianos pending = ont une fiche draft ou completed (technicien a travaillé)
-  // Inclut aussi les pianos avec ancien flag is_work_completed (legacy overlay sans service_record)
   const pendingPianos = useMemo(() => pianos
     .filter(p => {
       const srStatus = p.service_record?.status;
-      if (srStatus === 'draft' || srStatus === 'completed') return true;
-      // Legacy: ancien flag is_work_completed sans fiche de service
-      if (!srStatus && p.is_work_completed) return true;
-      return false;
+      return srStatus === 'draft' || srStatus === 'completed';
     })
     .map(p => ({
       _type: 'pending',
@@ -740,7 +732,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       travail: p.travail,
       serviceDate: p.service_record?.completed_at || p.updated_at || '',
       status: 'pending',
-      isCompleted: p.service_record?.status === 'completed' || (!p.service_record?.status && p.is_work_completed),
+      isCompleted: p.service_record?.status === 'completed',
     })), [pianos]);
 
   // Pianos validés (notes visibles, en attente de push)
@@ -846,13 +838,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const pianoLookup = {};
     pianos.forEach(p => { pianoLookup[p.id] = p; });
 
-    // Dédoublonner : exclure les pianos déjà représentés par pendingPianos/validatedPianos
-    const livePianoIds = new Set([
-      ...pendingPianos.map(p => p.pianoId),
-      ...validatedPianos.map(p => p.pianoId),
-    ]);
+    // Historique complet : tous les services poussés/validés (lecture seule)
+    // Les pianos en cours (pending/validated) apparaissent séparément avec "À valider"
     const historyRows = serviceHistory
-      .filter(h => !livePianoIds.has(h.piano_id))
       .map(h => {
         const piano = pianoLookup[h.piano_id] || {};
         return {

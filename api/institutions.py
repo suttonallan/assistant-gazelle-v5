@@ -506,7 +506,8 @@ async def get_institution_pianos(
                 # Si fiche de service active → utiliser ses données, sinon legacy overlay
                 "travail": sr_travail if has_active_sr else legacy_travail,
                 "observations": sr_observations if has_active_sr else (updates.get('observations', gz_piano.get('notes', '') if institution != 'orford' else '')),
-                "is_work_completed": sr.get('status') == 'completed' if has_active_sr else updates.get('is_work_completed', False),
+                # Legacy overlay is_work_completed est ignoré — seul le statut service_record compte
+                "is_work_completed": sr.get('status') == 'completed' if has_active_sr else False,
                 "sync_status": updates.get('sync_status', 'pending'),
                 "tags": tags,
                 "hasNonTag": has_non_tag,
