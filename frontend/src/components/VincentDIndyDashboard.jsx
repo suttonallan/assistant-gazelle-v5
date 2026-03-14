@@ -860,8 +860,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         };
       });
 
-    // Liste unifiée, anti-chronologique — exclure les historyRows (pushed) déjà archivés
-    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos]
+    // Liste unifiée, anti-chronologique — inclut pending, validated et historique pushed
+    const allRows = [...pendingPianos, ...validatedPianos, ...pushedPianos, ...historyRows]
       .sort((a, b) => (b._sortDate || '').localeCompare(a._sortDate || ''));
 
     const pendingCount = pendingPianos.length;
