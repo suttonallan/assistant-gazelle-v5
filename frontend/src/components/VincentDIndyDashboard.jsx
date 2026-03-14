@@ -274,10 +274,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure les pianos avec fiche completed ou validated — ceux-ci sont dans l'onglet "À valider"
+      // Exclure les pianos déjà traités — ceux-ci sont dans l'onglet "À valider"
       result = result.filter(p => {
         const srStatus = p.service_record?.status;
-        return srStatus !== 'validated' && srStatus !== 'completed';
+        if (srStatus === 'validated' || srStatus === 'completed' || srStatus === 'pushed') return false;
+        // Exclure aussi les pianos avec l'ancien flag is_work_completed (legacy sans fiche)
+        if (!srStatus && p.is_work_completed) return false;
+        return true;
       });
 
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
@@ -474,6 +477,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       setTravailInput(piano.travail || '');
       setIsWorkCompleted(piano.is_work_completed || false);
     }
+  };
+
+  // Effacer le champ "À faire" d'un piano (accessible depuis vue technicien et gestion)
+  const clearAFaire = async (pianoId) => {
+    setPianos(pianos.map(p => p.id === pianoId ? { ...p, aFaire: '' } : p));
+    await savePianoToAPI(pianoId, { aFaire: '' });
   };
 
   // Technicien - marquer un piano comme terminé (bouton ✓)
@@ -1401,6 +1410,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               setTravailInput={setTravailInput}
               saveTravail={saveTravail}
               markWorkCompleted={markWorkCompleted}
+              clearAFaire={clearAFaire}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}
               pianosFiltres={pianosFiltres}

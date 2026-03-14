@@ -46,6 +46,7 @@ export default function VDI_TechnicianView({
   // Actions
   saveTravail,
   markWorkCompleted,
+  clearAFaire,
 
   // Utilitaires
   moisDepuisAccord,
@@ -232,10 +233,19 @@ export default function VDI_TechnicianView({
                       <div><span className="text-gray-500">Usage:</span> {piano.usage || '-'}</div>
                     </div>
 
-                    {/* Note "à faire" de Nick */}
+                    {/* Note "à faire" de Nick — avec bouton effacer */}
                     {piano.aFaire && (
-                      <div className="bg-yellow-100 p-2 rounded text-sm">
-                        <span className="font-medium">À faire:</span> {piano.aFaire}
+                      <div className="bg-yellow-100 p-2 rounded text-sm flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-medium">À faire:</span> {piano.aFaire}
+                        </div>
+                        {clearAFaire && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); clearAFaire(piano.id); }}
+                            className="text-yellow-600 hover:text-red-500 text-xs flex-shrink-0 px-1 py-0.5 rounded hover:bg-yellow-200 transition-colors"
+                            title="Effacer — travail complété"
+                          >✕</button>
+                        )}
                       </div>
                     )}
 
