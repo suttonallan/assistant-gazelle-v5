@@ -666,6 +666,49 @@ async def get_push_history(
     }
 
 
+@router.patch("/{institution}/record/{record_id}/clear-a-faire")
+async def clear_a_faire(
+    institution: str = PathParam(...),
+    record_id: str = PathParam(...)
+):
+    """
+    Efface le champ a_faire d'une fiche de service (y compris les fiches poussées).
+    Permet à Nicolas de nettoyer ses notes après le push.
+    """
+    sb = _get_supabase()
+
+    # Vérifier que la fiche existe et appartient à cette institution
+    existing = (
+        sb.table(TABLE)
+        .select("id,institution_slug")
+        .eq("id", record_id)
+        .eq("institution_slug", institution)
+        .limit(1)
+        .execute()
+    )
+
+    if not existing.data:
+        # Essayer dans vdi_service_history (legacy)
+        try:
+            legacy = (
+                sb.table("vdi_service_history")
+                .select("id,institution_slug")
+                .eq("id", record_id)
+                .eq("institution_slug", institution)
+                .limit(1)
+                .execute()
+            )
+            if legacy.data:
+                sb.table("vdi_service_history").update({"a_faire": ""}).eq("id", record_id).execute()
+                return {"success": True, "source": "legacy"}
+        except Exception:
+            pass
+        raise HTTPException(status_code=404, detail="Fiche non trouvée")
+
+    sb.table(TABLE).update({"a_faire": ""}).eq("id", record_id).execute()
+    return {"success": True, "source": "piano_service_records"}
+
+
 # ============================================================
 # STATS — Pour le rappel Nicolas
 # ============================================================
