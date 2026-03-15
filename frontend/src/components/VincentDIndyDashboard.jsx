@@ -274,12 +274,11 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure les pianos déjà traités — ceux-ci sont dans l'onglet "À valider"
+      // Exclure seulement les pianos déjà poussés vers Gazelle
+      // Les pianos completed/validated restent visibles (indicateur visuel dans la liste)
       result = result.filter(p => {
         const srStatus = p.service_record?.status;
-        if (srStatus === 'validated' || srStatus === 'completed' || srStatus === 'pushed') return false;
-        // Exclure aussi les pianos avec l'ancien flag is_work_completed (legacy sans fiche)
-        if (!srStatus && p.is_work_completed) return false;
+        if (srStatus === 'pushed') return false;
         return true;
       });
 
