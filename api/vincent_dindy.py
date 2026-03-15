@@ -238,10 +238,12 @@ async def get_pianos(include_inactive: bool = False):
             sr = service_records_by_piano.get(gz_id, {})
             has_active_sr = bool(sr.get('id'))
 
-            # Si fiche active → utiliser ses données, sinon legacy overlay
-            travail = sr.get('travail', '') if has_active_sr else updates.get('travail', '')
+            # Si fiche active → utiliser ses données
+            # Si PAS de fiche active → ignorer l'overlay legacy pour travail/is_work_completed
+            # (l'overlay peut contenir des données d'anciennes tournées jamais nettoyées)
+            travail = sr.get('travail', '') if has_active_sr else ''
             observations = sr.get('observations', '') if has_active_sr else updates.get('observations', gz_piano.get('notes', ''))
-            is_work_completed = sr.get('status') == 'completed' if has_active_sr else updates.get('is_work_completed', False)
+            is_work_completed = sr.get('status') == 'completed' if has_active_sr else False
 
             piano = {
                 "id": gz_id,

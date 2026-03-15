@@ -274,14 +274,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure les pianos déjà traités — ceux-ci sont dans l'onglet "À valider"
-      result = result.filter(p => {
-        const srStatus = p.service_record?.status;
-        if (srStatus === 'validated' || srStatus === 'completed' || srStatus === 'pushed') return false;
-        // Exclure aussi les pianos avec l'ancien flag is_work_completed (legacy sans fiche)
-        if (!srStatus && p.is_work_completed) return false;
-        return true;
-      });
+      // Tous les pianos sont visibles — aucun filtre par statut de fiche
 
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
       if (showOnlyProposed) {
@@ -1269,8 +1262,24 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                                 <button
                                   onClick={async (e) => {
                                     e.stopPropagation();
-                                    setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
-                                    await savePianoToAPI(row.pianoId, { aFaire: '' });
+                                    if (row._type === 'history' && row.entryId) {
+                                      // Fiche poussée : effacer a_faire via endpoint dédié
+                                      try {
+                                        const r = await fetch(`${API_URL}/api/service-records/${institution}/record/${row.entryId}/clear-a-faire`, { method: 'PATCH' });
+                                        if (r.ok) {
+                                          setServiceHistory(prev => prev.map(h => h.id === row.entryId ? { ...h, a_faire: '' } : h));
+                                        } else {
+                                          alert('Erreur lors de l\'effacement');
+                                        }
+                                      } catch (err) {
+                                        console.error('Erreur effacement a_faire:', err);
+                                        alert('Erreur réseau');
+                                      }
+                                    } else {
+                                      // Fiche active : effacer via overlay
+                                      setPianos(pianos.map(p => p.id === row.pianoId ? { ...p, aFaire: '' } : p));
+                                      await savePianoToAPI(row.pianoId, { aFaire: '' });
+                                    }
                                   }}
                                   className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
                                   title="Effacer"
