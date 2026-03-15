@@ -274,13 +274,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (currentView === 'nicolas') {
       // Vue Nicolas : pas de filtre par défaut (tous les pianos)
     } else if (currentView === 'technicien') {
-      // Exclure seulement les pianos déjà poussés vers Gazelle
-      // Les pianos completed/validated restent visibles (indicateur visuel dans la liste)
-      result = result.filter(p => {
-        const srStatus = p.service_record?.status;
-        if (srStatus === 'pushed') return false;
-        return true;
-      });
+      // Tous les pianos sont visibles — aucun filtre par statut de fiche
 
       // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
       if (showOnlyProposed) {
