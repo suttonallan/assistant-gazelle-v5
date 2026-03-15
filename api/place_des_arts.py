@@ -681,24 +681,10 @@ async def list_requests(
                             # Déjà synchronisé, pas besoin de mettre à jour
                             request["technician_from_gazelle"] = True
 
-                    # Extraire le stationnement depuis la description Gazelle si pas déjà rempli
-                    if not request.get("parking"):
-                        from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
-                        gazelle_apt_data = appt_by_id.get(appointment_id, {})
-                        for field in ('description', 'notes'):
-                            text = gazelle_apt_data.get(field) or ''
-                            parking_val = extract_parking_amount(text)
-                            if parking_val:
-                                request["parking"] = parking_val
-                                # Persister en base pour les prochains chargements
-                                try:
-                                    storage.client.table('place_des_arts_requests')\
-                                        .update({'parking': parking_val})\
-                                        .eq('id', request.get('id'))\
-                                        .execute()
-                                except Exception as pe:
-                                    logging.warning(f"Erreur persistance parking {request.get('id')}: {pe}")
-                                break
+                    # NOTE: Le stationnement est extrait uniquement depuis les notes
+                    # de service (timeline entries), pas depuis description/notes du RV.
+                    # L'extraction se fait dans _extract_parking_from_appointment()
+                    # lors de la sync (pas ici en lecture).
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     
@@ -1038,14 +1024,8 @@ async def create_request(payload: Dict[str, Any]):
             "billing_amount": float(payload["billing_amount"]) if payload.get("billing_amount") else None,
             "parking": payload.get("parking") or "",
         }
-        # Auto-détection stationnement dans for_who ou notes
-        if not row["parking"]:
-            from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
-            for text_field in (row.get("for_who", ""), row.get("notes", "")):
-                parking_val = extract_parking_amount(text_field)
-                if parking_val:
-                    row["parking"] = parking_val
-                    break
+        # NOTE: Le stationnement est extrait uniquement depuis les notes de service
+        # (timeline entries). Pas d'auto-détection dans for_who/notes de la demande.
         # Lier au RV Gazelle si appointment_id fourni (ex: ajout depuis orphelin)
         if payload.get("appointment_id"):
             row["appointment_id"] = payload["appointment_id"]
