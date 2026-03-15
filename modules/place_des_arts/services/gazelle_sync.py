@@ -42,7 +42,8 @@ def extract_parking_amount(text: str) -> Optional[str]:
 
     # Pattern pour les variantes du mot "stationnement"
     # stat, stat., statio, stationnement, parking
-    keyword = r'(?:stationnement|stationn\w*|stat\.?|parking)'
+    # IMPORTANT: \b avant "stat" pour ne pas matcher "thermostat", "humidistat", "constat", etc.
+    keyword = r'(?:stationnement|stationn\w*|\bstat\.?|parking)'
 
     # Pattern pour le montant: nombre avec optionnel décimales (virgule ou point) et optionnel $
     amount = r'(\d+(?:[.,]\d{1,2})?)\s*\$?'
