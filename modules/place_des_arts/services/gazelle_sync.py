@@ -591,15 +591,45 @@ class GazelleSyncService:
 
     def _extract_parking_from_appointment(self, gazelle_apt: Dict) -> Optional[str]:
         """
-        Extrait le montant de stationnement depuis la description/notes d'un RV Gazelle.
+        Extrait le montant de stationnement depuis la description/notes d'un RV Gazelle
+        ET depuis les timeline entries (notes de service) du même jour.
 
-        Cherche dans les champs 'description', 'notes' et 'title' du RV.
+        Cherche dans:
+        1. Les champs 'description', 'notes' et 'title' du RV
+        2. Les gazelle_timeline_entries du même jour et même client (notes de service)
         """
+        # 1. Chercher dans les champs du RV Gazelle
         for field in ('description', 'notes', 'title'):
             text = gazelle_apt.get(field) or ''
             amount = extract_parking_amount(text)
             if amount:
                 return amount
+
+        # 2. Chercher dans les timeline entries (notes de service du technicien)
+        apt_date = gazelle_apt.get('appointment_date')
+        apt_ext_id = gazelle_apt.get('external_id')
+        if apt_date:
+            try:
+                # Récupérer les timeline entries du même jour pour le client PDA
+                date_str = apt_date[:10] if isinstance(apt_date, str) else str(apt_date)[:10]
+                result = self.storage.client.table('gazelle_timeline_entries')\
+                    .select('title, description')\
+                    .eq('client_id', self.PDA_CLIENT_ID)\
+                    .gte('occurred_at', f"{date_str}T00:00:00")\
+                    .lte('occurred_at', f"{date_str}T23:59:59")\
+                    .execute()
+
+                if result.data:
+                    for entry in result.data:
+                        for field in ('title', 'description'):
+                            text = entry.get(field) or ''
+                            amount = extract_parking_amount(text)
+                            if amount:
+                                logger.info(f"🅿️ Stationnement trouvé dans timeline entry: {amount}$ (RV {apt_ext_id})")
+                                return amount
+            except Exception as e:
+                logger.warning(f"Erreur lecture timeline entries pour parking (RV {apt_ext_id}): {e}")
+
         return None
 
     def _update_request_status(self, request_id: str, status: str, parking: Optional[str] = None) -> bool:
