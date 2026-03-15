@@ -306,7 +306,7 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
         if requester:
             requester_lower = requester.lower()
             # Ne pas deviner depuis codes de salle
-            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl']
+            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl', 'sd', 'c5', 'odm', 'salle e', 'e']
             if requester_lower in room_codes:
                 requester = ''  # Vider si c'est un code de salle
             # Mapping Isabelle → IC
@@ -883,9 +883,13 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             requester_lower = result['requester'].lower().strip()
 
             # Si c'est juste un code de salle (WP, TM, MS, etc.), VIDER le champ
-            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl', 'sd', 'c5', 'odm']
+            room_codes = ['wp', 'tm', 'ms', 'tjd', '5e', 'scl', 'cl', 'sd', 'c5', 'odm', 'salle e']
+            # Codes qui nécessitent un match exact (trop courts pour substring)
+            exact_only_codes = ['e']
             # Vérifier aussi si le requester contient un code de salle (ex: "Clown ODM")
-            if requester_lower in room_codes or any(code in requester_lower for code in room_codes):
+            if (requester_lower in room_codes or
+                requester_lower in exact_only_codes or
+                any(code in requester_lower for code in room_codes)):
                 result['requester'] = ''  # Champ vide si c'est un code de salle
             else:
                 # Mapping noms connus → codes
@@ -950,6 +954,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
             'onj', 'osm', 'omm', 'gnb', 'ocm',  # Orchestres
             'concert', 'spectacle', 'jazz', 'blues',
             'wp', 'tm', 'ms', '5e', 'scl', 'tjd', 'cl',  # Salles
+            'salle',  # "Salle E", "Salle D", etc.
             'piano', 'steinway', 'yamaha', 'baldwin',  # Pianos
         ]
 
