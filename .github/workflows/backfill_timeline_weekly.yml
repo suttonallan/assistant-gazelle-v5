@@ -1,0 +1,45 @@
+name: Backfill Timeline (7 prochains jours)
+
+on:
+  schedule:
+    # Tous les jours à 10h UTC (5h du matin heure de Montréal)
+    - cron: '0 10 * * *'
+  workflow_dispatch:  # Permet d'exécuter manuellement depuis GitHub
+
+jobs:
+  backfill-upcoming-clients:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run targeted timeline backfill
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+        GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+      run: |
+        echo "Backfill timeline — 7 prochains jours"
+        echo "$(date)"
+        echo ""
+        python3 scripts/backfill_history_for_today.py --days 7
+
+    - name: Report results
+      if: always()
+      run: |
+        echo ""
+        echo "Backfill termine"
+        echo "Prochaine execution: demain a 5h Montreal (10h UTC)"
