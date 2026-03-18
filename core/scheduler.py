@@ -526,6 +526,47 @@ def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
         raise
 
 
+def task_detecter_oublis_pda():
+    """
+    Détection d'oublis PDA: vérifie que chaque email PDA reçu
+    a bien été traité et a généré des demandes dans l'assistant.
+
+    Scanne Gmail, compare avec processed_emails, alerte si oublis 2+ jours.
+
+    Exécution: Tous les jours à 09:00 (heure Montréal)
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("🔍 DÉTECTION OUBLIS PDA")
+        print("=" * 70)
+
+        from modules.place_des_arts.services.oubli_detector import detecter_oublis_pda
+
+        result = detecter_oublis_pda()
+
+        print(f"   Emails Gmail: {result.get('emails_gmail', 0)}")
+        print(f"   Déjà traités: {result.get('emails_traites', 0)}")
+        print(f"   Oublis détectés: {result.get('oublis_count', 0)}")
+        print(f"   Alerte envoyée: {result.get('alerte_envoyee', False)}")
+
+        if result.get('oublis'):
+            for oubli in result['oublis']:
+                print(f"   ⚠️ {oubli['subject']} (de {oubli['sender_name']}, {oubli['age_jours']}j)")
+
+        if result.get('errors'):
+            for err in result['errors']:
+                print(f"   ❌ {err}")
+
+        print("=" * 70 + "\n")
+        return result
+
+    except Exception as e:
+        print(f"\n❌ Erreur détection oublis PDA: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
 def task_scan_pda_emails():
     """
     Scan Gmail pour les nouvelles demandes PDA.
@@ -730,6 +771,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 09:00 - RELANCE LOUISE (J-7) configurée")
 
+    # 09:00 - Détection oublis PDA (emails non traités depuis 2+ jours)
+    scheduler.add_job(
+        task_detecter_oublis_pda,
+        trigger=CronTrigger(hour=9, minute=0, timezone='America/Montreal'),
+        id='detecter_oublis_pda',
+        name='Détection oublis PDA (09:00)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 09:00 - Détection oublis PDA configurée")
+
     # 16:30 - Sync Appointments (pour capturer les RV créés dans la journée)
     scheduler.add_job(
         task_sync_appointments_only,
@@ -828,5 +880,6 @@ __all__ = [
     'task_sync_appointments_only',
     'task_process_late_assignment_queue',
     'task_urgence_technique_j1',
-    'task_relance_louise_j7'
+    'task_relance_louise_j7',
+    'task_detecter_oublis_pda'
 ]

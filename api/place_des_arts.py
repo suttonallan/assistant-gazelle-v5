@@ -2285,3 +2285,21 @@ async def email_scanner_status():
             "gmail_connected": False,
             "error": str(e)
         }
+
+
+# ============================================================
+# DÉTECTION OUBLIS PDA
+# ============================================================
+
+@router.post("/oubli-check/run")
+async def run_oubli_check():
+    """Déclenche manuellement la vérification d'oublis PDA."""
+    try:
+        from modules.place_des_arts.services.oubli_detector import detecter_oublis_pda
+
+        result = detecter_oublis_pda()
+        return {"success": True, **result}
+
+    except Exception as e:
+        logging.error(f"Erreur oubli-check: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
