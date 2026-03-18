@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 import HumidityAlertsDashboard from './HumidityAlertsDashboard'
+import AlertesSummaryCard from './AlertesSummaryCard'
 
 export default function DashboardHome({ currentUser, selectedLocation }) {
   const [activities, setActivities] = useState([])
@@ -143,6 +144,9 @@ export default function DashboardHome({ currentUser, selectedLocation }) {
           Suivi des modifications effectuées sur les pianos
         </p>
       </div>
+
+      {/* Résumé compact de toutes les alertes */}
+      <AlertesSummaryCard />
 
       {/* Carte Alertes Humidité - Maintenance Institutionnelle */}
       {humidityStats && humidityStats.institutional_unresolved > 0 && (

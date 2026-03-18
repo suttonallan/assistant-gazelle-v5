@@ -42,6 +42,7 @@ from api.scheduler_routes import router as scheduler_router
 from api.sync_logs_routes import router as sync_logs_router
 from api.scheduler_logs_routes import router as scheduler_logs_router
 from api.humidity_alerts_routes import router as humidity_alerts_router
+from api.alertes_resume_routes import router as alertes_resume_router
 from api.briefing_routes import router as briefing_router  # 🧠 Briefings Intelligents "Ma Journée"
 from api.chat_stats_routes import router as chat_stats_router  # 📊 Stats Chat Public
 from api.service_records import router as service_records_router  # 🎹 Fiches de service (refonte push unique)
@@ -165,6 +166,7 @@ app.add_middleware(
 # Routes SANS /api (pour développement avec proxy Vite)
 # IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
 app.include_router(humidity_alerts_router)
+app.include_router(alertes_resume_router)
 app.include_router(router_alertes)  # 🆕 Tableau de Bord - Alertes
 app.include_router(router_pianos)   # 🆕 Tableau de Bord - Pianos
 app.include_router(router_system)   # 🆕 Tableau de Bord - Système
@@ -191,6 +193,7 @@ app.include_router(institutions_router)  # Route dynamique /{institution}/pianos
 # Routes AVEC /api (pour production sans proxy)
 # IMPORTANT: humidity_alerts_router AVANT institutions_router pour éviter les conflits de routes
 app.include_router(humidity_alerts_router, prefix="/api")
+app.include_router(alertes_resume_router, prefix="/api")
 app.include_router(router_alertes, prefix="/api")  # 🆕 Tableau de Bord - Alertes
 app.include_router(router_pianos, prefix="/api")   # 🆕 Tableau de Bord - Pianos
 app.include_router(router_system, prefix="/api")   # 🆕 Tableau de Bord - Système

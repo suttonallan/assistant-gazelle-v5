@@ -535,6 +535,15 @@ def task_detecter_oublis_pda():
 
     Exécution: Tous les jours à 09:00 (heure Montréal)
     """
+    from core.scheduler_logger import get_logger
+
+    logger = get_logger()
+    log_id = logger.start_task(
+        task_name='detecter_oublis_pda',
+        task_label='Détection oublis PDA',
+        triggered_by='scheduler'
+    )
+
     try:
         print("\n" + "=" * 70)
         print("🔍 DÉTECTION OUBLIS PDA")
@@ -558,12 +567,33 @@ def task_detecter_oublis_pda():
                 print(f"   ❌ {err}")
 
         print("=" * 70 + "\n")
+
+        # Logger dans scheduler_logs (pour le dashboard)
+        stats = {
+            'emails_gmail': result.get('emails_gmail', 0),
+            'emails_traites': result.get('emails_traites', 0),
+            'oublis_count': result.get('oublis_count', 0),
+            'alerte_envoyee': result.get('alerte_envoyee', False),
+        }
+        logger.complete_task(
+            log_id=log_id,
+            status='success',
+            message=f"{result.get('oublis_count', 0)} oubli(s) détecté(s)",
+            stats=stats
+        )
+
         return result
 
     except Exception as e:
         print(f"\n❌ Erreur détection oublis PDA: {e}")
         import traceback
         traceback.print_exc()
+
+        logger.complete_task(
+            log_id=log_id,
+            status='error',
+            message=str(e)
+        )
         raise
 
 
