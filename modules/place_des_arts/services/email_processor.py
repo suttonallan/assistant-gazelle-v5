@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 # Email de confirmation (destinataire)
 INFO_EMAIL = os.getenv('LOUISE_EMAIL', 'info@piano-tek.com')
 
+# Plane integration
+PLANE_API_KEY = os.getenv('PLANE_API_KEY', '')
+PLANE_WORKSPACE = 'ptm'
+PLANE_PROJECT_ID = '1693adca-e78e-44dd-b1c0-9050e608dac8'
+PLANE_ASSIGNEE_NICOLAS = 'bf1a3c47-390f-4fe2-9bff-0ef198da3e16'
+
 
 class PDAEmailProcessor:
     """Processeur automatique des emails PDA."""
@@ -59,6 +65,7 @@ class PDAEmailProcessor:
             'emails_processed': 0,
             'requests_created': 0,
             'confirmations_sent': 0,
+            'plane_tasks_created': 0,
             'errors': [],
         }
 
@@ -91,6 +98,8 @@ class PDAEmailProcessor:
                     result['requests_created'] += email_result.get('requests_created', 0)
                     if email_result.get('confirmation_sent'):
                         result['confirmations_sent'] += 1
+                    if email_result.get('plane_issue_id'):
+                        result['plane_tasks_created'] += 1
                 except Exception as e:
                     error_msg = f"Erreur traitement email {email_data.get('gmail_message_id', '?')}: {e}"
                     result['errors'].append(error_msg)
@@ -162,7 +171,12 @@ class PDAEmailProcessor:
                 email_data, parsed_requests, created_ids
             )
 
-        # 4. Enregistrer comme traité
+        # 4. Créer une tâche Plane si applicable
+        plane_issue_id = None
+        if self._should_create_plane_task(email_data):
+            plane_issue_id = self._create_plane_task(email_data)
+
+        # 5. Enregistrer comme traité
         self._record_processed_email(
             email_data,
             status='processed',
@@ -175,6 +189,7 @@ class PDAEmailProcessor:
             'requests_created': len(created_ids),
             'confirmation_sent': confirmation_sent,
             'request_ids': created_ids,
+            'plane_issue_id': plane_issue_id,
         }
 
     def _create_request(
@@ -360,6 +375,80 @@ class PDAEmailProcessor:
         except Exception as e:
             logger.error(f"Erreur envoi confirmation: {e}", exc_info=True)
             return False
+
+    def _should_create_plane_task(self, email_data: Dict[str, Any]) -> bool:
+        """Vérifie si l'email doit générer une tâche Plane.
+
+        Conditions: expéditeur @placedesarts.com OU sujet contient 'Place des Arts'.
+        """
+        if not PLANE_API_KEY:
+            logger.debug("PLANE_API_KEY non configurée, skip création tâche Plane")
+            return False
+
+        sender = (email_data.get('sender_email') or '').lower()
+        subject = (email_data.get('subject') or '').lower()
+
+        return 'placedesarts.com' in sender or 'place des arts' in subject
+
+    def _create_plane_task(self, email_data: Dict[str, Any]) -> Optional[str]:
+        """Crée une tâche dans Plane pour un email PDA.
+
+        Returns:
+            L'ID de l'issue Plane créée, ou None si échec.
+        """
+        try:
+            import requests as req
+
+            subject = email_data.get('subject', '(sans objet)')
+            body_text = email_data.get('body_text', '')
+            sender = email_data.get('sender_name') or email_data.get('sender_email', '')
+
+            # Construire la description HTML
+            body_preview = body_text[:1000].replace('\n', '<br>')
+            description_html = (
+                f"<p><strong>De:</strong> {sender}</p>"
+                f"<p><strong>Email reçu le:</strong> "
+                f"{email_data.get('received_at', '')}</p>"
+                f"<hr><p>{body_preview}</p>"
+            )
+
+            payload = {
+                "name": f"Place des Arts : {subject}",
+                "description_html": description_html,
+                "assignees": [PLANE_ASSIGNEE_NICOLAS],
+                "priority": "medium",
+            }
+
+            url = (
+                f"https://api.plane.so/api/v1/workspaces/{PLANE_WORKSPACE}"
+                f"/projects/{PLANE_PROJECT_ID}/issues/"
+            )
+
+            resp = req.post(
+                url,
+                headers={
+                    "X-API-Key": PLANE_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=15,
+            )
+
+            if resp.status_code in (200, 201):
+                issue_data = resp.json()
+                issue_id = issue_data.get('id', '')
+                logger.info(f"Tâche Plane créée: {issue_id} — {subject}")
+                return issue_id
+            else:
+                logger.error(
+                    f"Erreur création tâche Plane: {resp.status_code} — "
+                    f"{resp.text[:200]}"
+                )
+                return None
+
+        except Exception as e:
+            logger.error(f"Exception création tâche Plane: {e}", exc_info=True)
+            return None
 
     def _get_processed_email_ids(self) -> set:
         """Récupère les IDs Gmail déjà traités depuis Supabase."""
