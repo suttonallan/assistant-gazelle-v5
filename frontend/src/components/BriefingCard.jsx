@@ -116,11 +116,21 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
               )}
             </div>
           </div>
-          {!client_since && (
-            <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full font-medium">
-              Premier RV
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {appointment?.technician_name && (
+              <span
+                className="bg-white/20 text-white text-xs font-bold px-2 py-1 rounded-full"
+                title={appointment.technician_name}
+              >
+                {appointment.technician_name.charAt(0).toUpperCase()}
+              </span>
+            )}
+            {!client_since && (
+              <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full font-medium">
+                Premier RV
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
