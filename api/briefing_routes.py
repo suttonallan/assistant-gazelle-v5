@@ -8,6 +8,7 @@ Endpoints:
 - POST /briefing/feedback - Sauvegarder une correction (Allan only)
 - POST /briefing/follow-up/resolve - Marquer un follow-up résolu
 - POST /briefing/warm-cache - Pré-charger le cache
+- GET /briefing/search-clients - Recherche rapide de clients (autocomplete)
 """
 
 import sys
@@ -129,6 +130,62 @@ async def get_daily_briefings(
             "count": len(briefings),
             "from_cache": from_cache,
             "briefings": briefings,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search-clients", response_model=Dict[str, Any])
+async def search_clients(
+    q: str = Query(..., min_length=2, description="Terme de recherche (min 2 caractères)"),
+    limit: int = Query(10, ge=1, le=50, description="Nombre max de résultats")
+):
+    """
+    Recherche rapide de clients par nom/compagnie.
+    Utilisé par le panneau d'accès client (Louise).
+    """
+    try:
+        from core.supabase_storage import SupabaseStorage
+        import requests as http_requests
+
+        storage = SupabaseStorage()
+        headers = storage._get_headers()
+        search_pattern = f"*{q.strip()}*"
+
+        all_results = []
+        seen_ids = set()
+
+        for field in ['company_name', 'name', 'full_name']:
+            try:
+                url = (
+                    f"{storage.api_url}/gazelle_clients"
+                    f"?select=external_id,name,company_name,full_name,email,phone,city"
+                    f"&{field}=ilike.{search_pattern}"
+                    f"&limit={limit}"
+                )
+                resp = http_requests.get(url, headers=headers)
+                if resp.status_code == 200:
+                    for client in resp.json():
+                        cid = client.get('external_id')
+                        if cid and cid not in seen_ids:
+                            all_results.append({
+                                "client_id": cid,
+                                "name": client.get('company_name') or client.get('full_name') or client.get('name') or '',
+                                "phone": client.get('phone') or '',
+                                "email": client.get('email') or '',
+                                "city": client.get('city') or '',
+                            })
+                            seen_ids.add(cid)
+            except Exception:
+                pass
+
+        return {
+            "query": q,
+            "count": len(all_results[:limit]),
+            "results": all_results[:limit]
         }
 
     except Exception as e:

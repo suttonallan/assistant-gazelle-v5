@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 import BriefingCard from './BriefingCard'
+import ClientAccessPanel from './ClientAccessPanel'
 
 /**
  * MaJournee - Briefings Intelligents pour Techniciens
@@ -30,6 +31,7 @@ export default function MaJournee({ currentUser }) {
 
   const technicianId = currentUser?.gazelleId || currentUser?.id || null
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
+  const isLouise = currentUser?.email === 'info@piano-tek.com' || currentUser?.role === 'louise'
   const [showAllTechs, setShowAllTechs] = useState(false) // Mode admin: voir tous les RV
 
   // Debug: voir quel technicianId est utilisé
@@ -45,9 +47,12 @@ export default function MaJournee({ currentUser }) {
 
     try {
       let url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
-      // Mes RV: filtrer par mon ID
-      // Autres techs: exclure mon ID
-      if (technicianId) {
+      // Louise: voir tous les RV (elle est assistante, pas technicienne)
+      // Allan: filtrer par ses RV ou les autres
+      // Autres: filtrer par leur ID
+      if (isLouise) {
+        // Pas de filtre — Louise voit tous les RV du jour
+      } else if (technicianId) {
         if (isAllan && showAllTechs) {
           url += `&exclude_technician_id=${technicianId}`
         } else {
@@ -102,12 +107,19 @@ export default function MaJournee({ currentUser }) {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800 mb-1">
-          📅 Ma Journée
+          {isLouise ? '📋 Ma Journée' : '📅 Ma Journée'}
         </h1>
         <p className="text-gray-600 text-sm">
-          Briefings intelligents pour vos rendez-vous
+          {isLouise
+            ? 'Consultez la fiche d\'un client ou les rendez-vous du jour'
+            : 'Briefings intelligents pour vos rendez-vous'}
         </p>
       </div>
+
+      {/* Accès rapide client — Louise */}
+      {isLouise && (
+        <ClientAccessPanel currentUser={currentUser} />
+      )}
 
       {/* Navigation date */}
       <div className="flex items-center justify-between mb-6 bg-white rounded-xl shadow px-4 py-3">

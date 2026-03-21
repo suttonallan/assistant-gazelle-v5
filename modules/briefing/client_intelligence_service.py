@@ -343,6 +343,7 @@ class NarrativeBriefingService:
                     "title": appt.get('title', ''),
                     "description": appt.get('description', ''),
                     "technician_id": appt.get('technicien'),
+                    "technician_name": resolve_technician_name(appt.get('technicien', '')),
                     "collaboration": collaboration,
                 },
                 "follow_ups": followups,
