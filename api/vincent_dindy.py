@@ -437,6 +437,20 @@ async def update_piano(piano_id: str, update: PianoUpdate):
 
         success = storage.update_piano(piano_id, update_data, institution_slug='vincent-dindy')
 
+        # Sync bidirectionnelle : si a_faire vidé dans overlay, vider aussi dans service records actifs
+        if is_clearing_a_faire:
+            try:
+                from supabase import create_client
+                sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+                sb.table("piano_service_records") \
+                    .update({"a_faire": ""}) \
+                    .eq("piano_id", piano_id) \
+                    .eq("institution_slug", "vincent-dindy") \
+                    .in_("status", ["draft", "completed", "validated"]) \
+                    .execute()
+            except Exception as e:
+                logging.warning(f"Sync a_faire vers service_records échouée: {e}")
+
         if not success:
             # Retry sans les colonnes optionnelles qui pourraient ne pas exister en base
             optional_cols = ['completed_at', 'validated_at']

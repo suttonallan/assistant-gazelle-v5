@@ -680,7 +680,7 @@ async def clear_a_faire(
     # Vérifier que la fiche existe et appartient à cette institution
     existing = (
         sb.table(TABLE)
-        .select("id,institution_slug")
+        .select("id,institution_slug,piano_id")
         .eq("id", record_id)
         .eq("institution_slug", institution)
         .limit(1)
@@ -706,6 +706,17 @@ async def clear_a_faire(
         raise HTTPException(status_code=404, detail="Fiche non trouvée")
 
     sb.table(TABLE).update({"a_faire": ""}).eq("id", record_id).execute()
+
+    # Sync bidirectionnelle : vider aussi a_faire dans l'overlay
+    try:
+        piano_id = existing.data[0].get("piano_id")
+        if piano_id:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+            storage.update_piano(piano_id, {"a_faire": ""}, institution_slug=institution)
+    except Exception as e:
+        logging.warning(f"Sync a_faire vers overlay échouée: {e}")
+
     return {"success": True, "source": "piano_service_records"}
 
 
