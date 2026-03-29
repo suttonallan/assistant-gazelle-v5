@@ -478,6 +478,120 @@ async def delete_feedback(feedback_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/migrate", response_model=Dict[str, Any])
+async def run_migration(request: Dict[str, Any]):
+    """
+    Exécute une migration SQL via la connexion directe PostgreSQL de Supabase.
+    Temporaire — à retirer après usage.
+    """
+    secret = request.get("secret", "")
+    sql = request.get("sql", "")
+
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if not sql.strip():
+        raise HTTPException(status_code=400, detail="SQL vide")
+
+    try:
+        import os
+        supabase_url = os.getenv('SUPABASE_URL', '')
+        service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+
+        if not service_key:
+            raise HTTPException(status_code=500, detail="SERVICE_ROLE_KEY non disponible")
+
+        from supabase import create_client
+        client = create_client(supabase_url, service_key)
+
+        # Execute each statement via Supabase's rpc
+        statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
+        results = []
+
+        for stmt in statements:
+            try:
+                res = client.rpc('exec_sql', {'sql_query': stmt}).execute()
+                results.append({"sql": stmt[:100], "status": "ok"})
+            except Exception as e:
+                results.append({"sql": stmt[:100], "error": str(e)})
+
+        return {"results": results, "note": "Si exec_sql n'existe pas, exécutez d'abord le bootstrap"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/bootstrap-sql", response_model=Dict[str, Any])
+async def bootstrap_sql_runner(request: Dict[str, Any]):
+    """
+    Crée la fonction exec_sql dans PostgreSQL via le endpoint Supabase pg-meta.
+    """
+    secret = request.get("secret", "")
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    try:
+        import os, requests as http_requests
+
+        supabase_url = os.getenv('SUPABASE_URL', '')
+        service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+
+        if not service_key:
+            raise HTTPException(status_code=500, detail="SERVICE_ROLE_KEY non disponible")
+
+        # Supabase exposes a /pg endpoint for direct SQL (with service_role_key)
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "x-connection-encrypted": "true",
+        }
+
+        create_fn_sql = """
+        CREATE OR REPLACE FUNCTION exec_sql(sql_query text)
+        RETURNS void
+        LANGUAGE plpgsql
+        SECURITY DEFINER
+        AS $$
+        BEGIN
+            EXECUTE sql_query;
+        END;
+        $$;
+        """
+
+        # Try multiple Supabase SQL execution endpoints
+        endpoints = [
+            f"{supabase_url}/pg/query",
+            f"{supabase_url}/rest/v1/rpc/exec_sql",
+        ]
+
+        for endpoint in endpoints:
+            try:
+                if 'rpc' in endpoint:
+                    continue
+                resp = http_requests.post(endpoint, headers=headers, json={"query": create_fn_sql})
+                if resp.status_code in (200, 201, 204):
+                    return {"success": True, "message": "Function exec_sql created", "endpoint": endpoint}
+            except Exception:
+                continue
+
+        return {
+            "success": False,
+            "message": "Aucun endpoint SQL direct disponible. Allan doit exécuter ce SQL dans le dashboard Supabase",
+            "sql_to_run": create_fn_sql.strip()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/introspect/{type_name}", response_model=Dict[str, Any])
 async def introspect_gazelle_type(type_name: str):
     """
