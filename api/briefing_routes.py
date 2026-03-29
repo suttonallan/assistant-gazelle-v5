@@ -478,6 +478,83 @@ async def delete_feedback(feedback_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/introspect/{type_name}", response_model=Dict[str, Any])
+async def introspect_gazelle_type(type_name: str):
+    """
+    Introspection temporaire — montre tous les champs disponibles sur un type Gazelle.
+    Ex: /briefing/introspect/PrivateClient
+    """
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        client = GazelleAPIClient()
+
+        query = """
+        query IntrospectType($typeName: String!) {
+          __type(name: $typeName) {
+            name
+            kind
+            description
+            fields(includeDeprecated: true) {
+              name
+              description
+              isDeprecated
+              type {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType { kind, name, ofType { kind, name } }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        result = client._execute_query(query, variables={"typeName": type_name})
+        type_info = result.get("data", {}).get("__type")
+
+        if not type_info:
+            raise HTTPException(status_code=404, detail=f"Type '{type_name}' non trouvé dans le schéma Gazelle")
+
+        def format_type(t):
+            if not t:
+                return "?"
+            kind = t.get("kind", "")
+            name = t.get("name", "")
+            of = t.get("ofType")
+            if kind == "NON_NULL":
+                return f"{format_type(of)}!"
+            if kind == "LIST":
+                return f"[{format_type(of)}]"
+            return name or "?"
+
+        fields = []
+        for f in (type_info.get("fields") or []):
+            fields.append({
+                "name": f["name"],
+                "type": format_type(f.get("type")),
+                "description": f.get("description") or "",
+                "deprecated": f.get("isDeprecated", False),
+            })
+
+        return {
+            "type": type_info["name"],
+            "kind": type_info.get("kind"),
+            "description": type_info.get("description") or "",
+            "field_count": len(fields),
+            "fields": fields,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/follow-up/resolve", response_model=Dict[str, Any])
 async def resolve_follow_up(request: ResolveFollowUpRequest):
     """
