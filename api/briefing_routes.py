@@ -39,6 +39,20 @@ class FeedbackRequest(BaseModel):
     created_by: str = "asutton@piano-tek.com"
 
 
+class AnalyzeFeedbackRequest(BaseModel):
+    """Requête pour analyser un commentaire et suggérer des actions"""
+    client_id: str
+    client_name: str = ""
+    note: str
+    narrative: str = ""
+
+
+class ApplyActionsRequest(BaseModel):
+    """Requête pour appliquer les actions approuvées par Allan"""
+    actions: List[Dict[str, Any]]
+    created_by: str = "asutton@piano-tek.com"
+
+
 class ResolveFollowUpRequest(BaseModel):
     """Requête pour marquer un follow-up comme résolu"""
     item_id: str
@@ -308,6 +322,135 @@ async def submit_feedback(request: FeedbackRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/feedback/analyze", response_model=Dict[str, Any])
+async def analyze_feedback(request: AnalyzeFeedbackRequest):
+    """
+    Analyse un commentaire d'Allan et suggère des actions concrètes.
+    Retourne des suggestions client-spécifiques ET globales.
+    """
+    try:
+        import os
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            raise HTTPException(status_code=500, detail="Anthropic SDK non disponible")
+
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        if not api_key:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+            try:
+                settings = storage.get_data('system_settings', filters={'key': 'anthropic_api_key'})
+                if settings and settings[0].get('value'):
+                    api_key = settings[0]['value']
+            except Exception:
+                pass
+
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Clé Anthropic non configurée")
+
+        client = Anthropic(api_key=api_key)
+
+        prompt = f"""Allan est le propriétaire de Piano Tek Musique, un service d'accordage et d'entretien de pianos à Montréal.
+Il vient de lire le briefing quotidien généré par l'IA pour un technicien, et il a écrit ce commentaire pour corriger ou améliorer l'intelligence du système.
+
+CLIENT CONCERNÉ: {request.client_name or request.client_id}
+BRIEFING QUI A ÉTÉ GÉNÉRÉ: {request.narrative or '(non fourni)'}
+COMMENTAIRE D'ALLAN: {request.note}
+
+Analyse ce commentaire et propose des actions concrètes. Pour chaque action, indique:
+- "scope": "client" (s'applique uniquement à ce client) ou "global" (s'applique à tous les futurs briefings de tous les clients)
+- "note": la règle ou correction à enregistrer, formulée clairement pour que l'IA la comprenne aux prochaines générations
+- "reason": explication courte de pourquoi cette action est pertinente
+
+Retourne UNIQUEMENT ce JSON (pas de markdown):
+{{
+  "actions": [
+    {{
+      "scope": "client" ou "global",
+      "note": "la règle à enregistrer",
+      "reason": "pourquoi"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Propose 1 à 3 actions maximum, seulement celles qui sont pertinentes
+- Une action "client" corrige un fait spécifique à ce client
+- Une action "global" améliore le comportement de l'IA pour TOUS les clients (ex: ne pas déduire X à partir de Y, toujours vérifier Z avant d'affirmer)
+- Ne propose une action "global" QUE si le commentaire révèle un problème systémique, pas juste une erreur ponctuelle
+- Formule les notes de façon actionable pour une IA qui génère des briefings"""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            temperature=0.1,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        import re, json
+        raw = response.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r'^```(?:json)?\s*', '', raw)
+            raw = re.sub(r'\s*```$', '', raw)
+
+        result = json.loads(raw)
+        actions = result.get('actions', [])
+
+        for action in actions:
+            action['client_id'] = request.client_id if action.get('scope') == 'client' else '__GLOBAL__'
+            action['client_name'] = request.client_name if action.get('scope') == 'client' else 'Tous les clients'
+
+        return {
+            "success": True,
+            "original_note": request.note,
+            "suggested_actions": actions,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/feedback/apply", response_model=Dict[str, Any])
+async def apply_actions(request: ApplyActionsRequest):
+    """
+    Sauvegarde les actions approuvées par Allan (client-spécifiques et/ou globales).
+    """
+    if request.created_by != "asutton@piano-tek.com":
+        raise HTTPException(status_code=403, detail="Réservé à Allan")
+
+    saved = []
+    errors = []
+    for action in request.actions:
+        client_id = action.get('client_id', '')
+        note = action.get('note', '')
+        if not client_id or not note:
+            continue
+        success = save_feedback(
+            client_id=client_id,
+            category='general',
+            field_name='note_libre',
+            original_value=action.get('reason', ''),
+            corrected_value=note,
+            created_by=request.created_by,
+        )
+        if success:
+            saved.append({"client_id": client_id, "note": note})
+        else:
+            errors.append({"client_id": client_id, "note": note, "error": "Échec sauvegarde"})
+
+    return {
+        "success": len(errors) == 0,
+        "saved": saved,
+        "errors": errors,
+        "message": f"{len(saved)} action(s) enregistrée(s)",
+    }
 
 
 @router.delete("/feedback/{feedback_id}", response_model=Dict[str, Any])
