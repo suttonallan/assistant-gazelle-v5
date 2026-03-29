@@ -269,8 +269,8 @@ class NarrativeBriefingService:
             # PLS badge (default False if data missing)
             has_pls = bool(piano.get('dampp_chaser_installed'))
 
-            # Language detection: check client notes first, fallback to timeline heuristic
-            language = self._detect_language_from_client(client) or self._detect_language_from_notes(timeline)
+            # Language detection: Gazelle locale field > client notes > timeline heuristic
+            language = self._detect_language_from_locale(client) or self._detect_language_from_client(client) or self._detect_language_from_notes(timeline)
 
             # Dog name detection
             dog_name = self._detect_dog_from_notes(timeline)
@@ -506,6 +506,17 @@ class NarrativeBriefingService:
             label += f" ({year}, {age} ans)"
 
         return label
+
+    def _detect_language_from_locale(self, client: Dict) -> Optional[str]:
+        """Check the locale field from Gazelle (most reliable source)."""
+        locale = (client.get('locale') or '').lower()
+        if not locale:
+            return None
+        if locale.startswith('en'):
+            return "EN"
+        if locale.startswith('fr'):
+            return None  # FR is default, no flag needed
+        return None
 
     def _detect_language_from_client(self, client: Dict) -> Optional[str]:
         """Check personal_notes and preference_notes for explicit language indication."""

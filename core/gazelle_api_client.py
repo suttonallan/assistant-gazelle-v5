@@ -289,16 +289,32 @@ class GazelleAPIClient:
                     preferenceNotes
                     status
                     tags
+                    clientType
+                    preferredTechnicianId
+                    lifecycleState
+                    referredBy
+                    noContactUntil
+                    noContactReason
+                    defaultClientLocalization {
+                        locale
+                    }
                     createdAt
                     updatedAt
                     defaultContact {
                         id
                         firstName
                         lastName
+                        title
+                        wantsEmail
+                        wantsPhone
+                        wantsText
                         defaultEmail {
                             email
                         }
                         defaultPhone {
+                            phoneNumber
+                        }
+                        defaultConfirmedMobilePhone {
                             phoneNumber
                         }
                         defaultLocation {
@@ -437,6 +453,21 @@ class GazelleAPIClient:
                     year
                     location
                     notes
+                    status
+                    size
+                    caseColor
+                    caseFinish
+                    hasIvory
+                    rental
+                    rentalContractEndsOn
+                    consignment
+                    needsRepairOrRebuilding
+                    serviceIntervalMonths
+                    calculatedLastService
+                    calculatedNextService
+                    eventLastService
+                    manualLastService
+                    tags
                     damppChaserInstalled
                     damppChaserHumidistatModel
                     damppChaserMfgDate

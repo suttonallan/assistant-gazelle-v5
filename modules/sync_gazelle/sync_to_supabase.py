@@ -361,20 +361,45 @@ class GazelleToSupabaseSync:
                     personal_notes = client_data.get('personalNotes', '') or ''
                     preference_notes = client_data.get('preferenceNotes', '') or ''
 
+                    # Langue du client (depuis defaultClientLocalization)
+                    localization = client_data.get('defaultClientLocalization') or {}
+                    locale = localization.get('locale') or None
+
+                    # Préférences de communication du contact
+                    wants_email = default_contact.get('wantsEmail') if default_contact else None
+                    wants_phone = default_contact.get('wantsPhone') if default_contact else None
+                    wants_text = default_contact.get('wantsText') if default_contact else None
+
+                    # Mobile confirmé
+                    mobile_phone = None
+                    if default_contact:
+                        confirmed_mobile = default_contact.get('defaultConfirmedMobilePhone') or {}
+                        mobile_phone = confirmed_mobile.get('phoneNumber')
+
                     # Préparer données pour Supabase
                     client_record = {
                         'external_id': external_id,
                         'company_name': company_name,
-                        'first_name': first_name if first_name else None,  # 🆕 Nouveau champ
-                        'last_name': last_name if last_name else None,     # 🆕 Nouveau champ
+                        'first_name': first_name if first_name else None,
+                        'last_name': last_name if last_name else None,
                         'status': status,
                         'email': email,
                         'phone': phone,
-                        # Note: 'address' n'existe pas dans gazelle_clients, seulement city et postal_code
                         'city': city,
                         'postal_code': postal_code,
                         'personal_notes': personal_notes.strip() if personal_notes else None,
                         'preference_notes': preference_notes.strip() if preference_notes else None,
+                        'locale': locale,
+                        'preferred_technician_id': client_data.get('preferredTechnicianId'),
+                        'client_type': client_data.get('clientType'),
+                        'lifecycle_state': client_data.get('lifecycleState'),
+                        'referred_by': client_data.get('referredBy'),
+                        'no_contact_until': client_data.get('noContactUntil'),
+                        'no_contact_reason': client_data.get('noContactReason'),
+                        'wants_email': wants_email,
+                        'wants_phone': wants_phone,
+                        'wants_text': wants_text,
+                        'mobile_phone': mobile_phone,
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
