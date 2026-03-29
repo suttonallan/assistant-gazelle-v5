@@ -269,8 +269,8 @@ class NarrativeBriefingService:
             # PLS badge (default False if data missing)
             has_pls = bool(piano.get('dampp_chaser_installed'))
 
-            # Language detection (simple heuristic, not AI)
-            language = self._detect_language_from_notes(timeline)
+            # Language detection: check client notes first, fallback to timeline heuristic
+            language = self._detect_language_from_client(client) or self._detect_language_from_notes(timeline)
 
             # Dog name detection
             dog_name = self._detect_dog_from_notes(timeline)
@@ -507,8 +507,29 @@ class NarrativeBriefingService:
 
         return label
 
+    def _detect_language_from_client(self, client: Dict) -> Optional[str]:
+        """Check personal_notes and preference_notes for explicit language indication."""
+        text = f"{client.get('personal_notes', '') or ''} {client.get('preference_notes', '') or ''}".lower()
+        if not text.strip():
+            return None
+
+        en_markers = ['anglophone', 'english', 'english speaking', 'speaks english', 'parle anglais', 'anglo']
+        bi_markers = ['bilingue', 'bilingual', 'fr/en', 'en/fr']
+        fr_markers = ['francophone', 'french', 'speaks french', 'parle français', 'parle francais', 'unilingue français', 'unilingue francais']
+
+        for marker in bi_markers:
+            if marker in text:
+                return "BI"
+        for marker in en_markers:
+            if marker in text:
+                return "EN"
+        for marker in fr_markers:
+            if marker in text:
+                return None  # FR is default, no flag needed
+        return None
+
     def _detect_language_from_notes(self, timeline: List[Dict]) -> Optional[str]:
-        """Simple heuristic: detect EN/BI from timeline text. Returns None if FR (default)."""
+        """Fallback heuristic: detect EN/BI from timeline text. Returns None if FR (default)."""
         all_text = " ".join(
             f"{t.get('title', '')} {t.get('description', '')}"
             for t in timeline[:15]
