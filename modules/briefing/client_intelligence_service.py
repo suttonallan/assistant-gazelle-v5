@@ -125,7 +125,11 @@ class NarrativeBriefingService:
         return None
 
     def _load_training_feedback(self) -> Dict:
-        """Load Allan's corrections from ai_training_feedback."""
+        """Load Allan's corrections from ai_training_feedback.
+
+        Notes with client_external_id='__GLOBAL__' apply to ALL clients.
+        Other notes apply only to the specific client.
+        """
         rules = {}
         try:
             data = self.storage.get_data('ai_training_feedback',
@@ -309,7 +313,7 @@ class NarrativeBriefingService:
                     timeline=timeline,
                     past_appointments=past_appointments,
                     appt=appt,
-                    feedback_notes=self.feedback_rules.get(cid, []),
+                    feedback_notes=self.feedback_rules.get('__GLOBAL__', []) + self.feedback_rules.get(cid, []),
                     personal_notes=client.get('personal_notes', '') or '',
                     preference_notes=client.get('preference_notes', '') or '',
                     piano_notes=piano.get('notes', '') or '',
@@ -923,8 +927,14 @@ def save_feedback(client_id: str, category: str, field_name: str,
         'is_active': True,
     }
     try:
-        storage.insert_data('ai_training_feedback', record)
-        return True
+        url = f"{storage.api_url}/ai_training_feedback"
+        response = http_requests.post(url, json=record, headers=storage._get_headers())
+        if response.status_code in (200, 201):
+            print(f"✅ Feedback sauvegardé pour client {client_id}")
+            return True
+        else:
+            print(f"❌ Erreur sauvegarde feedback: {response.status_code} {response.text}")
+            return False
     except Exception as e:
         print(f"❌ Erreur sauvegarde feedback: {e}")
         return False

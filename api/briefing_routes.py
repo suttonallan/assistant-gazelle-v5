@@ -216,11 +216,66 @@ async def get_client_briefing(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/feedback", response_model=Dict[str, Any])
+async def list_feedback(
+    client_id: Optional[str] = Query(None, description="Filtrer par client (None = tous)"),
+    include_global: bool = Query(True, description="Inclure les règles globales")
+):
+    """
+    Liste toutes les notes/corrections d'Allan.
+    """
+    try:
+        from core.supabase_storage import SupabaseStorage
+        import requests as http_requests
+
+        storage = SupabaseStorage(silent=True)
+        headers = storage._get_headers()
+
+        url = f"{storage.api_url}/ai_training_feedback?is_active=eq.true&order=created_at.desc"
+        if client_id:
+            if include_global:
+                url += f"&client_external_id=in.({client_id},__GLOBAL__)"
+            else:
+                url += f"&client_external_id=eq.{client_id}"
+
+        resp = http_requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Erreur Supabase: {resp.text}")
+
+        data = resp.json()
+        global_notes = [d for d in data if d.get('client_external_id') == '__GLOBAL__']
+        client_notes = [d for d in data if d.get('client_external_id') != '__GLOBAL__']
+
+        return {
+            "count": len(data),
+            "global_rules": [{
+                "id": n["id"],
+                "note": n.get("corrected_value", ""),
+                "created_at": n.get("created_at", ""),
+            } for n in global_notes],
+            "client_notes": [{
+                "id": n["id"],
+                "client_id": n.get("client_external_id", ""),
+                "note": n.get("corrected_value", ""),
+                "created_at": n.get("created_at", ""),
+            } for n in client_notes],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/feedback", response_model=Dict[str, Any])
 async def submit_feedback(request: FeedbackRequest):
     """
     Sauvegarde une correction de briefing.
     ⚠️ SUPER-UTILISATEUR SEULEMENT (Allan)
+
+    Pour une règle globale (tous les clients), envoyer client_id="__GLOBAL__"
     """
     if request.created_by != "asutton@piano-tek.com":
         raise HTTPException(
@@ -252,6 +307,31 @@ async def submit_feedback(request: FeedbackRequest):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/feedback/{feedback_id}", response_model=Dict[str, Any])
+async def delete_feedback(feedback_id: str):
+    """
+    Désactive une note/correction (soft delete).
+    """
+    try:
+        from core.supabase_storage import SupabaseStorage
+        import requests as http_requests
+
+        storage = SupabaseStorage(silent=True)
+        headers = storage._get_headers()
+
+        url = f"{storage.api_url}/ai_training_feedback?id=eq.{feedback_id}"
+        resp = http_requests.patch(url, json={"is_active": False}, headers=headers)
+        if resp.status_code in (200, 204):
+            return {"success": True, "message": "Note désactivée"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Erreur: {resp.text}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
