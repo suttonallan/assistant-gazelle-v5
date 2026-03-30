@@ -64,8 +64,8 @@ Si c'est un premier RV (aucun historique), dis-le simplement.
 Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
 
 CLIENT: {client_name} ({client_since})
-PIANO: {piano_summary}
-
+PIANO PRINCIPAL: {piano_summary}
+{all_pianos_context}
 NOTES PERSONNELLES DU CLIENT:
 {personal_notes}
 
@@ -233,13 +233,16 @@ class NarrativeBriefingService:
         try:
             cid = appt.get('client_external_id', '')
 
-            # ── Match piano for this appointment ──
+            # ── Match piano(s) for this appointment ──
             piano_id_from_appt = appt.get('piano_external_id')
             piano = {}
             if piano_id_from_appt and pianos:
                 piano = next((p for p in pianos if p.get('external_id') == piano_id_from_appt), {})
             if not piano and pianos:
                 piano = self._match_piano_from_context(pianos, appt)
+
+            # All pianos for this client (for narrative context)
+            all_pianos_list = pianos if len(pianos) > 1 else []
 
             # ── Python-computed flags ──
             client_name = (
@@ -263,8 +266,10 @@ class NarrativeBriefingService:
                     [{'date': t.get('occurred_at', '')[:10]} for t in timeline]
                 )
 
-            # Piano label
+            # Piano label (mention count if multiple)
             piano_label = self._compute_piano_label(piano)
+            if len(pianos) > 1:
+                piano_label = f"{piano_label} (+{len(pianos) - 1} autre{'s' if len(pianos) > 2 else ''})"
 
             # PLS badge (default False if data missing)
             has_pls = bool(piano.get('dampp_chaser_installed'))
@@ -317,6 +322,7 @@ class NarrativeBriefingService:
                     personal_notes=client.get('personal_notes', '') or '',
                     preference_notes=client.get('preference_notes', '') or '',
                     piano_notes=piano.get('notes', '') or '',
+                    all_pianos=all_pianos_list,
                 )
 
             # ── Build final briefing ──
@@ -341,6 +347,17 @@ class NarrativeBriefingService:
                     "age_years": (datetime.now().year - piano['year']) if piano.get('year') and piano['year'] > 1800 else 0,
                     "dampp_chaser": has_pls or False,
                 },
+                "all_pianos": [
+                    {
+                        "make": p.get('make', ''),
+                        "model": p.get('model', ''),
+                        "type": p.get('type', ''),
+                        "serial_number": p.get('serial_number', ''),
+                        "location": p.get('location', ''),
+                        "dampp_chaser": bool(p.get('dampp_chaser_installed')),
+                    }
+                    for p in pianos
+                ] if len(pianos) > 1 else [],
                 "appointment": {
                     "id": appt.get('external_id'),
                     "time": (appt.get('appointment_time', '') or '')[:5],
@@ -370,7 +387,8 @@ class NarrativeBriefingService:
                             past_appointments: List[Dict],
                             appt: Dict, feedback_notes: List[str],
                             personal_notes: str = "", preference_notes: str = "",
-                            piano_notes: str = "") -> tuple:
+                            piano_notes: str = "",
+                            all_pianos: List[Dict] = None) -> tuple:
         """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
         today_str = date_type.today().isoformat()
 
@@ -430,10 +448,28 @@ class NarrativeBriefingService:
                 if note:
                     feedback_context += f"- {note}\n"
 
+        # Build all pianos context
+        all_pianos_context = ""
+        if all_pianos and len(all_pianos) > 1:
+            lines = []
+            for p in all_pianos:
+                label = p.get('make', 'Piano')
+                if p.get('model'):
+                    label += f" {p['model']}"
+                if p.get('serial_number'):
+                    label += f" (SN {p['serial_number']})"
+                loc = p.get('location') or p.get('notes') or ''
+                if loc:
+                    label += f" — {loc[:80]}"
+                pls = " [PLS]" if p.get('dampp_chaser_installed') else ""
+                lines.append(f"  - {label}{pls}")
+            all_pianos_context = f"TOUS LES PIANOS DU CLIENT ({len(all_pianos)}):\n" + "\n".join(lines) + "\nIMPORTANT: Mentionne TOUS les pianos dans le briefing, pas seulement le premier.\n"
+
         prompt = NARRATIVE_PROMPT.format(
             client_name=client_name,
             client_since=client_since,
             piano_summary=piano_summary,
+            all_pianos_context=all_pianos_context,
             personal_notes=personal_notes or "(Aucune)",
             preference_notes=preference_notes or "(Aucune)",
             piano_notes=piano_notes or "(Aucune)",
