@@ -94,15 +94,35 @@ def fetch_earliest_client_date(storage, client_id: str,
 
         # ── Logique de sécurité ──
         # Si la plus ancienne entrée tombe le même jour que la création du
-        # dossier Gazelle ET que c'est récent (>= 2024), on ne peut pas se
-        # fier à cette date : c'est probablement un client historique dont
-        # la timeline n'a pas encore été backfillée.
+        # dossier Gazelle ET qu'il n'y a qu'une seule entrée, on ne peut pas
+        # se fier à cette date (pas de backfill). Mais s'il y a plusieurs
+        # entrées étalées dans le temps, c'est un vrai historique.
         if client_created_at and len(client_created_at) >= 10:
             try:
                 created_date = datetime.strptime(client_created_at[:10], '%Y-%m-%d')
                 if (oldest_date.date() == created_date.date()
                         and created_date.date() >= date_type(2024, 1, 1)):
-                    return _SAFETY_BLOCKED
+                    # Vérifier s'il y a un historique réel (>1 entrée étalée)
+                    count_url = (
+                        f"{storage.api_url}/gazelle_timeline_entries?"
+                        f"client_id=eq.{cid_encoded}"
+                        f"&select=occurred_at"
+                        f"&order=occurred_at.desc"
+                        f"&limit=1"
+                    )
+                    count_resp = http_requests.get(count_url, headers=storage._get_headers(), timeout=5)
+                    if count_resp.status_code == 200 and count_resp.json():
+                        newest_str = count_resp.json()[0].get('occurred_at', '')
+                        if newest_str and len(newest_str) >= 10:
+                            newest_date = datetime.strptime(newest_str[:10], '%Y-%m-%d')
+                            # Si plus de 30 jours entre la plus ancienne et la plus récente,
+                            # c'est un vrai historique, pas un artefact de création
+                            if (newest_date - oldest_date).days > 30:
+                                pass  # Historique réel → ne pas bloquer
+                            else:
+                                return _SAFETY_BLOCKED
+                    else:
+                        return _SAFETY_BLOCKED
             except ValueError:
                 pass
 
