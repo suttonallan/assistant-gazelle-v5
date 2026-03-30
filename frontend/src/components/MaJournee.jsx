@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 import BriefingCard from './BriefingCard'
 import ClientAccessPanel from './ClientAccessPanel'
+import FeedbackReviewPanel from './FeedbackReviewPanel'
 
 /**
  * MaJournee - Briefings Intelligents pour Techniciens
@@ -194,6 +195,11 @@ export default function MaJournee({ currentUser }) {
         </div>
       )}
 
+      {/* Panneau de revue des notes d'intelligence — Allan only */}
+      {isAllan && (
+        <FeedbackReviewPanel currentUser={currentUser} onUpdated={loadBriefings} />
+      )}
+
       {/* États */}
       {loading && (
         <div className="flex items-center justify-center py-12">
@@ -238,19 +244,6 @@ export default function MaJournee({ currentUser }) {
         </div>
       )}
 
-      {/* Mode Super-Utilisateur info */}
-      {isAllan && (
-        <div className="mt-8 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
-          <div className="flex items-center gap-2 text-purple-800">
-            <span className="text-xl">🧠</span>
-            <span className="font-medium">Mode Super-Utilisateur</span>
-          </div>
-          <p className="text-sm text-purple-700 mt-1">
-            Cliquez sur "Ajuster l'Intelligence" sur une carte pour corriger les données.
-            Vos corrections entraînent l'IA pour les prochaines analyses.
-          </p>
-        </div>
-      )}
     </div>
   )
 }
