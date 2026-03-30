@@ -871,117 +871,22 @@ class GazelleToSupabaseSync:
                             if is_less_than_24h:
                                 old_technicien = old_record.get('technicien') if old_record else None
                                 last_notified = old_record.get('last_notified_tech_id') if old_record else None
-                                
-                                # Log de debug pour comprendre la détection
-                                print(f"🔍 Détection Late Assignment pour {external_id}:")
-                                print(f"   old_technicien: {old_technicien}")
-                                print(f"   technicien: {technicien}")
-                                print(f"   last_notified: {last_notified}")
-                                print(f"   date: {appointment_date}")
-                                
-                                # Déclencher alerte si:
-                                # 1. Nouveau RV (pas d'ancien technicien) OU
-                                # 2. Technicien a changé ET ce n'est pas le même que celui déjà notifié
-                                # 3. Technicien assigné mais jamais notifié (last_notified est None) - cas où le technicien a été changé entre deux syncs
+
+                                print(f"🔍 Late Assignment check {external_id}: tech={technicien}, old={old_technicien}, notified={last_notified}")
+
+                                # Alerter seulement si:
+                                # 1. Nouveau RV (pas encore en DB) OU
+                                # 2. Technicien a changé ET pas déjà notifié pour ce technicien
                                 should_alert = False
-                                
-                                if not old_technicien:
-                                    # Nouveau RV assigné
-                                    print(f"   ✅ Nouveau RV assigné → alerte déclenchée")
+
+                                if not old_record:
+                                    print(f"   ✅ Nouveau RV → alerte")
                                     should_alert = True
-                                elif old_technicien != technicien:
-                                    # Technicien a changé
-                                    print(f"   ✅ Technicien changé ({old_technicien} → {technicien})")
-                                    # Ne pas alerter si on a déjà notifié ce technicien (anti-doublon)
-                                    if last_notified != technicien:
-                                        print(f"   ✅ last_notified ({last_notified}) != technicien ({technicien}) → alerte déclenchée")
-                                        should_alert = True
-                                    else:
-                                        print(f"   ⏭️  last_notified == technicien → pas d'alerte (anti-doublon)")
-                                elif last_notified is None and technicien:
-                                    # Cas spécial: technicien assigné mais jamais notifié
-                                    # Cela peut arriver si le technicien a été changé entre deux syncs
-                                    # MAIS on ne veut alerter que si le RV a été mis à jour récemment (dans les 24h)
-                                    # pour éviter d'alerter pour des RV créés avec un technicien dès le début
-                                    # Note: timedelta est importé au niveau du module (ligne 21)
-                                    rv_updated = None
-                                    
-                                    # Vérifier si le RV a été mis à jour récemment (pas créé, mais mis à jour)
-                                    # car un update récent indique un changement de technicien
-                                    if old_record:
-                                        updated_str = old_record.get('updated_at') if isinstance(old_record, dict) else None
-                                        try:
-                                            if updated_str:
-                                                if isinstance(updated_str, str):
-                                                    rv_updated = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
-                                                else:
-                                                    rv_updated = updated_str
-                                        except:
-                                            pass
-                                    
-                                    # Si pas de date dans old_record, vérifier dans appointment_record
-                                    if not rv_updated:
-                                        updated_str = appointment_record.get('updated_at')
-                                        try:
-                                            if updated_str:
-                                                if isinstance(updated_str, str):
-                                                    rv_updated = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
-                                        except:
-                                            pass
-                                    
-                                    # Vérifier si mis à jour dans les dernières 24h
-                                    # ET que la date de mise à jour est différente de la date de création
-                                    # (pour éviter d'alerter pour des RV créés récemment avec technicien dès le début)
-                                    now = datetime.now(MONTREAL_TZ)
-                                    recent_threshold = now - timedelta(hours=24)
-                                    
-                                    should_alert_recent = False
-                                    if rv_updated:
-                                        rv_updated_mtl = rv_updated.astimezone(MONTREAL_TZ) if rv_updated.tzinfo else rv_updated.replace(tzinfo=MONTREAL_TZ)
-                                        
-                                        # Vérifier si mis à jour récemment
-                                        if rv_updated_mtl >= recent_threshold:
-                                            # Vérifier si la date de mise à jour est différente de la date de création
-                                            # (si updated_at == created_at, c'est probablement un nouveau RV, pas un changement)
-                                            rv_created = None
-                                            if old_record:
-                                                created_str = old_record.get('created_at') if isinstance(old_record, dict) else None
-                                                try:
-                                                    if created_str:
-                                                        if isinstance(created_str, str):
-                                                            rv_created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
-                                                except:
-                                                    pass
-                                            
-                                            if not rv_created:
-                                                created_str = appointment_record.get('created_at')
-                                                try:
-                                                    if created_str:
-                                                        if isinstance(created_str, str):
-                                                            rv_created = datetime.fromisoformat(created_str.replace('Z', '+00:00'))
-                                                except:
-                                                    pass
-                                            
-                                            # Si pas de date de création ou si updated != created (avec tolérance de 1h)
-                                            # alors c'est probablement un changement récent
-                                            if not rv_created:
-                                                should_alert_recent = True
-                                                print(f"   ✅ RV mis à jour récemment ({rv_updated_mtl.strftime('%Y-%m-%d %H:%M')}) sans date création → alerte déclenchée")
-                                            else:
-                                                rv_created_mtl = rv_created.astimezone(MONTREAL_TZ) if rv_created.tzinfo else rv_created.replace(tzinfo=MONTREAL_TZ)
-                                                time_diff = abs((rv_updated_mtl - rv_created_mtl).total_seconds() / 3600)
-                                                if time_diff > 1:  # Mis à jour plus d'1h après création = changement
-                                                    should_alert_recent = True
-                                                    print(f"   ✅ RV mis à jour récemment ({rv_updated_mtl.strftime('%Y-%m-%d %H:%M')}, {time_diff:.1f}h après création) → alerte déclenchée")
-                                                else:
-                                                    print(f"   ⏭️  RV créé et mis à jour en même temps ({time_diff:.1f}h) → pas d'alerte (nouveau RV)")
-                                    
-                                    if should_alert_recent:
-                                        should_alert = True
-                                    else:
-                                        print(f"   ⏭️  RV pas mis à jour récemment ou créé récemment avec technicien → pas d'alerte")
+                                elif old_technicien != technicien and last_notified != technicien:
+                                    print(f"   ✅ Technicien changé ({old_technicien} → {technicien}) → alerte")
+                                    should_alert = True
                                 else:
-                                    print(f"   ⏭️  Technicien n'a pas changé et déjà notifié → pas d'alerte")
+                                    print(f"   ⏭️  Pas de changement → pas d'alerte")
                                 
                                 if should_alert:
                                     # Insérer dans la file d'attente

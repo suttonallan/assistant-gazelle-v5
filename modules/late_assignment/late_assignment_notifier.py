@@ -20,7 +20,7 @@ load_dotenv()
 from core.supabase_storage import SupabaseStorage
 from core.email_notifier import EmailNotifier
 from core.timezone_utils import MONTREAL_TZ
-from config.techniciens_config import GAZELLE_IDS
+from config.techniciens_config import GAZELLE_IDS, get_technicien_by_id
 import requests
 
 
@@ -118,16 +118,14 @@ class LateAssignmentNotifier:
             client_name = queue_item.get('client_name', 'Client')
             location = queue_item.get('location', '')
             
-            # Récupérer l'email du technicien depuis la table users
-            user = self._get_user_by_external_id(technician_id)
-            if not user:
-                print(f"   ⚠️  Technicien {technician_id} non trouvé dans users")
+            # Récupérer l'email du technicien depuis techniciens_config (source de vérité)
+            tech = get_technicien_by_id(technician_id)
+            if not tech:
+                print(f"   ⚠️  Technicien {technician_id} non trouvé dans techniciens_config")
                 return False
-            
-            email = user.get('email')
-            first_name = user.get('first_name', '')
-            last_name = user.get('last_name', '')
-            technician_name = f"{first_name} {last_name}".strip() or f"Technicien {technician_id}"
+
+            email = tech['email']
+            technician_name = tech['prenom']
             
             if not email:
                 print(f"   ⚠️  Pas d'email pour technicien {technician_id}")
@@ -188,30 +186,6 @@ class LateAssignmentNotifier:
             import traceback
             traceback.print_exc()
             return False
-    
-    def _get_user_by_external_id(self, external_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Récupère un utilisateur par son external_id (technician_id Gazelle).
-        
-        Args:
-            external_id: ID externe du technicien
-            
-        Returns:
-            Dict avec les infos utilisateur ou None
-        """
-        try:
-            url = f"{self.storage.api_url}/users?external_id=eq.{external_id}&select=email,first_name,last_name"
-            response = requests.get(url, headers=self.storage._get_headers())
-            
-            if response.status_code == 200:
-                users = response.json()
-                if users and len(users) > 0:
-                    return users[0]
-            return None
-            
-        except Exception as e:
-            print(f"   ⚠️  Erreur récupération user {external_id}: {e}")
-            return None
     
     def _mark_as_sent(self, queue_id: str):
         """Marque un item de la queue comme envoyé."""
