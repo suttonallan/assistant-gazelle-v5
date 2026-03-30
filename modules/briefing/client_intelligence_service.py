@@ -270,7 +270,7 @@ class NarrativeBriefingService:
             has_pls = bool(piano.get('dampp_chaser_installed'))
 
             # Language detection: Gazelle locale field > client notes > timeline heuristic
-            language = self._detect_language_from_locale(client) or self._detect_language_from_client(client) or self._detect_language_from_notes(timeline)
+            language = self._detect_language_from_locale(client) or self._detect_language_from_client(client)
 
             # Dog name detection
             dog_name = self._detect_dog_from_notes(timeline)
@@ -539,29 +539,6 @@ class NarrativeBriefingService:
                 return None  # FR is default, no flag needed
         return None
 
-    def _detect_language_from_notes(self, timeline: List[Dict]) -> Optional[str]:
-        """Fallback heuristic: detect EN/BI from timeline text. Returns None if FR (default)."""
-        all_text = " ".join(
-            f"{t.get('title', '')} {t.get('description', '')}"
-            for t in timeline[:15]
-        ).lower()
-
-        if not all_text.strip():
-            return None
-
-        en_words = ['the ', ' and ', 'please', 'thank', 'hello', 'good morning',
-                     'call me', 'don\'t', 'won\'t', 'can\'t', 'should']
-        fr_words = ['le ', ' la ', ' les ', ' et ', 'merci', 'bonjour', 'svp',
-                     'rendez-vous', 'veuillez', 'prochaine']
-
-        en_count = sum(1 for w in en_words if w in all_text)
-        fr_count = sum(1 for w in fr_words if w in all_text)
-
-        if en_count > fr_count + 2:
-            return "EN"
-        if en_count > 0 and fr_count > 0 and en_count >= 2:
-            return "BI"
-        return None  # FR is default, don't flag it
 
     def _detect_dog_from_notes(self, timeline: List[Dict]) -> Optional[str]:
         """Extract dog name from timeline notes. Returns name or None."""
