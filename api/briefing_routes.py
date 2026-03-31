@@ -779,6 +779,30 @@ async def backfill_all(request: Dict[str, Any]):
     }
 
 
+@router.get("/admin/timeline-stats", response_model=Dict[str, Any])
+async def timeline_stats(secret: str = Query("")):
+    """Nombre d'entrées timeline par année dans Supabase."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    try:
+        from core.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage(silent=True)
+        stats = {}
+        total = 0
+        for year in range(2016, 2027):
+            result = storage.client.table('gazelle_timeline_entries').select(
+                'id', count='exact'
+            ).gte('occurred_at', f'{year}-01-01').lt(
+                'occurred_at', f'{year + 1}-01-01'
+            ).limit(1).execute()
+            count = result.count if hasattr(result, 'count') and result.count else 0
+            stats[str(year)] = count
+            total += count
+        return {"total": total, "by_year": stats, "target": 282669}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/follow-up/resolve", response_model=Dict[str, Any])
 async def resolve_follow_up(request: ResolveFollowUpRequest):
     """
