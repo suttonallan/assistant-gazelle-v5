@@ -669,6 +669,86 @@ async def introspect_gazelle_type(type_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/backfill-timeline", response_model=Dict[str, Any])
+async def backfill_timeline(request: Dict[str, Any]):
+    """
+    Lance un backfill complet des timeline entries depuis Gazelle.
+    Récupère TOUT l'historique, pas seulement les 30 derniers jours.
+    """
+    secret = request.get("secret", "")
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        from core.supabase_storage import SupabaseStorage
+        from modules.sync_gazelle.sync_to_supabase import parse_gazelle_datetime, format_for_supabase
+        import requests as http_requests
+
+        api_client = GazelleAPIClient()
+        storage = SupabaseStorage()
+
+        # Fetch ALL timeline entries from Gazelle (no date filter)
+        all_entries = api_client.get_timeline_entries(since_date=None, limit=None)
+        if not all_entries:
+            return {"success": False, "message": "Aucune entrée récupérée de Gazelle"}
+
+        synced = 0
+        errors = 0
+
+        for entry_data in all_entries:
+            try:
+                occurred_at_raw = entry_data.get('occurredAt')
+                occurred_at_utc = None
+                if occurred_at_raw:
+                    dt_parsed = parse_gazelle_datetime(occurred_at_raw)
+                    if dt_parsed:
+                        occurred_at_utc = format_for_supabase(dt_parsed)
+
+                client_node = entry_data.get('client') or {}
+                piano_node = entry_data.get('piano') or {}
+                invoice_node = entry_data.get('invoice') or {}
+                estimate_node = entry_data.get('estimate') or {}
+                user_node = entry_data.get('user') or {}
+
+                record = {
+                    'external_id': entry_data.get('id', ''),
+                    'client_id': client_node.get('id') if isinstance(client_node, dict) else None,
+                    'piano_id': piano_node.get('id') if isinstance(piano_node, dict) else None,
+                    'invoice_id': invoice_node.get('id') if isinstance(invoice_node, dict) else None,
+                    'estimate_id': estimate_node.get('id') if isinstance(estimate_node, dict) else None,
+                    'user_id': user_node.get('id') if isinstance(user_node, dict) else None,
+                    'entry_type': entry_data.get('type', ''),
+                    'title': (entry_data.get('summary') or '')[:500],
+                    'description': (entry_data.get('comment') or '')[:2000],
+                    'occurred_at': occurred_at_utc,
+                }
+
+                url = f"{storage.api_url}/gazelle_timeline_entries"
+                headers = storage._get_headers()
+                headers['Prefer'] = 'resolution=merge-duplicates'
+                resp = http_requests.post(url, headers=headers, json=record)
+
+                if resp.status_code in (200, 201, 409):
+                    synced += 1
+                else:
+                    errors += 1
+            except Exception:
+                errors += 1
+
+        return {
+            "success": True,
+            "total_from_gazelle": len(all_entries),
+            "synced": synced,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/follow-up/resolve", response_model=Dict[str, Any])
 async def resolve_follow_up(request: ResolveFollowUpRequest):
     """
