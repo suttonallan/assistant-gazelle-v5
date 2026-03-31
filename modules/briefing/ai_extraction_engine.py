@@ -118,10 +118,13 @@ def fetch_earliest_client_date(storage, client_id: str,
             pass
 
     if not candidates:
+        print(f"⚠️  client_since({client_id}): aucune date trouvée")
         return None
 
     oldest = min(candidates)
-    return _format_client_since(oldest)
+    result = _format_client_since(oldest)
+    print(f"📅 client_since({client_id}): {result} (oldest={oldest.strftime('%Y-%m-%d')}, sources={len(candidates)})")
+    return result
 
 
 def _format_client_since(oldest: datetime) -> str:
