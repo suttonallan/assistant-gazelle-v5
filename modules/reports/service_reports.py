@@ -882,6 +882,10 @@ class ServiceReports:
         for tab, rows in rows_by_tab.items():
             ws = self._get_or_create_ws(workbook, tab)
             if not append:
+                if not rows:
+                    print(f"⚠️ SKIP clear {tab}: aucune donnée à écrire, on préserve l'existant")
+                    counts[tab] = 0
+                    continue
                 try:
                     ws.clear()
                 except Exception as e:
@@ -915,10 +919,14 @@ class ServiceReports:
         pda_tab = "Demandes PdA"
         ws_pda = self._get_or_create_ws(workbook, pda_tab)
         if not append:
-            try:
-                ws_pda.clear()
-            except Exception as e:
-                print(f"⚠️ Impossible de nettoyer l'onglet {pda_tab}: {e}")
+            if not pda_rows:
+                print(f"⚠️ SKIP clear {pda_tab}: aucune donnée, on préserve l'existant")
+                counts[pda_tab] = 0
+            else:
+                try:
+                    ws_pda.clear()
+                except Exception as e:
+                    print(f"⚠️ Impossible de nettoyer l'onglet {pda_tab}: {e}")
 
         # En-têtes spécifiques pour les demandes PdA
         self._ensure_headers(ws_pda, PDA_REQUESTS_HEADERS)
