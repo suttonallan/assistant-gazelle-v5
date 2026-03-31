@@ -669,11 +669,11 @@ async def introspect_gazelle_type(type_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/admin/backfill-timeline", response_model=Dict[str, Any])
-async def backfill_timeline(request: Dict[str, Any]):
+@router.post("/admin/backfill-all", response_model=Dict[str, Any])
+async def backfill_all(request: Dict[str, Any]):
     """
-    Lance un backfill des timeline entries depuis Gazelle en tâche de fond.
-    Retourne immédiatement, le backfill continue en arrière-plan.
+    Backfill complet : appointments + timeline depuis 2017.
+    Tourne en arrière-plan, retourne immédiatement.
     """
     secret = request.get("secret", "")
     if secret != "ptm-migrate-2026":
@@ -683,73 +683,91 @@ async def backfill_timeline(request: Dict[str, Any]):
 
     def _run_backfill():
         try:
-            from core.gazelle_api_client import GazelleAPIClient
-            from core.supabase_storage import SupabaseStorage
-            from core.timezone_utils import parse_gazelle_datetime, format_for_supabase
-            import requests as http_requests
+            from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
 
-            api_client = GazelleAPIClient()
-            storage = SupabaseStorage()
+            sync = GazelleToSupabaseSync()
 
-            print("🔄 BACKFILL: Récupération de TOUTES les timeline entries...")
-            all_entries = api_client.get_timeline_entries(since_date=None, limit=None)
-            print(f"🔄 BACKFILL: {len(all_entries)} entrées récupérées de Gazelle")
+            # ── Phase 1 : Appointments depuis 2017 ──
+            print("=" * 60)
+            print("🔄 BACKFILL PHASE 1/2 : Appointments depuis 2017-01-01")
+            print("=" * 60)
+            try:
+                appt_count = sync.sync_appointments(start_date_override='2017-01-01')
+                print(f"✅ APPOINTMENTS: {appt_count} synchronisés")
+            except Exception as e:
+                import traceback
+                print(f"❌ APPOINTMENTS ERREUR: {e}")
+                traceback.print_exc()
 
-            if not all_entries:
-                print("🔄 BACKFILL: Aucune entrée — abandon")
-                return
+            # ── Phase 2 : Timeline complète ──
+            print("=" * 60)
+            print("🔄 BACKFILL PHASE 2/2 : Timeline entries (tout l'historique)")
+            print("=" * 60)
+            try:
+                from core.timezone_utils import parse_gazelle_datetime, format_for_supabase
+                import requests as http_requests
 
-            synced = 0
-            errors = 0
+                all_entries = sync.api_client.get_timeline_entries(since_date=None, limit=None)
+                print(f"📥 {len(all_entries)} timeline entries récupérées de Gazelle")
 
-            for i, entry_data in enumerate(all_entries):
-                try:
-                    occurred_at_raw = entry_data.get('occurredAt')
-                    occurred_at_utc = None
-                    if occurred_at_raw:
-                        dt_parsed = parse_gazelle_datetime(occurred_at_raw)
-                        if dt_parsed:
-                            occurred_at_utc = format_for_supabase(dt_parsed)
+                synced = 0
+                errors = 0
+                for i, entry_data in enumerate(all_entries):
+                    try:
+                        occurred_at_raw = entry_data.get('occurredAt')
+                        occurred_at_utc = None
+                        if occurred_at_raw:
+                            dt_parsed = parse_gazelle_datetime(occurred_at_raw)
+                            if dt_parsed:
+                                occurred_at_utc = format_for_supabase(dt_parsed)
 
-                    client_node = entry_data.get('client') or {}
-                    piano_node = entry_data.get('piano') or {}
-                    invoice_node = entry_data.get('invoice') or {}
-                    estimate_node = entry_data.get('estimate') or {}
-                    user_node = entry_data.get('user') or {}
+                        client_node = entry_data.get('client') or {}
+                        piano_node = entry_data.get('piano') or {}
+                        invoice_node = entry_data.get('invoice') or {}
+                        estimate_node = entry_data.get('estimate') or {}
+                        user_node = entry_data.get('user') or {}
 
-                    record = {
-                        'external_id': entry_data.get('id', ''),
-                        'client_id': client_node.get('id') if isinstance(client_node, dict) else None,
-                        'piano_id': piano_node.get('id') if isinstance(piano_node, dict) else None,
-                        'invoice_id': invoice_node.get('id') if isinstance(invoice_node, dict) else None,
-                        'estimate_id': estimate_node.get('id') if isinstance(estimate_node, dict) else None,
-                        'user_id': user_node.get('id') if isinstance(user_node, dict) else None,
-                        'entry_type': entry_data.get('type', ''),
-                        'title': (entry_data.get('summary') or '')[:500],
-                        'description': (entry_data.get('comment') or '')[:2000],
-                        'occurred_at': occurred_at_utc,
-                    }
+                        record = {
+                            'external_id': entry_data.get('id', ''),
+                            'client_id': client_node.get('id') if isinstance(client_node, dict) else None,
+                            'piano_id': piano_node.get('id') if isinstance(piano_node, dict) else None,
+                            'invoice_id': invoice_node.get('id') if isinstance(invoice_node, dict) else None,
+                            'estimate_id': estimate_node.get('id') if isinstance(estimate_node, dict) else None,
+                            'user_id': user_node.get('id') if isinstance(user_node, dict) else None,
+                            'entry_type': entry_data.get('type', ''),
+                            'title': (entry_data.get('summary') or '')[:500],
+                            'description': (entry_data.get('comment') or '')[:2000],
+                            'occurred_at': occurred_at_utc,
+                        }
 
-                    url = f"{storage.api_url}/gazelle_timeline_entries"
-                    headers = storage._get_headers()
-                    headers['Prefer'] = 'resolution=merge-duplicates'
-                    resp = http_requests.post(url, headers=headers, json=record)
+                        url = f"{sync.storage.api_url}/gazelle_timeline_entries"
+                        headers = sync.storage._get_headers()
+                        headers['Prefer'] = 'resolution=merge-duplicates'
+                        resp = http_requests.post(url, headers=headers, json=record)
 
-                    if resp.status_code in (200, 201, 409):
-                        synced += 1
-                    else:
+                        if resp.status_code in (200, 201, 409):
+                            synced += 1
+                        else:
+                            errors += 1
+                    except Exception:
                         errors += 1
-                except Exception:
-                    errors += 1
 
-                if (i + 1) % 500 == 0:
-                    print(f"🔄 BACKFILL: {i + 1}/{len(all_entries)} traités ({synced} ok, {errors} err)")
+                    if (i + 1) % 500 == 0:
+                        print(f"🔄 TIMELINE: {i + 1}/{len(all_entries)} ({synced} ok, {errors} err)")
 
-            print(f"✅ BACKFILL TERMINÉ: {synced} insérés, {errors} erreurs sur {len(all_entries)} total")
+                print(f"✅ TIMELINE: {synced} insérés, {errors} erreurs sur {len(all_entries)}")
+            except Exception as e:
+                import traceback
+                print(f"❌ TIMELINE ERREUR: {e}")
+                traceback.print_exc()
+
+            print("=" * 60)
+            print("✅ BACKFILL COMPLET TERMINÉ")
+            print("=" * 60)
 
         except Exception as e:
             import traceback
-            print(f"❌ BACKFILL ERREUR: {e}")
+            print(f"❌ BACKFILL ERREUR GLOBALE: {e}")
             traceback.print_exc()
 
     thread = threading.Thread(target=_run_backfill, daemon=True)
@@ -757,7 +775,7 @@ async def backfill_timeline(request: Dict[str, Any]):
 
     return {
         "success": True,
-        "message": "Backfill lancé en arrière-plan. Consultez les logs Render pour suivre la progression.",
+        "message": "Backfill complet lancé (appointments 2017+ et timeline complète). Voir les logs Render.",
     }
 
 
