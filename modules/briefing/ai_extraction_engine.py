@@ -128,15 +128,20 @@ def fetch_earliest_client_date(storage, client_id: str,
 
 
 def _format_client_since(oldest: datetime) -> str:
-    """Formate une date en durée lisible : 'depuis X ans', 'depuis X mois', 'nouveau client'."""
+    """Formate une date en durée lisible : 'depuis X ans et Y mois', 'depuis X mois', 'nouveau client'."""
     days = (datetime.now() - oldest).days
-    years = days / 365.25
-    if years >= 1:
-        y = int(years)
-        return f"depuis {y} an{'s' if y > 1 else ''}"
-    months = int(days / 30.44)
-    if months >= 1:
-        return f"depuis {months} mois"
+    total_months = int(days / 30.44)
+    years = total_months // 12
+    remaining_months = total_months % 12
+
+    if years >= 2:
+        return f"depuis {years} ans"
+    if years == 1:
+        if remaining_months >= 2:
+            return f"depuis 1 an et {remaining_months} mois"
+        return "depuis 1 an"
+    if total_months >= 1:
+        return f"depuis {total_months} mois"
     return "nouveau client"
 
 
