@@ -69,7 +69,7 @@ def main():
         batch = all_entries[i:i + batch_size]
         for entry_data in batch:
             try:
-                from modules.sync_gazelle.sync_to_supabase import (
+                from core.timezone_utils import (
                     parse_gazelle_datetime, format_for_supabase
                 )
                 import requests as http_requests

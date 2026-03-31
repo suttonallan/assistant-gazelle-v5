@@ -682,7 +682,7 @@ async def backfill_timeline(request: Dict[str, Any]):
     try:
         from core.gazelle_api_client import GazelleAPIClient
         from core.supabase_storage import SupabaseStorage
-        from modules.sync_gazelle.sync_to_supabase import parse_gazelle_datetime, format_for_supabase
+        from core.timezone_utils import parse_gazelle_datetime, format_for_supabase
         import requests as http_requests
 
         api_client = GazelleAPIClient()
