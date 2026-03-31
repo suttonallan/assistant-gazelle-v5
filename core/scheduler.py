@@ -216,9 +216,11 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
             stats=stats
         )
 
-        # 🔗 ORCHESTRATION: Déclencher le rapport Timeline automatiquement
-        print("\n🔗 Chaînage: Génération automatique du Rapport Timeline...")
-        try:
+        # Rapport Timeline généré par GitHub Actions (full_gazelle_sync.yml)
+        # après la sync, pas par le scheduler Render — évite les doublons
+        # et les sheets vidés lors des redéploiements.
+        print("ℹ️  Rapport Timeline sera généré par GitHub Actions (pas ici)")
+        if False:  # Désactivé — gardé pour référence
             task_generate_rapport_timeline()
             print("✅ Chaîne Gazelle → Timeline complétée avec succès\n")
             
@@ -775,7 +777,7 @@ def configure_jobs(scheduler: BackgroundScheduler):
     print("   ✅ 17:00 - Rappel validation fiches de service configuré")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
-    print("ℹ️  Note: Le Rapport Timeline est généré automatiquement après Sync Gazelle\n")
+    print("ℹ️  Note: Le Rapport Timeline est généré par GitHub Actions (full_gazelle_sync.yml), pas par le scheduler Render\n")
 
 
 def start_scheduler():
