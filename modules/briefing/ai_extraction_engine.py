@@ -61,20 +61,23 @@ _SAFETY_BLOCKED = "__SAFETY_BLOCKED__"
 
 def fetch_earliest_client_date(storage, client_id: str,
                                 client_created_at: str = None) -> Optional[str]:
-    """Requête directe Supabase : la TOUTE PREMIÈRE entrée de timeline pour un client.
+    """Cherche la plus ancienne date connue pour un client.
 
-    Ignore les limites de batch et les filtres de type d'entrée.
-    Logique de sécurité : si la date la plus ancienne == date de création Gazelle
-    ET que cette date est >= 2024-01-01, on considère que l'historique n'est pas
-    encore backfillé → retourne _SAFETY_BLOCKED (pas de fausse ancienneté).
+    Consulte 3 sources et prend la plus ancienne :
+    1. Plus ancienne timeline entry dans Supabase
+    2. Plus ancien RV dans Supabase (gazelle_appointments)
+    3. Le champ created_at du client dans Gazelle
 
     Retourne :
-        - "depuis X ans/mois" si données fiables
-        - _SAFETY_BLOCKED si données suspectes (bloque aussi le fallback)
-        - None si aucune donnée ou erreur (le fallback peut tenter)
+        - "depuis X ans/mois" si une date trouvée
+        - None si aucune donnée
     """
+    candidates = []
+    headers = storage._get_headers()
+    cid_encoded = quote(client_id, safe='')
+
+    # Source 1 : plus ancienne timeline entry
     try:
-        cid_encoded = quote(client_id, safe='')
         url = (
             f"{storage.api_url}/gazelle_timeline_entries?"
             f"client_id=eq.{cid_encoded}"
@@ -82,55 +85,43 @@ def fetch_earliest_client_date(storage, client_id: str,
             f"&order=occurred_at.asc"
             f"&limit=1"
         )
-        resp = http_requests.get(url, headers=storage._get_headers(), timeout=8)
-        if resp.status_code != 200 or not resp.json():
-            return None
+        resp = http_requests.get(url, headers=headers, timeout=8)
+        if resp.status_code == 200 and resp.json():
+            date_str = resp.json()[0].get('occurred_at', '')
+            if date_str and len(date_str) >= 10:
+                candidates.append(datetime.strptime(date_str[:10], '%Y-%m-%d'))
+    except Exception:
+        pass
 
-        oldest_str = resp.json()[0].get('occurred_at', '')
-        if not oldest_str or len(oldest_str) < 10:
-            return None
+    # Source 2 : plus ancien RV
+    try:
+        url = (
+            f"{storage.api_url}/gazelle_appointments?"
+            f"client_external_id=eq.{cid_encoded}"
+            f"&select=appointment_date"
+            f"&order=appointment_date.asc"
+            f"&limit=1"
+        )
+        resp = http_requests.get(url, headers=headers, timeout=8)
+        if resp.status_code == 200 and resp.json():
+            date_str = resp.json()[0].get('appointment_date', '')
+            if date_str and len(date_str) >= 10:
+                candidates.append(datetime.strptime(date_str[:10], '%Y-%m-%d'))
+    except Exception:
+        pass
 
-        oldest_date = datetime.strptime(oldest_str[:10], '%Y-%m-%d')
+    # Source 3 : created_at du client Gazelle
+    if client_created_at and len(client_created_at) >= 10:
+        try:
+            candidates.append(datetime.strptime(client_created_at[:10], '%Y-%m-%d'))
+        except ValueError:
+            pass
 
-        # ── Logique de sécurité ──
-        # Si la plus ancienne entrée tombe le même jour que la création du
-        # dossier Gazelle ET qu'il n'y a qu'une seule entrée, on ne peut pas
-        # se fier à cette date (pas de backfill). Mais s'il y a plusieurs
-        # entrées étalées dans le temps, c'est un vrai historique.
-        if client_created_at and len(client_created_at) >= 10:
-            try:
-                created_date = datetime.strptime(client_created_at[:10], '%Y-%m-%d')
-                if (oldest_date.date() == created_date.date()
-                        and created_date.date() >= date_type(2024, 1, 1)):
-                    # Vérifier s'il y a un historique réel (>1 entrée étalée)
-                    count_url = (
-                        f"{storage.api_url}/gazelle_timeline_entries?"
-                        f"client_id=eq.{cid_encoded}"
-                        f"&select=occurred_at"
-                        f"&order=occurred_at.desc"
-                        f"&limit=1"
-                    )
-                    count_resp = http_requests.get(count_url, headers=storage._get_headers(), timeout=5)
-                    if count_resp.status_code == 200 and count_resp.json():
-                        newest_str = count_resp.json()[0].get('occurred_at', '')
-                        if newest_str and len(newest_str) >= 10:
-                            newest_date = datetime.strptime(newest_str[:10], '%Y-%m-%d')
-                            # Si plus de 30 jours entre la plus ancienne et la plus récente,
-                            # c'est un vrai historique, pas un artefact de création
-                            if (newest_date - oldest_date).days > 30:
-                                pass  # Historique réel → ne pas bloquer
-                            else:
-                                return _SAFETY_BLOCKED
-                    else:
-                        return _SAFETY_BLOCKED
-            except ValueError:
-                pass
-
-        return _format_client_since(oldest_date)
-
-    except Exception as e:
-        print(f"⚠️  fetch_earliest_client_date error ({client_id}): {e}")
+    if not candidates:
         return None
+
+    oldest = min(candidates)
+    return _format_client_since(oldest)
 
 
 def _format_client_since(oldest: datetime) -> str:

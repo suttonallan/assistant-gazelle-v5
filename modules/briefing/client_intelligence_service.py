@@ -28,7 +28,6 @@ from core.supabase_storage import SupabaseStorage
 from modules.briefing.ai_extraction_engine import (
     compute_client_since,
     fetch_earliest_client_date,
-    _SAFETY_BLOCKED,
     resolve_technician_name,
     TECHNICIAN_NAMES,
     ADMIN_STAFF_IDS,
@@ -251,17 +250,13 @@ class NarrativeBriefingService:
                 or 'Client'
             )
 
-            # Client since — requête directe MIN(occurred_at) sans limites
+            # Client since — cherche dans timeline, appointments ET created_at
             client_created_at = client.get('created_at', '')
             client_since = fetch_earliest_client_date(
                 self.storage, cid, client_created_at
             )
-            if client_since == _SAFETY_BLOCKED:
-                # Données suspectes (timeline récente = date création Gazelle)
-                # → ne pas afficher de durée, même via fallback
-                client_since = None
-            elif client_since is None:
-                # Erreur réseau ou pas de données — fallback sur le batch existant
+            if client_since is None:
+                # Fallback sur le batch existant
                 client_since = compute_client_since(
                     [{'date': t.get('occurred_at', '')[:10]} for t in timeline]
                 )
