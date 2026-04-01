@@ -887,9 +887,17 @@ class ServiceReports:
                     counts[tab] = 0
                     continue
                 try:
-                    ws.clear()
+                    # Supprimer l'onglet et le recréer pour libérer les cellules
+                    # (ws.clear() ne libère pas les lignes fantômes → 10M cells limit)
+                    workbook.del_worksheet(ws)
+                    ws = workbook.add_worksheet(title=tab, rows=1, cols=20)
+                    print(f"🔄 Onglet {tab} recréé (libération cellules)")
                 except Exception as e:
-                    print(f"⚠️ Impossible de nettoyer l'onglet {tab}: {e}")
+                    print(f"⚠️ Impossible de recréer l'onglet {tab}: {e}")
+                    try:
+                        ws.clear()
+                    except Exception:
+                        pass
             self._ensure_headers(ws)
 
             if rows:
@@ -924,9 +932,15 @@ class ServiceReports:
                 counts[pda_tab] = 0
             else:
                 try:
-                    ws_pda.clear()
+                    workbook.del_worksheet(ws_pda)
+                    ws_pda = workbook.add_worksheet(title=pda_tab, rows=1, cols=20)
+                    print(f"🔄 Onglet {pda_tab} recréé (libération cellules)")
                 except Exception as e:
-                    print(f"⚠️ Impossible de nettoyer l'onglet {pda_tab}: {e}")
+                    print(f"⚠️ Impossible de recréer l'onglet {pda_tab}: {e}")
+                    try:
+                        ws_pda.clear()
+                    except Exception:
+                        pass
 
         # En-têtes spécifiques pour les demandes PdA
         self._ensure_headers(ws_pda, PDA_REQUESTS_HEADERS)
