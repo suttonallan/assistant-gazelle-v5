@@ -779,6 +779,77 @@ async def backfill_all(request: Dict[str, Any]):
     }
 
 
+@router.get("/admin/pda-stats", response_model=Dict[str, Any])
+async def pda_appointment_stats(secret: str = Query(""), since: str = Query("2025-08-01")):
+    """Statistiques des RV Place des Arts par jour/heure depuis une date."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    try:
+        from core.supabase_storage import SupabaseStorage
+        from collections import defaultdict
+        from datetime import datetime as dt
+        import re
+
+        storage = SupabaseStorage(silent=True)
+        PDA_CLIENT_ID = "cli_HbEwl9rN11pSuDEU"
+
+        result = storage.client.table('gazelle_appointments').select(
+            'appointment_date,appointment_time,title,technicien,status'
+        ).eq('client_external_id', PDA_CLIENT_ID).gte(
+            'appointment_date', since
+        ).order('appointment_date').execute()
+
+        appointments = result.data or []
+
+        day_names = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche']
+        by_day = defaultdict(int)
+        by_hour = defaultdict(int)
+        by_day_hour = defaultdict(int)
+        all_entries = []
+
+        for apt in appointments:
+            date_str = (apt.get('appointment_date') or '')[:10]
+            time_str = apt.get('appointment_time') or ''
+            if not date_str or len(date_str) < 10:
+                continue
+
+            d = dt.strptime(date_str, '%Y-%m-%d')
+            day = day_names[d.weekday()]
+            by_day[day] += 1
+
+            hour = None
+            if time_str:
+                try:
+                    hour = int(time_str.split(':')[0])
+                    h_label = f"{hour:02d}h"
+                    by_hour[h_label] += 1
+                    by_day_hour[f"{day} {h_label}"] += 1
+                except:
+                    pass
+
+            all_entries.append({
+                "date": date_str,
+                "day": day,
+                "time": time_str[:5] if time_str else "",
+                "title": apt.get('title', ''),
+                "technician": apt.get('technicien', ''),
+            })
+
+        total = len(all_entries)
+        top_combos = sorted(by_day_hour.items(), key=lambda x: -x[1])[:15]
+
+        return {
+            "total": total,
+            "since": since,
+            "by_day": {d: by_day.get(d, 0) for d in day_names},
+            "by_hour": dict(sorted(by_hour.items())),
+            "top_combos": [{"slot": k, "count": v} for k, v in top_combos],
+            "appointments": all_entries,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/timeline-stats", response_model=Dict[str, Any])
 async def timeline_stats(secret: str = Query("")):
     """Nombre d'entrées timeline par année dans Supabase."""
