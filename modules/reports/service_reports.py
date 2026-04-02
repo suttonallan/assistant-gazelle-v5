@@ -909,11 +909,10 @@ class ServiceReports:
                 if rows:
                     try:
                         # Trier par date décroissante (plus récentes en premier)
-                        # La colonne 0 est DateEvenement (format YYYY-MM-DD)
                         rows_sorted = sorted(rows, key=lambda r: r[0] if r[0] else "", reverse=True)
 
-                        # Insérer après l'en-tête (ligne 2) pour garder les plus récentes en haut
-                        ws.insert_rows(rows_sorted, row=2, value_input_option="RAW")
+                        # Append après les headers (fonctionne sur onglet neuf ou existant)
+                        ws.append_rows(rows_sorted, value_input_option="RAW")
                         counts[tab] = len(rows_sorted)
                     except Exception as e:
                         print(f"❌ Erreur insert {tab}: {e}")
@@ -962,7 +961,7 @@ class ServiceReports:
                 try:
                     # Trier par DateRV décroissante (colonne 1)
                     rows_sorted = sorted(pda_rows, key=lambda r: r[1] if r[1] else "", reverse=True)
-                    ws_pda.insert_rows(rows_sorted, row=2, value_input_option="RAW")
+                    ws_pda.append_rows(rows_sorted, value_input_option="RAW")
                     counts[pda_tab] = len(rows_sorted)
                     print(f"✅ {len(rows_sorted)} demandes PdA ajoutées à l'onglet '{pda_tab}'")
                 except Exception as e:
