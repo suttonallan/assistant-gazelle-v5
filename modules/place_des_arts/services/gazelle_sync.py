@@ -70,8 +70,8 @@ class GazelleSyncService:
     # Client ID Place des Arts
     PDA_CLIENT_ID = "cli_HbEwl9rN11pSuDEU"
 
-    # Clients Gazelle dont les RV ont lieu à Place des Arts
-    # (organismes résidents qui ont leur propre fiche client dans Gazelle)
+    # Clients Gazelle dont les RV d'accordage ont lieu à Place des Arts
+    # (clients qui louent les salles de PDA et ont leur propre fiche dans Gazelle)
     PDA_RELATED_CLIENT_IDS = [
         "cli_HbEwl9rN11pSuDEU",  # Place des Arts
         "cli_gO9PL7gIVSQnQC4T",  # Orchestre Symphonique de Montréal (OSM)
