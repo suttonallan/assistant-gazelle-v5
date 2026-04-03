@@ -69,6 +69,13 @@ class GazelleSyncService:
     
     # Client ID Place des Arts
     PDA_CLIENT_ID = "cli_HbEwl9rN11pSuDEU"
+
+    # Clients Gazelle dont les RV ont lieu à Place des Arts
+    # (organismes résidents qui ont leur propre fiche client dans Gazelle)
+    PDA_RELATED_CLIENT_IDS = [
+        "cli_HbEwl9rN11pSuDEU",  # Place des Arts
+        "cli_gO9PL7gIVSQnQC4T",  # Orchestre Symphonique de Montréal (OSM)
+    ]
     
     def __init__(self, storage: Optional[SupabaseStorage] = None):
         """Initialise le service de synchronisation."""
@@ -351,21 +358,38 @@ class GazelleSyncService:
             return []
     
     def _get_gazelle_appointments(self) -> List[Dict]:
-        """Récupère tous les RV Gazelle pour Place des Arts."""
+        """Récupère tous les RV Gazelle pour Place des Arts et ses organismes résidents."""
         try:
-            # Récupérer les RV des 60 derniers jours
-            # Utiliser appointment_date (pas start_datetime qui peut être NULL)
             from datetime import datetime, timedelta
             cutoff_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
 
+            # Chercher les RV du client PDA + organismes résidents (OSM, etc.)
             result = self.storage.client.table('gazelle_appointments')\
                 .select('*')\
-                .eq('client_external_id', self.PDA_CLIENT_ID)\
+                .in_('client_external_id', self.PDA_RELATED_CLIENT_IDS)\
                 .gte('appointment_date', cutoff_date)\
                 .order('appointment_date')\
                 .execute()
 
-            return result.data if result.data else []
+            # Chercher aussi les RV avec "Place des Arts" dans le titre
+            # (cas où le RV est sous un autre client mais mentionne PDA)
+            title_result = self.storage.client.table('gazelle_appointments')\
+                .select('*')\
+                .ilike('title', '*Place des Arts*')\
+                .gte('appointment_date', cutoff_date)\
+                .order('appointment_date')\
+                .execute()
+
+            # Fusionner sans doublons
+            seen_ids = set()
+            all_apts = []
+            for apt in (result.data or []) + (title_result.data or []):
+                eid = apt.get('external_id')
+                if eid and eid not in seen_ids:
+                    all_apts.append(apt)
+                    seen_ids.add(eid)
+
+            return all_apts
         except Exception as e:
             logger.error(f"Erreur récupération RV Gazelle: {e}")
             return []
@@ -442,8 +466,11 @@ class GazelleSyncService:
             apt_description = (apt.get('description', '') or '').upper()
             apt_notes = (apt.get('notes', '') or '').upper()
 
-            # CRITÈRE 1: Titre contient "Place des Arts" (priorité haute)
-            if 'PLACE DES ARTS' in apt_title:
+            # CRITÈRE 1: RV lié à PDA (client PDA ou titre contient "Place des Arts")
+            apt_client_id = apt.get('client_external_id', '')
+            if apt_client_id in [cid for cid in self.PDA_RELATED_CLIENT_IDS]:
+                score += 10
+            elif 'PLACE DES ARTS' in apt_title:
                 score += 10
 
             # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
