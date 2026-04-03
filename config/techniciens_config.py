@@ -89,6 +89,29 @@ TECHNICIENS: Dict[str, Dict] = {
         "is_admin": False,
         "is_technicien": True,
         "is_assistant": False
+    },
+
+    "margot": {
+        # Identifiants
+        "gazelle_id": "usr_bbt59aCUqUaDWA8n",
+        "supabase_id": "usr_bbt59aCUqUaDWA8n",
+
+        # Informations personnelles
+        "prenom": "Margot",
+        "nom": "Charignon",
+        "nom_complet": "Margot Charignon",
+        "abbreviation": "Margot",
+        "username": "margot",
+
+        # Contact
+        "email": "",  # À remplir
+        "slack": None,
+
+        # Rôle et permissions
+        "role": "technicien",
+        "is_admin": False,
+        "is_technicien": True,
+        "is_assistant": False
     }
 }
 
