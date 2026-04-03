@@ -109,12 +109,15 @@ class GazelleSyncService:
             print(f"   Mode: {'DRY RUN (simulation)' if dry_run else 'MISE À JOUR RÉELLE'}")
             print(f"{'='*70}\n")
             
-            # 1. Récupérer les demandes PDA
+            # 1. Récupérer les demandes PDA à synchroniser
             if request_ids:
                 requests = self._get_requests_by_ids(request_ids)
             else:
-                # Toutes les demandes sans appointment_id
-                requests = self._get_unlinked_requests()
+                # Demandes sans appointment_id + demandes liées à "À attribuer"
+                # (pour revoir si un meilleur RV avec un vrai technicien existe)
+                unlinked = self._get_unlinked_requests()
+                needs_review = self._get_linked_a_attribuer_requests()
+                requests = unlinked + needs_review
             
             if not requests:
                 return {
@@ -326,6 +329,23 @@ class GazelleSyncService:
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Erreur récupération demandes: {e}")
+            return []
+
+    def _get_linked_a_attribuer_requests(self) -> List[Dict]:
+        """Récupère les demandes liées mais avec technicien 'À attribuer' — à revoir."""
+        A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
+        try:
+            result = self.storage.client.table('place_des_arts_requests')\
+                .select('*')\
+                .not_.is_('appointment_id', 'null')\
+                .eq('technician_id', A_ATTRIBUER_ID)\
+                .neq('status', 'COMPLETED')\
+                .neq('status', 'BILLED')\
+                .order('appointment_date', desc=False)\
+                .execute()
+            return result.data if result.data else []
+        except Exception as e:
+            logger.error(f"Erreur récupération demandes à attribuer: {e}")
             return []
 
     def _get_linked_not_completed_requests(self) -> List[Dict]:
