@@ -669,6 +669,125 @@ async def introspect_gazelle_type(type_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/pda-compare", response_model=Dict[str, Any])
+async def pda_compare(secret: str = Query("")):
+    """Compare le matching PDA v5 (actuel) vs v6 (nouveau) sur toutes les demandes."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    try:
+        from core.supabase_storage import SupabaseStorage
+        from modules.pda_v6_matcher import find_best_match, tech_name, REAL_TECHNICIAN_IDS
+        from datetime import datetime, timedelta
+
+        storage = SupabaseStorage(silent=True)
+        PDA_CLIENT_ID = "cli_HbEwl9rN11pSuDEU"
+        cutoff = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+
+        # Charger demandes PDA
+        all_requests = storage.client.table('place_des_arts_requests').select('*').order(
+            'appointment_date', desc=True
+        ).limit(100).execute().data or []
+
+        # Charger RV Gazelle (client PDA + titre "Place des Arts")
+        by_client = storage.client.table('gazelle_appointments').select('*').eq(
+            'client_external_id', PDA_CLIENT_ID
+        ).gte('appointment_date', cutoff).execute().data or []
+
+        by_title = storage.client.table('gazelle_appointments').select('*').ilike(
+            'title', '*Place des Arts*'
+        ).gte('appointment_date', cutoff).execute().data or []
+
+        seen = set()
+        gazelle_apts = []
+        for apt in by_client + by_title:
+            eid = apt.get('external_id')
+            if eid and eid not in seen:
+                gazelle_apts.append(apt)
+                seen.add(eid)
+
+        apt_index = {a['external_id']: a for a in gazelle_apts if a.get('external_id')}
+
+        # Comparer
+        details = []
+        agreements = 0
+        divergences = []
+        v6_only = []
+        v5_only = []
+        v5_matched = 0
+        v6_matched = 0
+
+        for req in all_requests:
+            v5_apt_id = req.get('appointment_id')
+            v5_apt = apt_index.get(v5_apt_id)
+            v5_tech = req.get('technician_id')
+
+            v6_match = find_best_match(req, gazelle_apts)
+            v6_apt_id = v6_match.get('external_id') if v6_match else None
+            v6_tech = v6_match.get('technicien') if v6_match else None
+            v6_method = v6_match.get('_matched_by', 'direct') if v6_match else None
+
+            if v5_apt_id: v5_matched += 1
+            if v6_apt_id: v6_matched += 1
+
+            same = v5_apt_id == v6_apt_id
+            req_label = f"{str(req.get('appointment_date',''))[:10]} {req.get('for_who','')} ({req.get('room','')})"
+
+            if same and v5_apt_id:
+                agreements += 1
+                verdict = "ACCORD"
+            elif v6_apt_id and not v5_apt_id:
+                v6_only.append(req_label)
+                verdict = "V6 SEUL"
+            elif v5_apt_id and not v6_apt_id:
+                v5_only.append(req_label)
+                verdict = "V5 SEUL"
+            elif v5_apt_id and v6_apt_id and not same:
+                v5_real = v5_tech in REAL_TECHNICIAN_IDS
+                v6_real = v6_tech in REAL_TECHNICIAN_IDS
+                better = "v6" if (v6_real and not v5_real) else "v5" if (v5_real and not v6_real) else "?"
+                divergences.append({
+                    "request": req_label,
+                    "v5": f"{v5_apt.get('title','')[:35]} ({tech_name(v5_tech)})" if v5_apt else v5_apt_id,
+                    "v6": f"{v6_match.get('title','')[:35]} ({tech_name(v6_tech)})",
+                    "method": v6_method,
+                    "better": better,
+                })
+                verdict = f"DIVERGE → {better}"
+            else:
+                verdict = "AUCUN"
+
+            details.append({
+                "date": str(req.get('appointment_date',''))[:10],
+                "for_who": req.get('for_who',''),
+                "room": req.get('room',''),
+                "v5": f"{v5_apt.get('title','')[:30]} ({tech_name(v5_tech)})" if v5_apt else ("-" if not v5_apt_id else v5_apt_id[:15]),
+                "v6": f"{v6_match.get('title','')[:30]} ({tech_name(v6_tech)})" if v6_match else "-",
+                "verdict": verdict,
+            })
+
+        return {
+            "summary": {
+                "total": len(all_requests),
+                "v5_matched": v5_matched,
+                "v6_matched": v6_matched,
+                "agreements": agreements,
+                "divergences": len(divergences),
+                "v6_better": len([d for d in divergences if d['better'] == 'v6']),
+                "v5_better": len([d for d in divergences if d['better'] == 'v5']),
+            },
+            "divergences": divergences,
+            "v6_only": v6_only,
+            "v5_only": v5_only,
+            "details": details,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/admin/backfill-all", response_model=Dict[str, Any])
 async def backfill_all(request: Dict[str, Any]):
     """
