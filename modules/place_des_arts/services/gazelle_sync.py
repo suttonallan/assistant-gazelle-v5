@@ -486,11 +486,9 @@ class GazelleSyncService:
             apt_description = (apt.get('description', '') or '').upper()
             apt_notes = (apt.get('notes', '') or '').upper()
 
-            # CRITÈRE 1: RV lié à PDA (client PDA ou titre contient "Place des Arts")
+            # CRITÈRE 1: Titre contient "Place des Arts" ou RV est du client PDA
             apt_client_id = apt.get('client_external_id', '')
-            if apt_client_id in [cid for cid in self.PDA_RELATED_CLIENT_IDS]:
-                score += 10
-            elif 'PLACE DES ARTS' in apt_title:
+            if 'PLACE DES ARTS' in apt_title or apt_client_id == self.PDA_CLIENT_ID:
                 score += 10
 
             # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
