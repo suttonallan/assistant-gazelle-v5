@@ -519,42 +519,39 @@ class GazelleSyncService:
         pda_requests: List[Dict]
     ) -> Optional[Dict]:
         """
-        Vérifie si un RV Gazelle correspond à une demande PDA existante (sans lien appointment_id).
-        Matching inverse: on part du RV Gazelle et on cherche une demande correspondante par date + titre.
-        Retourne la demande si trouvée, None sinon.
+        Vérifie si un RV Gazelle correspond à une demande PDA existante.
+        Cherche dans TOUTES les demandes (liées ou non) par date + for_who/salle.
+        Un RV Gazelle n'est pas orphelin s'il correspond à une demande existante,
+        même si cette demande est déjà liée à un autre RV Gazelle (cas de
+        plusieurs RV pour le même événement).
         """
-        import re
-
         apt_date_str = gazelle_apt.get('appointment_date', '')
         if not apt_date_str:
             return None
         apt_date = apt_date_str[:10]
         apt_title = (gazelle_apt.get('title') or '').upper()
+        apt_desc = (gazelle_apt.get('description') or '').upper()
+        apt_text = apt_title + ' ' + apt_desc
 
         for req in pda_requests:
-            # Déjà liée à un autre RV — pas candidate
-            if req.get('appointment_id'):
-                continue
-
             req_date_str = req.get('appointment_date', '')
             if not req_date_str:
                 continue
             req_date = str(req_date_str)[:10]
 
-            # Même jour obligatoire
             if req_date != apt_date:
                 continue
 
-            # Matching par for_who dans le titre Gazelle
+            # Matching par for_who dans le titre/description Gazelle
             req_for_who = (req.get('for_who') or '').upper().strip()
             if req_for_who:
-                for_who_words = [w for w in req_for_who.split() if len(w) > 2]
-                if any(word in apt_title for word in for_who_words):
+                for_who_words = [w for w in req_for_who.split() if len(w) > 1]
+                if any(word in apt_text for word in for_who_words):
                     return req
 
-            # Matching par salle dans le titre Gazelle
+            # Matching par salle
             req_room = (req.get('room') or '').upper().strip()
-            if req_room and req_room in apt_title:
+            if req_room and req_room in apt_text:
                 return req
 
         return None
