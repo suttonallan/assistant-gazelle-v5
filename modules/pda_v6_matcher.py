@@ -104,15 +104,14 @@ def _evaluate_match(request_room, request_for_who, request_hour_limit,
                     apt_text, apt_hour, has_real_tech):
     quality = 0
     room_match = bool(request_room and request_room in apt_text)
-    for_who_match = bool(request_for_who and _for_who_matches(request_for_who, apt_text))
+    fw_score = _for_who_score(request_for_who, apt_text) if request_for_who else 0
 
-    if not room_match and not for_who_match:
+    if not room_match and fw_score == 0:
         return 0
 
     if room_match:
         quality += 1
-    if for_who_match:
-        quality += 1
+    quality += fw_score
     if request_hour_limit and apt_hour is not None and apt_hour <= request_hour_limit:
         quality += 1
     if has_real_tech:
@@ -120,13 +119,33 @@ def _evaluate_match(request_room, request_for_who, request_hour_limit,
     return quality
 
 
+STOP_WORDS = {
+    "LE", "LA", "LES", "DE", "DU", "DES", "EN", "AU", "AUX",
+    "UN", "UNE", "ET", "OU", "PAR", "POUR", "AVEC", "DANS",
+    "THE", "OF", "AND", "BY", "FOR", "AT", "IN",
+}
+
+
 def _for_who_matches(request_for_who, apt_text):
+    return _for_who_score(request_for_who, apt_text) > 0
+
+
+def _for_who_score(request_for_who, apt_text):
     if not request_for_who:
-        return False
+        return 0
     if request_for_who in apt_text:
-        return True
-    words = [w for w in request_for_who.split() if len(w) >= 2]
-    return bool(words and any(w in apt_text for w in words))
+        return 3
+    words = [w for w in request_for_who.split() if len(w) >= 2 and w not in STOP_WORDS]
+    if not words:
+        return 0
+    matched = sum(1 for w in words if w in apt_text)
+    if matched == 0:
+        return 0
+    if matched == len(words):
+        return 3
+    if matched >= 2:
+        return 2
+    return 1
 
 
 def _build_search_text(apt):
