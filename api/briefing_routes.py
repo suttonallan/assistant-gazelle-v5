@@ -898,6 +898,43 @@ async def backfill_all(request: Dict[str, Any]):
     }
 
 
+@router.post("/admin/flag", response_model=Dict[str, Any])
+async def set_feature_flag(request: Dict[str, Any]):
+    """Active ou désactive un feature flag."""
+    if request.get("secret") != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    flag = request.get("flag", "")
+    enabled = request.get("enabled", False)
+    if not flag:
+        raise HTTPException(status_code=400, detail="flag requis")
+
+    try:
+        from core.supabase_storage import SupabaseStorage
+        import requests as http_requests
+
+        storage = SupabaseStorage(silent=True)
+        key = f"flag_{flag}"
+        value = "true" if enabled else "false"
+
+        url = f"{storage.api_url}/system_settings"
+        headers = storage._get_headers()
+        headers["Prefer"] = "resolution=merge-duplicates"
+        resp = http_requests.post(url, headers=headers, json={"key": key, "value": value})
+
+        if resp.status_code in (200, 201):
+            # Vider le cache des flags
+            from core.feature_flags import _refresh_cache
+            _refresh_cache()
+            return {"success": True, "flag": flag, "enabled": enabled}
+        else:
+            raise HTTPException(status_code=500, detail=f"Erreur Supabase: {resp.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/pda-stats", response_model=Dict[str, Any])
 async def pda_appointment_stats(secret: str = Query(""), since: str = Query("2025-08-01")):
     """Statistiques des RV Place des Arts par jour/heure depuis une date."""
