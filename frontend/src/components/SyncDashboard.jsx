@@ -2,20 +2,22 @@ import { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 
 /**
- * SyncDashboard - Tableau de Bord Unifié V6
+ * SyncDashboard — Tableau de bord compact
  *
- * Vue unique et épurée:
- * - HAUT: Statut système (Vert/Rouge)
- * - MILIEU: Timeline des imports Gazelle
- * - BAS: Emails envoyés/prévus (alertes dernière minute)
+ * Sections:
+ * 1. Statut système (une ligne)
+ * 2. Timeline syncs (compact)
+ * 3. Alertes dernière minute
+ * 4. RV non confirmés (J-1)
+ * 5. Surveillance PDA (watchlist)
  */
 export default function SyncDashboard({ currentUser }) {
   const [syncLogs, setSyncLogs] = useState([])
   const [syncStats, setSyncStats] = useState(null)
   const [lateAlerts, setLateAlerts] = useState([])
+  const [unconfirmedRV, setUnconfirmedRV] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [lastRefresh, setLastRefresh] = useState(new Date())
 
   useEffect(() => {
     loadAllData()
@@ -28,334 +30,200 @@ export default function SyncDashboard({ currentUser }) {
     await Promise.all([
       loadSyncLogs(),
       loadSyncStats(),
-      loadLateAlerts()
+      loadLateAlerts(),
+      loadUnconfirmedRV(),
     ])
-    setLastRefresh(new Date())
     setLoading(false)
   }
 
   const loadSyncLogs = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/sync-logs/recent?limit=15`)
-      if (response.ok) {
-        const data = await response.json()
-        setSyncLogs(data.logs || [])
-      }
-    } catch (err) {
-      console.error('Erreur sync logs:', err)
-      setError(err.message)
-    }
+      const r = await fetch(`${API_URL}/api/sync-logs/recent?limit=10`)
+      if (r.ok) { const d = await r.json(); setSyncLogs(d.logs || []) }
+    } catch (e) { console.error('sync logs:', e) }
   }
 
   const loadSyncStats = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/sync-logs/stats`)
-      if (response.ok) {
-        const data = await response.json()
-        setSyncStats(data)
-      }
-    } catch (err) {
-      console.error('Erreur sync stats:', err)
-    }
+      const r = await fetch(`${API_URL}/api/sync-logs/stats`)
+      if (r.ok) setSyncStats(await r.json())
+    } catch (e) { console.error('sync stats:', e) }
   }
 
   const loadLateAlerts = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/alertes-rv/late-assignment?limit=20`)
-      if (response.ok) {
-        const data = await response.json()
-        setLateAlerts(data.alerts || [])
+      const r = await fetch(`${API_URL}/api/alertes-rv/late-assignment?limit=20`)
+      if (r.ok) { const d = await r.json(); setLateAlerts(d.alerts || []) }
+    } catch (e) { console.error('late alerts:', e) }
+  }
+
+  const loadUnconfirmedRV = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/alertes-rv/check`)
+      if (r.ok) {
+        const d = await r.json()
+        setUnconfirmedRV(d.unconfirmed || d.appointments || [])
       }
-    } catch (err) {
-      console.error('Erreur late alerts:', err)
-    }
+    } catch (e) { console.error('unconfirmed:', e) }
   }
 
-  const formatTime = (isoString) => {
-    if (!isoString) return '--:--'
-    try {
-      return new Date(isoString).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })
-    } catch { return '--:--' }
+  const rel = (iso) => {
+    if (!iso) return '--'
+    const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+    if (m < 1) return 'maintenant'
+    if (m < 60) return `${m}min`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h`
+    const d = Math.floor(h / 24)
+    return `${d}j`
   }
 
-  const formatDate = (isoString) => {
-    if (!isoString) return 'N/A'
-    try {
-      return new Date(isoString).toLocaleDateString('fr-CA', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-    } catch { return isoString }
+  const time = (iso) => {
+    if (!iso) return '--:--'
+    try { return new Date(iso).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' }) }
+    catch { return '--:--' }
   }
 
-  const formatRelative = (isoString) => {
-    if (!isoString) return 'N/A'
-    const diff = Date.now() - new Date(isoString).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return "À l'instant"
-    if (mins < 60) return `${mins} min`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h`
-    return formatDate(isoString)
+  const date = (iso) => {
+    if (!iso) return ''
+    try { return new Date(iso).toLocaleDateString('fr-CA', { day: '2-digit', month: 'short' }) }
+    catch { return iso?.slice(0, 10) || '' }
   }
 
-  // Déterminer le statut système
-  const getSystemStatus = () => {
-    if (!syncStats || !syncLogs.length) return { status: 'unknown', color: 'gray', text: 'Chargement...' }
+  // Statut système
+  const lastLog = syncLogs[0]
+  const hoursSince = lastLog ? (Date.now() - new Date(lastLog.created_at).getTime()) / 3600000 : 99
+  const sysOk = lastLog?.status === 'success' && hoursSince < 3
 
-    const lastLog = syncLogs[0]
-    const lastSyncTime = new Date(lastLog?.created_at || 0)
-    const hoursSinceSync = (Date.now() - lastSyncTime.getTime()) / 3600000
-
-    if (lastLog?.status === 'error') {
-      return { status: 'error', color: 'red', text: 'Erreur dernière sync' }
-    }
-    if (hoursSinceSync > 2) {
-      return { status: 'warning', color: 'yellow', text: `Dernière sync: ${formatRelative(lastLog?.created_at)}` }
-    }
-    return { status: 'ok', color: 'green', text: 'Système opérationnel' }
-  }
-
-  const systemStatus = getSystemStatus()
   const pendingAlerts = lateAlerts.filter(a => a.status === 'pending')
   const sentAlerts = lateAlerts.filter(a => a.status === 'sent')
 
   const extractStats = (log) => {
-    const stats = log.stats || log.tables_updated || {}
-    if (typeof stats === 'string') {
-      try { return JSON.parse(stats) } catch { return {} }
-    }
-    return stats
-  }
-
-  if (loading && syncLogs.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-pulse text-gray-500">Chargement...</div>
-      </div>
-    )
+    const s = log.stats || log.tables_updated || {}
+    if (typeof s === 'string') { try { return JSON.parse(s) } catch { return {} } }
+    return s
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-4xl mx-auto px-3 py-4 space-y-3">
 
-      {/* ═══════════════════════════════════════════════════════════════
-          SECTION 1: STATUT SYSTÈME (en haut)
-          ═══════════════════════════════════════════════════════════════ */}
-      <div className={`rounded-xl p-6 shadow-lg border-2 ${
-        systemStatus.color === 'green' ? 'bg-green-50 border-green-400' :
-        systemStatus.color === 'red' ? 'bg-red-50 border-red-400' :
-        systemStatus.color === 'yellow' ? 'bg-yellow-50 border-yellow-400' :
-        'bg-gray-50 border-gray-300'
+      {/* ── Statut système (une ligne) ── */}
+      <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs ${
+        sysOk ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'
       }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {/* Indicateur LED */}
-            <div className={`w-5 h-5 rounded-full animate-pulse ${
-              systemStatus.color === 'green' ? 'bg-green-500' :
-              systemStatus.color === 'red' ? 'bg-red-500' :
-              systemStatus.color === 'yellow' ? 'bg-yellow-500' :
-              'bg-gray-400'
-            }`} />
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">Tableau de Bord</h1>
-              <p className={`text-sm ${
-                systemStatus.color === 'green' ? 'text-green-700' :
-                systemStatus.color === 'red' ? 'text-red-700' :
-                'text-yellow-700'
-              }`}>
-                {systemStatus.text}
-              </p>
-            </div>
-          </div>
-
-          {/* Stats rapides */}
-          <div className="flex gap-6 text-center">
-            <div>
-              <div className="text-2xl font-bold text-gray-800">{syncStats?.success_count || 0}</div>
-              <div className="text-xs text-gray-500">Syncs (24h)</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-orange-600">{pendingAlerts.length}</div>
-              <div className="text-xs text-gray-500">En attente</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-green-600">{sentAlerts.length}</div>
-              <div className="text-xs text-gray-500">Envoyées</div>
-            </div>
-          </div>
-
-          <button
-            onClick={loadAllData}
-            disabled={loading}
-            className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
-            {loading ? '⏳' : '🔄'} Actualiser
-          </button>
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${sysOk ? 'bg-green-500' : 'bg-yellow-500'}`} />
+          <span className="font-medium text-gray-700">
+            Dernière sync: {rel(lastLog?.created_at)}
+            {lastLog && ` (${lastLog.script_name || 'Gazelle'})`}
+          </span>
         </div>
+        <button
+          onClick={loadAllData}
+          disabled={loading}
+          className="text-gray-500 hover:text-gray-700 text-xs"
+        >
+          {loading ? '...' : 'Actualiser'}
+        </button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          ⚠️ {error}
-        </div>
+      {error && <div className="text-xs text-red-600 px-3">{error}</div>}
+
+      {/* ── RV non confirmés (J-1) ── */}
+      {unconfirmedRV.length > 0 && (
+        <Section title={`RV non confirmés demain (${unconfirmedRV.length})`} color="orange">
+          {unconfirmedRV.slice(0, 8).map((rv, i) => (
+            <Row key={i}>
+              <span className="font-medium">{rv.appointment_time?.slice(0, 5) || '--:--'}</span>
+              <span className="flex-1 truncate">{rv.client_name || 'Client'}</span>
+              <span className="text-gray-400">{rv.technician_name || ''}</span>
+            </Row>
+          ))}
+          {unconfirmedRV.length > 8 && (
+            <div className="text-xs text-gray-400 px-2 pt-1">+{unconfirmedRV.length - 8} autres</div>
+          )}
+        </Section>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════
-          SECTION 2: TIMELINE DES IMPORTS (milieu)
-          ═══════════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-800">
-            📅 Timeline des Synchronisations
-          </h2>
-        </div>
+      {/* ── Alertes dernière minute ── */}
+      <Section title={`Alertes RV dernière minute`} color="gray"
+        badge={pendingAlerts.length > 0 ? `${pendingAlerts.length} en attente` : null}
+      >
+        {lateAlerts.length === 0 ? (
+          <div className="text-xs text-gray-400 py-2 px-2">Aucune alerte</div>
+        ) : (
+          lateAlerts.slice(0, 10).map((a, i) => (
+            <Row key={a.id || i} className={a.status === 'pending' ? 'bg-yellow-50' : a.status === 'failed' ? 'bg-red-50' : ''}>
+              <span className="w-4 text-center">
+                {a.status === 'sent' ? '✓' : a.status === 'pending' ? '⏳' : '✗'}
+              </span>
+              <span className="font-medium w-20">{a.appointment_date?.slice(5) || ''} {a.appointment_time?.slice(0, 5) || ''}</span>
+              <span className="flex-1 truncate">{a.client_name || 'N/A'}</span>
+              <span className="text-gray-400 truncate">{a.technician_first_name || a.technician_id?.slice(0, 8) || ''}</span>
+              <span className="text-gray-400 w-12 text-right">
+                {a.status === 'sent' ? rel(a.sent_at) : a.status === 'pending' ? time(a.scheduled_send_at) : 'err'}
+              </span>
+            </Row>
+          ))
+        )}
+      </Section>
 
-        <div className="divide-y divide-gray-100 max-h-[350px] overflow-y-auto">
-          {syncLogs.length === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              Aucune synchronisation enregistrée
-            </div>
-          ) : (
-            syncLogs.map((log, idx) => {
-              const stats = extractStats(log)
-              const isSuccess = log.status === 'success'
-              const isError = log.status === 'error'
+      {/* ── Timeline syncs ── */}
+      <Section title="Synchronisations" color="gray">
+        {syncLogs.length === 0 ? (
+          <div className="text-xs text-gray-400 py-2 px-2">Aucune sync</div>
+        ) : (
+          syncLogs.slice(0, 8).map((log, i) => {
+            const s = extractStats(log)
+            const ok = log.status === 'success'
+            return (
+              <Row key={log.id || i} className={!ok ? 'bg-red-50' : ''}>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-green-400' : 'bg-red-400'}`} />
+                <span className="font-mono w-12">{time(log.created_at)}</span>
+                <span className="w-16 text-gray-500">{date(log.created_at)}</span>
+                <span className="flex-1 truncate">{log.script_name || 'Sync'}</span>
+                <span className="text-gray-400 w-10 text-right">{log.execution_time_seconds ? `${log.execution_time_seconds}s` : ''}</span>
+                {s.appointments !== undefined && (
+                  <span className="bg-blue-50 text-blue-600 text-xs px-1.5 rounded">{s.appointments} RV</span>
+                )}
+              </Row>
+            )
+          })
+        )}
+      </Section>
 
-              return (
-                <div key={log.id || idx} className={`px-6 py-4 flex items-center gap-4 hover:bg-gray-50 ${isError ? 'bg-red-50' : ''}`}>
-                  {/* Heure */}
-                  <div className="w-16 text-center">
-                    <div className="text-lg font-mono font-bold text-gray-700">
-                      {formatTime(log.created_at)}
-                    </div>
-                  </div>
-
-                  {/* Indicateur */}
-                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                    isSuccess ? 'bg-green-500' : isError ? 'bg-red-500' : 'bg-yellow-500'
-                  }`} />
-
-                  {/* Contenu */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 truncate">
-                        {log.script_name || 'Sync Gazelle'}
-                      </span>
-                      {log.execution_time_seconds && (
-                        <span className="text-xs text-gray-400">
-                          ({log.execution_time_seconds}s)
-                        </span>
-                      )}
-                    </div>
-                    {log.message && (
-                      <p className="text-sm text-gray-500 truncate">{log.message}</p>
-                    )}
-                    {(log.error_details || log.error_message) && (
-                      <p className="text-sm text-red-600 truncate">
-                        ❌ {log.error_details || log.error_message}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Stats badges */}
-                  <div className="flex gap-1 flex-shrink-0">
-                    {stats.appointments !== undefined && (
-                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                        {stats.appointments} RV
-                      </span>
-                    )}
-                    {stats.clients !== undefined && stats.clients > 0 && (
-                      <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded">
-                        {stats.clients} clients
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+      {/* ── Footer ── */}
+      <div className="text-center text-xs text-gray-300 pt-1">
+        Sync horaire 7h-21h
       </div>
+    </div>
+  )
+}
 
-      {/* ═══════════════════════════════════════════════════════════════
-          SECTION 3: EMAILS ENVOYÉS/PRÉVUS (bas)
-          ═══════════════════════════════════════════════════════════════ */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-800">
-            ✉️ Alertes Email (Dernière Minute)
-          </h2>
-          <div className="flex gap-3 text-sm">
-            <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full">
-              {pendingAlerts.length} en attente
-            </span>
-            <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full">
-              {sentAlerts.length} envoyées
-            </span>
-          </div>
-        </div>
 
-        <div className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
-          {lateAlerts.length === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              Aucune alerte email
-            </div>
-          ) : (
-            lateAlerts.map((alert, idx) => {
-              const isPending = alert.status === 'pending'
-              const isSent = alert.status === 'sent'
-              const isFailed = alert.status === 'failed'
-
-              return (
-                <div key={alert.id || idx} className={`px-6 py-4 flex items-center gap-4 ${
-                  isPending ? 'bg-yellow-50' : isFailed ? 'bg-red-50' : 'hover:bg-gray-50'
-                }`}>
-                  {/* Icône statut */}
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-xl">
-                    {isPending ? '📤' : isSent ? '✅' : '❌'}
-                  </div>
-
-                  {/* Contenu */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">
-                        {alert.appointment_date} {alert.appointment_time?.slice(0, 5)}
-                      </span>
-                      <span className="text-gray-400">→</span>
-                      <span className="text-gray-700 truncate">
-                        {alert.technician_first_name || ''} {alert.technician_last_name || alert.technician_id}
-                      </span>
-                    </div>
-                    <div className="text-sm text-gray-500 truncate">
-                      {alert.client_name || 'Client N/A'}
-                      {alert.technician_email && (
-                        <span className="text-gray-400 ml-2">({alert.technician_email})</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Timing */}
-                  <div className="text-right text-xs text-gray-500 flex-shrink-0">
-                    {isPending && alert.scheduled_send_at && (
-                      <div>Envoi: {formatDate(alert.scheduled_send_at)}</div>
-                    )}
-                    {isSent && alert.sent_at && (
-                      <div className="text-green-600">Envoyé: {formatRelative(alert.sent_at)}</div>
-                    )}
-                    {isFailed && (
-                      <div className="text-red-600">Échec</div>
-                    )}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
+function Section({ title, color = 'gray', badge, children }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className={`px-3 py-1.5 border-b border-gray-100 flex items-center justify-between ${
+        color === 'orange' ? 'bg-orange-50' : 'bg-gray-50'
+      }`}>
+        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{title}</span>
+        {badge && (
+          <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">{badge}</span>
+        )}
       </div>
-
-      {/* Footer info */}
-      <div className="text-center text-xs text-gray-400">
-        Dernière actualisation: {lastRefresh.toLocaleTimeString('fr-CA')} •
-        Sync horaire 7h-21h • Buffer 5 min avant envoi
+      <div className="divide-y divide-gray-50 text-xs">
+        {children}
       </div>
+    </div>
+  )
+}
+
+
+function Row({ children, className = '' }) {
+  return (
+    <div className={`px-3 py-1.5 flex items-center gap-2 hover:bg-gray-50 ${className}`}>
+      {children}
     </div>
   )
 }
