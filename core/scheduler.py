@@ -217,30 +217,8 @@ def task_sync_gazelle_totale(triggered_by='scheduler', user_email=None):
         )
 
         # Rapport Timeline généré par GitHub Actions (full_gazelle_sync.yml)
-        # après la sync, pas par le scheduler Render — évite les doublons
-        # et les sheets vidés lors des redéploiements.
+        # pas par le scheduler Render — évite les doublons et les sheets vidés
         print("ℹ️  Rapport Timeline sera généré par GitHub Actions (pas ici)")
-        if False:  # Désactivé — gardé pour référence
-            task_generate_rapport_timeline()
-            print("✅ Chaîne Gazelle → Timeline complétée avec succès\n")
-            
-            # Notifier le succès de la chaîne (optionnel, désactivé par défaut)
-            # notifier.notify_chain_completion(
-            #     chain_name="Gazelle → Timeline",
-            #     tasks=[
-            #         {'name': 'Sync Gazelle', 'status': 'success'},
-            #         {'name': 'Rapport Timeline', 'status': 'success'}
-            #     ]
-            # )
-        except Exception as timeline_error:
-            print(f"⚠️ Erreur lors de la génération du rapport Timeline: {timeline_error}")
-            # Notifier l'échec du rapport (mais le sync Gazelle a réussi) → Email Allan
-            notifier.notify_sync_error(
-                task_name='Rapport Timeline (auto après Gazelle)',
-                error_message=str(timeline_error),
-                send_slack=True,
-                send_email=True  # Email à Allan pour erreurs de chaîne
-            )
 
         return stats
 
@@ -308,6 +286,34 @@ def task_generate_rapport_timeline():
         import traceback
         traceback.print_exc()
         raise
+
+
+def task_scan_pda_emails():
+    """
+    Scan automatique des emails PDA/OSM.
+
+    Vérifie les emails de @placedesarts.com, @operademontreal.com, @osm.ca.
+    Parse et importe automatiquement les nouvelles demandes.
+    Notifie dans Front quand une demande est importée.
+
+    Contrôlé par feature flag 'pda_auto_scanner'.
+    """
+    from core.feature_flags import is_enabled
+    if not is_enabled('pda_auto_scanner'):
+        return
+
+    print("\n📧 SCAN PDA/OSM — Recherche de nouvelles demandes...")
+    try:
+        from modules.pda_auto_scanner import scan_and_import
+        result = scan_and_import()
+        print(f"✅ Scan terminé: {result['scanned']} vérifiés, {result['imported']} importés, {result['skipped']} déjà traités")
+        if result['errors']:
+            for err in result['errors']:
+                print(f"   ⚠️ {err}")
+    except Exception as e:
+        print(f"❌ Erreur scan PDA: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def task_backup_database():

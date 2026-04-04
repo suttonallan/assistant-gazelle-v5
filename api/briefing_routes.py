@@ -935,6 +935,20 @@ async def set_feature_flag(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/pda-scan", response_model=Dict[str, Any])
+async def pda_scan_now(request: Dict[str, Any]):
+    """Lance un scan PDA/OSM immédiat (test)."""
+    if request.get("secret") != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    try:
+        from modules.pda_auto_scanner import scan_and_import
+        return scan_and_import()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/pda-stats", response_model=Dict[str, Any])
 async def pda_appointment_stats(secret: str = Query(""), since: str = Query("2025-08-01")):
     """Statistiques des RV Place des Arts par jour/heure depuis une date."""
