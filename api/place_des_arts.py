@@ -1104,13 +1104,45 @@ async def preview_email(payload: PreviewRequest):
         if global_requester:
             break
 
-    # UTILISER DIRECTEMENT parse_email_text() qui a déjà la logique corrigée pour éviter les doublons
-    # Cette fonction gère déjà :
-    # - La détection de blocs par date
-    # - La comparaison de dates pour éviter les doublons (même date = même bloc)
-    # - Le parsing de tous les formats (tabulaire, compact, langage naturel)
-    logging.info(f"📝 Utilisation de parse_email_text() pour parsing unifié (évite les doublons)")
-    parsed = parse_email_text(payload.raw_text)
+    from core.feature_flags import is_enabled
+    if is_enabled('pda_v6_parser'):
+        # V6 parser : tabulaire direct + IA fallback
+        from modules.pda_v6_matcher import _format_request  # juste pour vérifier l'import
+        from modules.pda_v6_email_parser import parse_email as parse_email_v6
+        logging.info(f"📝 Utilisation du parser V6 (IA-assisted)")
+        parsed_v6 = parse_email_v6(payload.raw_text)
+        # Convertir le format v6 → format attendu par le reste du code
+        parsed = []
+        for r in parsed_v6:
+            from datetime import datetime
+            date_val = r.get('appointment_date', '')
+            if isinstance(date_val, str) and len(date_val) >= 10:
+                try:
+                    date_val = datetime.strptime(date_val[:10], '%Y-%m-%d')
+                except ValueError:
+                    pass
+            req_date_val = r.get('request_date')
+            if isinstance(req_date_val, str) and len(req_date_val) >= 10:
+                try:
+                    req_date_val = datetime.strptime(req_date_val[:10], '%Y-%m-%d')
+                except ValueError:
+                    req_date_val = None
+            parsed.append({
+                'date': date_val,
+                'request_date': req_date_val,
+                'room': r.get('room', ''),
+                'for_who': r.get('for_who', ''),
+                'diapason': r.get('diapason', ''),
+                'requester': r.get('requester', ''),
+                'piano': r.get('piano', ''),
+                'time': r.get('time', ''),
+                'confidence': r.get('confidence', 0.9),
+                'method': r.get('method', 'v6'),
+                'warnings': r.get('warnings', []),
+            })
+    else:
+        logging.info(f"📝 Utilisation de parse_email_text() V5 (regex)")
+        parsed = parse_email_text(payload.raw_text)
     
     logging.info(f"🔍 Parsing résultat: {len(parsed)} demande(s) détectée(s)")
     if parsed:
