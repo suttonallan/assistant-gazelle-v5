@@ -115,7 +115,19 @@ class LateAssignmentNotifier:
 
             appointment_date = queue_item.get('appointment_date')
             appointment_time = queue_item.get('appointment_time', '')
-            client_name = queue_item.get('client_name', 'Client')
+
+            # Ne pas envoyer si le RV est déjà passé
+            if appointment_date:
+                from datetime import date as date_class
+                try:
+                    appt_date = date_class.fromisoformat(str(appointment_date)[:10])
+                    today = datetime.now(MONTREAL_TZ).date()
+                    if appt_date < today:
+                        print(f"   ⏭️  RV {appointment_date} est passé → alerte annulée")
+                        return True
+                except Exception:
+                    pass
+            client_name = queue_item.get('client_name') or queue_item.get('location') or 'Client'
             location = queue_item.get('location', '')
             
             # Récupérer l'email du technicien depuis techniciens_config (source de vérité)
@@ -147,7 +159,10 @@ class LateAssignmentNotifier:
                 elif appt_date == today + timedelta(days=1):
                     date_text = "demain"
                 else:
-                    date_text = f"le {appt_date.strftime('%d %B %Y')}"
+                    # Format français (le serveur Render est en locale anglaise)
+                    mois_fr = ['', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+                               'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
+                    date_text = f"le {appt_date.day} {mois_fr[appt_date.month]} {appt_date.year}"
             else:
                 date_text = "prochainement"
             
