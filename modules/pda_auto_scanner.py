@@ -20,7 +20,6 @@ logger = logging.getLogger("ptm.pda.auto_scanner")
 # Domaines surveillés
 WATCHED_DOMAINS = [
     "placedesarts.com",
-    "operademontreal.com",
     "osm.ca",
 ]
 
