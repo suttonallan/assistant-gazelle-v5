@@ -98,6 +98,15 @@ export default function SyncDashboard({ currentUser }) {
   const pendingAlerts = lateAlerts.filter(a => a.status === 'pending')
   const sentAlerts = lateAlerts.filter(a => a.status === 'sent')
 
+  const techNames = {
+    'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',
+    'usr_ofYggsCDt2JAVeNP': 'Allan',
+    'usr_ReUSmIJmBF86ilY1': 'JP',
+    'usr_bbt59aCUqUaDWA8n': 'Margot',
+    'usr_HihJsEgkmpTEziJo': 'À attribuer',
+  }
+  const techName = (id) => techNames[id] || id?.slice(0, 8) || ''
+
   const extractStats = (log) => {
     const s = log.stats || log.tables_updated || {}
     if (typeof s === 'string') { try { return JSON.parse(s) } catch { return {} } }
@@ -136,7 +145,7 @@ export default function SyncDashboard({ currentUser }) {
             <Row key={i}>
               <span className="font-medium">{rv.appointment_time?.slice(0, 5) || '--:--'}</span>
               <span className="flex-1 truncate">{rv.client_name || 'Client'}</span>
-              <span className="text-gray-400">{rv.technician_name || ''}</span>
+              <span className="text-gray-400">{rv.technician_name || techName(rv.technician_id)}</span>
             </Row>
           ))}
           {unconfirmedRV.length > 8 && (
@@ -158,8 +167,8 @@ export default function SyncDashboard({ currentUser }) {
                 {a.status === 'sent' ? '✓' : a.status === 'pending' ? '⏳' : '✗'}
               </span>
               <span className="font-medium w-20">{a.appointment_date?.slice(5) || ''} {a.appointment_time?.slice(0, 5) || ''}</span>
-              <span className="flex-1 truncate">{a.client_name || 'N/A'}</span>
-              <span className="text-gray-400 truncate">{a.technician_first_name || a.technician_id?.slice(0, 8) || ''}</span>
+              <span className="flex-1 truncate">{a.client_name || a.location || '--'}</span>
+              <span className="text-gray-400 truncate">{a.technician_first_name || techName(a.technician_id)}</span>
               <span className="text-gray-400 w-12 text-right">
                 {a.status === 'sent' ? rel(a.sent_at) : a.status === 'pending' ? time(a.scheduled_send_at) : 'err'}
               </span>
