@@ -27,13 +27,8 @@ WATCHED_DOMAINS = [
 # Construire la query Gmail
 GMAIL_QUERY = " OR ".join(f"from:@{d}" for d in WATCHED_DOMAINS)
 
-# Réponses courtes à ignorer (pas des demandes)
-REPLY_PATTERNS = [
-    "ok merci", "ok, merci", "merci!", "merci !", "parfait",
-    "reçu", "bien reçu", "c'est noté", "noté", "super",
-    "excellent", "génial", "thanks", "thank you", "got it",
-    "d'accord", "entendu", "confirme", "confirmé",
-]
+# Pas de liste de patterns — on détecte les réponses par leur structure :
+# un email court sans date ni salle ni piano = confirmation, pas une demande
 
 
 def scan_and_watch() -> dict:
@@ -144,15 +139,38 @@ def check_overdue_demands() -> dict:
 
 
 def _is_short_reply(body: str) -> bool:
-    """Détecte les réponses courtes qui ne sont pas des demandes."""
-    clean = body.strip().lower()
-    # Moins de 50 chars = probablement une réponse courte
-    if len(clean) < 50:
-        return any(pattern in clean for pattern in REPLY_PATTERNS)
-    # Vérifier aussi les premières lignes
-    first_line = clean.split("\n")[0].strip()
-    if len(first_line) < 30:
-        return any(pattern in first_line for pattern in REPLY_PATTERNS)
+    """
+    Détecte les réponses/confirmations qui ne sont pas des demandes.
+
+    Logique : un email court sans indicateurs de demande (date, salle, piano, heure)
+    est une confirmation. Peu importe les mots exacts — "parfait!", "super merci",
+    "noté 👍", "Excellent, on s'en occupe" sont tous des confirmations.
+    """
+    import re
+
+    # Nettoyer (enlever signatures, lignes vides, quoted text)
+    lines = body.strip().split("\n")
+    clean_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(">") or stripped.startswith("--"):
+            break  # Arrêter au quoted text ou signature
+        if stripped:
+            clean_lines.append(stripped)
+
+    clean = " ".join(clean_lines).lower()
+
+    # Email très court (< 100 chars sans quoted text) = probablement une confirmation
+    if len(clean) < 100:
+        # Vérifier qu'il ne contient PAS d'indicateurs de demande
+        has_date = bool(re.search(r'\d{1,2}[-/\s](?:jan|fév|feb|mar|avr|apr|mai|may|jun|jui|jul|aoû|aug|sep|oct|nov|déc|dec)', clean))
+        has_room = any(code in clean for code in ['wp', 'ms', 'tm', '5e', 'scl', 'tjd', 'maison symphonique', 'wilfrid'])
+        has_piano = 'piano' in clean or 'steinway' in clean or 'yamaha' in clean or 'baldwin' in clean
+        has_time = bool(re.search(r'avant\s+\d', clean))
+
+        if not has_date and not has_room and not has_piano and not has_time:
+            return True
+
     return False
 
 
