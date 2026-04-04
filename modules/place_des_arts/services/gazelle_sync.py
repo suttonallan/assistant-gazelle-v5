@@ -150,10 +150,15 @@ class GazelleSyncService:
                 time_str = request.get('time', '')
                 
                 # Chercher un RV correspondant
-                matched_apt = self._find_matching_appointment(
-                    request,
-                    gazelle_appointments
-                )
+                from core.feature_flags import is_enabled
+                if is_enabled('pda_v6_matcher'):
+                    from modules.pda_v6_matcher import find_best_match
+                    matched_apt = find_best_match(request, gazelle_appointments)
+                else:
+                    matched_apt = self._find_matching_appointment(
+                        request,
+                        gazelle_appointments
+                    )
                 
                 if matched_apt:
                     matched_count += 1

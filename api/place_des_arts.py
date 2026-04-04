@@ -1757,8 +1757,13 @@ async def check_completed_requests():
                     continue
                 if apt.get('external_id') in dismissed_ids:
                     continue
-                # Vérifier par scoring si une demande existante (sans appointment_id) correspond
-                matched = sync_service._find_matching_appointment_for_orphan(apt, all_pda_requests)
+                # Vérifier si une demande existante correspond
+                from core.feature_flags import is_enabled
+                if is_enabled('pda_v6_matcher'):
+                    from modules.pda_v6_matcher import matches_request
+                    matched = any(matches_request(req, apt, allow_ai=False) for req in all_pda_requests)
+                else:
+                    matched = sync_service._find_matching_appointment_for_orphan(apt, all_pda_requests)
                 if matched:
                     continue
                 orphan_services.append({
