@@ -42,8 +42,8 @@ class GmailReader:
         """Charge le token depuis Supabase, env, ou fichier local."""
         # 1. Supabase
         try:
-            from core.supabase_storage import get_supabase_storage
-            storage = get_supabase_storage()
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
             result = storage.client.table("system_settings").select("value").eq("key", "GMAIL_TOKEN_JSON").execute()
             if result.data and result.data[0].get("value"):
                 data = result.data[0]["value"]
