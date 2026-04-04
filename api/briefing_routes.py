@@ -941,8 +941,8 @@ async def pda_scan_now(request: Dict[str, Any]):
     if request.get("secret") != "ptm-migrate-2026":
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
-        from modules.pda_auto_scanner import scan_and_import
-        return scan_and_import()
+        from modules.pda_auto_scanner import scan_and_watch
+        return scan_and_watch()
     except Exception as e:
         import traceback
         traceback.print_exc()

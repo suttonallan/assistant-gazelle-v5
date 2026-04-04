@@ -304,8 +304,8 @@ def task_scan_pda_emails():
 
     print("\n📧 SCAN PDA/OSM — Recherche de nouvelles demandes...")
     try:
-        from modules.pda_auto_scanner import scan_and_import
-        result = scan_and_import()
+        from modules.pda_auto_scanner import scan_and_watch
+        result = scan_and_watch()
         print(f"✅ Scan terminé: {result['scanned']} vérifiés, {result['imported']} importés, {result['skipped']} déjà traités")
         if result['errors']:
             for err in result['errors']:
