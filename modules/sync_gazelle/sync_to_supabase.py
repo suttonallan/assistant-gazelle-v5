@@ -935,13 +935,16 @@ class GazelleToSupabaseSync:
                 gazelle_ids = {appt.get('id') for appt in api_appointments if appt.get('id')}
                 print(f"   📋 {len(gazelle_ids)} rendez-vous actifs dans Gazelle")
 
-                # 2. Récupérer tous les external_id ACTIFS depuis Supabase pour la même période
+                # 2. Récupérer tous les external_id ACTIFS depuis Supabase
+                # Couvrir les 7 derniers jours ET les 14 prochains jours
+                # pour détecter les RV supprimés dans Gazelle avant le jour J
                 if start_date_override:
                     date_filter = start_date_override
                 else:
                     date_filter = start_dt.strftime('%Y-%m-%d')
+                future_filter = (datetime.now(MONTREAL_TZ) + timedelta(days=14)).strftime('%Y-%m-%d')
 
-                url = f"{self.storage.api_url}/gazelle_appointments?appointment_date=gte.{date_filter}&status=neq.CANCELLED&select=external_id"
+                url = f"{self.storage.api_url}/gazelle_appointments?appointment_date=gte.{date_filter}&appointment_date=lte.{future_filter}&status=neq.CANCELLED&select=external_id"
                 response = requests.get(url, headers=self.storage._get_headers())
 
                 if response.status_code == 200:

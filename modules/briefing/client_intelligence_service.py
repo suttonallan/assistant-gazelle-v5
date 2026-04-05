@@ -690,7 +690,7 @@ class NarrativeBriefingService:
 
     def _fetch_appointments(self, target_date: str, technician_id: str = None,
                              exclude_technician_id: str = None) -> List[Dict]:
-        """Fetch appointments for a given date."""
+        """Fetch appointments for a given date. Excludes CANCELLED."""
         filters = {'appointment_date': target_date}
         if technician_id:
             filters['technicien'] = technician_id
@@ -700,6 +700,9 @@ class NarrativeBriefingService:
                                                   order_by='appointment_time.asc')
         except Exception:
             appointments = []
+
+        # Exclure les RV supprimés dans Gazelle
+        appointments = [a for a in appointments if a.get('status') != 'CANCELLED']
 
         if exclude_technician_id:
             appointments = [a for a in appointments if a.get('technicien') != exclude_technician_id]
