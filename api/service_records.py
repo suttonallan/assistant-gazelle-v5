@@ -298,22 +298,23 @@ async def validate_service_records(
     sb = _get_supabase()
     now = datetime.utcnow().isoformat()
 
+    # Le gestionnaire peut valider des fiches draft OU completed
     query = (
         sb.table(TABLE)
         .select("id,piano_id")
         .eq("institution_slug", institution)
-        .eq("status", "completed")
+        .in_("status", ["draft", "completed"])
     )
 
     if body.piano_ids:
         query = query.in_("piano_id", body.piano_ids)
 
-    completed = query.execute()
+    to_validate = query.execute()
 
-    if not completed.data:
+    if not to_validate.data:
         return {"success": True, "validated_count": 0, "message": "Aucune fiche à valider"}
 
-    record_ids = [r["id"] for r in completed.data]
+    record_ids = [r["id"] for r in to_validate.data]
 
     # Valider toutes les fiches en lot
     for rid in record_ids:
