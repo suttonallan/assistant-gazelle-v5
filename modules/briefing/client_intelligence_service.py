@@ -74,8 +74,9 @@ NE JAMAIS INVENTER:
 
 RÈGLES CRITIQUES:
 - Utilise la DESCRIPTION DU RV pour identifier le bon piano (numéro de série, salle). Ne pas deviner.
-- Pour le diapason (440 vs 442), lis les PRÉFÉRENCES DU CLIENT attentivement. Ne pas inventer un diapason.
-- Si les préférences indiquent des exceptions par salle (ex: "tout à 440 sauf Salle X à 442"), applique la règle à la salle du RV.
+- DIAPASON — deux cas très différents:
+  * INSTITUTION (PDA, OSM, UQAM, etc.) : le diapason est une RÈGLE FIXE par salle. Lis les préférences client. Dire "Accord à 440Hz" ou "Accord à 442Hz" selon la salle.
+  * CLIENT PRIVÉ : si un diapason apparaît dans l'historique (timeline), c'est une OBSERVATION, pas une exigence. Dire "Dernier accord à 441.25Hz" — jamais "Accord à 441.25Hz" comme si c'était une instruction.
 - Un client institutionnel peut avoir plusieurs LIEUX distincts (ex: Maison Symphonique, Espace OSM, Salle E). Chaque lieu a ses propres accès, contacts, et pianos. NE PAS mélanger les infos d'un lieu avec un autre. Utilise SEULEMENT les infos pertinentes au lieu du RV.
 - Si les notes mentionnent un contact (ex: "Béatrice pour accès Espace OSM"), n'inclure ce contact QUE si le RV est à cet endroit spécifique.
 
