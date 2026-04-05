@@ -42,7 +42,7 @@ class UnconfirmedAlertsService:
     ) -> None:
         self.storage = storage or SupabaseStorage()
         self.checker = checker or AppointmentChecker(self.storage)
-        self.sender = sender or EmailSender(method="sendgrid")
+        self.sender = sender or EmailSender(method="resend")
 
     def _identify_technician_and_route(
         self,

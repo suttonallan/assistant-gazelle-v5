@@ -366,7 +366,7 @@ def task_urgence_technique_j1():
 
         storage = SupabaseStorage()
         checker = AppointmentChecker(storage)
-        sender = EmailSender(method='sendgrid')
+        sender = EmailSender(method='resend')
         service = UnconfirmedAlertsService(storage, checker, sender)
 
         # Date cible: demain
@@ -416,7 +416,7 @@ def task_relance_louise_j7():
 
         storage = SupabaseStorage()
         checker = AppointmentChecker(storage)
-        sender = EmailSender(method='sendgrid')
+        sender = EmailSender(method='resend')
         service = UnconfirmedAlertsService(storage, checker, sender)
 
         # Vérifier les RV dans 7 jours créés il y a plus de 3 mois
