@@ -17,6 +17,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [createForm, setCreateForm] = useState({
     appointment_date: '',
     room: '',
@@ -413,6 +414,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const handleSyncGazelle = async () => {
     // Synchronisation complète : lier les RV ET vérifier les complétés
     try {
+      setSyncing(true)
       setError(null)
       setInfoMessage('🔄 Synchronisation complète en cours... (1/2)')
 
@@ -482,6 +484,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
     } catch (err) {
       setError(err.message || 'Erreur lors de la synchronisation')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -1425,10 +1429,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         {!isRestrictedUser && (
           <button
             onClick={handleSyncGazelle}
-            className="px-4 py-2 text-sm bg-blue-600 text-white border border-blue-700 rounded-md hover:bg-blue-700 font-medium"
+            disabled={syncing}
+            className={`px-4 py-2 text-sm text-white border border-blue-700 rounded-md font-medium transition-all ${
+              syncing ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
             title="Synchronise toutes les demandes avec Gazelle : lie les RV, met à jour les statuts et vérifie les complétés"
           >
-            🔄 Synchroniser tout avec Gazelle
+            <span className={syncing ? 'animate-spin inline-block' : ''}>🔄</span>
+            {syncing ? ' Synchronisation...' : ' Synchroniser tout avec Gazelle'}
           </button>
         )}
 
