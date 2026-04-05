@@ -49,15 +49,24 @@ NARRATIVE_PROMPT = """Tu prépares un briefing pour un technicien de piano avant
 Écris 2-4 phrases en français, comme un collègue qui résume l'essentiel avant que le tech parte.
 
 CONCENTRE-TOI SUR:
-- Ce que le tech devrait SAVOIR avant d'arriver (accès, animaux, enfants, langue si anglophone, personnalité)
-- Ce qui est ACTIONABLE (items à faire, pièces à apporter, choses à vérifier)
+- Le piano spécifique: numéro de série, salle/emplacement, diapason habituel (440 ou 442)
+- Ce que le tech devrait SAVOIR avant d'arriver (accès, langue si anglophone, personnalité)
+- L'historique pertinent (dernier tech, quand)
 - Ce qui est INHABITUEL ou mérite attention
-- L'historique pertinent (dernier tech, quand, quoi de notable)
+
+POUR LES INSTITUTIONS (Place des Arts, UQAM, Vincent-d'Indy, Orford, OSM, etc.):
+- NE PAS suggérer de faire des travaux de réglage/réparation. Le RV est un accord standard.
+- Si des choses ont été notées lors de visites précédentes, les mentionner simplement : "Des choses ont été notées : [liste]" — sans dire de les corriger.
+- NE PAS mentionner le nombre total de pianos du client.
+- "avant Xh" signifie que l'accord doit être TERMINÉ à cette heure, pas qu'il faut arriver avant.
 
 NE MENTIONNE PAS:
 - Les confirmations de RV, factures, rappels, statuts (bruit système)
 - Les infos triviales ou évidentes
 - Le nom de marque "Dampp-Chaser" — utilise "PLS" si pertinent
+- Le nombre de pianos d'un client institutionnel
+
+IMPORTANT: Utilise la DESCRIPTION DU RV pour identifier le bon piano (numéro de série, salle). Ne pas deviner.
 
 Si c'est un premier RV (aucun historique), dis-le simplement.
 Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
@@ -305,11 +314,18 @@ class NarrativeBriefingService:
             action_items = []
 
             if self.anthropic:
+                # Enrichir piano_summary avec SN et salle pour l'IA
+                piano_detail = piano_label or "Piano non spécifié"
+                if piano.get('serial_number'):
+                    piano_detail += f" (SN {piano['serial_number']})"
+                if piano.get('location'):
+                    piano_detail += f" — {piano['location']}"
+
                 narrative, action_items = await asyncio.to_thread(
                     self._call_narrative_ai,
                     client_name=client_name,
                     client_since=client_since or "nouveau client",
-                    piano_summary=piano_label or "Piano non spécifié",
+                    piano_summary=piano_detail,
                     timeline=timeline,
                     past_appointments=past_appointments,
                     appt=appt,
@@ -854,16 +870,36 @@ class NarrativeBriefingService:
         if not search_text.strip():
             return pianos[0]
 
+        # 1. Match par numéro de série (le plus fiable)
+        for piano in pianos:
+            sn = (piano.get('serial_number') or '').strip()
+            if sn and len(sn) >= 4 and sn in search_text:
+                return piano
+
+        # 2. Match par salle/location
+        for piano in pianos:
+            loc = (piano.get('location') or '').lower().strip()
+            if loc and len(loc) >= 3 and loc in search_text:
+                return piano
+            # Aussi vérifier si la salle du RV est dans la location du piano
+            if loc:
+                for word in search_text.split():
+                    if len(word) >= 3 and word in loc:
+                        return piano
+
+        # 3. Match par marque
         for piano in pianos:
             make = (piano.get('make') or '').lower()
             if make and len(make) > 2 and make in search_text:
                 return piano
 
+        # 4. Match par modèle
         for piano in pianos:
             model = (piano.get('model') or '').lower()
             if model and len(model) > 2 and model in search_text:
                 return piano
 
+        # 5. Match par type
         if 'queue' in search_text or 'grand' in search_text:
             for piano in pianos:
                 ptype = (piano.get('type') or '').lower()
