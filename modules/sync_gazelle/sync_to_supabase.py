@@ -826,9 +826,11 @@ class GazelleToSupabaseSync:
                     is_technician = technicien in GAZELLE_IDS
                     is_valid_type = event_type not in EXCLUDED_EVENT_TYPES
                     is_institution = _is_institution_appointment(title, location, description)
-                    has_client_or_institution = bool(client_id) or is_institution
+                    has_client = bool(client_id)
 
-                    if technicien and appointment_date and has_client_or_institution and is_technician and is_valid_type:
+                    # Alerter seulement pour les clients privés, pas les institutions
+                    # (PDA, OSM, UQAM, VDI — le technicien crée lui-même ces RV)
+                    if technicien and appointment_date and has_client and not is_institution and is_technician and is_valid_type:
                         try:
                             from core.timezone_utils import MONTREAL_TZ
                             from datetime import date as date_class, time as time_class
