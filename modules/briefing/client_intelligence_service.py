@@ -80,7 +80,8 @@ RÈGLES CRITIQUES:
 - Un client institutionnel peut avoir plusieurs LIEUX distincts (ex: Maison Symphonique, Espace OSM, Salle E). Chaque lieu a ses propres accès, contacts, et pianos. NE PAS mélanger les infos d'un lieu avec un autre. Utilise SEULEMENT les infos pertinentes au lieu du RV.
 - Si les notes mentionnent un contact (ex: "Béatrice pour accès Espace OSM"), n'inclure ce contact QUE si le RV est à cet endroit spécifique.
 
-Si c'est un premier RV (aucun historique), dis-le simplement.
+Si c'est un premier RV pour un CLIENT PRIVÉ (aucun historique), dis-le simplement.
+Pour les INSTITUTIONS, ne jamais dire "premier RV" — ces pianos sont accordés régulièrement.
 Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
 
 CLIENT: {client_name} ({client_since})
@@ -252,6 +253,32 @@ class NarrativeBriefingService:
         """Generate a narrative briefing for ONE appointment."""
         try:
             cid = appt.get('client_external_id', '')
+
+            # ── Enrichir le RV avec les infos de la demande PDA si disponible ──
+            pda_request = self._fetch_pda_request_for_appointment(appt.get('external_id'))
+            if pda_request:
+                # Injecter salle, piano, diapason dans la description du RV
+                pda_room = pda_request.get('room', '')
+                pda_piano = pda_request.get('piano', '')
+                pda_diapason = pda_request.get('diapason', '')
+                pda_time = pda_request.get('time', '')
+                pda_for_who = pda_request.get('for_who', '')
+
+                pda_context = []
+                if pda_room:
+                    pda_context.append(f"Salle {pda_room}")
+                if pda_piano:
+                    pda_context.append(pda_piano)
+                if pda_diapason:
+                    pda_context.append(f"{pda_diapason}Hz")
+                if pda_time:
+                    pda_context.append(pda_time)
+                if pda_for_who:
+                    pda_context.append(f"pour {pda_for_who}")
+
+                # Enrichir la description du RV pour le matching et le prompt
+                existing_desc = appt.get('description', '') or ''
+                appt['description'] = f"{existing_desc} | PDA: {', '.join(pda_context)}".strip(' |')
 
             # ── Match piano(s) for this appointment ──
             piano_id_from_appt = appt.get('piano_external_id')
@@ -868,7 +895,28 @@ class NarrativeBriefingService:
         return result
 
     # ═══════════════════════════════════════════════════════════════
-    # PIANO MATCHING (unchanged from V3)
+    # PDA REQUEST LOOKUP
+    # ═══════════════════════════════════════════════════════════════
+
+    def _fetch_pda_request_for_appointment(self, appointment_id: str) -> Optional[Dict]:
+        """Fetch the PDA request linked to this Gazelle appointment."""
+        if not appointment_id:
+            return None
+        try:
+            cid_encoded = quote(appointment_id, safe='')
+            url = (
+                f"{self.storage.api_url}/place_des_arts_requests?"
+                f"appointment_id=eq.{cid_encoded}"
+                f"&select=room,piano,diapason,time,for_who"
+                f"&limit=1"
+            )
+            data = self._supabase_get(url)
+            return data[0] if data else None
+        except Exception:
+            return None
+
+    # ═══════════════════════════════════════════════════════════════
+    # PIANO MATCHING
     # ═══════════════════════════════════════════════════════════════
 
     def _match_piano_from_context(self, pianos: List[Dict], appt: Dict) -> Dict:
