@@ -66,7 +66,10 @@ NE MENTIONNE PAS:
 - Le nom de marque "Dampp-Chaser" — utilise "PLS" si pertinent
 - Le nombre de pianos d'un client institutionnel
 
-IMPORTANT: Utilise la DESCRIPTION DU RV pour identifier le bon piano (numéro de série, salle). Ne pas deviner.
+IMPORTANT:
+- Utilise la DESCRIPTION DU RV pour identifier le bon piano (numéro de série, salle). Ne pas deviner.
+- Pour le diapason (440 vs 442), lis les PRÉFÉRENCES DU CLIENT attentivement. Ne pas inventer un diapason.
+- Si les préférences indiquent des exceptions par salle (ex: "tout à 440 sauf Salle X à 442"), applique la règle à la salle du RV.
 
 Si c'est un premier RV (aucun historique), dis-le simplement.
 Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
