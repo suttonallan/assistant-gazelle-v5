@@ -19,7 +19,8 @@ from core.gazelle_api_client import GazelleAPIClient
 from config.techniciens_config import GAZELLE_IDS
 
 
-# Mots-clés pour identifier les RV d'institutions (doivent déclencher des alertes même sans client)
+# Mots-clés pour identifier les RV d'institutions
+# Ces RV sont EXCLUS des alertes "non confirmé" car on n'attend pas de confirmation client
 INSTITUTION_KEYWORDS = [
     'vincent-d\'indy', 'vincent d\'indy', 'vd ', ' vd', 'v-d',
     'place des arts', 'pda',
@@ -27,6 +28,7 @@ INSTITUTION_KEYWORDS = [
     'orford',
     'uqam', 'pierre-péladeau',
     'cmm',  # Conservatoire de musique de Montréal
+    'osm', 'orchestre symphonique',
 ]
 
 
@@ -117,18 +119,18 @@ class AppointmentChecker:
 
             appointments = appointments_raw.data
 
-            # Filtrer par type (exclure PERSONAL, MEMO) et par présence de client OU institution
+            # Filtrer par type et exclure institutions (pas de confirmation attendue)
             filtered = []
             for apt in appointments:
                 apt_type = apt.get('type', 'APPOINTMENT')
-                # Exclure les types non-client (PERSONAL, MEMO, etc.)
                 if apt_type in exclude_types:
                     continue
-                # Garder si: a un client OU est un RV d'institution
                 has_client = bool(apt.get('client_external_id'))
-                is_institution = _is_institution_appointment(apt)
-                if not has_client and not is_institution:
-                    # RV personnel sans client ni institution → exclure
+                if not has_client:
+                    continue
+                # Exclure les institutions (PDA, OSM, UQAM, VDI, etc.)
+                # On n'attend pas de confirmation client pour ces RV
+                if _is_institution_appointment(apt):
                     continue
                 filtered.append(apt)
             
