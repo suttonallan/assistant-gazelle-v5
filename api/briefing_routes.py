@@ -949,6 +949,157 @@ async def pda_scan_now(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/backfill-invoices", response_model=Dict[str, Any])
+async def backfill_invoices(request: Dict[str, Any]):
+    """Backfill complet des factures depuis Gazelle. Tâche de fond."""
+    if request.get("secret") != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+
+    import threading
+
+    def _run():
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            from core.supabase_storage import SupabaseStorage
+            import requests as http_requests
+
+            api = GazelleAPIClient()
+            storage = SupabaseStorage()
+            headers = storage._get_headers()
+            headers["Prefer"] = "resolution=merge-duplicates"
+
+            print("🔄 BACKFILL FACTURES: Récupération depuis Gazelle...")
+            invoices = api.get_invoices(limit=None)
+            print(f"📥 {len(invoices)} factures récupérées")
+
+            synced = 0
+            items_synced = 0
+            errors = 0
+
+            for inv in invoices:
+                try:
+                    record = {
+                        "external_id": inv.get("id", ""),
+                        "client_id": inv.get("clientId", ""),
+                        "invoice_number": inv.get("number", ""),
+                        "invoice_date": (inv.get("invoiceDate") or "")[:10] or None,
+                        "status": inv.get("status", ""),
+                        "sub_total": inv.get("subTotal"),
+                        "total": inv.get("total"),
+                        "notes": (inv.get("notes") or "")[:2000],
+                        "due_on": (inv.get("dueOn") or "")[:10] or None,
+                    }
+
+                    resp = http_requests.post(
+                        f"{storage.api_url}/gazelle_invoices",
+                        headers=headers, json=record
+                    )
+                    if resp.status_code in (200, 201, 409):
+                        synced += 1
+                    else:
+                        errors += 1
+
+                    # Invoice items
+                    items = inv.get("allInvoiceItems", {}).get("nodes", [])
+                    for item in items:
+                        item_record = {
+                            "external_id": item.get("id", ""),
+                            "invoice_external_id": inv.get("id", ""),
+                            "description": (item.get("description") or "")[:2000],
+                            "item_type": item.get("type", ""),
+                            "quantity": item.get("quantity"),
+                            "amount": item.get("amount"),
+                            "sub_total": item.get("subTotal"),
+                            "tax_total": item.get("taxTotal"),
+                            "total": item.get("total"),
+                            "billable": item.get("billable", True),
+                            "taxable": item.get("taxable", True),
+                            "sequence_number": item.get("sequenceNumber"),
+                        }
+                        item_resp = http_requests.post(
+                            f"{storage.api_url}/gazelle_invoice_items",
+                            headers=headers, json=item_record
+                        )
+                        if item_resp.status_code in (200, 201, 409):
+                            items_synced += 1
+
+                except Exception as e:
+                    errors += 1
+                    if errors <= 3:
+                        print(f"❌ Erreur facture {inv.get('id','')}: {e}")
+
+                if (synced + errors) % 100 == 0:
+                    print(f"🔄 FACTURES: {synced}/{len(invoices)} ({items_synced} lignes)")
+
+            print(f"✅ BACKFILL FACTURES TERMINÉ: {synced} factures, {items_synced} lignes, {errors} erreurs")
+
+        except Exception as e:
+            import traceback
+            print(f"❌ BACKFILL FACTURES ERREUR: {e}")
+            traceback.print_exc()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"success": True, "message": "Backfill factures lancé en arrière-plan"}
+
+
+@router.get("/admin/search-invoices", response_model=Dict[str, Any])
+async def search_invoices(
+    secret: str = Query(""),
+    q: str = Query(""),
+    client_id: str = Query(""),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    total_max: float = Query(None),
+    limit: int = Query(20),
+):
+    """Recherche dans les factures et lignes de facture."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    try:
+        from core.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage(silent=True)
+
+        # Recherche dans les lignes de facture
+        query = storage.client.table("gazelle_invoice_items").select(
+            "*, invoice:gazelle_invoices(external_id,client_id,invoice_number,invoice_date,total,status)"
+        )
+
+        if q:
+            query = query.ilike("description", f"*{q}*")
+        if total_max is not None:
+            query = query.lte("total", total_max)
+
+        query = query.order("invoice_external_id", desc=True).limit(limit)
+        result = query.execute()
+
+        entries = []
+        for item in (result.data or []):
+            inv = item.get("invoice") or {}
+            # Filtres post-query
+            if client_id and inv.get("client_id") != client_id:
+                continue
+            if date_from and (inv.get("invoice_date") or "") < date_from:
+                continue
+            if date_to and (inv.get("invoice_date") or "") > date_to:
+                continue
+
+            entries.append({
+                "invoice_number": inv.get("invoice_number", ""),
+                "invoice_date": inv.get("invoice_date", ""),
+                "client_id": inv.get("client_id", ""),
+                "invoice_total": inv.get("total"),
+                "item_description": item.get("description", "")[:200],
+                "item_total": item.get("total"),
+                "status": inv.get("status", ""),
+            })
+
+        return {"query": q, "count": len(entries), "entries": entries}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/search-timeline", response_model=Dict[str, Any])
 async def search_timeline(secret: str = Query(""), q: str = Query(""), limit: int = Query(20)):
     """Recherche full-text dans les descriptions de timeline."""
