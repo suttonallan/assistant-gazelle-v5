@@ -949,6 +949,36 @@ async def pda_scan_now(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/search-timeline", response_model=Dict[str, Any])
+async def search_timeline(secret: str = Query(""), q: str = Query(""), limit: int = Query(20)):
+    """Recherche full-text dans les descriptions de timeline."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if not q or len(q) < 3:
+        raise HTTPException(status_code=400, detail="Terme de recherche trop court (min 3)")
+    try:
+        from core.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage(silent=True)
+        result = storage.client.table('gazelle_timeline_entries').select(
+            'client_id,occurred_at,entry_type,title,description'
+        ).ilike('description', f'*{q}*').order(
+            'occurred_at', desc=True
+        ).limit(limit).execute()
+
+        entries = []
+        for e in (result.data or []):
+            entries.append({
+                "client_id": e.get("client_id", ""),
+                "date": (e.get("occurred_at") or "")[:10],
+                "type": e.get("entry_type", ""),
+                "title": (e.get("title") or "")[:100],
+                "description": (e.get("description") or "")[:300],
+            })
+        return {"query": q, "count": len(entries), "entries": entries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/pda-stats", response_model=Dict[str, Any])
 async def pda_appointment_stats(secret: str = Query(""), since: str = Query("2025-08-01")):
     """Statistiques des RV Place des Arts par jour/heure depuis une date."""
