@@ -1101,20 +1101,39 @@ async def search_invoices(
 
 
 @router.get("/admin/search-timeline", response_model=Dict[str, Any])
-async def search_timeline(secret: str = Query(""), q: str = Query(""), limit: int = Query(20)):
-    """Recherche full-text dans les descriptions de timeline."""
+async def search_timeline(
+    secret: str = Query(""),
+    q: str = Query(""),
+    date: str = Query(""),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    client_id: str = Query(""),
+    limit: int = Query(50),
+):
+    """Recherche dans la timeline. Supporte texte, date exacte, plage de dates, client."""
     if secret != "ptm-migrate-2026":
         raise HTTPException(status_code=403, detail="Accès refusé")
-    if not q or len(q) < 3:
-        raise HTTPException(status_code=400, detail="Terme de recherche trop court (min 3)")
+    if not q and not date and not date_from and not client_id:
+        raise HTTPException(status_code=400, detail="Au moins un filtre requis (q, date, date_from, client_id)")
     try:
         from core.supabase_storage import SupabaseStorage
         storage = SupabaseStorage(silent=True)
-        result = storage.client.table('gazelle_timeline_entries').select(
-            'client_id,occurred_at,entry_type,title,description'
-        ).ilike('description', f'*{q}*').order(
-            'occurred_at', desc=True
-        ).limit(limit).execute()
+        query = storage.client.table('gazelle_timeline_entries').select(
+            'client_id,occurred_at,entry_type,title,description,user_id'
+        )
+
+        if q:
+            query = query.ilike('description', f'*{q}*')
+        if date:
+            query = query.gte('occurred_at', f'{date}T00:00:00').lt('occurred_at', f'{date}T23:59:59')
+        if date_from:
+            query = query.gte('occurred_at', f'{date_from}T00:00:00')
+        if date_to:
+            query = query.lt('occurred_at', f'{date_to}T23:59:59')
+        if client_id:
+            query = query.eq('client_id', client_id)
+
+        result = query.order('occurred_at', desc=True).limit(limit).execute()
 
         entries = []
         for e in (result.data or []):
@@ -1124,8 +1143,9 @@ async def search_timeline(secret: str = Query(""), q: str = Query(""), limit: in
                 "type": e.get("entry_type", ""),
                 "title": (e.get("title") or "")[:100],
                 "description": (e.get("description") or "")[:300],
+                "user_id": e.get("user_id", ""),
             })
-        return {"query": q, "count": len(entries), "entries": entries}
+        return {"query": q, "date": date, "count": len(entries), "entries": entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
