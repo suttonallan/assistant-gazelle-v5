@@ -1060,38 +1060,32 @@ async def search_invoices(
         from core.supabase_storage import SupabaseStorage
         storage = SupabaseStorage(silent=True)
 
-        # Recherche dans les lignes de facture
-        query = storage.client.table("gazelle_invoice_items").select(
-            "*, invoice:gazelle_invoices(external_id,client_id,invoice_number,invoice_date,total,status)"
-        )
+        # Recherche dans les factures
+        query = storage.client.table("gazelle_invoices").select("*")
 
-        if q:
-            query = query.ilike("description", f"*{q}*")
+        if client_id:
+            query = query.eq("client_id", client_id)
+        if date_from:
+            query = query.gte("invoice_date", date_from)
+        if date_to:
+            query = query.lte("invoice_date", date_to)
         if total_max is not None:
             query = query.lte("total", total_max)
+        if q:
+            query = query.ilike("notes", f"*{q}*")
 
-        query = query.order("invoice_external_id", desc=True).limit(limit)
-        result = query.execute()
+        result = query.order("invoice_date", desc=True).limit(limit).execute()
 
         entries = []
-        for item in (result.data or []):
-            inv = item.get("invoice") or {}
-            # Filtres post-query
-            if client_id and inv.get("client_id") != client_id:
-                continue
-            if date_from and (inv.get("invoice_date") or "") < date_from:
-                continue
-            if date_to and (inv.get("invoice_date") or "") > date_to:
-                continue
-
+        for inv in (result.data or []):
             entries.append({
                 "invoice_number": inv.get("invoice_number", ""),
                 "invoice_date": inv.get("invoice_date", ""),
                 "client_id": inv.get("client_id", ""),
-                "invoice_total": inv.get("total"),
-                "item_description": item.get("description", "")[:200],
-                "item_total": item.get("total"),
+                "total": inv.get("total"),
+                "sub_total": inv.get("sub_total"),
                 "status": inv.get("status", ""),
+                "notes": (inv.get("notes") or "")[:200],
             })
 
         return {"query": q, "count": len(entries), "entries": entries}
