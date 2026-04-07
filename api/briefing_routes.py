@@ -1043,6 +1043,41 @@ async def backfill_invoices(request: Dict[str, Any]):
     return {"success": True, "message": "Backfill factures lancé en arrière-plan"}
 
 
+@router.get("/admin/test-invoices", response_model=Dict[str, Any])
+async def test_invoices(secret: str = Query("")):
+    """Test: combien de factures dans Gazelle vs Supabase."""
+    if secret != "ptm-migrate-2026":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    try:
+        from core.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage(silent=True)
+        sb_result = storage.client.table("gazelle_invoices").select("id", count="exact").limit(1).execute()
+        sb_count = sb_result.count if hasattr(sb_result, 'count') and sb_result.count else 0
+
+        gazelle_error = None
+        sample = {}
+        gazelle_count = 0
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            api = GazelleAPIClient()
+            invoices = api.get_invoices(limit=3)
+            gazelle_count = len(invoices)
+            sample = invoices[0] if invoices else {}
+        except Exception as e:
+            gazelle_error = str(e)
+
+        return {
+            "supabase_count": sb_count,
+            "gazelle_sample_count": gazelle_count,
+            "gazelle_error": gazelle_error,
+            "sample_keys": list(sample.keys())[:10] if sample else [],
+            "sample_client_id": sample.get("clientId", ""),
+            "sample_number": sample.get("number", ""),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/admin/search-invoices", response_model=Dict[str, Any])
 async def search_invoices(
     secret: str = Query(""),
