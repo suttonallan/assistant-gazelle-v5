@@ -612,46 +612,73 @@ class GazelleAPIClient:
             Liste de dictionnaires contenant les données des factures
         """
         query = """
-        query GetInvoices {
-            allInvoices {
-                nodes {
-                    id
-                    clientId
-                    number
-                    invoiceDate
-                    status
-                    subTotal
-                    total
-                    notes
-                    createdAt
-                    dueOn
-                    allInvoiceItems {
-                        nodes {
-                            id
-                            description
-                            type
-                            quantity
-                            amount
-                            subTotal
-                            taxTotal
-                            total
-                            billable
-                            taxable
-                            sequenceNumber
+        query GetInvoices($cursor: String) {
+            allInvoices(first: 100, after: $cursor) {
+                edges {
+                    node {
+                        id
+                        client { id }
+                        number
+                        status
+                        subTotal
+                        total
+                        notes
+                        createdAt
+                        dueOn
+                        allInvoiceItems {
+                            nodes {
+                                id
+                                description
+                                type
+                                quantity
+                                amount
+                                subTotal
+                                taxTotal
+                                total
+                                billable
+                                taxable
+                                sequenceNumber
+                            }
                         }
                     }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
                 }
             }
         }
         """
 
-        result = self._execute_query(query)
-        connection = result.get('data', {}).get('allInvoices', {})
-        all_invoices = connection.get('nodes', [])
+        all_invoices = []
+        cursor = None
+        page = 0
 
-        # Limiter le nombre de résultats si nécessaire
-        if limit and len(all_invoices) > limit:
-            all_invoices = all_invoices[:limit]
+        while True:
+            variables = {}
+            if cursor:
+                variables["cursor"] = cursor
+
+            result = self._execute_query(query, variables)
+            connection = result.get('data', {}).get('allInvoices', {})
+            edges = connection.get('edges', [])
+            page_info = connection.get('pageInfo', {})
+
+            for edge in edges:
+                node = edge.get('node', {})
+                all_invoices.append(node)
+
+            page += 1
+            print(f"📄 Page {page}: {len(edges)} factures")
+
+            if limit and len(all_invoices) >= limit:
+                all_invoices = all_invoices[:limit]
+                break
+
+            if not page_info.get('hasNextPage'):
+                break
+
+            cursor = page_info.get('endCursor')
 
         print(f"✅ {len(all_invoices)} factures récupérées depuis l'API")
         return all_invoices

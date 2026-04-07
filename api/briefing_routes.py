@@ -978,16 +978,27 @@ async def backfill_invoices(request: Dict[str, Any]):
 
             for inv in invoices:
                 try:
+                    client_node = inv.get("client") or {}
+                    created_at = inv.get("createdAt") or ""
+                    due_on = inv.get("dueOn") or ""
+                    # Montants en cents dans Gazelle → convertir en dollars
+                    sub_total = inv.get("subTotal")
+                    total = inv.get("total")
+                    if isinstance(sub_total, int) and sub_total > 1000:
+                        sub_total = sub_total / 100
+                    if isinstance(total, int) and total > 1000:
+                        total = total / 100
+
                     record = {
                         "external_id": inv.get("id", ""),
-                        "client_id": inv.get("clientId", ""),
-                        "invoice_number": inv.get("number", ""),
-                        "invoice_date": (inv.get("invoiceDate") or "")[:10] or None,
+                        "client_id": client_node.get("id", "") if isinstance(client_node, dict) else "",
+                        "invoice_number": str(inv.get("number", "")),
+                        "invoice_date": str(created_at)[:10] or None,
                         "status": inv.get("status", ""),
-                        "sub_total": inv.get("subTotal"),
-                        "total": inv.get("total"),
+                        "sub_total": sub_total,
+                        "total": total,
                         "notes": (inv.get("notes") or "")[:2000],
-                        "due_on": (inv.get("dueOn") or "")[:10] or None,
+                        "due_on": str(due_on)[:10] or None,
                     }
 
                     resp = http_requests.post(
