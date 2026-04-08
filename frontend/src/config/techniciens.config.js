@@ -86,6 +86,29 @@ export const TECHNICIENS = {
     isAdmin: false,
     isTechnicien: true,
     isAssistant: false
+  },
+
+  margot: {
+    // Identifiants
+    gazelleId: 'usr_bbt59aCUqUaDWA8n',
+    supabaseId: 'usr_bbt59aCUqUaDWA8n',
+
+    // Informations personnelles
+    prenom: 'Margot',
+    nom: 'Charignon',
+    nomComplet: 'Margot Charignon',
+    abbreviation: 'Margot',
+    username: 'margot',
+
+    // Contact
+    email: 'margotcharignon@gmail.com',
+    slack: null,
+
+    // Rôle et permissions
+    role: 'technicien',
+    isAdmin: false,
+    isTechnicien: true,
+    isAssistant: false
   }
 }
 

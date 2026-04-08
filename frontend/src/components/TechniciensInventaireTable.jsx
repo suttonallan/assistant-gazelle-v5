@@ -28,7 +28,8 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
     const emailToUsername = {
       'asutton@piano-tek.com': 'allan',
       'nlessard@piano-tek.com': 'nicolas',
-      'jpreny@gmail.com': 'jeanphilippe'
+      'jpreny@gmail.com': 'jeanphilippe',
+      'margotcharignon@gmail.com': 'margot'
     }
     return emailToUsername[email?.toLowerCase()] || email?.split('@')[0] || 'test'
   }

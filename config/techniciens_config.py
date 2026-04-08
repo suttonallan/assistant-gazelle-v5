@@ -104,7 +104,7 @@ TECHNICIENS: Dict[str, Dict] = {
         "username": "margot",
 
         # Contact
-        "email": "",  # À remplir
+        "email": "margotcharignon@gmail.com",
         "slack": None,
 
         # Rôle et permissions
