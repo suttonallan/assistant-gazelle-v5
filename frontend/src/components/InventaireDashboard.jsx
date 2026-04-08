@@ -507,18 +507,25 @@ const InventaireDashboard = ({ currentUser }) => {
 
   const sortedProducts = getSortedProducts()
   const currentUserIsAdmin = currentUser?.role === 'admin'
+  // Utilisateurs autorisés à voir toutes les colonnes (admin + gestionnaires comme Margot)
+  const VIEWERS_ALL_COLUMNS = ['allan', 'margot']
 
   // Map email addresses to TECHNICIENS usernames
   const getUsernameFromEmail = (email) => {
     const emailToUsername = {
       'asutton@piano-tek.com': 'allan',
       'nlessard@piano-tek.com': 'nicolas',
-      'jpreny@gmail.com': 'jeanphilippe'
+      'jpreny@gmail.com': 'jeanphilippe',
+      'margotcharignon@gmail.com': 'margot'
     }
     return emailToUsername[email?.toLowerCase()] || email?.split('@')[0] || 'allan'
   }
 
   const currentUsername = getUsernameFromEmail(currentUser?.email)
+  // Si l'utilisateur n'est pas un technicien de la liste, c'est un gestionnaire/admin
+  // → il doit voir toutes les colonnes (évite que Margot soit bloquée à cause d'un email mal mappé)
+  const isTechnicien = TECHNICIENS.some(t => t.username === currentUsername)
+  const canViewAllColumns = currentUserIsAdmin || VIEWERS_ALL_COLUMNS.includes(currentUsername) || !isTechnicien
 
   // Réorganiser les techniciens pour mettre le technicien connecté en premier (mobile-first)
   const getOrderedTechnicians = () => {
@@ -632,7 +639,7 @@ const InventaireDashboard = ({ currentUser }) => {
                   </th>
                   {orderedTechnicians.map(tech => {
                     // Filtre mobile: affiche uniquement colonne utilisateur
-                    if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
+                    if (isMobile && !canViewAllColumns && tech.username !== currentUsername) {
                       return null
                     }
                     return (
@@ -664,7 +671,7 @@ const InventaireDashboard = ({ currentUser }) => {
 
                         {orderedTechnicians.map(tech => {
                           // Filtre mobile
-                          if (isMobile && !currentUserIsAdmin && tech.username !== currentUsername) {
+                          if (isMobile && !canViewAllColumns && tech.username !== currentUsername) {
                             return null
                           }
 
