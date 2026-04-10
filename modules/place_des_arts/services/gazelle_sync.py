@@ -378,13 +378,24 @@ class GazelleSyncService:
         """
         Trouve un RV Gazelle correspondant à une demande PDA.
 
-        Critères de matching (scoring):
-        1. OBLIGATOIRE: Même jour
-        2. +10 pts: "Place des Arts" dans le titre
-        3. +3 pts: Mots-clés de for_who dans le titre
-        4. +5 pts: Salle correspond dans location ou description
-        5. +3 pts: Salle dans le titre
-        6. +4 pts: Heure correspond (±2h)
+        Stratégie STRICTE — exige une correspondance solide basée sur
+        plusieurs signaux indépendants pour éviter les amalgames entre
+        RV distincts du même jour.
+
+        Signaux évalués (chacun compte 1 point, 0 ou 1 — pas cumulable):
+          - S1 SALLE    : salle (ex. "SALLE E") présente dans titre/location/desc
+          - S2 FOR_WHO  : artiste/orchestre (ex. "ONJ", "OSM") présent dans le titre
+          - S3 HEURE    : heure ±1h de l'heure demandée
+          - S4 PIANO    : modèle/marque du piano mentionné dans le titre/notes
+
+        Règles de décision:
+          1. Même jour OBLIGATOIRE
+          2. Score minimum REQUIS = 2 signaux indépendants
+             (ex: salle + heure, ou salle + for_who, etc.)
+          3. Le meilleur candidat doit AVOIR AU MOINS 1 POINT D'AVANCE
+             sur le second candidat du même jour (sinon ambigu → rejet)
+          4. Si plusieurs RV du même jour ont le même score max → rejet
+             (ambiguïté — nécessite intervention humaine)
         """
         import re
 
@@ -392,98 +403,134 @@ class GazelleSyncService:
         if not request_date_str:
             return None
 
-        # Normaliser la date de la demande en YYYY-MM-DD
         request_date = request_date_str[:10] if isinstance(request_date_str, str) else str(request_date_str)[:10]
+        request_id_short = str(request.get('id', ''))[:8]
 
-        request_time = request.get('time', '')
+        request_time = request.get('time', '') or ''
         request_room = (request.get('room', '') or '').upper().strip()
         request_for_who = (request.get('for_who', '') or '').upper().strip()
+        request_piano = (request.get('piano', '') or '').upper().strip()
+
+        # Parser l'heure demandée (formats: "8h", "14h30", "avant 10h", "9h-11h", etc.)
+        request_hour = None
+        if request_time:
+            hr_match = re.search(r'(\d{1,2})\s*H', request_time.upper())
+            if hr_match:
+                request_hour = int(hr_match.group(1))
 
         # Filtrer les RV du même jour
-        # Note: Les RV Gazelle ont appointment_date (YYYY-MM-DD) ET appointment_time séparés
         same_day_appointments = []
         for apt in gazelle_appointments:
-            # Utiliser appointment_date (pas start_datetime qui peut être NULL)
             apt_date_str = apt.get('appointment_date')
             if not apt_date_str:
-                # Fallback sur start_datetime si disponible
                 apt_datetime_str = apt.get('start_datetime')
                 if apt_datetime_str:
                     apt_date_str = apt_datetime_str[:10]
                 else:
                     continue
 
-            # Normaliser en YYYY-MM-DD
             apt_date_str = apt_date_str[:10] if apt_date_str else ''
 
             if apt_date_str == request_date:
-                # Extraire l'heure
-                apt_hour = 0
+                apt_hour = None
                 apt_time_str = apt.get('appointment_time', '')
                 if apt_time_str:
                     try:
-                        apt_hour = int(apt_time_str.split(':')[0])
-                    except:
+                        apt_hour = int(str(apt_time_str).split(':')[0])
+                    except Exception:
                         pass
                 same_day_appointments.append((apt, apt_hour))
 
         if not same_day_appointments:
             return None
 
-        # Scorer chaque RV candidat
-        best_match = None
-        best_score = 0
+        def _word_in(needle: str, haystack: str) -> bool:
+            """Recherche 'needle' dans 'haystack' avec frontières de mots."""
+            if not needle or not haystack:
+                return False
+            return re.search(r'\b' + re.escape(needle) + r'\b', haystack) is not None
+
+        # Extraire les mots-clés du piano (marques/modèles courants)
+        piano_keywords = []
+        if request_piano:
+            for kw in ('STEINWAY', 'YAMAHA', 'BALDWIN', 'BÖSENDORFER', 'BOSENDORFER', 'FAZIOLI', 'KAWAI'):
+                if kw in request_piano:
+                    piano_keywords.append(kw)
+            # Modèle "D", "B", "M", "C3", etc. après la marque — on ne les utilise pas
+            # comme critère car trop courts et ambigus.
+
+        # Extraire les mots-clés de for_who (≥ 3 caractères pour ignorer "DE", "LA", etc.)
+        for_who_words = [w for w in re.findall(r'[A-ZÉÈÊÀÂÔÙÏ]{3,}', request_for_who)]
+
+        # Évaluer chaque candidat
+        scored = []  # liste de (score, signals_list, apt)
 
         for apt, apt_hour in same_day_appointments:
-            score = 1  # Base: même jour
-
             apt_title = (apt.get('title', '') or '').upper()
-            apt_location = (apt.get('location', '') or '').upper().strip()
+            apt_location = (apt.get('location', '') or '').upper()
             apt_description = (apt.get('description', '') or '').upper()
             apt_notes = (apt.get('notes', '') or '').upper()
+            apt_all = f"{apt_title} {apt_location} {apt_description} {apt_notes}"
 
-            # CRITÈRE 1: Titre contient "Place des Arts" (priorité haute)
-            if 'PLACE DES ARTS' in apt_title:
-                score += 10
+            signals = []
 
-            # CRITÈRE 2: Titre contient des mots-clés de la demande (for_who)
-            if request_for_who:
-                # Extraire les mots significatifs (2+ caractères pour inclure ONJ, OSM, etc.)
-                for_who_words = [w for w in request_for_who.split() if len(w) > 2]
-                for word in for_who_words:
-                    if word in apt_title:
-                        score += 3
-                        break  # Un seul mot suffit
+            # S1 — Salle
+            if request_room and (_word_in(request_room, apt_title)
+                                 or _word_in(request_room, apt_location)
+                                 or _word_in(request_room, apt_description)):
+                signals.append('SALLE')
 
-            # CRITÈRE 3: Salle correspond
-            # Vérifier dans location, description, notes
-            all_text = apt_location + ' ' + apt_description + ' ' + apt_notes
-            if request_room:
-                if request_room in all_text:
-                    score += 5
-                # Aussi vérifier dans le titre
-                if request_room in apt_title:
-                    score += 3
+            # S2 — For_who / artiste
+            if for_who_words:
+                if any(_word_in(w, apt_title) or _word_in(w, apt_description) for w in for_who_words):
+                    signals.append('FOR_WHO')
 
-            # CRITÈRE 4: Heure correspond (si disponible)
-            if request_time and apt_hour > 0:
-                # Parser l'heure de la demande (format "8h", "18h", "avant 9h", etc.)
-                time_match = re.search(r'(\d{1,2})h?', str(request_time).upper())
-                if time_match:
-                    request_hour = int(time_match.group(1))
-                    # Tolérance de ±2h
-                    if abs(apt_hour - request_hour) <= 2:
-                        score += 4
+            # S3 — Heure (tolérance stricte ±1h)
+            if request_hour is not None and apt_hour is not None:
+                if abs(apt_hour - request_hour) <= 1:
+                    signals.append('HEURE')
 
-            if score > best_score:
-                best_score = score
-                best_match = apt
+            # S4 — Piano (marque dans titre/desc)
+            if piano_keywords:
+                if any(kw in apt_all for kw in piano_keywords):
+                    signals.append('PIANO')
 
-        # Seuil minimum: même jour seul (score=1) ne suffit pas
-        # Il faut au moins un critère supplémentaire (for_who, salle, ou heure)
+            score = len(signals)
+            scored.append((score, signals, apt))
+
+        # Trier par score décroissant
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        best_score, best_signals, best_match = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else 0
+
+        # Règle 2: exiger au moins 2 signaux indépendants
         if best_score < 2:
+            logger.info(
+                f"[MATCH REJETÉ] req={request_id_short} date={request_date} "
+                f"room='{request_room}' for_who='{request_for_who}' time='{request_time}' — "
+                f"score insuffisant ({best_score}/2 signaux: {best_signals})"
+            )
             return None
 
+        # Règle 3+4: exiger une marge ≥1 sur le 2e candidat (pas d'ambiguïté)
+        if best_score == second_score:
+            # Lister les candidats ex-aequo pour diagnostic
+            tied = [a for s, _, a in scored if s == best_score]
+            tied_titles = [f"{a.get('external_id', '?')}:{(a.get('title') or '')[:40]}" for a in tied]
+            logger.warning(
+                f"[MATCH AMBIGU] req={request_id_short} date={request_date} "
+                f"room='{request_room}' for_who='{request_for_who}' time='{request_time}' — "
+                f"{len(tied)} RV ex-aequo à {best_score} signaux ({best_signals}): "
+                f"{tied_titles} — aucun lien créé (intervention humaine requise)"
+            )
+            return None
+
+        logger.info(
+            f"[MATCH OK] req={request_id_short} → apt={best_match.get('external_id')} "
+            f"(score={best_score}, signaux={best_signals}, "
+            f"marge+{best_score - second_score})"
+        )
         return best_match
 
     def _find_matching_appointment_for_orphan(
@@ -492,45 +539,131 @@ class GazelleSyncService:
         pda_requests: List[Dict]
     ) -> Optional[Dict]:
         """
-        Vérifie si un RV Gazelle correspond à une demande PDA existante (sans lien appointment_id).
-        Matching inverse: on part du RV Gazelle et on cherche une demande correspondante par date + titre.
-        Retourne la demande si trouvée, None sinon.
-        """
-        import re
+        Vérifie si un RV Gazelle correspond à une demande PDA existante
+        (sans lien appointment_id). Matching inverse strict: on part du RV
+        Gazelle et on cherche une demande correspondante.
 
+        Utilise le même moteur de signaux que _find_matching_appointment()
+        pour garantir la symétrie et éviter les amalgames. Pour accepter
+        un lien, exige ≥ 2 signaux et une marge ≥ 1 sur le 2e candidat.
+        """
         apt_date_str = gazelle_apt.get('appointment_date', '')
         if not apt_date_str:
             return None
-        apt_date = apt_date_str[:10]
-        apt_title = (gazelle_apt.get('title') or '').upper()
 
+        apt_ext_id = gazelle_apt.get('external_id', '?')
+
+        # Réutiliser le moteur de scoring: pour chaque demande candidate
+        # du même jour, calculer son score contre CE RV Gazelle, puis
+        # appliquer les mêmes règles (≥2 signaux, marge ≥1).
+        candidates = []
         for req in pda_requests:
-            # Déjà liée à un autre RV — pas candidate
             if req.get('appointment_id'):
                 continue
 
             req_date_str = req.get('appointment_date', '')
             if not req_date_str:
                 continue
-            req_date = str(req_date_str)[:10]
-
-            # Même jour obligatoire
-            if req_date != apt_date:
+            if str(req_date_str)[:10] != apt_date_str[:10]:
                 continue
 
-            # Matching par for_who dans le titre Gazelle
-            req_for_who = (req.get('for_who') or '').upper().strip()
-            if req_for_who:
-                for_who_words = [w for w in req_for_who.split() if len(w) > 2]
-                if any(word in apt_title for word in for_who_words):
-                    return req
+            # Appeler le matcher sur une liste d'un seul RV pour obtenir
+            # le score — mais on veut le score brut, pas le filtrage final.
+            score, signals = self._score_request_vs_appointment(req, gazelle_apt)
+            candidates.append((score, signals, req))
 
-            # Matching par salle dans le titre Gazelle
-            req_room = (req.get('room') or '').upper().strip()
-            if req_room and req_room in apt_title:
-                return req
+        if not candidates:
+            return None
 
-        return None
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        best_score, best_signals, best_req = candidates[0]
+        second_score = candidates[1][0] if len(candidates) > 1 else 0
+
+        if best_score < 2:
+            return None
+
+        if best_score == second_score:
+            logger.warning(
+                f"[ORPHAN AMBIGU] apt={apt_ext_id} — "
+                f"plusieurs demandes ex-aequo à {best_score} signaux — non lié"
+            )
+            return None
+
+        logger.info(
+            f"[ORPHAN MATCH] apt={apt_ext_id} → req={str(best_req.get('id', ''))[:8]} "
+            f"(score={best_score}, signaux={best_signals})"
+        )
+        return best_req
+
+    def _score_request_vs_appointment(
+        self,
+        request: Dict,
+        apt: Dict
+    ) -> tuple:
+        """
+        Calcule le score (nombre de signaux indépendants) entre une
+        demande PDA et un RV Gazelle. Retourne (score, liste_signaux).
+
+        Signaux: SALLE, FOR_WHO, HEURE, PIANO — voir _find_matching_appointment().
+        """
+        import re
+
+        request_time = request.get('time', '') or ''
+        request_room = (request.get('room', '') or '').upper().strip()
+        request_for_who = (request.get('for_who', '') or '').upper().strip()
+        request_piano = (request.get('piano', '') or '').upper().strip()
+
+        request_hour = None
+        if request_time:
+            hr_match = re.search(r'(\d{1,2})\s*H', request_time.upper())
+            if hr_match:
+                request_hour = int(hr_match.group(1))
+
+        apt_hour = None
+        apt_time_str = apt.get('appointment_time', '')
+        if apt_time_str:
+            try:
+                apt_hour = int(str(apt_time_str).split(':')[0])
+            except Exception:
+                pass
+
+        apt_title = (apt.get('title', '') or '').upper()
+        apt_location = (apt.get('location', '') or '').upper()
+        apt_description = (apt.get('description', '') or '').upper()
+        apt_notes = (apt.get('notes', '') or '').upper()
+        apt_all = f"{apt_title} {apt_location} {apt_description} {apt_notes}"
+
+        def _word_in(needle: str, haystack: str) -> bool:
+            if not needle or not haystack:
+                return False
+            return re.search(r'\b' + re.escape(needle) + r'\b', haystack) is not None
+
+        signals = []
+
+        if request_room and (_word_in(request_room, apt_title)
+                             or _word_in(request_room, apt_location)
+                             or _word_in(request_room, apt_description)):
+            signals.append('SALLE')
+
+        for_who_words = re.findall(r'[A-ZÉÈÊÀÂÔÙÏ]{3,}', request_for_who)
+        if for_who_words and any(_word_in(w, apt_title) or _word_in(w, apt_description)
+                                  for w in for_who_words):
+            signals.append('FOR_WHO')
+
+        if request_hour is not None and apt_hour is not None:
+            if abs(apt_hour - request_hour) <= 1:
+                signals.append('HEURE')
+
+        piano_keywords = []
+        if request_piano:
+            for kw in ('STEINWAY', 'YAMAHA', 'BALDWIN', 'BÖSENDORFER',
+                       'BOSENDORFER', 'FAZIOLI', 'KAWAI'):
+                if kw in request_piano:
+                    piano_keywords.append(kw)
+        if piano_keywords and any(kw in apt_all for kw in piano_keywords):
+            signals.append('PIANO')
+
+        return (len(signals), signals)
 
     # IDs des vrais techniciens (pas "À attribuer")
     # Inclure aussi les IDs alternatifs qui correspondent aux mêmes techniciens
