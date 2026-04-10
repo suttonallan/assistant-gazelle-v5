@@ -228,7 +228,11 @@ def nom_vers_username(nom: str) -> Optional[str]:
         "jeanphilippe": "jeanphilippe",
         "jp": "jeanphilippe",
         "jean philippe": "jeanphilippe",
-        "j-p reny": "jeanphilippe"
+        "j-p reny": "jeanphilippe",
+
+        "margot": "margot",
+        "margot charignon": "margot",
+        "m. charignon": "margot"
     }
 
     return variations.get(nom_lower)

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
 from core.gazelle_api_client import GazelleAPIClient
+from config.techniciens_config import GAZELLE_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -579,15 +580,14 @@ class GazelleSyncService:
 
         return None
 
-    # IDs des vrais techniciens (pas "À attribuer")
-    # Inclure aussi les IDs alternatifs qui correspondent aux mêmes techniciens
-    REAL_TECHNICIAN_IDS = {
-        'usr_HcCiFk7o0vZ9xAI0',  # Nick
-        'usr_ofYggsCDt2JAVeNP',  # Allan
-        'usr_ReUSmIJmBF86ilY1',  # JP (ID standard)
+    # IDs des vrais techniciens (pas "À attribuer").
+    # ⚠️ Source de vérité : config/techniciens_config.py (TECHNICIENS).
+    # Tout technicien ajouté à la SoT est automatiquement reconnu ici.
+    # On ajoute aussi les IDs alternatifs pour gérer les comptes Gazelle multiples.
+    REAL_TECHNICIAN_IDS = set(GAZELLE_IDS) | {
         'usr_QmEpdeM2xMgZVkDS',  # JP (ID alternatif si différent dans Gazelle)
     }
-    
+
     # Mapping pour normaliser les IDs alternatifs vers les IDs standards
     TECH_ID_NORMALIZATION = {
         'usr_QmEpdeM2xMgZVkDS': 'usr_ReUSmIJmBF86ilY1',  # ID alternatif JP → ID standard JP
