@@ -387,6 +387,11 @@ class GazelleSyncService:
           - S2 FOR_WHO  : artiste/orchestre (ex. "ONJ", "OSM") présent dans le titre
           - S3 HEURE    : heure ±1h de l'heure demandée
           - S4 PIANO    : modèle/marque du piano mentionné dans le titre/notes
+          - S5 SERIAL   : numéro de série du piano (5-7 chiffres) identique
+
+        Disqualification:
+          - SERIAL_MISMATCH : les deux côtés ont un numéro de série mais ils
+            sont différents → candidat disqualifié (deux Steinway distincts)
 
         Règles de décision:
           1. Même jour OBLIGATOIRE
@@ -397,26 +402,15 @@ class GazelleSyncService:
           4. Si plusieurs RV du même jour ont le même score max → rejet
              (ambiguïté — nécessite intervention humaine)
         """
-        import re
-
         request_date_str = request.get('appointment_date')
         if not request_date_str:
             return None
 
         request_date = request_date_str[:10] if isinstance(request_date_str, str) else str(request_date_str)[:10]
         request_id_short = str(request.get('id', ''))[:8]
-
         request_time = request.get('time', '') or ''
         request_room = (request.get('room', '') or '').upper().strip()
         request_for_who = (request.get('for_who', '') or '').upper().strip()
-        request_piano = (request.get('piano', '') or '').upper().strip()
-
-        # Parser l'heure demandée (formats: "8h", "14h30", "avant 10h", "9h-11h", etc.)
-        request_hour = None
-        if request_time:
-            hr_match = re.search(r'(\d{1,2})\s*H', request_time.upper())
-            if hr_match:
-                request_hour = int(hr_match.group(1))
 
         # Filtrer les RV du même jour
         same_day_appointments = []
@@ -428,75 +422,32 @@ class GazelleSyncService:
                     apt_date_str = apt_datetime_str[:10]
                 else:
                     continue
-
             apt_date_str = apt_date_str[:10] if apt_date_str else ''
-
             if apt_date_str == request_date:
-                apt_hour = None
-                apt_time_str = apt.get('appointment_time', '')
-                if apt_time_str:
-                    try:
-                        apt_hour = int(str(apt_time_str).split(':')[0])
-                    except Exception:
-                        pass
-                same_day_appointments.append((apt, apt_hour))
+                same_day_appointments.append(apt)
 
         if not same_day_appointments:
             return None
 
-        def _word_in(needle: str, haystack: str) -> bool:
-            """Recherche 'needle' dans 'haystack' avec frontières de mots."""
-            if not needle or not haystack:
-                return False
-            return re.search(r'\b' + re.escape(needle) + r'\b', haystack) is not None
-
-        # Extraire les mots-clés du piano (marques/modèles courants)
-        piano_keywords = []
-        if request_piano:
-            for kw in ('STEINWAY', 'YAMAHA', 'BALDWIN', 'BÖSENDORFER', 'BOSENDORFER', 'FAZIOLI', 'KAWAI'):
-                if kw in request_piano:
-                    piano_keywords.append(kw)
-            # Modèle "D", "B", "M", "C3", etc. après la marque — on ne les utilise pas
-            # comme critère car trop courts et ambigus.
-
-        # Extraire les mots-clés de for_who (≥ 3 caractères pour ignorer "DE", "LA", etc.)
-        for_who_words = [w for w in re.findall(r'[A-ZÉÈÊÀÂÔÙÏ]{3,}', request_for_who)]
-
-        # Évaluer chaque candidat
+        # Évaluer chaque candidat via le moteur de scoring commun
         scored = []  # liste de (score, signals_list, apt)
+        for apt in same_day_appointments:
+            score, signals = self._score_request_vs_appointment(request, apt)
 
-        for apt, apt_hour in same_day_appointments:
-            apt_title = (apt.get('title', '') or '').upper()
-            apt_location = (apt.get('location', '') or '').upper()
-            apt_description = (apt.get('description', '') or '').upper()
-            apt_notes = (apt.get('notes', '') or '').upper()
-            apt_all = f"{apt_title} {apt_location} {apt_description} {apt_notes}"
+            # Si les numéros de série ne correspondent pas, disqualifier
+            # ce candidat — c'est un signal FORT de non-correspondance
+            # (deux pianos physiquement distincts).
+            if '_SERIAL_MISMATCH' in signals:
+                logger.info(
+                    f"[MATCH REJETÉ] req={request_id_short} vs apt={apt.get('external_id')} "
+                    f"— numéros de série différents"
+                )
+                continue
 
-            signals = []
-
-            # S1 — Salle
-            if request_room and (_word_in(request_room, apt_title)
-                                 or _word_in(request_room, apt_location)
-                                 or _word_in(request_room, apt_description)):
-                signals.append('SALLE')
-
-            # S2 — For_who / artiste
-            if for_who_words:
-                if any(_word_in(w, apt_title) or _word_in(w, apt_description) for w in for_who_words):
-                    signals.append('FOR_WHO')
-
-            # S3 — Heure (tolérance stricte ±1h)
-            if request_hour is not None and apt_hour is not None:
-                if abs(apt_hour - request_hour) <= 1:
-                    signals.append('HEURE')
-
-            # S4 — Piano (marque dans titre/desc)
-            if piano_keywords:
-                if any(kw in apt_all for kw in piano_keywords):
-                    signals.append('PIANO')
-
-            score = len(signals)
             scored.append((score, signals, apt))
+
+        if not scored:
+            return None
 
         # Trier par score décroissant
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -567,9 +518,17 @@ class GazelleSyncService:
             if str(req_date_str)[:10] != apt_date_str[:10]:
                 continue
 
-            # Appeler le matcher sur une liste d'un seul RV pour obtenir
-            # le score — mais on veut le score brut, pas le filtrage final.
+            # Calculer le score contre ce RV Gazelle
             score, signals = self._score_request_vs_appointment(req, gazelle_apt)
+
+            # Disqualification sur mismatch de numéro de série
+            if '_SERIAL_MISMATCH' in signals:
+                logger.info(
+                    f"[ORPHAN REJETÉ] apt={apt_ext_id} vs req={str(req.get('id', ''))[:8]} "
+                    f"— numéros de série différents"
+                )
+                continue
+
             candidates.append((score, signals, req))
 
         if not candidates:
@@ -662,6 +621,19 @@ class GazelleSyncService:
                     piano_keywords.append(kw)
         if piano_keywords and any(kw in apt_all for kw in piano_keywords):
             signals.append('PIANO')
+
+        # S5 — Numéro de série du piano (identifiant unique)
+        # Extrait les nombres de 5 à 7 chiffres (exclut les années 4 chiffres)
+        request_serials = set(re.findall(r'\b\d{5,7}\b', request_piano))
+        apt_serials = set(re.findall(r'\b\d{5,7}\b', apt_all))
+        if request_serials and apt_serials:
+            if request_serials & apt_serials:
+                signals.append('SERIAL')
+            else:
+                # Les deux côtés ont un numéro de série, mais ils ne correspondent pas:
+                # c'est un signal FORT de non-correspondance. On marque explicitement
+                # pour que la logique appelante puisse rejeter ce candidat.
+                signals.append('_SERIAL_MISMATCH')
 
         return (len(signals), signals)
 
