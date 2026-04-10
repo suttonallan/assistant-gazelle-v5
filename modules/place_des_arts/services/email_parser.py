@@ -487,25 +487,42 @@ def parse_natural_language_request(text: str, current_date: datetime) -> Optiona
             result['confidence'] += 0.15
             break
 
-    # 2. Détecter le piano (marque + modèle)
-    # Format: "Steinway 9' D - New York" ou "Yamaha C7" ou "Baldwin 9'" ou "Piano Baldwin (9')"
+    # 2. Détecter le piano (marque + modèle + numéro de série si présent)
+    # Format: "Steinway D 415028", "Steinway 9' D - New York", "Yamaha C7", etc.
     piano_patterns = [
-        r'(piano\s+baldwin\s*\(?[\d\'\"]+\)?)',  # Piano Baldwin (9') ou Piano Baldwin 9'
-        r'(piano\s+steinway\s*\(?[\d\'\"a-z\s\-]*\)?)',  # Piano Steinway (9') ou Piano Steinway D
-        r'(piano\s+yamaha\s+[a-z]?\d*)',  # Piano Yamaha C7
+        # Avec numéro de série en fin (5-7 chiffres) — capture élargie
+        r'(steinway\s+[a-z]\s*#?\s*\d{5,7})',           # Steinway D #415028 ou Steinway D 415028
+        r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*\d{5,7})',   # Steinway 9' D 415028
+        r'(yamaha\s+[a-z]\d+\s*#?\s*\d{5,7})',          # Yamaha C7 #123456
+        # Sans numéro de série (anciens formats)
+        r'(piano\s+baldwin\s*\(?[\d\'\"]+\)?)',
+        r'(piano\s+steinway\s*\(?[\d\'\"a-z\s\-]*\)?)',
+        r'(piano\s+yamaha\s+[a-z]?\d*)',
         r'(steinway\s+\d+[\'"]?\s*[a-z]?\s*(?:-\s*[a-z ]+)?)',  # Steinway 9' D - New York
-        r'(yamaha\s+[a-z]\d+)',  # Yamaha C7
-        r'(kawai\s+[a-z]+\d*)',  # Kawai GX7
-        r'(baldwin\s*\(?[\d\'\"]+\)?)',  # Baldwin 9' ou Baldwin (9')
-        r'(bösendorfer\s+\d+)',  # Bösendorfer 280
-        r'(fazioli\s+[a-z]*\d+)'  # Fazioli F278
+        r'(steinway\s+[a-z]\b)',                         # Steinway D / Steinway B / Steinway M
+        r'(yamaha\s+[a-z]\d+)',
+        r'(kawai\s+[a-z]+\d*)',
+        r'(baldwin\s*\(?[\d\'\"]+\)?)',
+        r'(bösendorfer\s+\d+)',
+        r'(fazioli\s+[a-z]*\d+)',
     ]
     for pattern in piano_patterns:
         match = re.search(pattern, text_lower)
         if match:
             # Extraire le texte original (avec majuscules)
             start, end = match.span()
-            result['piano'] = text[start:end].strip()
+            piano_str = text[start:end].strip()
+
+            # Si le match ne contient pas de serial, tenter d'en capturer un à proximité
+            # (dans la même ligne / phrase, après la marque)
+            if not re.search(r'\b\d{5,7}\b', piano_str):
+                # Chercher dans les 60 caractères suivant le match
+                tail = text[end:end + 60]
+                serial_match = re.search(r'\b(\d{5,7})\b', tail)
+                if serial_match:
+                    piano_str = f"{piano_str} {serial_match.group(1)}"
+
+            result['piano'] = piano_str
             result['confidence'] += 0.2
             break
 
@@ -782,10 +799,25 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
             has_piano_word = (('piano de' in lower) or (lower.startswith('piano ')) or (' piano ' in lower)) and lower not in ('piano tech', 'piano tek')
             is_concert_label = 'concert' in lower and 'piano' in lower and not has_brand
 
+            # PRIORITÉ: si la ligne contient une marque de piano, la traiter
+            # comme piano AVANT la détection salle — sinon une ligne comme
+            # "Steinway D #415028" peut être confondue (le "E" de Steinway
+            # matchant le code salle "E") et ignorée sans extraction.
+            if has_brand or has_piano_word or is_concert_label:
+                if not result.get('piano'):
+                    result['piano'] = ls
+                    result['confidence'] += 0.2
+                continue
+
             # Si la salle est déjà détectée et la ligne matche un code de salle,
             # traiter comme for_who potentiel (ex: "ODM" = Opéra de Montréal)
-            # au lieu de simplement ignorer la ligne
-            if result.get('room') and any(kw.upper() in ls.upper() for kw in room_keywords):
+            # au lieu de simplement ignorer la ligne.
+            # IMPORTANT: frontières de mots pour éviter que 'E' matche dans
+            # "Steinway", 'CL' dans "Uncle", etc.
+            def _kw_in_line(kw: str, text_upper: str) -> bool:
+                return re.search(r'\b' + re.escape(kw.upper()) + r'\b', text_upper) is not None
+
+            if result.get('room') and any(_kw_in_line(kw, ls.upper()) for kw in room_keywords):
                 if not has_brand and not has_piano_word:
                     # Si for_who pas encore trouvé, utiliser ce code comme for_who
                     if candidate_for_who is None and found_data_block and not has_structured_data:
@@ -926,6 +958,62 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
     return result
 
 
+def split_block_by_serials(block_text: str, parsed: Dict) -> List[Dict]:
+    """
+    Si un bloc contient plusieurs pianos distincts (identifiés par des
+    numéros de série 5-7 chiffres ou par des marques répétées), retourne
+    une liste de demandes — une par piano — en clonant les autres champs
+    du bloc (date, heure, salle, for_who, etc.).
+
+    Sinon, retourne [parsed] tel quel.
+
+    Exemple CAS 3 — date partagée:
+        12 avril
+        8h Salle E ONJ Steinway D 415028
+        8h Salle E ONJ Steinway D 236752
+    → 2 demandes distinctes avec les deux serials.
+    """
+    if not parsed:
+        return []
+
+    # Chercher tous les numéros de série dans le bloc
+    serials = re.findall(r'\b\d{5,7}\b', block_text)
+    # Déduplication en préservant l'ordre
+    seen = set()
+    unique_serials = []
+    for s in serials:
+        if s not in seen:
+            seen.add(s)
+            unique_serials.append(s)
+
+    # Moins de 2 serials → pas de split possible via serial
+    if len(unique_serials) < 2:
+        return [parsed]
+
+    # Extraire la marque/modèle du piano déjà détecté (pour préfixer chaque serial)
+    piano_base = parsed.get('piano') or ''
+    # Retirer le serial déjà présent dans la piano_base pour ne pas le dupliquer
+    piano_base_clean = re.sub(r'\s*#?\s*\b\d{5,7}\b', '', piano_base).strip()
+    if not piano_base_clean:
+        # Fallback: chercher la marque dans le bloc
+        brand_match = re.search(r'\b(Steinway|Yamaha|Kawai|Baldwin|Bösendorfer|Fazioli)(\s+[A-Za-z0-9\'\"]+)?',
+                                block_text, re.IGNORECASE)
+        piano_base_clean = brand_match.group(0).strip() if brand_match else 'Piano'
+
+    # Créer une demande par serial en clonant le parsed original
+    requests = []
+    for serial in unique_serials:
+        cloned = dict(parsed)
+        cloned['piano'] = f"{piano_base_clean} {serial}".strip()
+        # Ajouter un avertissement pour signaler le split
+        warnings = list(cloned.get('warnings') or [])
+        warnings.append(f"Split automatique: piano #{serial} (bloc multi-pianos)")
+        cloned['warnings'] = warnings
+        requests.append(cloned)
+
+    return requests
+
+
 def parse_email_text(email_text: str) -> List[Dict]:
     """
     Parse un texte email complet contenant plusieurs demandes.
@@ -1060,7 +1148,8 @@ def parse_email_text(email_text: str) -> List[Dict]:
                 # Parser le bloc actuel (complet)
                 parsed = parse_email_block(block_text_so_far, current_date)
                 if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
-                    requests.append(parsed)
+                    # Splitter si le bloc contient plusieurs pianos (serials différents)
+                    requests.extend(split_block_by_serials(block_text_so_far, parsed))
                 # Commencer un nouveau bloc
                 current_block_lines = [line]
                 current_block_date = None
@@ -1090,7 +1179,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
             # Date différente: parser le bloc actuel et commencer un nouveau
             parsed = parse_email_block(block_text_so_far, current_date)
             if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
-                requests.append(parsed)
+                requests.extend(split_block_by_serials(block_text_so_far, parsed))
             # Réinitialiser pour le nouveau bloc
             current_block_lines = [line]
             current_block_date = None  # Sera extrait du nouveau bloc
@@ -1102,7 +1191,7 @@ def parse_email_text(email_text: str) -> List[Dict]:
         block_text = '\n'.join(current_block_lines)
         parsed = parse_email_block(block_text, current_date)
         if parsed.get('date') and (parsed.get('room') or parsed.get('piano')):
-            requests.append(parsed)
+            requests.extend(split_block_by_serials(block_text, parsed))
 
     # Appliquer le demandeur global (signature) aux demandes sans demandeur
     # MAIS ne pas appliquer si la signature est en fait un "pour qui" (artiste/événement)
