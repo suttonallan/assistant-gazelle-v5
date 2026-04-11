@@ -1721,6 +1721,203 @@ class GazelleAPIClient:
         print(f"✅ {len(all_users)} utilisateurs uniques récupérés depuis timeline entries")
         return all_users
 
+    def get_estimate_by_number(self, number: int) -> Optional[Dict[str, Any]]:
+        """
+        Récupère une soumission complète par son numéro.
+
+        Retourne la soumission avec client, piano, tiers, groupes et items.
+        Les montants sont en centimes (45000 = 450.00$), les quantités en centièmes (100 = 1).
+
+        Args:
+            number: Numéro de la soumission (ex: 11900)
+
+        Returns:
+            Dictionnaire complet de la soumission ou None si non trouvée
+        """
+        query = """
+        query GetEstimateByNumber($search: String!) {
+            allEstimates(first: 5, filters: { search: $search }) {
+                nodes {
+                    id
+                    number
+                    notes
+                    estimatedOn
+                    expiresOn
+                    locale
+                    isArchived
+                    currentPerformanceLevel
+                    recommendedTierTotal
+                    tags
+                    client {
+                        id
+                        companyName
+                        personalNotes
+                        preferenceNotes
+                        defaultContact {
+                            firstName
+                            lastName
+                            defaultEmail { email }
+                            defaultPhone { phoneNumber }
+                        }
+                    }
+                    piano {
+                        id
+                        make
+                        model
+                        type
+                        serialNumber
+                        year
+                        location
+                        notes
+                    }
+                    allEstimateTiers {
+                        id
+                        sequenceNumber
+                        isPrimary
+                        notes
+                        subtotal
+                        total
+                        taxTotal
+                        targetPerformanceLevel
+                        allowSelfSchedule
+                        allEstimateTierGroups {
+                            id
+                            name
+                            sequenceNumber
+                            allEstimateTierItems {
+                                id
+                                name
+                                description
+                                educationDescription
+                                amount
+                                quantity
+                                duration
+                                type
+                                isTaxable
+                                isTuning
+                                sequenceNumber
+                                externalUrl
+                                masterServiceItem {
+                                    id
+                                    name
+                                    description
+                                    amount
+                                    masterServiceGroup { id name }
+                                }
+                            }
+                        }
+                        allUngroupedEstimateTierItems {
+                            id
+                            name
+                            description
+                            educationDescription
+                            amount
+                            quantity
+                            duration
+                            type
+                            isTaxable
+                            isTuning
+                            sequenceNumber
+                            masterServiceItem { id name }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        result = self._execute_query(query, {"search": str(number)})
+        nodes = result.get('data', {}).get('allEstimates', {}).get('nodes', [])
+
+        # Chercher la correspondance exacte par numéro
+        for node in nodes:
+            if node.get('number') == number:
+                print(f"✅ Soumission #{number} récupérée: {node['id']}")
+                return node
+
+        if nodes:
+            print(f"⚠️  Soumission #{number} non trouvée exactement, {len(nodes)} résultats proches")
+        else:
+            print(f"❌ Aucune soumission trouvée pour #{number}")
+        return None
+
+    def update_estimate(self, estimate_id: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Met à jour une soumission existante via updateEstimate.
+
+        Pour modifier des items individuels, il faut passer la structure complète
+        des tiers via le champ estimateTiers. L'API remplace l'intégralité des tiers.
+
+        Args:
+            estimate_id: ID de la soumission (ex: 'est_vAHG7MPjj6JxNmJn')
+            input_data: Données de mise à jour (PrivateUpdateEstimateInput)
+
+        Returns:
+            Soumission mise à jour
+        """
+        mutation = """
+        mutation UpdateEstimate($id: String!, $input: PrivateUpdateEstimateInput!) {
+            updateEstimate(id: $id, input: $input) {
+                estimate {
+                    id
+                    number
+                    notes
+                    allEstimateTiers {
+                        id
+                        total
+                        allEstimateTierGroups {
+                            id
+                            name
+                            allEstimateTierItems {
+                                id
+                                name
+                                description
+                                amount
+                                quantity
+                            }
+                        }
+                        allUngroupedEstimateTierItems {
+                            id
+                            name
+                            amount
+                        }
+                    }
+                }
+                mutationErrors {
+                    fieldName
+                    messages
+                }
+            }
+        }
+        """
+
+        variables = {
+            "id": estimate_id,
+            "input": input_data
+        }
+
+        result = self._execute_query(mutation, variables)
+        update_result = result.get("data", {}).get("updateEstimate", {})
+        mutation_errors = update_result.get("mutationErrors", [])
+
+        if mutation_errors:
+            error_messages = []
+            for e in mutation_errors:
+                field = e.get('fieldName', '')
+                messages = e.get('messages', [])
+                if messages:
+                    error_messages.append(f"{field}: {', '.join(messages)}")
+                else:
+                    error_messages.append(f"{field}: Erreur inconnue")
+            raise ValueError(f"Erreurs lors de la mise à jour: {', '.join(error_messages)}")
+
+        estimate = update_result.get("estimate")
+        if not estimate:
+            raise ValueError("Aucune soumission retournée par l'API")
+
+        print(f"✅ Soumission #{estimate.get('number')} mise à jour")
+        return estimate
+
     def _generate_new_token(self) -> None:
         """
         Génère un nouveau token OAuth2 en utilisant les credentials client.
