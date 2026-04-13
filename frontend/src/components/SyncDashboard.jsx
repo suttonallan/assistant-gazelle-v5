@@ -184,14 +184,43 @@ export default function SyncDashboard({ currentUser }) {
         ) : (
           syncLogs.slice(0, 8).map((log, i) => {
             const s = extractStats(log)
-            const ok = log.status === 'success'
+            // Statut "success" (vert), "warning" (jaune — non critique), "error" (rouge — critique)
+            const isSuccess = log.status === 'success'
+            const isWarning = log.status === 'warning'
+            const isError = log.status === 'error'
+            const dotColor = isSuccess ? 'bg-green-400' : isWarning ? 'bg-yellow-400' : 'bg-red-400'
+            const rowBg = isError ? 'bg-red-50' : isWarning ? 'bg-yellow-50' : ''
+            // Libellé de nature — visible en hover + texte court inline
+            const natureLabel = isWarning
+              ? 'non critique'
+              : isError
+              ? 'critique'
+              : null
+            const errMsg = log.error_message || ''
+            // Tooltip complet avec le message d'erreur si disponible
+            const tooltip = isSuccess
+              ? ''
+              : `${natureLabel?.toUpperCase() || 'ERREUR'} — ${errMsg || 'voir les logs GitHub Actions'}`
             return (
-              <Row key={log.id || i} className={!ok ? 'bg-red-50' : ''}>
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-green-400' : 'bg-red-400'}`} />
+              <Row key={log.id || i} className={rowBg} title={tooltip || undefined}>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
                 <span className="font-mono w-12">{time(log.created_at)}</span>
                 <span className="w-16 text-gray-500">{date(log.created_at)}</span>
-                <span className="flex-1 truncate">{log.script_name || 'Sync'}</span>
-                <span className="text-gray-400 w-10 text-right">{log.execution_time_seconds ? `${log.execution_time_seconds}s` : ''}</span>
+                <span className="flex-1 truncate">
+                  {log.script_name || 'Sync'}
+                  {natureLabel && (
+                    <span
+                      className={`ml-1.5 text-xs ${
+                        isWarning ? 'text-yellow-700' : 'text-red-700'
+                      }`}
+                    >
+                      ({natureLabel})
+                    </span>
+                  )}
+                </span>
+                <span className="text-gray-400 w-10 text-right">
+                  {log.execution_time_seconds ? `${log.execution_time_seconds}s` : ''}
+                </span>
                 {s.appointments !== undefined && (
                   <span className="bg-blue-50 text-blue-600 text-xs px-1.5 rounded">{s.appointments} RV</span>
                 )}
