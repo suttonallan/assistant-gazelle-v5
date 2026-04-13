@@ -167,34 +167,60 @@ async def search_clients(
 
         storage = SupabaseStorage()
         headers = storage._get_headers()
-        search_pattern = f"*{q.strip()}*"
+
+        # La table gazelle_clients utilise first_name, last_name, company_name.
+        # Colonnes inexistantes avant ce fix: 'name', 'full_name' — ce qui
+        # faisait que la recherche ne retournait rien pour les clients
+        # privés (sans company_name).
+        term = q.strip()
+        search_pattern = f"*{term}*"
+
+        # Filtre OR combiné sur les 3 vraies colonnes, en une seule requête.
+        or_filter = (
+            f"or=("
+            f"first_name.ilike.{search_pattern},"
+            f"last_name.ilike.{search_pattern},"
+            f"company_name.ilike.{search_pattern}"
+            f")"
+        )
+        url = (
+            f"{storage.api_url}/gazelle_clients"
+            f"?select=external_id,first_name,last_name,company_name,email,phone,city,status"
+            f"&{or_filter}"
+            f"&status=eq.ACTIVE"
+            f"&limit={limit * 2}"  # marge pour le tri + déduplication
+        )
+        resp = http_requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Supabase error: {resp.text[:200]}",
+            )
 
         all_results = []
         seen_ids = set()
+        for client in resp.json():
+            cid = client.get('external_id')
+            if not cid or cid in seen_ids:
+                continue
+            seen_ids.add(cid)
 
-        for field in ['company_name', 'name', 'full_name']:
-            try:
-                url = (
-                    f"{storage.api_url}/gazelle_clients"
-                    f"?select=external_id,name,company_name,full_name,email,phone,city"
-                    f"&{field}=ilike.{search_pattern}"
-                    f"&limit={limit}"
-                )
-                resp = http_requests.get(url, headers=headers)
-                if resp.status_code == 200:
-                    for client in resp.json():
-                        cid = client.get('external_id')
-                        if cid and cid not in seen_ids:
-                            all_results.append({
-                                "client_id": cid,
-                                "name": client.get('company_name') or client.get('full_name') or client.get('name') or '',
-                                "phone": client.get('phone') or '',
-                                "email": client.get('email') or '',
-                                "city": client.get('city') or '',
-                            })
-                            seen_ids.add(cid)
-            except Exception:
-                pass
+            # Reconstruire un nom affichable :
+            # - company_name si présent (clients institutionnels)
+            # - sinon "first_name last_name" concaténé proprement
+            display_name = client.get('company_name') or ''
+            if not display_name:
+                first = (client.get('first_name') or '').strip()
+                last = (client.get('last_name') or '').strip()
+                display_name = f"{first} {last}".strip() or '(sans nom)'
+
+            all_results.append({
+                "client_id": cid,
+                "name": display_name,
+                "phone": client.get('phone') or '',
+                "email": client.get('email') or '',
+                "city": client.get('city') or '',
+            })
 
         return {
             "query": q,
@@ -202,6 +228,8 @@ async def search_clients(
             "results": all_results[:limit]
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
