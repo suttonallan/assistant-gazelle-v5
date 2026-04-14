@@ -26,20 +26,39 @@ const REVIEW_ESTIMATE_KEYWORDS = [
   'analyse', 'corrige', 'critique',
 ]
 
+// Mots-clés du mode "recherche libre par mot-clé dans events/notes"
+// Patterns interrogatifs typiques
+const SEARCH_KEYWORD_PATTERNS = [
+  'chez quel', 'chez qui',
+  'qui a ', 'quel client', 'quels clients', 'quels pianos',
+  'retrouve', 'cherche dans', 'cherche-moi',
+  'trouve la note', 'trouve le rv', 'trouve les rv',
+  'où est-ce que', 'quand a-t-on',
+  'récemment fait', 'a été fait',
+]
+
 function detectActionType(text) {
   if (!text) return null
   const lower = text.toLowerCase().trim()
-  // Révision de soumission : doit contenir 'soumission/devis/estimate' OU un verbe d'amélioration + un # ou nom
+
+  // 1. Révision de soumission : doit contenir 'soumission/devis/estimate' OU un verbe d'amélioration + un # ou nom
   const hasReviewVerb = REVIEW_ESTIMATE_KEYWORDS.some(kw => lower.includes(kw))
   const hasNumber = /#?\d{4,5}/.test(lower)
   if (hasReviewVerb && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate') || hasNumber)) {
     return 'review_estimate'
   }
-  // RV conjoint
+
+  // 2. Recherche libre par mot-clé : patterns interrogatifs
+  if (SEARCH_KEYWORD_PATTERNS.some(p => lower.includes(p))) {
+    return 'search_keyword'
+  }
+
+  // 3. RV conjoint
   if (JOINT_RV_KEYWORDS.some(kw => lower.includes(kw))) {
     return 'joint_rv'
   }
-  // Heuristique de longueur : phrase longue avec un mot d'action
+
+  // 4. Heuristique de longueur : phrase longue avec un mot d'action
   if (lower.length > 20 && (hasReviewVerb || JOINT_RV_KEYWORDS.some(kw => lower.includes(kw)))) {
     return hasReviewVerb ? 'review_estimate' : 'joint_rv'
   }
@@ -129,9 +148,10 @@ export default function ClientAccessPanel({ currentUser }) {
     setShowSuggestions(false)
 
     // Router vers le bon endpoint selon le type d'action
-    const endpoint = actionType === 'review_estimate'
-      ? '/api/assistant/review-estimate'
-      : '/api/assistant/joint-appointment'
+    let endpoint
+    if (actionType === 'review_estimate') endpoint = '/api/assistant/review-estimate'
+    else if (actionType === 'search_keyword') endpoint = '/api/assistant/search-keyword'
+    else endpoint = '/api/assistant/joint-appointment'
 
     try {
       const resp = await fetch(`${API_URL}${endpoint}`, {
@@ -304,6 +324,47 @@ export default function ClientAccessPanel({ currentUser }) {
                   <div className="text-yellow-700 mt-1">⚠️ {assistantResult.annotation_warning}</div>
                 )}
               </div>
+            </div>
+          )}
+
+          {assistantResult && assistantResult.success && assistantResult._action_type === 'search_keyword' && (
+            <div className="bg-purple-50 border border-purple-200 text-purple-900 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">
+                🔍 Recherche : « {assistantResult.keyword} »
+                {assistantResult.tech_filter && (
+                  <span className="ml-2 text-xs font-normal text-purple-700">
+                    (filtre : {assistantResult.tech_filter})
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-700 mb-2">
+                {assistantResult.results_count} résultat(s) sur {assistantResult.total_events_scanned} événements scannés
+                ({assistantResult.months_scanned} derniers mois)
+              </div>
+              {assistantResult.results_count === 0 ? (
+                <div className="text-xs italic text-gray-600">
+                  Aucun rendez-vous ne mentionne « {assistantResult.keyword} » dans la fenêtre scannée.
+                  Essaie un autre mot-clé ou élargis la recherche.
+                </div>
+              ) : (
+                <div className="space-y-2 mt-2">
+                  {assistantResult.results.map((hit, idx) => (
+                    <div key={hit.event_id || idx} className="border border-purple-200 rounded-lg px-3 py-2 bg-white">
+                      <div className="flex items-baseline gap-2 text-xs">
+                        <span className="font-mono text-gray-500">{hit.date}</span>
+                        <span className="font-semibold">{hit.tech_first_name} {hit.tech_last_name}</span>
+                        <span className="text-gray-700">→ {hit.client_name || '(client inconnu)'}</span>
+                        {hit.piano && <span className="text-gray-500">· {hit.piano}</span>}
+                      </div>
+                      {hit.excerpt && (
+                        <div className="text-xs mt-1 text-gray-600 italic">
+                          {hit.excerpt}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

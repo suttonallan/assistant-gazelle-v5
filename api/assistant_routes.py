@@ -4,6 +4,7 @@ en langage naturel par Allan ou Louise dans la boîte client.
 Actions supportées :
 1. RV conjoint (accompagnateur) — POST /assistant/joint-appointment
 2. Révision/amélioration de soumission — POST /assistant/review-estimate
+3. Recherche par mot-clé dans events/notes — POST /assistant/search-keyword
 
 Architecture :
 - Claude Haiku parse la requête via tool use et extrait les paramètres
@@ -918,6 +919,257 @@ async def review_estimate(req: AssistantRequest):
         result = execute_review_estimate(
             estimate_number=tool_call.get("estimate_number"),
             client_name_hint=tool_call.get("client_name_hint"),
+        )
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "intent_recognized": True,
+            "tool_input": tool_call,
+            "error": f"Erreur d'exécution : {exc}",
+        }
+
+    result["intent_recognized"] = True
+    result["tool_input"] = tool_call
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════
+# WORKFLOW 3 — Recherche libre par mot-clé dans les events/notes
+# ═════════════════════════════════════════════════════════════════════
+
+SEARCH_KEYWORD_TOOL = {
+    "name": "search_events_by_keyword",
+    "description": (
+        "Cherche dans les notes et titres des rendez-vous Gazelle (events) "
+        "tous ceux qui mentionnent un mot-clé. Utilise cet outil quand "
+        "l'utilisateur demande de retrouver une visite, un service, un "
+        "problème ou un contexte précis dont il se souvient vaguement. "
+        "Exemples : 'chez quel client JP a réparé du polyester récemment', "
+        "'qui a un PLS qui fuit', 'retrouve la note où Nicolas mentionne "
+        "Steinway K-52', 'quels pianos ont des chevilles fatiguées'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "keyword": {
+                "type": "string",
+                "description": (
+                    "Le mot-clé ou expression courte à chercher dans les notes "
+                    "et titres des events. Doit être spécifique (ex: 'polyester', "
+                    "'chevilles fatiguées', 'fuite humidistat'). Évite les mots "
+                    "trop génériques comme 'piano' ou 'accord'."
+                ),
+            },
+            "tech_filter_first_name": {
+                "type": "string",
+                "description": (
+                    "Optionnel — restreint la recherche aux events d'un "
+                    "technicien spécifique. Valeurs : Allan, Nicolas, JP, "
+                    "Jean-Philippe, Margot. Si l'utilisateur dit 'JP et Allan', "
+                    "laisse vide et le backend retournera tous les techs."
+                ),
+            },
+            "months_back": {
+                "type": "integer",
+                "description": (
+                    "Optionnel — nombre de mois en arrière à scanner. "
+                    "Défaut 24. Maximum 60."
+                ),
+            },
+        },
+        "required": ["keyword"],
+    },
+}
+
+
+def execute_search_keyword(
+    keyword: str,
+    tech_filter_first_name: Optional[str] = None,
+    months_back: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Sweep Gazelle events pour trouver les mentions du mot-clé.
+
+    Retourne jusqu'à 25 résultats les plus récents, triés par date desc,
+    avec un extrait de la note pour chaque match.
+    """
+    from core.gazelle_api_client import GazelleAPIClient
+
+    if not keyword or not keyword.strip():
+        return {"success": False, "error": "Mot-clé manquant ou vide."}
+    keyword_lower = keyword.strip().lower()
+
+    months = max(1, min(months_back or 24, 60))
+
+    tech_id = None
+    if tech_filter_first_name:
+        tech_id = resolve_tech(tech_filter_first_name)
+        if not tech_id:
+            return {
+                "success": False,
+                "error": f"Technicien inconnu : '{tech_filter_first_name}'.",
+            }
+
+    gz = GazelleAPIClient()
+
+    today = date.today()
+    windows = []
+    win_end = today
+    # Fenêtres de 90 jours pour rester sous le cap de pagination de Gazelle
+    for _ in range((months * 30 + 89) // 90):
+        win_start = win_end - timedelta(days=90)
+        windows.append((win_start.isoformat(), win_end.isoformat()))
+        win_end = win_start - timedelta(days=1)
+
+    query = """
+    query Search($filters: PrivateAllEventsFilter) {
+        allEventsBatched(first: 200, filters: $filters) {
+            nodes {
+                id title start notes status
+                user { id firstName lastName }
+                client { id defaultContact { firstName lastName } }
+                allEventPianos(first: 3) { nodes { piano { make model } } }
+            }
+        }
+    }
+    """
+
+    matches = []
+    seen_ids = set()
+    total_scanned = 0
+    for start_d, end_d in windows:
+        try:
+            r = gz._execute_query(query, {"filters": {"startOn": start_d, "endOn": end_d}})
+        except Exception:
+            continue
+        nodes = r.get("data", {}).get("allEventsBatched", {}).get("nodes", []) or []
+        total_scanned += len(nodes)
+        for n in nodes:
+            if n["id"] in seen_ids:
+                continue
+            if tech_id and (n.get("user") or {}).get("id") != tech_id:
+                continue
+            notes = (n.get("notes") or "").lower()
+            title = (n.get("title") or "").lower()
+            if keyword_lower in notes or keyword_lower in title:
+                seen_ids.add(n["id"])
+                matches.append(n)
+
+    matches.sort(key=lambda n: n.get("start") or "", reverse=True)
+    matches = matches[:25]
+
+    results = []
+    for n in matches:
+        u = n.get("user") or {}
+        contact = (n.get("client") or {}).get("defaultContact") or {}
+        client_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
+        pianos = (n.get("allEventPianos", {}) or {}).get("nodes", []) or []
+        piano_str = ", ".join(
+            f"{p['piano']['make']} {p['piano']['model']}".strip()
+            for p in pianos if p.get("piano")
+        )
+
+        notes_full = n.get("notes") or ""
+        excerpt = ""
+        if keyword_lower in notes_full.lower():
+            idx = notes_full.lower().find(keyword_lower)
+            start = max(0, idx - 60)
+            end = min(len(notes_full), idx + len(keyword) + 100)
+            excerpt = notes_full[start:end].replace("\n", " ").strip()
+            if start > 0:
+                excerpt = "…" + excerpt
+            if end < len(notes_full):
+                excerpt = excerpt + "…"
+        elif keyword_lower in (n.get("title") or "").lower():
+            excerpt = f"(dans le titre : {n.get('title', '')})"
+
+        results.append({
+            "event_id": n["id"],
+            "date": (n.get("start") or "")[:10],
+            "tech_first_name": u.get("firstName", ""),
+            "tech_last_name": u.get("lastName", ""),
+            "client_id": (n.get("client") or {}).get("id"),
+            "client_name": client_name,
+            "piano": piano_str or None,
+            "title": n.get("title", ""),
+            "excerpt": excerpt,
+        })
+
+    return {
+        "success": True,
+        "keyword": keyword,
+        "tech_filter": TECH_DISPLAY_NAMES.get(tech_id) if tech_id else None,
+        "months_scanned": months,
+        "total_events_scanned": total_scanned,
+        "results_count": len(results),
+        "results": results,
+    }
+
+
+@router.post("/search-keyword", response_model=Dict[str, Any])
+async def search_keyword(req: AssistantRequest):
+    """Parse une demande de recherche par mot-clé et retourne les events matchants.
+
+    Exemples :
+    - "chez quel client JP a réparé du polyester récemment"
+    - "retrouve la note où Nicolas mentionne Steinway K-52"
+    - "qui a une fuite de PLS"
+    - "quels pianos ont des chevilles fatiguées"
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY non configurée")
+
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key)
+
+    today_iso = date.today().isoformat()
+    system_prompt = (
+        f"Tu es l'assistant Gazelle de Piano Tek Musique. Aujourd'hui c'est {today_iso}. "
+        "Ton rôle est de parser une demande de recherche libre dans les notes/titres "
+        "des rendez-vous, et d'extraire les paramètres pour l'outil "
+        "search_events_by_keyword.\n\n"
+        "Techniciens connus : Allan, Nicolas, JP (Jean-Philippe), Margot.\n\n"
+        "Identifie le mot-clé MÉTIER significatif (ex: 'polyester', 'humidistat', "
+        "'cordelettes', 'Steinway K-52', 'fuite'). Évite les mots vides ('quel', "
+        "'récemment', 'chez', 'quand'). Si l'utilisateur mentionne un seul "
+        "technicien explicitement, utilise tech_filter_first_name. S'il mentionne "
+        "plusieurs techniciens (ex: 'JP et Allan'), laisse vide pour scanner tous.\n\n"
+        "Si la demande n'est PAS une recherche par mot-clé, ne pas appeler l'outil."
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            tools=[SEARCH_KEYWORD_TOOL],
+            system=system_prompt,
+            messages=[{"role": "user", "content": req.message}],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erreur Claude API : {exc}")
+
+    tool_call = None
+    text_response = []
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "search_events_by_keyword":
+            tool_call = block.input
+        elif block.type == "text":
+            text_response.append(block.text)
+
+    if not tool_call:
+        return {
+            "success": False,
+            "intent_recognized": False,
+            "message": " ".join(text_response) or "Je n'ai pas compris la demande comme une recherche par mot-clé.",
+        }
+
+    try:
+        result = execute_search_keyword(
+            keyword=tool_call.get("keyword"),
+            tech_filter_first_name=tool_call.get("tech_filter_first_name"),
+            months_back=tool_call.get("months_back"),
         )
     except Exception as exc:
         import traceback
