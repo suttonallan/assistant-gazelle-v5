@@ -9,9 +9,8 @@ import BriefingCard from './BriefingCard'
  * n'importe quel client par nom pour consulter sa fiche avant
  * un appel téléphonique ou un e-mail.
  */
-// Mots-clés qui déclenchent le mode "action assistant" (RV conjoint, etc.)
-// au lieu de la recherche client classique.
-const ACTION_KEYWORDS = [
+// Mots-clés du mode "RV conjoint"
+const JOINT_RV_KEYWORDS = [
   'rv conjoint', 'rendez-vous conjoint', 'conjoint',
   'accompagn', 'accompagne', 'apprenti',
   'duplique', 'dupliquer', 'duplica',
@@ -20,13 +19,35 @@ const ACTION_KEYWORDS = [
   'avec margot', 'avec nicolas', 'avec allan', 'avec jp', 'avec jean-philippe',
 ]
 
-function isActionRequest(text) {
-  if (!text) return false
+// Mots-clés du mode "révision de soumission"
+const REVIEW_ESTIMATE_KEYWORDS = [
+  'soumission', 'devis', 'estimate',
+  'améliore', 'amelior', 'révise', 'revise',
+  'analyse', 'corrige', 'critique',
+]
+
+function detectActionType(text) {
+  if (!text) return null
   const lower = text.toLowerCase().trim()
-  // Heuristique : long (>20 chars) OU contient un mot-clé d'action
-  if (lower.length > 20 && ACTION_KEYWORDS.some(kw => lower.includes(kw))) return true
-  if (ACTION_KEYWORDS.some(kw => lower.includes(kw))) return true
-  return false
+  // Révision de soumission : doit contenir 'soumission/devis/estimate' OU un verbe d'amélioration + un # ou nom
+  const hasReviewVerb = REVIEW_ESTIMATE_KEYWORDS.some(kw => lower.includes(kw))
+  const hasNumber = /#?\d{4,5}/.test(lower)
+  if (hasReviewVerb && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate') || hasNumber)) {
+    return 'review_estimate'
+  }
+  // RV conjoint
+  if (JOINT_RV_KEYWORDS.some(kw => lower.includes(kw))) {
+    return 'joint_rv'
+  }
+  // Heuristique de longueur : phrase longue avec un mot d'action
+  if (lower.length > 20 && (hasReviewVerb || JOINT_RV_KEYWORDS.some(kw => lower.includes(kw)))) {
+    return hasReviewVerb ? 'review_estimate' : 'joint_rv'
+  }
+  return null
+}
+
+function isActionRequest(text) {
+  return detectActionType(text) !== null
 }
 
 export default function ClientAccessPanel({ currentUser }) {
@@ -99,15 +120,21 @@ export default function ClientAccessPanel({ currentUser }) {
     if (e) e.preventDefault()
     const text = searchTerm.trim()
     if (!text) return
-    if (!isActionRequest(text)) return  // sinon on laisse l'autocomplete gérer
+    const actionType = detectActionType(text)
+    if (!actionType) return  // sinon on laisse l'autocomplete gérer
 
     setLoadingAssistant(true)
     setAssistantResult(null)
     setAssistantError(null)
     setShowSuggestions(false)
 
+    // Router vers le bon endpoint selon le type d'action
+    const endpoint = actionType === 'review_estimate'
+      ? '/api/assistant/review-estimate'
+      : '/api/assistant/joint-appointment'
+
     try {
-      const resp = await fetch(`${API_URL}/api/assistant/joint-appointment`, {
+      const resp = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -119,7 +146,7 @@ export default function ClientAccessPanel({ currentUser }) {
       if (!resp.ok) {
         setAssistantError(data.detail || `Erreur ${resp.status}`)
       } else {
-        setAssistantResult(data)
+        setAssistantResult({ ...data, _action_type: actionType })
       }
     } catch (err) {
       setAssistantError(err.message || 'Erreur réseau')
@@ -260,7 +287,7 @@ export default function ClientAccessPanel({ currentUser }) {
             </div>
           )}
 
-          {assistantResult && assistantResult.success && (
+          {assistantResult && assistantResult.success && assistantResult._action_type === 'joint_rv' && (
             <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
               <div className="font-semibold mb-1">✅ RV conjoint créé</div>
               <div className="text-xs space-y-0.5">
@@ -276,6 +303,64 @@ export default function ClientAccessPanel({ currentUser }) {
                 {assistantResult.annotation_warning && (
                   <div className="text-yellow-700 mt-1">⚠️ {assistantResult.annotation_warning}</div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {assistantResult && assistantResult.success && assistantResult._action_type === 'review_estimate' && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">📋 Analyse de la soumission</div>
+              <div className="text-xs text-gray-700 mb-2">{assistantResult.summary}</div>
+              {assistantResult.issues_count === 0 ? (
+                <div className="text-xs text-green-700 font-medium">
+                  ✨ Aucun problème détecté — cette soumission respecte les conventions PTM.
+                </div>
+              ) : (
+                <div className="space-y-2 mt-2">
+                  <div className="text-xs font-semibold">
+                    {assistantResult.issues_count} suggestion(s) :
+                  </div>
+                  {assistantResult.issues.map((issue, idx) => {
+                    const sevColors = {
+                      critical: 'bg-red-100 text-red-800 border-red-300',
+                      high: 'bg-orange-100 text-orange-800 border-orange-300',
+                      medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+                      low: 'bg-gray-100 text-gray-700 border-gray-300',
+                    }
+                    const sevLabels = {
+                      critical: 'critique',
+                      high: 'important',
+                      medium: 'moyen',
+                      low: 'mineur',
+                    }
+                    return (
+                      <div key={idx} className={`border rounded-lg px-3 py-2 ${sevColors[issue.severity] || sevColors.low}`}>
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wide">
+                            [{sevLabels[issue.severity] || issue.severity}]
+                          </span>
+                          <span className="text-xs font-semibold flex-1">{issue.title}</span>
+                        </div>
+                        <div className="text-xs mt-1 opacity-90">{issue.description}</div>
+                        {issue.items && issue.items.length > 0 && (
+                          <ul className="text-xs mt-1 ml-3 list-disc">
+                            {issue.items.map((it, i) => (
+                              <li key={i}>{it.name} ({it.group})</li>
+                            ))}
+                          </ul>
+                        )}
+                        {issue.missing_items && issue.missing_items.length > 0 && (
+                          <div className="text-xs mt-1">
+                            Items manquants dans Tier 2 : {issue.missing_items.join(', ')}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="text-xs text-gray-500 mt-2 italic">
+                Mode lecture seule — applique les corrections manuellement dans Gazelle.
               </div>
             </div>
           )}

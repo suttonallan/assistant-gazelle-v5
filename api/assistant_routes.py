@@ -1,20 +1,21 @@
-"""Assistant conversationnel v0 — point d'entrée minimal pour les actions
-demandées en langage naturel par Allan ou Louise dans la boîte client.
+"""Assistant conversationnel v0 — endpoints pour les actions demandées
+en langage naturel par Allan ou Louise dans la boîte client.
 
-Pour l'instant, supporte UNE seule action : créer un RV conjoint
-(accompagnateur) à partir d'un RV existant.
+Actions supportées :
+1. RV conjoint (accompagnateur) — POST /assistant/joint-appointment
+2. Révision/amélioration de soumission — POST /assistant/review-estimate
 
 Architecture :
-- POST /assistant/joint-appointment {message, current_user_first_name?}
 - Claude Haiku parse la requête via tool use et extrait les paramètres
-- Le backend résout les techniciens, trouve le RV source dans Gazelle live
-- Crée le clone type PERSONAL (le client ne reçoit pas de 2e notif)
-- Annote l'event original (titre + notes) avec le nom de l'accompagnateur
-- Retourne success + IDs des deux events
+- Le backend interroge Gazelle live (pas la cache Supabase) pour les
+  données fraîches
+- Pour les actions destructrices, utilise les patterns de garde du skill
+  gazelle (PERSONAL pour les clones d'event, etc.)
 
 Référence :
-- Skill gazelle workflow clone_appointment_joint
-- Mémoire feedback project_rv_conjoint_personal_type, project_rv_conjoint_title_safe
+- Skill gazelle (.claude/skills/gazelle/workflows/)
+- Mémoire feedback project_rv_conjoint_personal_type, project_rv_conjoint_title_safe,
+  feedback_update_estimate_safe_required, feedback_soumissions_pas_signature
 """
 
 import json
@@ -504,6 +505,420 @@ async def joint_appointment(req: AssistantRequest):
     # Exécuter le tool
     try:
         result = execute_joint_appointment(**tool_call)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "intent_recognized": True,
+            "tool_input": tool_call,
+            "error": f"Erreur d'exécution : {exc}",
+        }
+
+    result["intent_recognized"] = True
+    result["tool_input"] = tool_call
+    return result
+
+
+# ═════════════════════════════════════════════════════════════════════
+# WORKFLOW 2 — Révision / amélioration d'une soumission
+# ═════════════════════════════════════════════════════════════════════
+
+REVIEW_ESTIMATE_TOOL = {
+    "name": "review_estimate",
+    "description": (
+        "Analyse une soumission Gazelle existante et retourne des suggestions "
+        "d'amélioration. Utilise cet outil quand l'utilisateur demande de "
+        "réviser, analyser, améliorer, ou corriger une soumission. Identifie "
+        "la soumission soit par son numéro (ex: '11919') soit par le nom du "
+        "client (ex: 'Giroux', 'Mme Tremblay'). Cet outil est en mode dry-run "
+        "— il PROPOSE des corrections mais ne les applique pas."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "estimate_number": {
+                "type": "integer",
+                "description": (
+                    "Numéro public de la soumission (ex: 11919). À fournir "
+                    "si l'utilisateur le mentionne explicitement avec un # ou "
+                    "comme nombre."
+                ),
+            },
+            "client_name_hint": {
+                "type": "string",
+                "description": (
+                    "Nom (ou partie de nom) du client si la soumission est "
+                    "identifiée par client plutôt que par numéro (ex: 'Giroux')."
+                ),
+            },
+        },
+    },
+}
+
+
+def _format_currency(cents: int) -> str:
+    return f"{cents/100:.2f} $"
+
+
+def execute_review_estimate(
+    estimate_number: Optional[int] = None,
+    client_name_hint: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Lit une soumission Gazelle et retourne une analyse + suggestions.
+
+    Mode lecture seule (dry-run). Retourne une liste d'issues avec leur
+    sévérité et la correction proposée. L'utilisateur applique manuellement.
+    """
+    from core.gazelle_api_client import GazelleAPIClient
+
+    if not estimate_number and not client_name_hint:
+        return {
+            "success": False,
+            "error": "Précise soit un numéro de soumission, soit un nom de client.",
+        }
+
+    gz = GazelleAPIClient()
+
+    # Query de base réutilisée
+    fetch_query = """
+    query($search: String!) {
+        allEstimates(first: 10, filters: {search: $search}) {
+            nodes {
+                id number notes estimatedOn expiresOn locale
+                isArchived
+                recommendedTierTotal
+                client { id defaultContact { firstName lastName } }
+                piano { id make model year }
+                allEstimateTiers {
+                    id sequenceNumber isPrimary notes
+                    subtotal taxTotal total
+                    allEstimateTierGroups {
+                        id name sequenceNumber
+                        allEstimateTierItems {
+                            id name sequenceNumber amount quantity
+                            description isTaxable
+                            masterServiceItem { id }
+                        }
+                    }
+                    allUngroupedEstimateTierItems {
+                        id name amount quantity description isTaxable
+                        masterServiceItem { id }
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    # Résolution de l'estimate
+    estimate = None
+    if estimate_number:
+        result = gz._execute_query(fetch_query, {"search": str(estimate_number)})
+        nodes = result.get("data", {}).get("allEstimates", {}).get("nodes", []) or []
+        for n in nodes:
+            if n.get("number") == int(estimate_number):
+                estimate = n
+                break
+        if not estimate:
+            return {
+                "success": False,
+                "error": f"Soumission #{estimate_number} introuvable dans Gazelle.",
+            }
+    else:
+        # Recherche par nom de client — on prend la PLUS RÉCENTE non archivée
+        result = gz._execute_query(fetch_query, {"search": client_name_hint})
+        nodes = result.get("data", {}).get("allEstimates", {}).get("nodes", []) or []
+        # Filtrer sur le nom client + non archivé, trier par estimatedOn desc
+        matching = []
+        hint_lower = client_name_hint.strip().lower()
+        for n in nodes:
+            if n.get("isArchived"):
+                continue
+            contact = (n.get("client") or {}).get("defaultContact") or {}
+            full = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".lower()
+            if hint_lower in full:
+                matching.append(n)
+        if not matching:
+            return {
+                "success": False,
+                "error": f"Aucune soumission active trouvée pour '{client_name_hint}'.",
+            }
+        if len(matching) > 1:
+            # Plusieurs candidates — retourner pour clarification
+            return {
+                "success": False,
+                "error": f"{len(matching)} soumissions actives pour '{client_name_hint}'. Précise le numéro.",
+                "candidates": [
+                    {
+                        "number": m.get("number"),
+                        "estimated_on": m.get("estimatedOn"),
+                        "total": m.get("recommendedTierTotal"),
+                        "client": (
+                            ((m.get("client") or {}).get("defaultContact") or {}).get("firstName", "")
+                            + " "
+                            + ((m.get("client") or {}).get("defaultContact") or {}).get("lastName", "")
+                        ).strip(),
+                    }
+                    for m in matching
+                ],
+            }
+        estimate = matching[0]
+
+    # ─── Analyse heuristique des frictions ───
+    issues = []
+    contact = (estimate.get("client") or {}).get("defaultContact") or {}
+    client_full = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip()
+    piano = estimate.get("piano") or {}
+    piano_str = f"{piano.get('make', '')} {piano.get('model', '') or ''}".strip()
+
+    notes = estimate.get("notes") or ""
+    tiers = estimate.get("allEstimateTiers") or []
+
+    # Issue 1 : Items à 0 $ (friction #2)
+    zero_items = []
+    for tier in tiers:
+        for group in tier.get("allEstimateTierGroups") or []:
+            for item in group.get("allEstimateTierItems") or []:
+                if (item.get("amount") or 0) == 0:
+                    zero_items.append({
+                        "name": item.get("name", ""),
+                        "tier": tier.get("sequenceNumber", "?"),
+                        "group": group.get("name", ""),
+                        "description_excerpt": (item.get("description") or "")[:100],
+                    })
+        for item in tier.get("allUngroupedEstimateTierItems") or []:
+            if (item.get("amount") or 0) == 0:
+                zero_items.append({
+                    "name": item.get("name", ""),
+                    "tier": tier.get("sequenceNumber", "?"),
+                    "group": "(non-groupé)",
+                    "description_excerpt": (item.get("description") or "")[:100],
+                })
+    if zero_items:
+        issues.append({
+            "type": "items_zero_dollar",
+            "severity": "high",
+            "title": f"{len(zero_items)} item(s) à 0 $ détecté(s)",
+            "description": (
+                "Les items à 0 $ sont visuellement dissonants pour le client. "
+                "Soit (a) supprime-les et déplace leur contenu dans la description "
+                "d'un item facturé existant, soit (b) déplace-les dans les notes "
+                "de la soumission s'il s'agit d'avertissements."
+            ),
+            "items": zero_items,
+        })
+
+    # Issue 2 : Tier 2 ne ⊇ Tier 1 (friction #1)
+    if len(tiers) >= 2:
+        # Construire les sets d'items par (msl_id, name)
+        def collect_keys(tier):
+            keys = set()
+            for g in tier.get("allEstimateTierGroups") or []:
+                for it in g.get("allEstimateTierItems") or []:
+                    msl = (it.get("masterServiceItem") or {}).get("id")
+                    keys.add((msl, it.get("name")))
+            for it in tier.get("allUngroupedEstimateTierItems") or []:
+                msl = (it.get("masterServiceItem") or {}).get("id")
+                keys.add((msl, it.get("name")))
+            return keys
+        # Trier par sequenceNumber
+        sorted_tiers = sorted(tiers, key=lambda t: t.get("sequenceNumber", 0))
+        t1_keys = collect_keys(sorted_tiers[0])
+        t2_keys = collect_keys(sorted_tiers[1])
+        missing_in_t2 = t1_keys - t2_keys
+        if missing_in_t2:
+            missing_names = [name for (_, name) in missing_in_t2]
+            issues.append({
+                "type": "tier_inclusion_violation",
+                "severity": "critical",
+                "title": "Tier 2 ne contient pas tout Tier 1",
+                "description": (
+                    "Règle UX PTM : l'option recommandée doit toujours INCLURE "
+                    "tout le contenu de l'option de base + des extras, sans rien "
+                    "retirer. Sinon le client ne comprend pas la différence."
+                ),
+                "missing_items": missing_names,
+            })
+
+    # Issue 3 : Avertissements absents des notes
+    has_warning_section = bool(re.search(r"avertissement|warning", notes, re.IGNORECASE))
+    has_extension_work = False
+    extension_keywords = ["cordes", "marteaux", "sommier", "manches"]
+    for tier in tiers:
+        for g in tier.get("allEstimateTierGroups") or []:
+            for it in g.get("allEstimateTierItems") or []:
+                name_lower = (it.get("name") or "").lower()
+                if any(kw in name_lower for kw in extension_keywords):
+                    has_extension_work = True
+                    break
+    if has_extension_work and not has_warning_section:
+        issues.append({
+            "type": "missing_warnings",
+            "severity": "medium",
+            "title": "Travaux importants sans section avertissement",
+            "description": (
+                "Cette soumission contient des travaux de cordes/marteaux/sommier "
+                "qui nécessitent généralement une section AVERTISSEMENTS dans les "
+                "notes (étirement des cordes neuves, accords de stabilisation non "
+                "inclus, fragilité, etc.)."
+            ),
+        })
+
+    # Issue 4 : Signature résiduelle "Piano Tek Musique" (règle Allan)
+    if "Piano Tek Musique" in notes or "— Nicolas Lessard" in notes:
+        issues.append({
+            "type": "residual_signature",
+            "severity": "low",
+            "title": "Signature dans les notes",
+            "description": (
+                "Allan a demandé de ne plus inclure de ligne signature type "
+                "« — Piano Tek Musique » dans les notes. Gazelle identifie déjà "
+                "l'entreprise dans le header de la soumission."
+            ),
+        })
+
+    # Issue 5 : Cordes basses séparées (matériel + install non fusionnés)
+    # On vérifie qu'on a 2 ITEMS DISTINCTS : un avec le MSL matériel, un avec le
+    # MSL install. Si un seul item porte les deux concepts (comme le bundle PTM
+    # cordes_basses_complet « Cordes des basses — fourniture et installation »),
+    # il ne faut PAS flagger.
+    cordes_material_item_id = None
+    cordes_install_item_id = None
+    for tier in tiers:
+        for g in tier.get("allEstimateTierGroups") or []:
+            for it in g.get("allEstimateTierItems") or []:
+                msl = (it.get("masterServiceItem") or {}).get("id")
+                if msl == "mit_2HBYLndAxf1C993j":
+                    cordes_material_item_id = it.get("id")
+                if msl == "mit_uiSzTQHCmcYYte4n":
+                    cordes_install_item_id = it.get("id")
+    if (
+        cordes_material_item_id
+        and cordes_install_item_id
+        and cordes_material_item_id != cordes_install_item_id
+    ):
+        issues.append({
+            "type": "cordes_basses_split",
+            "severity": "medium",
+            "title": "Cordes des basses en 2 lignes au lieu d'un bundle",
+            "description": (
+                "Les MSL « Cordes des basses » et « Installer les cordes des basses » "
+                "sont 2 items distincts. Le bundle PTM `cordes_basses_complet` les "
+                "fusionne en une seule ligne « Cordes des basses — fourniture et "
+                "installation » à 2 000 $ pour une lisibilité client."
+            ),
+        })
+
+    # Issue 6 : Description héritée du MSL (générique, non personnalisée)
+    generic_desc_count = 0
+    for tier in tiers:
+        for g in tier.get("allEstimateTierGroups") or []:
+            for it in g.get("allEstimateTierItems") or []:
+                desc = (it.get("description") or "").strip()
+                # Si la description ne contient pas de puces (•) et fait < 200 chars,
+                # c'est probablement la description générique du MSL
+                if desc and "•" not in desc and len(desc) < 200:
+                    generic_desc_count += 1
+    if generic_desc_count >= 3:
+        issues.append({
+            "type": "generic_descriptions",
+            "severity": "low",
+            "title": f"{generic_desc_count} item(s) avec description générique du MSL",
+            "description": (
+                "Plusieurs items utilisent la description par défaut du MasterServiceItem "
+                "Gazelle au lieu d'une liste d'actions personnalisées. La pratique PTM "
+                "v6 est de surcharger la description avec des puces décrivant les actions "
+                "concrètes effectuées sur CE piano."
+            ),
+        })
+
+    # ─── Résumé global ───
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    issues.sort(key=lambda i: severity_order.get(i["severity"], 9))
+
+    summary_parts = [
+        f"Soumission #{estimate.get('number')} — {client_full or '?'}",
+        f"Piano : {piano_str or '?'}",
+        f"Tiers : {len(tiers)}",
+    ]
+    total = estimate.get("recommendedTierTotal")
+    if total:
+        summary_parts.append(f"Total recommandé : {_format_currency(total)}")
+
+    return {
+        "success": True,
+        "estimate_number": estimate.get("number"),
+        "estimate_id": estimate.get("id"),
+        "client_name": client_full,
+        "piano": piano_str,
+        "summary": " · ".join(summary_parts),
+        "issues_count": len(issues),
+        "issues": issues,
+    }
+
+
+@router.post("/review-estimate", response_model=Dict[str, Any])
+async def review_estimate(req: AssistantRequest):
+    """Parse une demande de révision de soumission et retourne les suggestions.
+
+    Exemples :
+    - "améliore la soumission #11919"
+    - "révise la soumission de M Giroux"
+    - "analyse #11920"
+    - "qu'est-ce qui cloche dans la soumission de Tremblay ?"
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY non configurée")
+
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key)
+
+    system_prompt = (
+        "Tu es l'assistant Gazelle de Piano Tek Musique. Ton rôle est de "
+        "parser une demande de révision de soumission et d'extraire les "
+        "paramètres pour l'outil review_estimate.\n\n"
+        "Si l'utilisateur mentionne un numéro (ex: '#11919', '11919', "
+        "'la soumission 11919'), utilise estimate_number.\n"
+        "Si l'utilisateur mentionne un nom de client (ex: 'M Giroux', "
+        "'Mme Tremblay', 'soumission de Dupont'), utilise client_name_hint.\n"
+        "Si la demande n'est PAS une demande de révision de soumission, "
+        "ne pas appeler l'outil et répondre 'Cette demande ne semble pas "
+        "être une demande de révision de soumission.'"
+    )
+
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            tools=[REVIEW_ESTIMATE_TOOL],
+            system=system_prompt,
+            messages=[{"role": "user", "content": req.message}],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erreur Claude API : {exc}")
+
+    tool_call = None
+    text_response = []
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "review_estimate":
+            tool_call = block.input
+        elif block.type == "text":
+            text_response.append(block.text)
+
+    if not tool_call:
+        return {
+            "success": False,
+            "intent_recognized": False,
+            "message": " ".join(text_response) or "Je n'ai pas compris la demande comme une révision de soumission.",
+        }
+
+    try:
+        result = execute_review_estimate(
+            estimate_number=tool_call.get("estimate_number"),
+            client_name_hint=tool_call.get("client_name_hint"),
+        )
     except Exception as exc:
         import traceback
         traceback.print_exc()
