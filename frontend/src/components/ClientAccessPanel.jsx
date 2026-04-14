@@ -170,11 +170,11 @@ export default function ClientAccessPanel({ currentUser }) {
       {/* Barre de recherche / assistant */}
       <div className="bg-gradient-to-r from-teal-50 to-cyan-50 rounded-xl px-4 py-4 border border-teal-200">
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-xl">📞</span>
+          <span className="text-xl">💬</span>
           <div>
-            <h3 className="font-semibold text-gray-800 text-sm">Accès rapide client / assistant</h3>
+            <h3 className="font-semibold text-gray-800 text-sm">Assistant Gazelle</h3>
             <p className="text-xs text-gray-500">
-              Cherchez un client par son nom — ou tapez une demande comme « ajoute Margot au RV de Nicolas demain à 14h » et appuyez sur Entrée
+              Cherchez un client par nom, ou tapez une demande (ex: « ajoute Margot au RV de Nicolas demain »)
             </p>
           </div>
         </div>
