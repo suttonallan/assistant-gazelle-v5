@@ -117,8 +117,8 @@ export default function MaJournee({ currentUser }) {
         </p>
       </div>
 
-      {/* Accès rapide client — Louise */}
-      {isLouise && (
+      {/* Assistant Gazelle — Louise et Allan */}
+      {(isLouise || isAllan) && (
         <ClientAccessPanel currentUser={currentUser} />
       )}
 
