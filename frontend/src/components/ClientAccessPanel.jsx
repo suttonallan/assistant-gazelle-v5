@@ -9,6 +9,26 @@ import BriefingCard from './BriefingCard'
  * n'importe quel client par nom pour consulter sa fiche avant
  * un appel téléphonique ou un e-mail.
  */
+// Mots-clés qui déclenchent le mode "action assistant" (RV conjoint, etc.)
+// au lieu de la recherche client classique.
+const ACTION_KEYWORDS = [
+  'rv conjoint', 'rendez-vous conjoint', 'conjoint',
+  'accompagn', 'accompagne', 'apprenti',
+  'duplique', 'dupliquer', 'duplica',
+  'ajoute', 'ajouter', 'mets',
+  'fais un rv', 'fais le rv', 'fais un rendez',
+  'avec margot', 'avec nicolas', 'avec allan', 'avec jp', 'avec jean-philippe',
+]
+
+function isActionRequest(text) {
+  if (!text) return false
+  const lower = text.toLowerCase().trim()
+  // Heuristique : long (>20 chars) OU contient un mot-clé d'action
+  if (lower.length > 20 && ACTION_KEYWORDS.some(kw => lower.includes(kw))) return true
+  if (ACTION_KEYWORDS.some(kw => lower.includes(kw))) return true
+  return false
+}
+
 export default function ClientAccessPanel({ currentUser }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [suggestions, setSuggestions] = useState([])
@@ -18,6 +38,10 @@ export default function ClientAccessPanel({ currentUser }) {
   const [loadingBriefing, setLoadingBriefing] = useState(false)
   const [briefingError, setBriefingError] = useState(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  // États pour le mode "action assistant"
+  const [assistantResult, setAssistantResult] = useState(null)
+  const [loadingAssistant, setLoadingAssistant] = useState(false)
+  const [assistantError, setAssistantError] = useState(null)
 
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
@@ -37,6 +61,13 @@ export default function ClientAccessPanel({ currentUser }) {
   const handleSearchChange = (value) => {
     setSearchTerm(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    // Si l'input ressemble à une requête d'action, on n'autocomplète pas
+    if (isActionRequest(value)) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
 
     if (value.trim().length < 2) {
       setSuggestions([])
@@ -61,6 +92,46 @@ export default function ClientAccessPanel({ currentUser }) {
         setLoadingSuggestions(false)
       }
     }, 300)
+  }
+
+  // Soumission via Entrée — déclenche l'assistant si c'est une requête d'action
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault()
+    const text = searchTerm.trim()
+    if (!text) return
+    if (!isActionRequest(text)) return  // sinon on laisse l'autocomplete gérer
+
+    setLoadingAssistant(true)
+    setAssistantResult(null)
+    setAssistantError(null)
+    setShowSuggestions(false)
+
+    try {
+      const resp = await fetch(`${API_URL}/api/assistant/joint-appointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          current_user_first_name: currentUser?.firstName || currentUser?.name?.split(' ')[0] || null,
+        }),
+      })
+      const data = await resp.json()
+      if (!resp.ok) {
+        setAssistantError(data.detail || `Erreur ${resp.status}`)
+      } else {
+        setAssistantResult(data)
+      }
+    } catch (err) {
+      setAssistantError(err.message || 'Erreur réseau')
+    } finally {
+      setLoadingAssistant(false)
+    }
+  }
+
+  const clearAssistant = () => {
+    setAssistantResult(null)
+    setAssistantError(null)
+    setSearchTerm('')
   }
 
   // Charger le briefing d'un client sélectionné
@@ -96,17 +167,19 @@ export default function ClientAccessPanel({ currentUser }) {
 
   return (
     <div className="mb-6">
-      {/* Barre de recherche */}
+      {/* Barre de recherche / assistant */}
       <div className="bg-gradient-to-r from-teal-50 to-cyan-50 rounded-xl px-4 py-4 border border-teal-200">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xl">📞</span>
           <div>
-            <h3 className="font-semibold text-gray-800 text-sm">Accès rapide client</h3>
-            <p className="text-xs text-gray-500">Cherchez un client avant un appel ou un courriel</p>
+            <h3 className="font-semibold text-gray-800 text-sm">Accès rapide client / assistant</h3>
+            <p className="text-xs text-gray-500">
+              Cherchez un client par son nom — ou tapez une demande comme « ajoute Margot au RV de Nicolas demain à 14h » et appuyez sur Entrée
+            </p>
           </div>
         </div>
 
-        <div className="relative" ref={searchRef}>
+        <form onSubmit={handleSubmit} className="relative" ref={searchRef}>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input
@@ -114,18 +187,29 @@ export default function ClientAccessPanel({ currentUser }) {
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder="Nom du client..."
+                placeholder="Nom du client OU demande d'action..."
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
               />
-              {loadingSuggestions && (
+              {(loadingSuggestions || loadingAssistant) && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   <div className="animate-spin h-4 w-4 border-2 border-teal-500 border-t-transparent rounded-full"></div>
                 </div>
               )}
             </div>
-            {selectedClient && (
+            {isActionRequest(searchTerm) && (
               <button
-                onClick={clearSelection}
+                type="submit"
+                disabled={loadingAssistant}
+                className="px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                title="Exécuter la demande"
+              >
+                ➤
+              </button>
+            )}
+            {(selectedClient || assistantResult || assistantError) && (
+              <button
+                type="button"
+                onClick={() => { clearSelection(); clearAssistant(); }}
                 className="px-3 py-2 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors text-gray-600"
                 title="Effacer"
               >
@@ -155,13 +239,67 @@ export default function ClientAccessPanel({ currentUser }) {
           )}
 
           {/* Aucun résultat */}
-          {showSuggestions && suggestions.length === 0 && searchTerm.trim().length >= 2 && !loadingSuggestions && (
+          {showSuggestions && suggestions.length === 0 && searchTerm.trim().length >= 2 && !loadingSuggestions && !isActionRequest(searchTerm) && (
             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 text-sm text-gray-500">
               Aucun client trouvé pour « {searchTerm} »
             </div>
           )}
-        </div>
+        </form>
       </div>
+
+      {/* Réponse de l'assistant (mode action) */}
+      {(assistantResult || assistantError) && (
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-teal-700 uppercase tracking-wider mb-2">
+            🤖 Assistant
+          </div>
+
+          {assistantError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+              ⚠️ {assistantError}
+            </div>
+          )}
+
+          {assistantResult && assistantResult.success && (
+            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">✅ RV conjoint créé</div>
+              <div className="text-xs space-y-0.5">
+                <div>
+                  <strong>{assistantResult.companion_tech}</strong> a été ajouté(e) comme accompagnateur(trice) au RV de <strong>{assistantResult.source_tech}</strong> chez <strong>{assistantResult.client_name}</strong> le {assistantResult.date}.
+                </div>
+                <div className="text-gray-600 mt-1">
+                  Event original : <code className="text-xs">{assistantResult.source_event_id}</code>
+                </div>
+                <div className="text-gray-600">
+                  Event clone (PERSONAL, pas de notif client) : <code className="text-xs">{assistantResult.clone_event_id}</code>
+                </div>
+                {assistantResult.annotation_warning && (
+                  <div className="text-yellow-700 mt-1">⚠️ {assistantResult.annotation_warning}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {assistantResult && !assistantResult.success && (
+            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">⚠️ Demande non exécutée</div>
+              <div className="text-xs">{assistantResult.error || assistantResult.message}</div>
+              {assistantResult.candidates && assistantResult.candidates.length > 0 && (
+                <div className="mt-2">
+                  <div className="font-semibold text-xs">RV candidats :</div>
+                  <ul className="text-xs mt-1 space-y-0.5">
+                    {assistantResult.candidates.map(c => (
+                      <li key={c.id}>
+                        • {c.start?.slice(0,16)} — {c.client || c.title}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Fiche client (briefing) */}
       {loadingBriefing && (
