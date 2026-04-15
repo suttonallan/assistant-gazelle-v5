@@ -99,6 +99,7 @@ NOTES DU PIANO:
 NOTES DE SERVICE (les plus récentes en premier):
 {timeline_summary}
 
+{soumissions_context}
 CONTEXTE DU RV: {appointment_context}
 
 {feedback_context}
@@ -203,6 +204,8 @@ class NarrativeBriefingService:
             asyncio.to_thread(self._batch_fetch_followups, client_ids),
             asyncio.to_thread(self._batch_fetch_estimates, client_ids, piano_ids),
             asyncio.to_thread(self._batch_fetch_past_appointments, client_ids),
+            # Nouveau : fetch live Gazelle des vraies soumissions par client
+            asyncio.to_thread(self._batch_fetch_gazelle_estimates, client_ids),
         ]
         # Only fetch all-day appointments if we need collaboration detection
         if technician_id:
@@ -218,7 +221,8 @@ class NarrativeBriefingService:
         followups_data = results[3]
         estimates_data = results[4]
         past_appts_data = results[5]
-        all_day_appts = results[6] if technician_id else []
+        gazelle_estimates_data = results[6]
+        all_day_appts = results[7] if technician_id else []
 
         # 4. Generate narrative briefings in PARALLEL
         gen_tasks = []
@@ -234,6 +238,7 @@ class NarrativeBriefingService:
                 past_appointments=past_appts_data.get(cid, []),
                 followups=followups_data.get(cid, []),
                 estimates=estimates_data.get(cid, []),
+                gazelle_estimates=gazelle_estimates_data.get(cid, []),
                 technician_id=technician_id,
                 all_day_appts=all_day_appts,
             ))
@@ -249,6 +254,7 @@ class NarrativeBriefingService:
                                       pianos: List[Dict], timeline: List[Dict],
                                       past_appointments: List[Dict],
                                       followups: List[Dict], estimates: List[Dict],
+                                      gazelle_estimates: List[Dict],
                                       technician_id: str, all_day_appts: List[Dict]) -> Optional[Dict]:
         """Generate a narrative briefing for ONE appointment."""
         try:
@@ -345,8 +351,35 @@ class NarrativeBriefingService:
                             'time': (other.get('appointment_time', '') or '')[:5],
                         })
 
-            # Estimate summary
+            # Estimate summary (timeline-based, legacy)
             estimate_items = self._format_estimates(estimates)
+
+            # ── Soumissions Gazelle live : enrichir avec "likely_done" ──
+            # Allan, 2026-04-14: "Si le travail recommandé a été fait ensuite
+            # ça serait suffisant." Inférence : un RV COMPLETE après estimatedOn
+            # sur le même client (idéalement même piano) → probablement fait.
+            gazelle_estimates_enriched = []
+            for est_summary in gazelle_estimates or []:
+                likely_done = False
+                est_date = est_summary.get("estimated_on") or ""
+                est_piano = est_summary.get("piano_id")
+                if est_date:
+                    for past_appt in past_appointments or []:
+                        if (past_appt.get("status") or "").upper() not in ("COMPLETE", "COMPLETED"):
+                            continue
+                        appt_date = (past_appt.get("appointment_date") or "")[:10]
+                        if appt_date <= est_date:
+                            continue
+                        # Bonus : match piano si dispo
+                        if est_piano and past_appt.get("piano_external_id"):
+                            if past_appt["piano_external_id"] == est_piano:
+                                likely_done = True
+                                break
+                        else:
+                            likely_done = True
+                            break
+                est_summary["likely_done"] = likely_done
+                gazelle_estimates_enriched.append(est_summary)
 
             # ── Generate narrative via AI ──
             narrative = "Aucune info particulière à signaler."
@@ -373,6 +406,7 @@ class NarrativeBriefingService:
                     preference_notes=client.get('preference_notes', '') or '',
                     piano_notes=piano.get('notes', '') or '',
                     all_pianos=all_pianos_list,
+                    gazelle_estimates=gazelle_estimates_enriched,
                 )
 
             # ── Build final briefing ──
@@ -419,6 +453,7 @@ class NarrativeBriefingService:
                 },
                 "follow_ups": followups,
                 "estimate_items": estimate_items,
+                "gazelle_estimates": gazelle_estimates_enriched,
                 "generated_at": datetime.now().isoformat(),
             }
 
@@ -438,7 +473,8 @@ class NarrativeBriefingService:
                             appt: Dict, feedback_notes: List[str],
                             personal_notes: str = "", preference_notes: str = "",
                             piano_notes: str = "",
-                            all_pianos: List[Dict] = None) -> tuple:
+                            all_pianos: List[Dict] = None,
+                            gazelle_estimates: List[Dict] = None) -> tuple:
         """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
         today_str = date_type.today().isoformat()
 
@@ -515,6 +551,39 @@ class NarrativeBriefingService:
                 lines.append(f"  - {label}{pls}")
             all_pianos_context = f"TOUS LES PIANOS DU CLIENT ({len(all_pianos)}):\n" + "\n".join(lines) + "\nIMPORTANT: Mentionne TOUS les pianos dans le briefing, pas seulement le premier.\n"
 
+        # Build soumissions context (Gazelle live)
+        soumissions_context = ""
+        if gazelle_estimates:
+            # Garder les 5 plus récentes (déjà triées par date desc)
+            recent = gazelle_estimates[:5]
+            lines = []
+            for est in recent:
+                number = est.get("number", "?")
+                est_date = est.get("estimated_on") or "?"
+                total = est.get("total_dollars") or "?"
+                items = est.get("main_items") or []
+                items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
+                archived = est.get("is_archived")
+                done = est.get("likely_done")
+                if done:
+                    status = "travaux probablement faits (RV complété après)"
+                elif archived:
+                    status = "archivée"
+                else:
+                    status = "active"
+                lines.append(
+                    f"  - Soumission #{number} ({est_date}) — {total}$ — "
+                    f"{items_str} — {status}"
+                )
+            soumissions_context = (
+                "SOUMISSIONS GAZELLE POUR CE CLIENT:\n"
+                + "\n".join(lines)
+                + "\nIMPORTANT: Si une soumission existe, mentionne-la en UNE phrase courte "
+                "(pas plus). Format: 'Soumission de [mois année] — [items principaux] — [statut].' "
+                "Si le travail a probablement été fait (likely_done), dis-le clairement. "
+                "Ne liste pas toutes les soumissions — mentionne la plus pertinente pour le RV d'aujourd'hui.\n"
+            )
+
         prompt = NARRATIVE_PROMPT.format(
             client_name=client_name,
             client_since=client_since,
@@ -526,6 +595,7 @@ class NarrativeBriefingService:
             timeline_summary=timeline_summary,
             appointment_context=appt_context,
             feedback_context=feedback_context,
+            soumissions_context=soumissions_context,
         )
 
         try:
@@ -894,6 +964,95 @@ class NarrativeBriefingService:
                 result.setdefault(cid, []).append(entry)
         return result
 
+    def _batch_fetch_gazelle_estimates(self, client_ids: List[str]) -> Dict[str, List[Dict]]:
+        """Fetch REAL estimates from Gazelle live (not Supabase cache) per client.
+
+        Returns {client_external_id: [estimate_summaries]} where each summary
+        has the actual content of the soumission (items, total, status) —
+        so the briefing narrative can describe what was in the soumission,
+        not just that one was created. Complément de _batch_fetch_estimates
+        qui ne lit que les entries log.
+        """
+        if not client_ids:
+            return {}
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            gz = GazelleAPIClient()
+        except Exception as exc:
+            print(f"⚠️  Init GazelleAPIClient échoué pour estimates live: {exc}")
+            return {}
+
+        query = """
+        query Estimates($filters: PrivateAllEstimatesFilter) {
+            allEstimates(first: 20, filters: $filters) {
+                nodes {
+                    id number estimatedOn expiresOn isArchived
+                    recommendedTierTotal
+                    piano { id }
+                    allEstimateTiers {
+                        sequenceNumber isPrimary subtotal
+                        allEstimateTierGroups {
+                            allEstimateTierItems {
+                                name amount
+                                masterServiceItem { id }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """
+
+        result = {}
+        for cid in client_ids:
+            try:
+                r = gz._execute_query(query, {"filters": {"clientId": cid}})
+                nodes = (r.get("data", {}).get("allEstimates", {}) or {}).get("nodes", []) or []
+                summaries = []
+                for est in nodes:
+                    s = self._summarize_estimate(est)
+                    if s:
+                        summaries.append(s)
+                # Trier par date desc (plus récent en premier)
+                summaries.sort(key=lambda s: s.get("estimated_on") or "", reverse=True)
+                result[cid] = summaries
+            except Exception as exc:
+                print(f"⚠️  Fetch estimates Gazelle pour {cid}: {exc}")
+                result[cid] = []
+        return result
+
+    @staticmethod
+    def _summarize_estimate(est: Dict) -> Optional[Dict]:
+        """Compact summary of a Gazelle estimate for briefing display.
+
+        Picks the primary tier (or first if none primary), collects all
+        non-zero items sorted by amount desc, keeps the top 3 as a one-line
+        description of what the soumission was about.
+        """
+        tiers = est.get("allEstimateTiers") or []
+        if not tiers:
+            return None
+        primary = next((t for t in tiers if t.get("isPrimary")), tiers[0])
+        all_items = []
+        for group in primary.get("allEstimateTierGroups") or []:
+            for item in group.get("allEstimateTierItems") or []:
+                amt = item.get("amount") or 0
+                name = (item.get("name") or "").strip()
+                if amt > 0 and name:
+                    all_items.append({"name": name, "amount": amt})
+        all_items.sort(key=lambda i: i["amount"], reverse=True)
+        top_items = [i["name"] for i in all_items[:3]]
+        total_cents = est.get("recommendedTierTotal") or 0
+        return {
+            "number": est.get("number"),
+            "estimated_on": (est.get("estimatedOn") or "")[:10],
+            "is_archived": bool(est.get("isArchived")),
+            "total_cents": total_cents,
+            "total_dollars": f"{total_cents/100:,.0f}".replace(",", " "),
+            "main_items": top_items,
+            "piano_id": (est.get("piano") or {}).get("id"),
+        }
+
     # ═══════════════════════════════════════════════════════════════
     # PDA REQUEST LOOKUP
     # ═══════════════════════════════════════════════════════════════
@@ -1023,6 +1182,10 @@ class NarrativeBriefingService:
             self._batch_fetch_past_appointments, [client_external_id]
         )
 
+        gazelle_estimates = await asyncio.to_thread(
+            self._batch_fetch_gazelle_estimates, [client_external_id]
+        )
+
         fake_appt = {
             'client_external_id': client_external_id,
             'piano_external_id': pianos[0].get('external_id') if pianos else None,
@@ -1042,6 +1205,7 @@ class NarrativeBriefingService:
             past_appointments=past_appts.get(client_external_id, []),
             followups=followups.get(client_external_id, []),
             estimates=estimates.get(client_external_id, []),
+            gazelle_estimates=gazelle_estimates.get(client_external_id, []),
             technician_id=None,
             all_day_appts=[],
         )
