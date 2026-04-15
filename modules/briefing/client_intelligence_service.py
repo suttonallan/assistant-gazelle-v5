@@ -354,32 +354,13 @@ class NarrativeBriefingService:
             # Estimate summary (timeline-based, legacy)
             estimate_items = self._format_estimates(estimates)
 
-            # ── Soumissions Gazelle live : enrichir avec "likely_done" ──
-            # Allan, 2026-04-14: "Si le travail recommandé a été fait ensuite
-            # ça serait suffisant." Inférence : un RV COMPLETE après estimatedOn
-            # sur le même client (idéalement même piano) → probablement fait.
-            gazelle_estimates_enriched = []
-            for est_summary in gazelle_estimates or []:
-                likely_done = False
-                est_date = est_summary.get("estimated_on") or ""
-                est_piano = est_summary.get("piano_id")
-                if est_date:
-                    for past_appt in past_appointments or []:
-                        if (past_appt.get("status") or "").upper() not in ("COMPLETE", "COMPLETED"):
-                            continue
-                        appt_date = (past_appt.get("appointment_date") or "")[:10]
-                        if appt_date <= est_date:
-                            continue
-                        # Bonus : match piano si dispo
-                        if est_piano and past_appt.get("piano_external_id"):
-                            if past_appt["piano_external_id"] == est_piano:
-                                likely_done = True
-                                break
-                        else:
-                            likely_done = True
-                            break
-                est_summary["likely_done"] = likely_done
-                gazelle_estimates_enriched.append(est_summary)
+            # ── Soumissions Gazelle live ──
+            # On NE tente PAS d'inférer si les travaux ont été faits — un
+            # matching fiable exigerait de comparer les items de la soumission
+            # aux services effectués sur les RV ultérieurs (texte fragile,
+            # faux positifs garantis sur accords de routine). On affiche
+            # donc uniquement le contenu et le statut archivée/active.
+            gazelle_estimates_enriched = list(gazelle_estimates or [])
 
             # ── Generate narrative via AI ──
             narrative = "Aucune info particulière à signaler."
@@ -563,14 +544,7 @@ class NarrativeBriefingService:
                 total = est.get("total_dollars") or "?"
                 items = est.get("main_items") or []
                 items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
-                archived = est.get("is_archived")
-                done = est.get("likely_done")
-                if done:
-                    status = "travaux probablement faits (RV complété après)"
-                elif archived:
-                    status = "archivée"
-                else:
-                    status = "active"
+                status = "archivée" if est.get("is_archived") else "active"
                 lines.append(
                     f"  - Soumission #{number} ({est_date}) — {total}$ — "
                     f"{items_str} — {status}"
@@ -578,10 +552,13 @@ class NarrativeBriefingService:
             soumissions_context = (
                 "SOUMISSIONS GAZELLE POUR CE CLIENT:\n"
                 + "\n".join(lines)
-                + "\nIMPORTANT: Si une soumission existe, mentionne-la en UNE phrase courte "
-                "(pas plus). Format: 'Soumission de [mois année] — [items principaux] — [statut].' "
-                "Si le travail a probablement été fait (likely_done), dis-le clairement. "
-                "Ne liste pas toutes les soumissions — mentionne la plus pertinente pour le RV d'aujourd'hui.\n"
+                + "\nIMPORTANT: Si une soumission ACTIVE existe, mentionne-la en UNE phrase "
+                "courte (pas plus). Format: 'Soumission de [mois année] mentionne [items "
+                "principaux] (en attente de réponse client).' Ne pas affirmer si les travaux "
+                "ont été faits ou non — on ne sait pas. Ne liste pas toutes les soumissions — "
+                "mentionne la plus récente et la plus pertinente pour le RV d'aujourd'hui. "
+                "Ignore les archivées sauf si elles sont très récentes et directement "
+                "pertinentes au contexte du RV.\n"
             )
 
         prompt = NARRATIVE_PROMPT.format(
