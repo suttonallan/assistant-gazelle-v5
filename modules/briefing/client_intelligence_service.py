@@ -435,6 +435,9 @@ class NarrativeBriefingService:
                 "follow_ups": followups,
                 "estimate_items": estimate_items,
                 "gazelle_estimates": gazelle_estimates_enriched,
+                "critical_estimates": [
+                    e for e in gazelle_estimates_enriched if e.get("is_critical")
+                ],
                 "generated_at": datetime.now().isoformat(),
             }
 
@@ -533,33 +536,76 @@ class NarrativeBriefingService:
             all_pianos_context = f"TOUS LES PIANOS DU CLIENT ({len(all_pianos)}):\n" + "\n".join(lines) + "\nIMPORTANT: Mentionne TOUS les pianos dans le briefing, pas seulement le premier.\n"
 
         # Build soumissions context (Gazelle live)
+        # On sépare en 2 buckets :
+        #   - CRITIQUES : montant >= 500$ OU items de travail majeur
+        #     → à remonter proactivement au tech, même si ancienne/archivée
+        #   - NON CRITIQUES : soumissions récentes ordinaires (entretiens,
+        #     petits réglages) → mention discrète seulement si pertinente
         soumissions_context = ""
         if gazelle_estimates:
-            # Garder les 5 plus récentes (déjà triées par date desc)
-            recent = gazelle_estimates[:5]
-            lines = []
-            for est in recent:
-                number = est.get("number", "?")
-                est_date = est.get("estimated_on") or "?"
-                total = est.get("total_dollars") or "?"
-                items = est.get("main_items") or []
-                items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
-                status = "archivée" if est.get("is_archived") else "active"
-                lines.append(
-                    f"  - Soumission #{number} ({est_date}) — {total}$ — "
-                    f"{items_str} — {status}"
+            critical_ests = [e for e in gazelle_estimates if e.get("is_critical")]
+            non_critical_ests = [e for e in gazelle_estimates if not e.get("is_critical")]
+
+            sections = []
+
+            if critical_ests:
+                # Trier par date desc, garder les 3 plus récentes
+                crit_sorted = sorted(
+                    critical_ests,
+                    key=lambda e: e.get("estimated_on") or "",
+                    reverse=True,
+                )[:3]
+                crit_lines = []
+                for est in crit_sorted:
+                    number = est.get("number", "?")
+                    est_date = est.get("estimated_on") or "?"
+                    total = est.get("total_dollars") or "?"
+                    items = est.get("main_items") or []
+                    items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
+                    status = "archivée" if est.get("is_archived") else "active"
+                    crit_lines.append(
+                        f"  - Soumission #{number} ({est_date}) — {total}$ — "
+                        f"{items_str} — {status}"
+                    )
+                sections.append(
+                    "⚠️ SOUMISSIONS CRITIQUES NON CONFIRMÉES — IMPORTANT:\n"
+                    + "\n".join(crit_lines)
+                    + "\nRÈGLE : mentionne au moins la plus récente/pertinente de ces "
+                    "soumissions DANS LE BRIEFING en UNE phrase claire du genre : "
+                    "\"ATTENTION : soumission de [mois année] à [total]$ pour [items "
+                    "principaux] — à vérifier avec la cliente, on ne sait pas si les "
+                    "travaux ont été faits.\" Le tech doit absolument voir cette info "
+                    "avant d'arriver. Ne pas affirmer que les travaux ont été faits. "
+                    "Peu importe si la soumission est archivée ou active — l'archivage "
+                    "ne prouve pas l'exécution.\n"
                 )
-            soumissions_context = (
-                "SOUMISSIONS GAZELLE POUR CE CLIENT:\n"
-                + "\n".join(lines)
-                + "\nIMPORTANT: Si une soumission ACTIVE existe, mentionne-la en UNE phrase "
-                "courte (pas plus). Format: 'Soumission de [mois année] mentionne [items "
-                "principaux] (en attente de réponse client).' Ne pas affirmer si les travaux "
-                "ont été faits ou non — on ne sait pas. Ne liste pas toutes les soumissions — "
-                "mentionne la plus récente et la plus pertinente pour le RV d'aujourd'hui. "
-                "Ignore les archivées sauf si elles sont très récentes et directement "
-                "pertinentes au contexte du RV.\n"
-            )
+
+            if non_critical_ests:
+                # Garder les 2 plus récentes non critiques, mention discrète
+                nc_sorted = sorted(
+                    non_critical_ests,
+                    key=lambda e: e.get("estimated_on") or "",
+                    reverse=True,
+                )[:2]
+                nc_lines = []
+                for est in nc_sorted:
+                    number = est.get("number", "?")
+                    est_date = est.get("estimated_on") or "?"
+                    total = est.get("total_dollars") or "?"
+                    items = est.get("main_items") or []
+                    items_str = " + ".join(items[:2]) if items else "contenu non détaillé"
+                    status = "archivée" if est.get("is_archived") else "active"
+                    nc_lines.append(
+                        f"  - Soumission #{number} ({est_date}) — {total}$ — "
+                        f"{items_str} — {status}"
+                    )
+                sections.append(
+                    "Soumissions ordinaires (mention seulement si directement pertinente):\n"
+                    + "\n".join(nc_lines)
+                )
+
+            if sections:
+                soumissions_context = "\n\n".join(sections) + "\n"
 
         prompt = NARRATIVE_PROMPT.format(
             client_name=client_name,
@@ -998,13 +1044,46 @@ class NarrativeBriefingService:
                 result[cid] = []
         return result
 
-    @staticmethod
-    def _summarize_estimate(est: Dict) -> Optional[Dict]:
+    # Mots-clés indiquant des travaux substantiels (au-delà d'un accord de routine).
+    # Si un item de la soumission matche un de ces mots-clés, la soumission est
+    # automatiquement "critique" peu importe son montant. Liste raisonnable —
+    # couvre les interventions PTM typiques qui justifient un rappel client.
+    _CRITICAL_KEYWORDS = (
+        "pivot", "sommier", "marteaux", "mortaise", "chevilles",
+        "assemblage", "restaur", "régulation", "regulation",
+        "cordes", "étouffoirs", "etouffoirs", "garniture",
+        "harmonisation", "clavier neuf", "cuir", "manches",
+        "rouleaux", "grand entretien", "remplacement",
+    )
+    # Seuil de montant au-dessus duquel une soumission est critique
+    # indépendamment des mots-clés (ex: un gros lot d'accords programmés).
+    _CRITICAL_AMOUNT_CENTS = 50000  # 500 $
+
+    @classmethod
+    def _is_critical_estimate(cls, items: List[Dict], total_cents: int) -> bool:
+        """Détermine si une soumission mérite d'être flaggée proactivement
+        au tech avant le prochain RV du client.
+
+        Critères (OR) :
+        - total >= 500 $, OU
+        - au moins un item dont le nom contient un mot-clé de travail majeur
+        """
+        if total_cents >= cls._CRITICAL_AMOUNT_CENTS:
+            return True
+        for it in items:
+            name_lower = (it.get("name") or "").lower()
+            if any(kw in name_lower for kw in cls._CRITICAL_KEYWORDS):
+                return True
+        return False
+
+    @classmethod
+    def _summarize_estimate(cls, est: Dict) -> Optional[Dict]:
         """Compact summary of a Gazelle estimate for briefing display.
 
         Picks the primary tier (or first if none primary), collects all
         non-zero items sorted by amount desc, keeps the top 3 as a one-line
-        description of what the soumission was about.
+        description of what the soumission was about. Flags as 'critical'
+        if total >= 500 $ or any item matches a critical work keyword.
         """
         tiers = est.get("allEstimateTiers") or []
         if not tiers:
@@ -1020,6 +1099,7 @@ class NarrativeBriefingService:
         all_items.sort(key=lambda i: i["amount"], reverse=True)
         top_items = [i["name"] for i in all_items[:3]]
         total_cents = est.get("recommendedTierTotal") or 0
+        is_critical = cls._is_critical_estimate(all_items, total_cents)
         return {
             "number": est.get("number"),
             "estimated_on": (est.get("estimatedOn") or "")[:10],
@@ -1028,6 +1108,7 @@ class NarrativeBriefingService:
             "total_dollars": f"{total_cents/100:,.0f}".replace(",", " "),
             "main_items": top_items,
             "piano_id": (est.get("piano") or {}).get("id"),
+            "is_critical": is_critical,
         }
 
     # ═══════════════════════════════════════════════════════════════
