@@ -440,6 +440,26 @@ def task_relance_louise_j7():
         raise
 
 
+def task_critical_estimate_digest():
+    """
+    Envoie le digest quotidien à Louise des RV à venir avec soumissions
+    critiques non confirmées. Scanne les 7 prochains jours, déduplique sur
+    7 jours glissants, envoie via Resend.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("📋 TÂCHE : Critical Estimate Digest (7h)")
+        print("=" * 70)
+        from modules.briefing.critical_estimate_digest import run_critical_estimate_digest
+        import asyncio
+        result = asyncio.run(run_critical_estimate_digest())
+        print(f"📊 Résultat : {result}")
+    except Exception as exc:
+        import traceback
+        print(f"❌ Erreur critical_estimate_digest : {exc}")
+        traceback.print_exc()
+
+
 def task_process_late_assignment_queue():
     """
     Traite la file d'attente des alertes d'assignation tardive.
@@ -704,6 +724,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 16:00 - URGENCE TECHNIQUE (J-1) configurée")
+
+    # 07:00 - Digest quotidien des soumissions critiques à Louise
+    scheduler.add_job(
+        task_critical_estimate_digest,
+        trigger=CronTrigger(hour=7, minute=0, timezone='America/Montreal'),
+        id='critical_estimate_digest',
+        name='Digest soumissions critiques Louise (07:00)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 07:00 - Digest soumissions critiques (Louise) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
