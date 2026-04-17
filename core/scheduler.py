@@ -440,6 +440,25 @@ def task_relance_louise_j7():
         raise
 
 
+def task_follow_up_digest():
+    """
+    Digest quotidien 8h des soumissions actives sans relance (tag relance-faite).
+    Fenetre 7-90 jours. Envoi a info@piano-tek.com.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("TACHE : Follow-up Digest (8h)")
+        print("=" * 70)
+        from modules.briefing.follow_up_digest import run_follow_up_digest
+        import asyncio
+        result = asyncio.run(run_follow_up_digest())
+        print(f"Resultat : {result}")
+    except Exception as exc:
+        import traceback
+        print(f"Erreur follow_up_digest : {exc}")
+        traceback.print_exc()
+
+
 def task_critical_estimate_digest():
     """
     Envoie le digest quotidien à Louise des RV à venir avec soumissions
@@ -735,6 +754,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 07:00 - Digest soumissions critiques (Louise) configurée")
+
+    # 08:00 - Digest quotidien des soumissions sans relance à info@
+    scheduler.add_job(
+        task_follow_up_digest,
+        trigger=CronTrigger(hour=8, minute=0, timezone='America/Montreal'),
+        id='follow_up_digest',
+        name='Digest suivi soumissions info@ (08:00)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
