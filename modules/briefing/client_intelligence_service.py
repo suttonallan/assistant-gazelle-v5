@@ -820,9 +820,18 @@ class NarrativeBriefingService:
             print(f"⚠️  Supabase GET error: {e}")
         return []
 
+    # Prefixes de titre qui correspondent a des evenements batch crees par
+    # le workflow push_validated_to_gazelle (service_records.py). Ce ne sont
+    # pas de vrais RV a afficher dans Ma Journee.
+    _BATCH_PUSH_TITLE_PREFIXES = ("Accord collectif",)
+
+    def _is_batch_push_event(self, appt: Dict) -> bool:
+        title = (appt.get('title') or '').strip()
+        return any(title.startswith(p) for p in self._BATCH_PUSH_TITLE_PREFIXES)
+
     def _fetch_appointments(self, target_date: str, technician_id: str = None,
                              exclude_technician_id: str = None) -> List[Dict]:
-        """Fetch appointments for a given date. Excludes CANCELLED."""
+        """Fetch appointments for a given date. Excludes CANCELLED and batch push events."""
         filters = {'appointment_date': target_date}
         if technician_id:
             filters['technicien'] = technician_id
@@ -836,6 +845,10 @@ class NarrativeBriefingService:
         # Exclure les RV supprimés dans Gazelle
         appointments = [a for a in appointments if a.get('status') != 'CANCELLED']
 
+        # Exclure les evenements batch crees par le push de fiches d'accord —
+        # ils ne representent pas un vrai RV humain, juste un log de services pousses.
+        appointments = [a for a in appointments if not self._is_batch_push_event(a)]
+
         if exclude_technician_id:
             appointments = [a for a in appointments if a.get('technicien') != exclude_technician_id]
 
@@ -844,9 +857,10 @@ class NarrativeBriefingService:
     def _fetch_all_day_appointments(self, target_date: str) -> List[Dict]:
         """Fetch ALL appointments for a day (for collaboration detection)."""
         try:
-            return self.storage.get_data('gazelle_appointments',
+            appts = self.storage.get_data('gazelle_appointments',
                                           filters={'appointment_date': target_date},
                                           order_by='appointment_time.asc')
+            return [a for a in appts if not self._is_batch_push_event(a)]
         except Exception:
             return []
 
