@@ -492,14 +492,25 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       noteToSave = `[${initials}] ${noteToSave}`;
     }
 
-    // Mise à jour optimiste
+    // Mise à jour optimiste : travail + service_record placeholder
+    // Garantit que le piano apparaitra en "A valider" immediatement
+    // (sinon le tech tape, backend cree une fiche draft, mais l'UI ne le sait pas).
     setPianos(pianos.map(p =>
-      p.id === id ? { ...p, travail: noteToSave, status: noteToSave ? 'work_in_progress' : p.status } : p
+      p.id === id
+        ? {
+            ...p,
+            travail: noteToSave,
+            status: noteToSave ? 'work_in_progress' : p.status,
+            service_record: p.service_record?.status === 'draft' || p.service_record?.status === 'completed'
+              ? p.service_record
+              : { id: p.service_record?.id || null, status: 'draft', completed_at: null, completed_by: null, technician_email: currentUser?.email || '' },
+          }
+        : p
     ));
 
     const inst = selectedInstitutionForTechnician || institution;
     try {
-      await fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/notes`, {
+      const r = await fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/notes`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -507,6 +518,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           technician_email: currentUser?.email || ''
         })
       });
+      // Si la reponse renvoie un record_id, patcher le state avec le vrai id
+      if (r.ok) {
+        const data = await r.json().catch(() => null);
+        if (data && data.record_id) {
+          setPianos(prev => prev.map(p =>
+            p.id === id && p.service_record
+              ? { ...p, service_record: { ...p.service_record, id: data.record_id } }
+              : p
+          ));
+        }
+      }
     } catch (e) {
       console.error('Erreur saveTravail via service-records:', e);
       // Fallback: ancienne API
@@ -526,12 +548,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     }
   }, [loadPianosFromAPI, institution]); // Recharger si l'institution change
 
-  // Charger l'historique quand on passe sur l'onglet "À valider"
+  // Recharger pianos + historique quand on passe sur l'onglet "À valider"
+  // pour capturer les fiches draft crees par le tech depuis la derniere visite.
   useEffect(() => {
     if (currentView === 'vdi') {
+      loadPianosFromAPI();
       loadServiceHistory();
     }
-  }, [currentView, loadServiceHistory]);
+  }, [currentView, loadPianosFromAPI, loadServiceHistory]);
 
   // Handler pour changement d'institution depuis le volet tournées
   const handleInstitutionChangeForTechnician = useCallback(async (newInstitution) => {
