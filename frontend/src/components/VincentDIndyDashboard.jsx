@@ -62,7 +62,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Historique des services validés/poussés
   const [serviceHistory, setServiceHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [tourneeInProgress, setTourneeInProgress] = useState(false);
 
   // Historique Gazelle (timeline_entries) - accordéon dans vue "À valider"
   const [expandedGazelleHistoryId, setExpandedGazelleHistoryId] = useState(null);
@@ -478,28 +477,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     await savePianoToAPI(pianoId, { aFaire: '' });
   };
 
-  // Technicien - marquer un piano comme terminé (bouton ✓)
-  // Utilise la nouvelle API fiches de service
-  const markWorkCompleted = async (id, completed = true) => {
-    // Mise à jour optimiste
-    setPianos(pianos.map(p =>
-      p.id === id ? { ...p, is_work_completed: completed } : p
-    ));
-
-    const inst = selectedInstitutionForTechnician || institution;
-    try {
-      await fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed_by: currentUser?.email || currentUser?.name || '' })
-      });
-    } catch (e) {
-      console.error('Erreur markWorkCompleted via service-records:', e);
-      // Fallback: ancienne API
-      await savePianoToAPI(id, { isWorkCompleted: completed });
-    }
-  };
-
   // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
   // Utilise la nouvelle API fiches de service
   const saveTravail = async (id, value) => {
@@ -894,15 +871,10 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     const handleValidateAll = async () => {
       if (pendingCount === 0) return;
-      // Ne valider que les fiches "completed" (technicien a cliqué Terminé)
-      const completedPianos = pendingPianos.filter(p => p.isCompleted);
-      if (completedPianos.length === 0) {
-        alert('Aucun piano marqué "Terminé" par le technicien. Seuls les pianos terminés peuvent être validés.');
-        return;
-      }
-      if (!confirm(`Valider ${completedPianos.length} piano(s) terminé(s)?`)) return;
+      // Valider toutes les fiches pending (draft + completed legacy)
+      if (!confirm(`Valider ${pendingCount} piano(s)?`)) return;
       try {
-        const ids = completedPianos.map(p => p.pianoId);
+        const ids = pendingPianos.map(p => p.pianoId);
         const r = await fetch(`${API_URL}/api/service-records/${institution}/validate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -943,31 +915,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         alert('Erreur push: ' + e.message);
       } finally {
         setPushInProgress(false);
-      }
-    };
-
-    // Nettoyage des anciens services (overlays legacy + fiches orphelines)
-    const handleCleanup = async () => {
-      if (!confirm('Nettoyer tous les anciens services résiduels? Cela va:\n- Vider les notes legacy des overlays\n- Abandonner les fiches draft/completed orphelines')) return;
-      setTourneeInProgress(true);
-      try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/tournee-terminee?institution_slug=${institution}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
-        const data = await r.json();
-        if (data.success) {
-          alert(`Nettoyage terminé: ${data.total_cleaned} entrée(s) nettoyée(s).`);
-          await loadPianosFromAPI();
-          await loadServiceHistory();
-        } else {
-          alert('Erreur: ' + (data.detail || JSON.stringify(data)));
-        }
-      } catch (e) {
-        alert('Erreur nettoyage: ' + e.message);
-      } finally {
-        setTourneeInProgress(false);
       }
     };
 
@@ -1204,13 +1151,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                   {pushInProgress ? 'Envoi...' : `Pousser vers Gazelle (${validatedCount})`}
                 </button>
               )}
-              <button
-                onClick={handleCleanup}
-                disabled={tourneeInProgress}
-                className="px-3 py-1.5 text-xs font-medium bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors"
-              >
-                {tourneeInProgress ? 'Nettoyage...' : 'Nettoyer anciens'}
-              </button>
             </div>
           </div>
 
@@ -1418,7 +1358,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               travailInput={travailInput}
               setTravailInput={setTravailInput}
               saveTravail={saveTravail}
-              markWorkCompleted={markWorkCompleted}
               clearAFaire={clearAFaire}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}

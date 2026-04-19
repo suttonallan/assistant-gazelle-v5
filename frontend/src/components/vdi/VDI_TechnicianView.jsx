@@ -45,7 +45,6 @@ export default function VDI_TechnicianView({
 
   // Actions
   saveTravail,
-  markWorkCompleted,
   clearAFaire,
 
   // Utilitaires
@@ -190,24 +189,8 @@ export default function VDI_TechnicianView({
                     <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Petit bouton rapide pour marquer terminé (sans ouvrir) */}
-                    {markWorkCompleted && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); markWorkCompleted(piano.id, !piano.is_work_completed); }}
-                        className={`px-2 py-0.5 rounded text-xs font-semibold transition-colors ${
-                          piano.is_work_completed
-                            ? 'bg-green-500 text-white'
-                            : 'bg-gray-200 text-gray-500 hover:bg-green-100 hover:text-green-700'
-                        }`}
-                        title={piano.is_work_completed ? 'Rouvrir' : 'Marquer terminé'}
-                      >
-                        {piano.is_work_completed ? '✓' : '○'}
-                      </button>
-                    )}
                     {piano.service_record?.status === 'validated' ? (
                       <span className="text-blue-600 text-sm font-bold" title="Validé par Nicolas">✓N</span>
-                    ) : piano.is_work_completed ? (
-                      <span className="text-green-500 text-sm font-bold" title="Terminé">✓</span>
                     ) : hasTravail ? (
                       <span className="text-blue-500 text-xs" title="En cours">📝</span>
                     ) : null}
@@ -285,20 +268,6 @@ export default function VDI_TechnicianView({
                         );
                       })()}
                     </div>
-
-                    {/* Bouton Terminé — disponible même pour pianos poussés */}
-                    {markWorkCompleted && (
-                      <button
-                        onClick={() => markWorkCompleted(piano.id, !piano.is_work_completed)}
-                        className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-                          piano.is_work_completed
-                            ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                            : 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
-                        }`}
-                      >
-                        {piano.is_work_completed ? 'Rouvrir' : '✓ Terminé'}
-                      </button>
-                    )}
                   </div>
                 )}
               </div>

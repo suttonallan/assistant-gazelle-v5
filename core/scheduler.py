@@ -479,6 +479,26 @@ def task_critical_estimate_digest():
         traceback.print_exc()
 
 
+def task_push_digest():
+    """
+    Digest quotidien 17h (lun-ven) des fiches d'accord validees pas encore
+    poussees vers Gazelle. Destinataire info@, escalation Allan en CC apres
+    3 jours sans push. Aucun email si zero fiche en attente.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("TACHE : Push Digest (17h)")
+        print("=" * 70)
+        from modules.briefing.push_digest import run_push_digest
+        import asyncio
+        result = asyncio.run(run_push_digest())
+        print(f"Resultat : {result}")
+    except Exception as exc:
+        import traceback
+        print(f"Erreur push_digest : {exc}")
+        traceback.print_exc()
+
+
 def task_process_late_assignment_queue():
     """
     Traite la file d'attente des alertes d'assignation tardive.
@@ -765,6 +785,21 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
+
+    # 17:00 - Digest fiches d'accord validees a pousser (lun-ven)
+    scheduler.add_job(
+        task_push_digest,
+        trigger=CronTrigger(
+            day_of_week='mon-fri',
+            hour=17, minute=0,
+            timezone='America/Montreal',
+        ),
+        id='push_digest',
+        name='Digest fiches d\'accord a pousser info@ (17:00 lun-ven)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 17:00 - Digest fiches d'accord a pousser (info@, lun-ven) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
