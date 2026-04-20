@@ -240,9 +240,11 @@ function App() {
             </ErrorBoundary>
           )
         } else if (currentView === 'orford') {
+          // Orford : utiliser VincentDIndyDashboard avec institution="orford"
+          // pour que Louise/Margot aient la vue "A valider" avec timeline des services.
           return (
             <ErrorBoundary componentName="Orford">
-              <OrfordDashboard currentUser={effectiveUser} institution="orford" />
+              <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
         } else if (currentView === 'place-des-arts') {
