@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
 Module pour envoyer des notifications par email.
-Utilise Resend pour l'envoi d'emails (alertes humidité, erreurs système, etc.)
-Historique: Migration de SendGrid vers Resend (mars 2026) - essai gratuit SendGrid expiré.
+Utilise Gmail API (OAuth2) en priorité, avec fallback sur Resend.
+Historique: SendGrid → Resend (mars 2026) → Gmail API (mars 2026).
 """
 
 import os
-import resend
 from typing import Optional, List
 
 
 class EmailNotifier:
-    """Gère l'envoi d'emails via Resend."""
+    """Gère l'envoi d'emails via Gmail API (priorité) ou Resend (fallback)."""
 
     # Configuration des destinataires (chargés depuis .env)
     RECIPIENTS = {
@@ -20,23 +19,41 @@ class EmailNotifier:
         'louise': os.getenv('EMAIL_LOUISE', 'louise@example.com'),
     }
 
-    # Email expéditeur - utilise onboarding@resend.dev tant que le domaine n'est pas vérifié
-    # Une fois piano-tek.com vérifié dans Resend, changer pour asutton@piano-tek.com
-    FROM_EMAIL = os.getenv('EMAIL_FROM', 'onboarding@resend.dev')
-    FROM_NAME = os.getenv('EMAIL_FROM_NAME', 'Assistant Gazelle')
-
     def __init__(self):
-        """Initialise le client Resend."""
-        api_key_raw = os.getenv('RESEND_API_KEY')
-        # Retirer les espaces et sauts de ligne (problème courant dans .env)
-        self.api_key = api_key_raw.strip() if api_key_raw else None
-        if not self.api_key:
-            print("⚠️ RESEND_API_KEY non configurée - emails désactivés")
-            self.client = None
-        else:
-            resend.api_key = self.api_key
-            self.client = True
-            print("✅ Resend initialisé avec succès")
+        """Initialise Gmail API (priorité) ou Resend (fallback)."""
+        self.method = None
+        self._gmail_sender = None
+        self._resend_ready = False
+
+        # 1. Essayer Gmail API
+        try:
+            from core.gmail_sender import get_gmail_sender
+            gmail = get_gmail_sender()
+            if gmail.is_available:
+                self._gmail_sender = gmail
+                self.method = 'gmail'
+                print("✅ EmailNotifier : Gmail API activé")
+                return
+        except Exception as e:
+            print(f"⚠️ Gmail API non disponible : {e}")
+
+        # 2. Fallback sur Resend
+        try:
+            import resend
+            api_key_raw = os.getenv('RESEND_API_KEY')
+            api_key = api_key_raw.strip() if api_key_raw else None
+            if api_key:
+                resend.api_key = api_key
+                self._resend_ready = True
+                self.method = 'resend'
+                self._from_email = os.getenv('EMAIL_FROM', 'onboarding@resend.dev')
+                self._from_name = os.getenv('EMAIL_FROM_NAME', 'Assistant Gazelle')
+                print("✅ EmailNotifier : Resend activé (fallback)")
+                return
+        except Exception:
+            pass
+
+        print("⚠️ EmailNotifier : aucune méthode d'envoi disponible")
 
     def send_email(
         self,
@@ -46,45 +63,60 @@ class EmailNotifier:
         plain_content: Optional[str] = None
     ) -> bool:
         """
-        Envoie un email via SendGrid.
+        Envoie un email via Gmail API ou Resend.
 
         Args:
             to_emails: Liste d'emails destinataires
             subject: Sujet de l'email
             html_content: Contenu HTML de l'email
-            plain_content: Contenu texte brut (optionnel, sinon extrait du HTML)
+            plain_content: Contenu texte brut (optionnel)
 
         Returns:
             True si envoyé avec succès
         """
-        if not self.client:
-            print("⚠️ Client Resend non initialisé - email non envoyé")
-            return False
+        if self.method == 'gmail':
+            return self._gmail_sender.send_email(
+                to_emails=to_emails,
+                subject=subject,
+                html_content=html_content,
+                plain_content=plain_content,
+            )
 
+        if self.method == 'resend':
+            return self._send_via_resend(to_emails, subject, html_content, plain_content)
+
+        print("⚠️ Aucune méthode d'envoi configurée — email non envoyé")
+        return False
+
+    def _send_via_resend(
+        self,
+        to_emails: List[str],
+        subject: str,
+        html_content: str,
+        plain_content: Optional[str] = None,
+    ) -> bool:
+        """Fallback Resend."""
         try:
-            from_str = f"{self.FROM_NAME} <{self.FROM_EMAIL}>"
-
+            import resend
+            from_str = f"{self._from_name} <{self._from_email}>"
             params = {
                 "from": from_str,
                 "to": to_emails,
                 "subject": subject,
                 "html": html_content,
             }
-
             if plain_content:
                 params["text"] = plain_content
 
             response = resend.Emails.send(params)
-
             if response and response.get("id"):
-                print(f"✅ Email envoyé avec succès à {len(to_emails)} destinataire(s) (id: {response['id']})")
+                print(f"✅ Email envoyé via Resend à {len(to_emails)} destinataire(s) (id: {response['id']})")
                 return True
             else:
                 print(f"⚠️ Erreur Resend: {response}")
                 return False
-
         except Exception as e:
-            print(f"❌ Erreur lors de l'envoi email: {e}")
+            print(f"❌ Erreur Resend : {e}")
             return False
 
     def send_humidity_alert(
@@ -113,7 +145,7 @@ class EmailNotifier:
 
         # Emoji selon le type
         emoji = "🏜️" if alert_type == "TROP_SEC" else "💧"
-        
+
         # Couleur selon le type
         color = "#FF6B6B" if alert_type == "TROP_SEC" else "#4ECDC4"
 
@@ -123,10 +155,10 @@ class EmailNotifier:
         <head>
             <style>
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-                .alert-box {{ 
-                    background: {color}; 
-                    color: white; 
-                    padding: 20px; 
+                .alert-box {{
+                    background: {color};
+                    color: white;
+                    padding: 20px;
                     border-radius: 8px;
                     margin: 20px 0;
                 }}
@@ -146,7 +178,7 @@ class EmailNotifier:
             <div class="alert-box">
                 <h2>{emoji} Alerte Humidité - {alert_type.replace('_', ' ')}</h2>
             </div>
-            
+
             <div class="info-box">
                 <p><strong>Piano:</strong> {piano_info.get('nom', 'Inconnu')}</p>
                 <p><strong>Client:</strong> {piano_info.get('client', 'Inconnu')}</p>
@@ -258,10 +290,10 @@ class EmailNotifier:
         <head>
             <style>
                 body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
-                .error-box {{ 
-                    background: #FF6B6B; 
-                    color: white; 
-                    padding: 20px; 
+                .error-box {{
+                    background: #FF6B6B;
+                    color: white;
+                    padding: 20px;
                     border-radius: 8px;
                     margin: 20px 0;
                 }}
@@ -279,7 +311,7 @@ class EmailNotifier:
                 <h2>❌ Erreur de Synchronisation</h2>
                 <p><strong>Tâche:</strong> {task_name}</p>
             </div>
-            
+
             <div class="error-details">
                 <p><strong>Erreur:</strong></p>
                 <pre>{error_message}</pre>
