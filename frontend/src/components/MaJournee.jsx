@@ -54,7 +54,8 @@ export default function MaJournee({ currentUser }) {
       if (isLouise) {
         // Pas de filtre — Louise voit tous les RV du jour
       } else if (technicianId) {
-        if (isAllan && showAllTechs) {
+        if (showAllTechs) {
+          // Toggle "Autres techs" — voir les RV de tous SAUF le technicien courant
           url += `&exclude_technician_id=${technicianId}`
         } else {
           url += `&technician_id=${technicianId}`
@@ -167,8 +168,10 @@ export default function MaJournee({ currentUser }) {
             </button>
           </div>
 
-          {/* Toggle pour Allan: Mes RV / Tous les RV */}
-          {isAllan && (
+          {/* Toggle Mes RV / Autres techs — disponible pour tous les
+              techniciens qui ont un gazelleId (Allan, Nicolas, JP, Margot).
+              Louise n'en a pas besoin : elle voit deja tous les RV par defaut. */}
+          {!isLouise && technicianId && (
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={() => setShowAllTechs(false)}
