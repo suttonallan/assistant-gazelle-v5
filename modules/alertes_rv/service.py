@@ -18,13 +18,17 @@ import os
 SUPABASE_TIMEOUT = 25
 ASSISTANTE_GAZELLE_ID = "usr_assistante"
 
-# Configuration des emails des techniciens (depuis .env)
+# Configuration des emails des techniciens.
+# Fallback = l'email defini dans config/techniciens_config.py (source de verite).
+# Env vars EMAIL_NICOLAS / EMAIL_ALLAN / EMAIL_JP permettent de surcharger en prod
+# (Render) sans toucher au code — MAIS le fallback DOIT etre correct pour que les
+# alertes partent meme si les env vars ne sont pas configurees.
 TECHNICIAN_EMAILS = {
     'nicolas': os.getenv('EMAIL_NICOLAS', 'nlessard@piano-tek.com'),
     'allan': os.getenv('EMAIL_ALLAN', 'asutton@piano-tek.com'),
-    'jp': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
-    'jean-philippe': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
-    'jean philippe': os.getenv('EMAIL_JP', 'jp@pianotekinc.com'),
+    'jp': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
+    'jean-philippe': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
+    'jean philippe': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
 }
 
 # Email de Louise pour les alertes de relance de vieux rendez-vous
