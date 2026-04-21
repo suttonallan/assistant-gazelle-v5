@@ -11,7 +11,6 @@ from datetime import datetime, timedelta, date
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from apscheduler.schedulers.background import BackgroundScheduler
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -28,9 +27,11 @@ _storage = None
 _checker = None
 _email_sender = None
 _service = None
-_scheduler = None  # Lazy init dans startup
-JOB_ID = "rv_unconfirmed_16h"
-JOB_LONG_TERM_ID = "rv_long_term_09h"
+
+# NOTE : le scheduler 16h (urgence_technique_j1) et 09h (RELANCE LOUISE) sont
+# maintenant gérés UNIQUEMENT dans core/scheduler.py. Le BackgroundScheduler
+# qui vivait ici a été supprimé parce qu'il faisait double-emploi et envoyait
+# chaque alerte 2 fois.
 
 
 def get_storage() -> SupabaseStorage:
@@ -452,75 +453,6 @@ async def resolve_alert(alert_id: str, request: ResolveAlertRequest):
 
 
 # ---------------------------------------------------------------------------
-# Scheduler 16h00
+# Scheduler : deplace dans core/scheduler.py (task_urgence_technique_j1 16h
+# et RELANCE LOUISE 9h). Pas de cron ici pour eviter les alertes en double.
 # ---------------------------------------------------------------------------
-
-
-def _run_daily_job():
-    """Job exécuté à 16h Montréal pour envoyer les alertes."""
-    service = get_service()
-    service.send_alerts(triggered_by="system@piano-tek.com")
-
-def _run_long_term_job():
-    """Job exécuté à 09h Montréal pour les RV longue durée."""
-    service = get_service()
-    service.check_long_term_appointments()
-
-
-@router.on_event("startup")
-def start_scheduler():
-    global _scheduler
-    try:
-        print("📅 Démarrage du Scheduler alertes-rv...")
-
-        # Initialisation lazy du scheduler
-        if _scheduler is None:
-            print("   → Création du BackgroundScheduler (timezone=America/Montreal)")
-            _scheduler = BackgroundScheduler(timezone="America/Montreal")
-
-        if not _scheduler.running:
-            print("   → Démarrage du scheduler en mode pausé")
-            _scheduler.start(paused=True)
-
-        if not _scheduler.get_job(JOB_ID):
-            print(f"   → Ajout job quotidien {JOB_ID} (16h)")
-            _scheduler.add_job(
-                _run_daily_job,
-                trigger="cron",
-                hour=16,
-                minute=0,
-                id=JOB_ID,
-                replace_existing=True,
-            )
-
-        if not _scheduler.get_job(JOB_LONG_TERM_ID):
-            print(f"   → Ajout job longue durée {JOB_LONG_TERM_ID} (9h)")
-            _scheduler.add_job(
-                _run_long_term_job,
-                trigger="cron",
-                hour=9,
-                minute=0,
-                id=JOB_LONG_TERM_ID,
-                replace_existing=True,
-            )
-
-        if _scheduler.state == 2:  # paused
-            print("   → Reprise du scheduler")
-            _scheduler.resume()
-
-        print("✅ Scheduler alertes-rv démarré avec succès")
-    except Exception as e:
-        print(f"⚠️ Scheduler alertes-rv non démarré: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-@router.on_event("shutdown")
-def shutdown_scheduler():
-    try:
-        print("🛑 Arrêt du Scheduler alertes-rv...")
-        if _scheduler and _scheduler.running:
-            _scheduler.shutdown(wait=False)
-            print("✅ Scheduler alertes-rv arrêté")
-    except Exception as e:
-        print(f"⚠️ Erreur arrêt scheduler: {e}")
