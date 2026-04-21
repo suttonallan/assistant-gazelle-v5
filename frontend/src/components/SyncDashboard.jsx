@@ -16,6 +16,7 @@ export default function SyncDashboard({ currentUser }) {
   const [syncStats, setSyncStats] = useState(null)
   const [lateAlerts, setLateAlerts] = useState([])
   const [unconfirmedRV, setUnconfirmedRV] = useState([])
+  const [j1AlertsHistory, setJ1AlertsHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -32,6 +33,7 @@ export default function SyncDashboard({ currentUser }) {
       loadSyncStats(),
       loadLateAlerts(),
       loadUnconfirmedRV(),
+      loadJ1AlertsHistory(),
     ])
     setLoading(false)
   }
@@ -65,6 +67,29 @@ export default function SyncDashboard({ currentUser }) {
         setUnconfirmedRV(d.unconfirmed || d.appointments || [])
       }
     } catch (e) { console.error('unconfirmed:', e) }
+  }
+
+  // Historique des alertes J-1 envoyees aux techniciens (16h quotidien).
+  // Dedoublonne les anciens doublons causes par l'ex-scheduler duplique
+  // (fix deploye 2026-04-21, commit 3f98d6b) en gardant le premier par
+  // (appointment_id, technician_id, date-jour).
+  const loadJ1AlertsHistory = async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/alertes-rv/history?limit=30`)
+      if (r.ok) {
+        const d = await r.json()
+        const raw = d.alerts || []
+        const seen = new Set()
+        const deduped = []
+        for (const a of raw) {
+          const key = `${a.appointment_id || a.id}_${a.technician_id || ''}_${(a.sent_at || '').slice(0, 10)}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          deduped.push(a)
+        }
+        setJ1AlertsHistory(deduped)
+      }
+    } catch (e) { console.error('j1 alerts history:', e) }
   }
 
   const rel = (iso) => {
@@ -153,6 +178,40 @@ export default function SyncDashboard({ currentUser }) {
           )}
         </Section>
       )}
+
+      {/* ── Alertes J-1 envoyees aux techniciens (16h quotidien) ── */}
+      <Section
+        title="Alertes J-1 envoyees (16h)"
+        color={j1AlertsHistory.some(a => a.status === 'failed') ? 'orange' : 'gray'}
+        badge={j1AlertsHistory.length > 0 ? `${j1AlertsHistory.length}` : null}
+      >
+        {j1AlertsHistory.length === 0 ? (
+          <div className="text-xs text-gray-400 py-2 px-2">Aucune alerte envoyee</div>
+        ) : (
+          j1AlertsHistory.slice(0, 12).map((a, i) => (
+            <Row
+              key={a.id || i}
+              className={a.status === 'failed' ? 'bg-red-50' : ''}
+              title={a.subject || a.alert_type || ''}
+            >
+              <span className="w-4 text-center">
+                {a.status === 'sent' ? '✓' : a.status === 'failed' ? '✗' : '·'}
+              </span>
+              <span className="font-mono w-12 text-gray-500">{time(a.sent_at)}</span>
+              <span className="w-12 text-gray-400">{date(a.sent_at)}</span>
+              <span className="flex-1 truncate">
+                {a.client_name || '—'}
+                {a.appointment_date && (
+                  <span className="text-gray-400 ml-1">({a.appointment_date.slice(5)})</span>
+                )}
+              </span>
+              <span className="text-gray-400 truncate w-16 text-right">
+                {a.technician_name || techName(a.technician_id)}
+              </span>
+            </Row>
+          ))
+        )}
+      </Section>
 
       {/* ── Alertes dernière minute ── */}
       <Section title={`Alertes RV dernière minute`} color="gray"
