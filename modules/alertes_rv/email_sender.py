@@ -31,7 +31,15 @@ class EmailSender:
             resend_api_key_raw = os.getenv('RESEND_API_KEY')
             self.resend_api_key = resend_api_key_raw.strip() if resend_api_key_raw else None
             if not self.resend_api_key:
-                print("⚠️ RESEND_API_KEY non défini, bascule sur SMTP")
+                # Bascule sur SMTP. Si SMTP n'est pas configure non plus, les
+                # envois echoueront et seront loggues comme 'failed' (pas de
+                # mode simulation qui ment).
+                smtp_ok = bool(os.getenv('SMTP_USER') and os.getenv('SMTP_PASSWORD'))
+                if smtp_ok:
+                    print("⚠️ RESEND_API_KEY absent, bascule sur SMTP (credentials detectes)")
+                else:
+                    print("🚨 CRITIQUE : RESEND_API_KEY absent ET SMTP_USER/SMTP_PASSWORD absents. "
+                          "AUCUN email d'alerte ne sera envoye. Configure au moins une methode sur Render.")
                 self.method = 'smtp'
             else:
                 resend.api_key = self.resend_api_key
@@ -96,49 +104,44 @@ class EmailSender:
         subject: str,
         html_content: str
     ) -> bool:
-        """Envoie via SMTP Gmail (fallback)."""
+        """Envoie via SMTP Gmail (fallback si RESEND_API_KEY manquant).
+
+        REGLE DE HONNETETE : cette methode ne retourne True que si un email
+        a REELLEMENT ete transmis. Pas de "mode simulation qui ment" — les
+        alertes manquees doivent apparaitre comme 'failed' dans alert_logs
+        pour qu'Allan sache que la livraison a echoue.
+        """
+        smtp_user = os.getenv('SMTP_USER')
+        smtp_password = os.getenv('SMTP_PASSWORD')
+
+        if not smtp_user or not smtp_password:
+            print(f"❌ Aucune methode d'envoi configuree (RESEND_API_KEY absent "
+                  f"ET SMTP_USER/SMTP_PASSWORD absents). Email NON envoye a {to_email}.")
+            return False
+
         try:
             import smtplib
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
 
-            # Credentials depuis env
-            smtp_user = os.getenv('SMTP_USER')
-            smtp_password = os.getenv('SMTP_PASSWORD')
-
-            if not smtp_user or not smtp_password:
-                print("⚠️ SMTP_USER ou SMTP_PASSWORD non défini")
-                # Mode simulation pour dev
-                print(f"📧 [SIMULATION] Email vers {to_email}")
-                print(f"   Sujet: {subject}")
-                print(f"   Contenu: {html_content[:200]}...")
-                return True
-
-            # Créer le message
             msg = MIMEMultipart('alternative')
             msg['From'] = f"{self.from_name} <{self.from_email}>"
             msg['To'] = f"{to_name} <{to_email}>"
             msg['Subject'] = subject
+            msg.attach(MIMEText(html_content, 'html'))
 
-            html_part = MIMEText(html_content, 'html')
-            msg.attach(html_part)
-
-            # Connexion SMTP Gmail
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.send_message(msg)
             server.quit()
 
-            print(f"✅ Email envoyé à {to_email} (SMTP)")
+            print(f"✅ Email envoye a {to_email} (SMTP)")
             return True
 
         except Exception as e:
-            print(f"❌ Erreur SMTP: {e}")
-            # Mode simulation si échec
-            print(f"📧 [SIMULATION] Email vers {to_email}")
-            print(f"   Sujet: {subject}")
-            return True  # Retourner True en simulation pour ne pas bloquer
+            print(f"❌ Erreur SMTP: {e} - Email NON envoye a {to_email}")
+            return False
 
     def send_batch_alerts(
         self,
