@@ -262,12 +262,17 @@ class GazelleToSupabaseSync:
                 'status': 'pending',
                 'change_type': change_type
             }
-            
+
             url = f"{self.storage.api_url}/late_assignment_queue"
             headers = self.storage._get_headers()
             headers["Prefer"] = "resolution=merge-duplicates"
-            
+
             response = requests.post(url, headers=headers, json=queue_entry)
+
+            # Fallback: si change_type column n'existe pas encore, retry sans
+            if response.status_code in [400, 406] and 'change_type' in (response.text or ''):
+                del queue_entry['change_type']
+                response = requests.post(url, headers=headers, json=queue_entry)
             
             if response.status_code in [200, 201]:
                 send_time_str = scheduled_send_at.strftime('%Y-%m-%d %H:%M')
@@ -793,12 +798,16 @@ class GazelleToSupabaseSync:
                         'updated_at': format_for_supabase(datetime.now())
                     }
 
-                    # Détecter changement de technicien AVANT l'UPSERT
+                    # Détecter changement AVANT l'UPSERT
                     # Récupérer l'ancien record pour comparer
                     old_record = None
                     try:
+                        # Fetch old record — last_notified_schedule may not exist yet (migration pending)
                         check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,last_notified_schedule,appointment_date,appointment_time,status,updated_at,created_at"
                         check_response = requests.get(check_url, headers=self.storage._get_headers())
+                        if check_response.status_code in [400, 406] and 'last_notified_schedule' in (check_response.text or ''):
+                            check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date,appointment_time,status,updated_at,created_at"
+                            check_response = requests.get(check_url, headers=self.storage._get_headers())
                         if check_response.status_code == 200:
                             old_data = check_response.json()
                             if old_data and len(old_data) > 0:
@@ -943,14 +952,15 @@ class GazelleToSupabaseSync:
                                     update_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
                                     update_headers = self.storage._get_headers()
                                     update_headers["Prefer"] = "return=representation"
-                                    requests.patch(
-                                        update_url,
-                                        headers=update_headers,
-                                        json={
-                                            'last_notified_tech_id': technicien,
-                                            'last_notified_schedule': current_schedule
-                                        }
-                                    )
+                                    update_data = {
+                                        'last_notified_tech_id': technicien,
+                                        'last_notified_schedule': current_schedule
+                                    }
+                                    patch_resp = requests.patch(update_url, headers=update_headers, json=update_data)
+                                    # Fallback: si last_notified_schedule n'existe pas encore
+                                    if patch_resp.status_code in [400, 406] and 'last_notified_schedule' in (patch_resp.text or ''):
+                                        del update_data['last_notified_schedule']
+                                        requests.patch(update_url, headers=update_headers, json=update_data)
                                     
                         except Exception as e:
                             print(f"⚠️  Erreur détection changement technicien {external_id}: {e}")
