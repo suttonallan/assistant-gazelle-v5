@@ -528,6 +528,7 @@ class GazelleAPIClient:
               type
               status
               user { id }
+              createdAt
               createdBy { id }
               confirmedByClient
               source

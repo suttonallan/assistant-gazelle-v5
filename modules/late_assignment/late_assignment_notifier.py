@@ -166,20 +166,52 @@ class LateAssignmentNotifier:
             else:
                 date_text = "prochainement"
             
-            # Construire le message
+            # Construire le message selon le type de changement
             time_text = f" à {appointment_time}" if appointment_time else ""
             location_text = f", {location}" if location else ""
-            
-            subject = "⚠️ Nouveau rendez-vous assigné (Action requise)"
-            
-            plain_content = (
-                f"Bonjour {technician_name},\n\n"
-                f"Un nouveau rendez-vous a été ajouté ou vous a été réassigné pour {date_text} :\n"
-                f"{location_text.lstrip(', ')}{time_text}, {client_name}.\n\n"
-                f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
-                f"Cordialement,\n"
-                f"Assistant Gazelle"
-            )
+            change_type = queue_item.get('change_type', 'new')
+
+            # Sujet et corps adaptés au type de changement
+            if change_type == 'cancelled':
+                subject = "📋 Plage libérée — rendez-vous annulé"
+                plain_content = (
+                    f"Bonjour {technician_name},\n\n"
+                    f"Le rendez-vous {date_text}{time_text} a été annulé :\n"
+                    f"{location_text.lstrip(', ')}, {client_name}.\n\n"
+                    f"Cette plage est maintenant libre dans votre calendrier.\n\n"
+                    f"Cordialement,\n"
+                    f"Assistant Gazelle"
+                )
+            elif change_type == 'rescheduled':
+                subject = "🔄 Rendez-vous déplacé"
+                plain_content = (
+                    f"Bonjour {technician_name},\n\n"
+                    f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :\n"
+                    f"{location_text.lstrip(', ')}, {client_name}.\n\n"
+                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
+                    f"Cordialement,\n"
+                    f"Assistant Gazelle"
+                )
+            elif change_type == 'reassigned':
+                subject = "⚠️ Rendez-vous assigné"
+                plain_content = (
+                    f"Bonjour {technician_name},\n\n"
+                    f"Un rendez-vous vous a été assigné pour {date_text} :\n"
+                    f"{location_text.lstrip(', ')}{time_text}, {client_name}.\n\n"
+                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
+                    f"Cordialement,\n"
+                    f"Assistant Gazelle"
+                )
+            else:  # 'new'
+                subject = "⚠️ Nouveau rendez-vous"
+                plain_content = (
+                    f"Bonjour {technician_name},\n\n"
+                    f"Un nouveau rendez-vous a été ajouté pour {date_text} :\n"
+                    f"{location_text.lstrip(', ')}{time_text}, {client_name}.\n\n"
+                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
+                    f"Cordialement,\n"
+                    f"Assistant Gazelle"
+                )
             
             # Envoyer l'email (texte brut uniquement)
             success = self.email_notifier.send_email(

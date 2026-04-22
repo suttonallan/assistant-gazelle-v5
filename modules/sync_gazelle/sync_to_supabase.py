@@ -175,7 +175,8 @@ class GazelleToSupabaseSync:
         appointment_date: str,
         appointment_time: Optional[str] = None,
         client_name: Optional[str] = None,
-        location: Optional[str] = None
+        location: Optional[str] = None,
+        change_type: str = 'new'
     ):
         """
         Insère une alerte dans la file d'attente late_assignment_queue.
@@ -258,7 +259,8 @@ class GazelleToSupabaseSync:
                 'client_name': client_name,
                 'location': location,
                 'scheduled_send_at': scheduled_send_at.isoformat(),
-                'status': 'pending'
+                'status': 'pending',
+                'change_type': change_type
             }
             
             url = f"{self.storage.api_url}/late_assignment_queue"
@@ -757,6 +759,9 @@ class GazelleToSupabaseSync:
                     source = appt_data.get('source', 'MANUAL')
                     travel_mode = appt_data.get('travelMode', '')
 
+                    # CreatedAt (Gazelle — date réelle de création du RV)
+                    gazelle_created_at = appt_data.get('createdAt')
+
                     # CreatedBy
                     created_by_obj = appt_data.get('createdBy', {})
                     created_by_user_id = created_by_obj.get('id') if created_by_obj else None
@@ -792,7 +797,7 @@ class GazelleToSupabaseSync:
                     # Récupérer l'ancien record pour comparer
                     old_record = None
                     try:
-                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date,updated_at,created_at"
+                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,last_notified_schedule,appointment_date,appointment_time,status,updated_at,created_at"
                         check_response = requests.get(check_url, headers=self.storage._get_headers())
                         if check_response.status_code == 200:
                             old_data = check_response.json()
@@ -859,55 +864,92 @@ class GazelleToSupabaseSync:
                                     pass
 
                             # Calculer le datetime complet du RV
-                            is_less_than_24h = False
+                            # Fenêtre de 7 jours : les techs consultent leur calendrier de la semaine
+                            # le dimanche — toute assignation/changement de la semaine doit être notifié
+                            ALERT_WINDOW_HOURS = 7 * 24  # 168h = 7 jours
+                            is_within_alert_window = False
                             if appt_date:
                                 appt_datetime = datetime.combine(appt_date, appt_time, MONTREAL_TZ)
                                 hours_until_appt = (appt_datetime - now).total_seconds() / 3600
-                                is_less_than_24h = 0 < hours_until_appt < 24
+                                is_within_alert_window = 0 < hours_until_appt < ALERT_WINDOW_HOURS
 
-                                if is_less_than_24h:
-                                    print(f"⏰ RV dans {hours_until_appt:.1f}h (< 24h) → vérification late assignment")
+                                if is_within_alert_window:
+                                    days_until = hours_until_appt / 24
+                                    print(f"⏰ RV dans {days_until:.1f}j ({hours_until_appt:.0f}h) → vérification late assignment")
 
-                            if is_less_than_24h:
+                            if is_within_alert_window:
                                 old_technicien = old_record.get('technicien') if old_record else None
                                 last_notified = old_record.get('last_notified_tech_id') if old_record else None
+                                last_notified_schedule = old_record.get('last_notified_schedule') if old_record else None
 
-                                print(f"🔍 Late Assignment check {external_id}: tech={technicien}, old={old_technicien}, notified={last_notified}")
+                                # Snapshot horaire actuel pour comparaison
+                                current_schedule = f"{appointment_date} {appointment_time or '09:00'}"
 
-                                # Alerter seulement si:
-                                # 1. Nouveau RV (pas encore en DB) OU
-                                # 2. Technicien a changé ET pas déjà notifié pour ce technicien
-                                should_alert = False
+                                # Vérifier si le RV a été CRÉÉ récemment dans Gazelle (< 24h)
+                                is_recently_created = False
+                                created_age_hours = None
+                                if gazelle_created_at:
+                                    try:
+                                        created_dt = datetime.fromisoformat(gazelle_created_at.replace('Z', '+00:00'))
+                                        created_age_hours = (now - created_dt).total_seconds() / 3600
+                                        is_recently_created = created_age_hours < 24
+                                    except:
+                                        pass
 
-                                if not old_record:
-                                    print(f"   ✅ Nouveau RV → alerte")
-                                    should_alert = True
+                                print(f"🔍 Late Assignment check {external_id}: tech={technicien}, old={old_technicien}, notified={last_notified}, schedule={current_schedule}, old_schedule={last_notified_schedule}, created_recently={is_recently_created}")
+
+                                # Déterminer le type de changement (par priorité)
+                                # 1. Nouveau RV (créé < 24h, jamais vu)
+                                # 2. Technicien changé
+                                # 3. Horaire modifié (date ou heure)
+                                # JAMAIS alerter pour un vieux RV simplement modifié (notes, etc.)
+                                change_type = None
+
+                                if not old_record and is_recently_created:
+                                    change_type = 'new'
+                                    age_str = f"{created_age_hours:.1f}h" if created_age_hours else ""
+                                    print(f"   ✅ Nouveau RV (créé il y a {age_str}) → alerte")
+                                elif not old_record and not is_recently_created:
+                                    age_str = f"{created_age_hours:.1f}h" if created_age_hours else "inconnue"
+                                    print(f"   ⏭���  RV absent de la DB mais créé il y a {age_str} → pas d'alerte (vieux RV)")
                                 elif old_technicien != technicien and last_notified != technicien:
+                                    change_type = 'reassigned'
                                     print(f"   ✅ Technicien changé ({old_technicien} → {technicien}) → alerte")
-                                    should_alert = True
+                                elif current_schedule != last_notified_schedule and last_notified_schedule is not None:
+                                    change_type = 'rescheduled'
+                                    print(f"   ✅ Horaire modifié ({last_notified_schedule} → {current_schedule}) → alerte")
+                                elif last_notified is None and old_record:
+                                    # Première notification pour ce RV (jamais notifié, mais existe en DB)
+                                    # Seulement si créé récemment OU si on n'a jamais notifié du tout
+                                    if is_recently_created:
+                                        change_type = 'new'
+                                        print(f"   ✅ RV récent jamais notifié → alerte")
                                 else:
-                                    print(f"   ⏭️  Pas de changement → pas d'alerte")
-                                
-                                if should_alert:
-                                    # Insérer dans la file d'attente
+                                    print(f"   ⏭️  Pas de changement pertinent → pas d'alerte")
+
+                                if change_type:
+                                    # Insérer dans la file d'attente avec le type de changement
                                     self._queue_late_assignment_alert(
                                         appointment_external_id=external_id,
                                         technician_id=technicien,
                                         appointment_date=appointment_date,
                                         appointment_time=appointment_time,
                                         client_name=client_obj.get('name', '') if client_obj else None,
-                                        location=location
+                                        location=location,
+                                        change_type=change_type
                                     )
-                                    
-                                    # Mettre à jour last_notified_tech_id (sera confirmé après envoi)
-                                    # On le met à jour maintenant pour éviter les doublons si plusieurs syncs rapides
+
+                                    # Mettre à jour les marqueurs anti-doublon
                                     update_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
                                     update_headers = self.storage._get_headers()
                                     update_headers["Prefer"] = "return=representation"
                                     requests.patch(
                                         update_url,
                                         headers=update_headers,
-                                        json={'last_notified_tech_id': technicien}
+                                        json={
+                                            'last_notified_tech_id': technicien,
+                                            'last_notified_schedule': current_schedule
+                                        }
                                     )
                                     
                         except Exception as e:
@@ -968,8 +1010,18 @@ class GazelleToSupabaseSync:
                             print(f"   🔒 MARQUAGE BLOQUÉ - Trop de RV à annuler (possible erreur API)")
                         else:
                             # Marquer comme CANCELLED (réversible, pas de suppression)
+                            # ET notifier le technicien que la plage est libérée
                             cancelled_count = 0
                             for ext_id in ids_to_cancel:
+                                # Récupérer les infos du RV AVANT de le marquer CANCELLED
+                                info_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}&select=technicien,appointment_date,appointment_time,title,location"
+                                info_response = requests.get(info_url, headers=self.storage._get_headers())
+                                rv_info = None
+                                if info_response.status_code == 200:
+                                    info_data = info_response.json()
+                                    if info_data:
+                                        rv_info = info_data[0]
+
                                 patch_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}"
                                 headers = self.storage._get_headers()
                                 patch_data = {
@@ -981,6 +1033,29 @@ class GazelleToSupabaseSync:
                                 if patch_response.status_code in [200, 204]:
                                     cancelled_count += 1
                                     print(f"      ✓ Marqué CANCELLED: {ext_id}")
+
+                                    # Notifier le technicien que la plage est libérée
+                                    if rv_info and rv_info.get('technicien') and rv_info['technicien'] in GAZELLE_IDS:
+                                        rv_date = rv_info.get('appointment_date')
+                                        if rv_date:
+                                            from datetime import date as date_class
+                                            try:
+                                                rv_date_obj = date_class.fromisoformat(str(rv_date)[:10])
+                                                today = datetime.now(MONTREAL_TZ).date()
+                                                days_until = (rv_date_obj - today).days
+                                                # Notifier seulement si le RV était dans les 7 prochains jours
+                                                if 0 <= days_until <= 7:
+                                                    self._queue_late_assignment_alert(
+                                                        appointment_external_id=ext_id,
+                                                        technician_id=rv_info['technicien'],
+                                                        appointment_date=str(rv_date)[:10],
+                                                        appointment_time=rv_info.get('appointment_time'),
+                                                        client_name=rv_info.get('title', ''),
+                                                        location=rv_info.get('location', ''),
+                                                        change_type='cancelled'
+                                                    )
+                                            except:
+                                                pass
                                 else:
                                     print(f"      ⚠️  Erreur marquage {ext_id}: {patch_response.status_code}")
 
