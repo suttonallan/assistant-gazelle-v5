@@ -948,6 +948,20 @@ class GazelleToSupabaseSync:
                                         change_type=change_type
                                     )
 
+                                    # Si réassignation : notifier aussi l'ancien tech
+                                    # que sa plage est libérée
+                                    if change_type == 'reassigned' and old_technicien and old_technicien in GAZELLE_IDS:
+                                        self._queue_late_assignment_alert(
+                                            appointment_external_id=external_id,
+                                            technician_id=old_technicien,
+                                            appointment_date=appointment_date,
+                                            appointment_time=appointment_time,
+                                            client_name=client_obj.get('name', '') if client_obj else None,
+                                            location=location,
+                                            change_type='cancelled'
+                                        )
+                                        print(f"   📤 Plage libérée envoyée à l'ancien tech {old_technicien}")
+
                                     # Mettre à jour les marqueurs anti-doublon
                                     update_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
                                     update_headers = self.storage._get_headers()
