@@ -32,6 +32,14 @@ from modules.briefing.client_intelligence_service import NarrativeBriefingServic
 DAYS_AHEAD = 7  # Fenêtre des RV à scanner
 DEDUP_WINDOW_DAYS = 7  # On ne re-notifie pas si déjà envoyé dans les 7 derniers jours
 
+# Clients institutionnels — exclure du digest soumissions critiques.
+# Ces clients ont des contrats de service, pas des soumissions résidentielles.
+INSTITUTIONAL_CLIENT_IDS = {
+    'cli_9UMLkteep8EsISbG',  # Vincent-d'Indy
+    'cli_HbEwl9rN11pSuDEU',  # Place des Arts
+    'cli_PmqPUBTbPFeCMGmz',  # Orford
+}
+
 
 def _fetch_upcoming_appointments(storage: SupabaseStorage, days_ahead: int) -> List[Dict]:
     """Liste les RV ACTIVE dans les N prochains jours depuis la cache Supabase."""
@@ -86,7 +94,8 @@ def _already_notified_recently(
     cutoff = (datetime.now() - timedelta(days=DEDUP_WINDOW_DAYS)).isoformat()
     url = (
         f"{storage.api_url}/critical_estimate_notifications"
-        f"?client_external_id=eq.{client_id}"
+        f"?kind=eq.critical_louise"
+        f"&client_external_id=eq.{client_id}"
         f"&estimate_number=eq.{estimate_number}"
         f"&sent_at=gte.{cutoff}"
         f"&select=id&limit=1"
@@ -109,6 +118,7 @@ def _record_notification(
 ) -> None:
     """Insert a row in critical_estimate_notifications to avoid re-sending."""
     row = {
+        "kind": "critical_louise",
         "client_external_id": client_id,
         "estimate_number": estimate_number,
         "appointment_external_id": appointment_id,
@@ -230,7 +240,7 @@ async def run_critical_estimate_digest() -> Dict:
     total_critical_found = 0
     for appt in appts:
         cid = appt.get("client_external_id")
-        if not cid:
+        if not cid or cid in INSTITUTIONAL_CLIENT_IDS:
             continue
         ests = estimates_by_client.get(cid, [])
         criticals = [e for e in ests if e.get("is_critical")]
