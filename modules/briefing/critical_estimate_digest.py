@@ -243,7 +243,13 @@ async def run_critical_estimate_digest() -> Dict:
         if not cid or cid in INSTITUTIONAL_CLIENT_IDS:
             continue
         ests = estimates_by_client.get(cid, [])
-        criticals = [e for e in ests if e.get("is_critical")]
+        # Exclure les soumissions archivées — elles sont considérées comme
+        # "fermées" (travaux faits, refusés, ou abandonnés) et ne doivent
+        # plus apparaître dans les alertes.
+        criticals = [
+            e for e in ests
+            if e.get("is_critical") and not e.get("is_archived")
+        ]
         if not criticals:
             continue
         total_critical_found += len(criticals)
