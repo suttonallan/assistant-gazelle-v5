@@ -288,6 +288,52 @@ def task_generate_rapport_timeline():
         raise
 
 
+def task_rv_item_enrichment():
+    """
+    22h Montréal — Enrichissement des items de RV du lendemain.
+
+    Pour chaque RV booké en ligne (Entretien et accord, Service Premium,
+    Extra-propre, avec ou sans PLS), remplace les items client-facing courts
+    par les templates tech complets (Accord 440Hz, nettoyage, lecture
+    température/humidité). La facture générée depuis le RV hérite ainsi
+    de la description complète.
+
+    Garde-fous : durée du RV préservée, items non-trigger conservés,
+    RV CANCELLED skippés, updateEvent (pas delete).
+    """
+    from core.scheduler_logger import get_logger
+    from modules.briefing.rv_item_enrichment import run_tomorrow
+
+    logger = get_logger()
+    log_id = logger.start_task(
+        task_name='rv_item_enrichment',
+        task_label='Enrichissement items RV du lendemain',
+        triggered_by='scheduler'
+    )
+
+    try:
+        result = run_tomorrow(dry_run=False)
+        stats = {
+            'total_rvs': result.get('total_rvs', 0),
+            'modified': result.get('modified', 0),
+            'skipped': result.get('skipped', 0),
+            'errors': result.get('errors', 0),
+        }
+        message = (
+            f"{stats['modified']} RV modifiés, "
+            f"{stats['skipped']} skippés, "
+            f"{stats['errors']} erreurs"
+        )
+        logger.complete_task(log_id=log_id, status='success', message=message, stats=stats)
+        return stats
+    except Exception as e:
+        print(f"\n❌ Erreur enrichissement RV: {e}")
+        import traceback
+        traceback.print_exc()
+        logger.complete_task(log_id=log_id, status='error', message=str(e), stats={})
+        raise
+
+
 def task_scan_pda_emails():
     """
     Scan automatique des emails PDA/OSM.
@@ -891,6 +937,19 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 17:00 - Rappel validation fiches de service configuré")
+
+    # 22:00 - Enrichissement automatique des items de RV du lendemain
+    # Remplace "Entretien et accord" (etc.) par les templates tech pour que
+    # les factures générées depuis le RV aient la bonne description
+    scheduler.add_job(
+        task_rv_item_enrichment,
+        trigger=CronTrigger(hour=22, minute=0, timezone='America/Montreal'),
+        id='rv_item_enrichment',
+        name='Enrichissement items RV du lendemain',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 22:00 - Enrichissement items RV du lendemain configuré")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré par GitHub Actions (full_gazelle_sync.yml), pas par le scheduler Render\n")
