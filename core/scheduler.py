@@ -555,17 +555,31 @@ def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
 
         # Mode incrémental (7 derniers jours) pour performance
         syncer = GazelleToSupabaseSync(incremental_mode=True)
-        
+
         # Sync appointments uniquement
         appointments_count = syncer.sync_appointments()
         print(f"✅ Appointments synchronisés: {appointments_count}")
 
+        # Lier les demandes PDA/OSM aux RV Gazelle automatiquement
+        # Sans ça, place_des_arts_requests.technician_id reste à "À attribuer"
+        # jusqu'à ce que quelqu'un clique le bouton Synchroniser dans le dashboard
+        pda_sync_count = 0
+        try:
+            from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+            pda_service = GazelleSyncService()
+            pda_result = pda_service.sync_requests_with_gazelle(dry_run=False)
+            pda_sync_count = pda_result.get('updated', 0)
+            print(f"✅ Demandes PDA/OSM synchronisées avec Gazelle: {pda_sync_count}")
+        except Exception as pda_exc:
+            print(f"⚠️  Sync PDA/OSM échouée (non bloquant): {pda_exc}")
+
         print("\n" + "="*70)
-        print("✅ SYNC APPOINTMENTS (16:30) - Terminé")
+        print("✅ SYNC APPOINTMENTS - Terminé")
         print("="*70 + "\n")
 
         stats = {
-            'appointments': appointments_count
+            'appointments': appointments_count,
+            'pda_sync': pda_sync_count
         }
 
         # Logger le succès
