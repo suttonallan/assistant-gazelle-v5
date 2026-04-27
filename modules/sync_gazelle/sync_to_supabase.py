@@ -368,22 +368,9 @@ class GazelleToSupabaseSync:
                     personal_notes = client_data.get('personalNotes', '') or ''
                     preference_notes = client_data.get('preferenceNotes', '') or ''
 
-                    # Langue du client (depuis defaultClientLocalization)
-                    localization = client_data.get('defaultClientLocalization') or {}
-                    locale = localization.get('locale') or None
-
-                    # Préférences de communication du contact
-                    wants_email = default_contact.get('wantsEmail') if default_contact else None
-                    wants_phone = default_contact.get('wantsPhone') if default_contact else None
-                    wants_text = default_contact.get('wantsText') if default_contact else None
-
-                    # Mobile confirmé
-                    mobile_phone = None
-                    if default_contact:
-                        confirmed_mobile = default_contact.get('defaultConfirmedMobilePhone') or {}
-                        mobile_phone = confirmed_mobile.get('phoneNumber')
-
                     # Préparer données pour Supabase
+                    # NOTE: Seuls les champs existant dans la table gazelle_clients
+                    # Colonnes absentes = erreur 400 PostgREST = sync cassée silencieusement
                     client_record = {
                         'external_id': external_id,
                         'company_name': company_name,
@@ -396,17 +383,6 @@ class GazelleToSupabaseSync:
                         'postal_code': postal_code,
                         'personal_notes': personal_notes.strip() if personal_notes else None,
                         'preference_notes': preference_notes.strip() if preference_notes else None,
-                        'locale': locale,
-                        'preferred_technician_id': client_data.get('preferredTechnicianId'),
-                        'client_type': client_data.get('clientType'),
-                        'lifecycle_state': client_data.get('lifecycleState'),
-                        'referred_by': client_data.get('referredBy'),
-                        'no_contact_until': client_data.get('noContactUntil'),
-                        'no_contact_reason': client_data.get('noContactReason'),
-                        'wants_email': wants_email,
-                        'wants_phone': wants_phone,
-                        'wants_text': wants_text,
-                        'mobile_phone': mobile_phone,
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
@@ -425,8 +401,8 @@ class GazelleToSupabaseSync:
 
                     if response.status_code in [200, 201]:
                         self.stats['clients']['synced'] += 1
-                    elif response.status_code == 409:
-                        # 409 = Conflict (déjà synchronisé, normal avec UPSERT)
+                    elif response.status_code == 409 and '23503' not in (response.text or ''):
+                        # 409 sans FK violation = conflit d'upsert normal
                         self.stats['clients']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT client {external_id}: {response.status_code}")
@@ -824,11 +800,11 @@ class GazelleToSupabaseSync:
 
                     if response.status_code in [200, 201]:
                         self.stats['appointments']['synced'] += 1
-                    elif response.status_code == 409:
-                        # 409 = Conflict (déjà synchronisé, normal avec UPSERT)
+                    elif response.status_code == 409 and '23503' not in (response.text or ''):
+                        # 409 sans FK violation = conflit d'upsert normal (déjà sync)
                         self.stats['appointments']['synced'] += 1
                     else:
-                        print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text}")
+                        print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text[:200]}")
                         self.stats['appointments']['errors'] += 1
                         continue  # Skip la détection de changement si l'UPSERT a échoué
 
