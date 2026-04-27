@@ -332,6 +332,9 @@ class NarrativeBriefingService:
             # Children names detection
             children_names = self._detect_children_from_notes(timeline)
 
+            # Payment method detection
+            payment_method = self._detect_payment_method(cid)
+
             # Institution detection
             institution_keywords = ['place des arts', 'vincent', 'indy', 'orford', 'uqam', 'mcgill',
                                     'conservatoire', 'école', 'université', 'collège', 'smcq', 'osm']
@@ -403,6 +406,7 @@ class NarrativeBriefingService:
                     "piano_label": piano_label,
                     "dog_name": dog_name,
                     "children_names": children_names,
+                    "payment_method": payment_method,
                 },
                 "piano": {
                     "make": piano.get('make', ''),
@@ -572,12 +576,11 @@ class NarrativeBriefingService:
                     + "\n".join(crit_lines)
                     + "\nRÈGLE : mentionne au moins la plus récente/pertinente de ces "
                     "soumissions DANS LE BRIEFING en UNE phrase claire du genre : "
-                    "\"ATTENTION : soumission de [mois année] à [total]$ pour [items "
-                    "principaux] — à vérifier avec la cliente, on ne sait pas si les "
-                    "travaux ont été faits.\" Le tech doit absolument voir cette info "
-                    "avant d'arriver. Ne pas affirmer que les travaux ont été faits. "
-                    "Peu importe si la soumission est archivée ou active — l'archivage "
-                    "ne prouve pas l'exécution.\n"
+                    "\"Soumission de [mois année] à [total]$ pour [items "
+                    "principaux].\" Le tech doit voir cette info avant d'arriver. "
+                    "NE PAS demander au client si les travaux ont été faits ou réalisés. "
+                    "NE PAS écrire 'à vérifier avec le client'. "
+                    "Simplement mentionner l'existence de la soumission.\n"
                 )
 
             if non_critical_ests:
@@ -777,6 +780,55 @@ class NarrativeBriefingService:
                 if names:
                     break
         return ", ".join(names) if names else None
+
+    def _detect_payment_method(self, client_external_id: str) -> Optional[str]:
+        """Detect the client's usual payment method from INVOICE_PAYMENT timeline entries.
+
+        Looks at the title field which contains patterns like:
+        'Invoice #7139 payment of 40,00$ by Cash.'
+        'Invoice #7138 payment of 293,19$ by Credit Card.'
+        'Invoice #7136 payment of 423,11$ by Eft.'
+
+        Returns the most frequent method (e.g. 'Comptant', 'Carte', 'Virement')
+        or None if no payment history.
+        """
+        try:
+            import requests as req
+            url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries"
+                f"?client_external_id=eq.{client_external_id}"
+                f"&title=ilike.*payment of*by*"
+                f"&select=title"
+                f"&order=occurred_at.desc"
+                f"&limit=10"
+            )
+            resp = req.get(url, headers=self.storage._get_headers())
+            if resp.status_code != 200 or not resp.json():
+                return None
+
+            methods = []
+            for entry in resp.json():
+                title = (entry.get('title') or '').lower()
+                if ' by cash' in title:
+                    methods.append('Comptant')
+                elif ' by credit card' in title:
+                    methods.append('Carte')
+                elif ' by eft' in title or ' by e-transfer' in title:
+                    methods.append('Virement')
+                elif ' by cheque' in title or ' by check' in title:
+                    methods.append('Chèque')
+                elif ' by debit' in title:
+                    methods.append('Débit')
+
+            if not methods:
+                return None
+
+            # Return the most common method
+            from collections import Counter
+            most_common = Counter(methods).most_common(1)[0][0]
+            return most_common
+        except Exception:
+            return None
 
     def _format_estimates(self, estimates: List[Dict]) -> List[Dict]:
         """Format estimate entries for display."""
