@@ -163,15 +163,27 @@ class ServiceReports:
     # Récupération des données Supabase
     # ------------------------------------------------------------------
     def _fetch_clients_map(self) -> Dict[str, str]:
-        """Retourne un mapping external_id -> company_name."""
-        url = f"{self.storage.api_url}/gazelle_clients"
-        params = {"select": "external_id,company_name"}
-        resp = requests.get(url, headers=self.storage._get_headers(), params=params, timeout=20)
-        if resp.status_code != 200:
-            print(f"⚠️ Impossible de récupérer les clients ({resp.status_code}): {resp.text}")
-            return {}
-        data = resp.json() or []
-        return {item.get("external_id"): item.get("company_name") for item in data if item.get("external_id")}
+        """Retourne un mapping external_id -> company_name (paginé pour tout récupérer)."""
+        result = {}
+        page_size = 1000
+        offset = 0
+        headers = self.storage._get_headers()
+        while True:
+            url = f"{self.storage.api_url}/gazelle_clients?select=external_id,company_name&limit={page_size}&offset={offset}"
+            resp = requests.get(url, headers=headers, timeout=20)
+            if resp.status_code != 200:
+                print(f"⚠️ Impossible de récupérer les clients page {offset//page_size+1} ({resp.status_code})")
+                break
+            data = resp.json() or []
+            for item in data:
+                eid = item.get("external_id")
+                if eid:
+                    result[eid] = item.get("company_name")
+            if len(data) < page_size:
+                break
+            offset += page_size
+        print(f"📋 {len(result)} clients chargés dans le mapping")
+        return result
 
     def _fetch_timeline_entries(self, since: Optional[datetime]) -> List[Dict]:
         """Récupère les timeline entries avec infos piano et user (avec pagination)."""
