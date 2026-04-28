@@ -357,13 +357,10 @@ class NarrativeBriefingService:
             # Estimate summary (timeline-based, legacy)
             estimate_items = self._format_estimates(estimates)
 
-            # ── Soumissions Gazelle live ──
-            # On NE tente PAS d'inférer si les travaux ont été faits — un
-            # matching fiable exigerait de comparer les items de la soumission
-            # aux services effectués sur les RV ultérieurs (texte fragile,
-            # faux positifs garantis sur accords de routine). On affiche
-            # donc uniquement le contenu et le statut archivée/active.
-            gazelle_estimates_enriched = list(gazelle_estimates or [])
+            # ── Soumissions Gazelle live — détection de complétion ──
+            gazelle_estimates_enriched = self._enrich_estimates_completion(
+                cid, list(gazelle_estimates or []), timeline
+            )
 
             # ── Generate narrative via AI ──
             narrative = "Aucune info particulière à signaler."
@@ -547,64 +544,56 @@ class NarrativeBriefingService:
         #     petits réglages) → mention discrète seulement si pertinente
         soumissions_context = ""
         if gazelle_estimates:
-            critical_ests = [e for e in gazelle_estimates if e.get("is_critical")]
-            non_critical_ests = [e for e in gazelle_estimates if not e.get("is_critical")]
+            # Séparer : complétées vs en attente
+            pending_critical = [e for e in gazelle_estimates
+                                if e.get("is_critical") and not e.get("is_completed")]
+            pending_non_critical = [e for e in gazelle_estimates
+                                    if not e.get("is_critical") and not e.get("is_completed")]
+            completed = [e for e in gazelle_estimates if e.get("is_completed")]
 
             sections = []
 
-            if critical_ests:
-                # Trier par date desc, garder les 3 plus récentes
-                crit_sorted = sorted(
-                    critical_ests,
-                    key=lambda e: e.get("estimated_on") or "",
-                    reverse=True,
-                )[:3]
-                crit_lines = []
-                for est in crit_sorted:
-                    number = est.get("number", "?")
-                    est_date = est.get("estimated_on") or "?"
-                    total = est.get("total_dollars") or "?"
-                    items = est.get("main_items") or []
-                    items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
-                    status = "archivée" if est.get("is_archived") else "active"
-                    crit_lines.append(
-                        f"  - Soumission #{number} ({est_date}) — {total}$ — "
-                        f"{items_str} — {status}"
-                    )
+            def _format_est_line(est, include_completion=False):
+                number = est.get("number", "?")
+                est_date = est.get("estimated_on") or "?"
+                total = est.get("total_dollars") or "?"
+                items = est.get("main_items") or []
+                items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
+                status = "archivée" if est.get("is_archived") else "active"
+                line = f"  - Soumission #{number} ({est_date}) — {total}$ — {items_str} — {status}"
+                if include_completion and est.get("completion_signal"):
+                    line += f" — ✅ {est['completion_signal']}"
+                return line
+
+            if pending_critical:
+                crit_sorted = sorted(pending_critical,
+                                     key=lambda e: e.get("estimated_on") or "", reverse=True)[:3]
+                crit_lines = [_format_est_line(e) for e in crit_sorted]
                 sections.append(
-                    "⚠️ SOUMISSIONS CRITIQUES NON CONFIRMÉES — IMPORTANT:\n"
+                    "⚠️ SOUMISSIONS EN ATTENTE (travaux non détectés dans l'historique):\n"
                     + "\n".join(crit_lines)
-                    + "\nRÈGLE : mentionne au moins la plus récente/pertinente de ces "
-                    "soumissions DANS LE BRIEFING en UNE phrase claire du genre : "
-                    "\"Soumission de [mois année] à [total]$ pour [items "
-                    "principaux].\" Le tech doit voir cette info avant d'arriver. "
-                    "NE PAS demander au client si les travaux ont été faits ou réalisés. "
-                    "NE PAS écrire 'à vérifier avec le client'. "
+                    + "\nRÈGLE : mentionne au moins la plus récente/pertinente en UNE phrase : "
+                    "\"Soumission de [mois année] à [total]$ pour [items principaux].\" "
+                    "NE PAS demander au client si les travaux ont été faits. "
                     "Simplement mentionner l'existence de la soumission.\n"
                 )
 
-            if non_critical_ests:
-                # Garder les 2 plus récentes non critiques, mention discrète
-                nc_sorted = sorted(
-                    non_critical_ests,
-                    key=lambda e: e.get("estimated_on") or "",
-                    reverse=True,
-                )[:2]
-                nc_lines = []
-                for est in nc_sorted:
-                    number = est.get("number", "?")
-                    est_date = est.get("estimated_on") or "?"
-                    total = est.get("total_dollars") or "?"
-                    items = est.get("main_items") or []
-                    items_str = " + ".join(items[:2]) if items else "contenu non détaillé"
-                    status = "archivée" if est.get("is_archived") else "active"
-                    nc_lines.append(
-                        f"  - Soumission #{number} ({est_date}) — {total}$ — "
-                        f"{items_str} — {status}"
-                    )
+            if pending_non_critical:
+                nc_sorted = sorted(pending_non_critical,
+                                   key=lambda e: e.get("estimated_on") or "", reverse=True)[:2]
+                nc_lines = [_format_est_line(e) for e in nc_sorted]
                 sections.append(
-                    "Soumissions ordinaires (mention seulement si directement pertinente):\n"
+                    "Soumissions ordinaires en attente (mention seulement si pertinente):\n"
                     + "\n".join(nc_lines)
+                )
+
+            if completed:
+                comp_sorted = sorted(completed,
+                                     key=lambda e: e.get("estimated_on") or "", reverse=True)[:2]
+                comp_lines = [_format_est_line(e, include_completion=True) for e in comp_sorted]
+                sections.append(
+                    "Soumissions réalisées (travaux détectés ou facturés, pas besoin d'en parler sauf si pertinent):\n"
+                    + "\n".join(comp_lines)
                 )
 
             if sections:
@@ -829,6 +818,123 @@ class NarrativeBriefingService:
             return most_common
         except Exception:
             return None
+
+    def _enrich_estimates_completion(
+        self, client_id: str, estimates: List[Dict], timeline: List[Dict]
+    ) -> List[Dict]:
+        """Detect whether each estimate's work has been completed.
+
+        Two signals (checked in order):
+        1. Invoice link: a timeline entry exists with both the estimate's Gazelle ID
+           and an invoice_id → definitively invoiced (= completed).
+        2. Service keyword match: SERVICE_ENTRY entries after the estimate date
+           for this client contain keywords from the estimate items → likely completed.
+
+        Adds 'is_completed' (bool) and 'completion_signal' (str) to each estimate.
+        """
+        if not estimates:
+            return estimates
+
+        # --- Signal 1: Check timeline for estimate→invoice conversions ---
+        invoiced_estimate_numbers = set()
+        try:
+            import requests as req
+            url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries"
+                f"?client_id=eq.{client_id}"
+                f"&estimate_id=neq.null"
+                f"&invoice_id=neq.null"
+                f"&select=estimate_id,title"
+                f"&limit=50"
+            )
+            resp = req.get(url, headers=self.storage._get_headers())
+            if resp.status_code == 200:
+                for entry in resp.json():
+                    # estimate_id is Gazelle ID like "est_xxx", extract number from title
+                    title = entry.get('title', '')
+                    invoiced_estimate_numbers.add(entry.get('estimate_id'))
+        except Exception:
+            pass
+
+        # --- Signal 2: Fetch service entries directly from Supabase ---
+        service_texts_by_date = {}
+        try:
+            svc_url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries"
+                f"?client_id=eq.{client_id}"
+                f"&entry_type=in.(SERVICE_ENTRY_MANUAL,SERVICE_ENTRY_AUTOMATED)"
+                f"&select=title,description,occurred_at"
+                f"&order=occurred_at.desc"
+                f"&limit=30"
+            )
+            svc_resp = req.get(svc_url, headers=self.storage._get_headers())
+            if svc_resp.status_code == 200:
+                for t in svc_resp.json():
+                    occ = (t.get('occurred_at', '') or '')[:10]
+                    desc = f"{t.get('title', '')} {t.get('description', '')}".lower()
+                    if occ and desc.strip():
+                        service_texts_by_date[occ] = service_texts_by_date.get(occ, '') + ' ' + desc
+        except Exception:
+            pass
+
+        # --- Enrich each estimate ---
+        for est in estimates:
+            est_date = est.get('estimated_on', '')
+            est_number = est.get('number')
+            items = est.get('main_items', [])
+            est_id_prefix = f"est_"  # Gazelle IDs start with est_
+
+            # Check signal 1: invoice link via estimate_id
+            matched_invoice = any(
+                eid for eid in invoiced_estimate_numbers
+                if eid  # just check if any estimate_id was found for this client
+            )
+            # More precise: check by estimate number in title
+            invoiced = False
+            try:
+                url2 = (
+                    f"{self.storage.api_url}/gazelle_timeline_entries"
+                    f"?client_id=eq.{client_id}"
+                    f"&title=ilike.*{est_number}*"
+                    f"&entry_type=eq.INVOICE"
+                    f"&select=title"
+                    f"&limit=1"
+                )
+                resp2 = req.get(url2, headers=self.storage._get_headers())
+                if resp2.status_code == 200 and resp2.json():
+                    invoiced = True
+            except Exception:
+                pass
+
+            if invoiced:
+                est['is_completed'] = True
+                est['completion_signal'] = 'facturée'
+                continue
+
+            # Check signal 2: keyword match in post-estimate service entries
+            if est_date and items:
+                keywords = [w.lower() for item in items for w in item.split() if len(w) > 3]
+                # Filter out generic words
+                noise = {'avec', 'pour', 'dans', 'plus', 'mise', 'piano', 'accord', 'tuning'}
+                keywords = [k for k in keywords if k not in noise]
+
+                matched_keywords = []
+                for svc_date, svc_text in service_texts_by_date.items():
+                    if svc_date >= est_date:
+                        for kw in keywords:
+                            if kw in svc_text:
+                                matched_keywords.append(kw)
+
+                # Require at least 2 distinct keyword matches to avoid false positives
+                if len(set(matched_keywords)) >= 2:
+                    est['is_completed'] = True
+                    est['completion_signal'] = 'travaux détectés dans historique'
+                    continue
+
+            est['is_completed'] = False
+            est['completion_signal'] = None
+
+        return estimates
 
     def _format_estimates(self, estimates: List[Dict]) -> List[Dict]:
         """Format estimate entries for display."""
