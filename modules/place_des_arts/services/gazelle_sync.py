@@ -656,7 +656,7 @@ class GazelleSyncService:
             result = self.storage.client.table('gazelle_timeline_entries')\
                 .select('title, description')\
                 .eq('client_id', self.PDA_CLIENT_ID)\
-                .eq('entry_type', 'SERVICE')\
+                .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', f"{date_str}T00:00:00")\
                 .lte('occurred_at', f"{date_str}T23:59:59")\
                 .execute()
