@@ -76,7 +76,11 @@ class InventoryDeductionProcessor:
 
             print(f"📄 {len(recent_invoices)} factures récentes trouvées")
 
-            # 2. Récupérer les règles de consommation
+            # 2. Récupérer les factures déjà traitées (anti-doublon)
+            self._already_processed = self._get_processed_invoice_ids()
+            print(f"🔒 {len(self._already_processed)} factures déjà traitées (anti-doublon)")
+
+            # 3. Récupérer les règles de consommation
             consumption_rules = self._get_consumption_rules()
             print(f"📋 {len(consumption_rules)} règles de consommation actives")
 
@@ -99,6 +103,32 @@ class InventoryDeductionProcessor:
             print(f"❌ Erreur lors du traitement des factures: {e}")
             self.stats['errors'] += 1
             raise
+
+    def _get_processed_invoice_ids(self) -> set:
+        """Récupère les IDs de factures déjà traitées depuis sync_logs."""
+        try:
+            import requests
+            url = (
+                f"{self.storage.api_url}/sync_logs"
+                f"?script_name=eq.Deduction_Inventaire_Auto"
+                f"&status=eq.success"
+                f"&select=tables_updated"
+            )
+            resp = requests.get(url, headers=self.storage._get_headers(), timeout=10)
+            if resp.status_code == 200:
+                ids = set()
+                for log in resp.json():
+                    try:
+                        data = json.loads(log.get('tables_updated', '{}'))
+                        inv_id = data.get('invoice', {}).get('id')
+                        if inv_id:
+                            ids.add(inv_id)
+                    except Exception:
+                        pass
+                return ids
+        except Exception as e:
+            print(f"⚠️  Erreur récupération factures déjà traitées: {e}")
+        return set()
 
     def _get_consumption_rules(self) -> List[Dict[str, Any]]:
         """
@@ -153,6 +183,10 @@ class InventoryDeductionProcessor:
             items = items_connection.get('nodes', [])
 
             if not items:
+                return
+
+            # Anti-doublon : skip si déjà traitée
+            if invoice_id in self._already_processed:
                 return
 
             self.stats['invoices_processed'] += 1
@@ -337,38 +371,17 @@ class InventoryDeductionProcessor:
     def _get_technicien_from_user_id(self, user_id: Optional[str]) -> Optional[str]:
         """
         Récupère le nom du technicien local depuis le user_id Gazelle.
-
-        Args:
-            user_id: ID du user Gazelle
-
-        Returns:
-            Nom du technicien (ex: "Allan") ou None si introuvable
+        Utilise la config centralisée (techniciens_config.py).
         """
         if not user_id:
             return None
 
         try:
-            # Chercher dans la table users
-            users = self.storage.get_data("users", filters={"gazelle_user_id": user_id})
-
-            if users:
-                # Mapper email → nom technicien
-                email = users[0].get('email', '')
-
-                # Mapping email → technicien (selon convention)
-                if 'asutton' in email or 'allan' in email.lower():
-                    return 'Allan'
-                elif 'vstucker' in email or 'vincent' in email.lower():
-                    return 'Vincent'
-                elif 'nprudhomme' in email or 'nick' in email.lower():
-                    return 'Nick'
-                else:
-                    # Par défaut, extraire prénom depuis email
-                    username = email.split('@')[0]
-                    return username.capitalize()
-
+            from config.techniciens_config import get_technicien_by_id
+            tech = get_technicien_by_id(user_id)
+            if tech:
+                return tech.get('username', tech.get('prenom', 'inconnu')).lower()
             return None
-
         except Exception as e:
             print(f"⚠️  Erreur mapping user_id → technicien: {e}")
             return None

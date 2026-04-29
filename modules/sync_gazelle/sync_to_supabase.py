@@ -1611,6 +1611,16 @@ class GazelleToSupabaseSync:
             except Exception as cache_err:
                 print(f"⚠️ Cache briefings non mis à jour: {cache_err}")
 
+            # Déductions d'inventaire automatiques
+            try:
+                from modules.inventory_deductions.process_deductions import InventoryDeductionProcessor
+                print("\n📦 Déductions d'inventaire automatiques...")
+                processor = InventoryDeductionProcessor(days_lookback=7)
+                deduction_stats = processor.process_recent_invoices()
+                print(f"   {deduction_stats.get('deductions_created', 0)} déduction(s) créée(s)")
+            except Exception as ded_err:
+                print(f"⚠️ Déductions inventaire non traitées: {ded_err}")
+
             return {
                 'success': True,
                 'duration_seconds': duration,
