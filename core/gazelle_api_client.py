@@ -618,7 +618,12 @@ class GazelleAPIClient:
                 edges {
                     node {
                         id
-                        client { id }
+                        client {
+                            id
+                            companyName
+                            defaultContact { firstName lastName }
+                        }
+                        user { id }
                         number
                         status
                         subTotal

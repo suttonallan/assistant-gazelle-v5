@@ -175,8 +175,18 @@ class InventoryDeductionProcessor:
             # Mapper user_id Gazelle → technicien local
             technicien = self._get_technicien_from_user_id(user_id)
             if not technicien:
-                # Impossible de déterminer le technicien, skip cette facture
                 return
+
+            # Nom du client
+            client_obj = invoice.get('client', {})
+            client_name = ''
+            if client_obj:
+                client_name = client_obj.get('companyName') or ''
+                if not client_name:
+                    contact = client_obj.get('defaultContact') or {}
+                    first = contact.get('firstName') or ''
+                    last = contact.get('lastName') or ''
+                    client_name = f"{first} {last}".strip()
 
             # Récupérer les line items de la facture
             items_connection = invoice.get('allInvoiceItems', {})
@@ -198,7 +208,8 @@ class InventoryDeductionProcessor:
                     invoice_number=invoice_number,
                     item=item,
                     technicien=technicien,
-                    invoice_date=invoice.get('createdAt')
+                    invoice_date=invoice.get('createdAt'),
+                    client_name=client_name
                 )
 
         except Exception as e:
@@ -211,7 +222,8 @@ class InventoryDeductionProcessor:
         invoice_number: str,
         item: Dict[str, Any],
         technicien: str,
-        invoice_date: str
+        invoice_date: str,
+        client_name: str = ''
     ):
         """
         Traite un line item de facture pour détecter si c'est un service avec consommables.
@@ -261,10 +273,14 @@ class InventoryDeductionProcessor:
 
                 if success:
                     # Mettre à jour l'inventaire du technicien (diminuer le stock)
+                    motif = f"Facture #{invoice_number}"
+                    if client_name:
+                        motif += f" — {client_name}"
                     self._update_technician_inventory(
                         technicien=technicien,
                         material_code=material_code,
-                        quantity=-total_quantity  # Négatif pour retrait
+                        quantity=-total_quantity,  # Négatif pour retrait
+                        motif=motif
                     )
 
                     self.stats['deductions_created'] += 1
@@ -339,26 +355,18 @@ class InventoryDeductionProcessor:
         self,
         technicien: str,
         material_code: str,
-        quantity: float
+        quantity: float,
+        motif: str = ""
     ) -> bool:
         """
         Met à jour l'inventaire du technicien (ajout ou retrait).
-
-        Args:
-            technicien: Nom du technicien
-            material_code: Code du produit
-            quantity: Quantité (positif = ajout, négatif = retrait)
-
-        Returns:
-            True si succès, False sinon
         """
         try:
             success = self.storage.update_stock(
                 code_produit=material_code,
                 technicien=technicien,
                 quantite_ajustement=quantity,
-                emplacement="Atelier",
-                motif=f"Déduction automatique - consommation service",
+                motif=motif or "Déduction automatique",
                 created_by="system_auto"
             )
 
