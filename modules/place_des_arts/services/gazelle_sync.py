@@ -219,6 +219,10 @@ class GazelleSyncService:
             # ET synchroniser les techniciens depuis Gazelle (source de vérité)
             completed_count = 0
             tech_sync_count = 0
+            # Track quels (technicien, date) ont déjà reçu du stationnement
+            # pour ne pas dupliquer. Un seul parking par tech par jour.
+            parking_already_assigned = set()
+
             if not request_ids:  # Seulement en mode "sync all"
                 linked_requests = self._get_linked_not_completed_requests()
                 if linked_requests:
@@ -267,9 +271,15 @@ class GazelleSyncService:
                                 print(f"   RV Gazelle: {apt_id}")
 
                                 # Extraire le montant de stationnement depuis la description Gazelle
-                                parking_amount = self._extract_parking_from_appointment(gazelle_apt)
-                                if parking_amount:
-                                    print(f"   🅿️ Stationnement détecté: {parking_amount} $")
+                                # Un seul stationnement par technicien par jour — "stat 20"
+                                # veut dire 20$ pour la visite, pas 20$ par piano.
+                                parking_amount = None
+                                tech_date_key = (gazelle_tech, appointment_date)
+                                if tech_date_key not in parking_already_assigned:
+                                    parking_amount = self._extract_parking_from_appointment(gazelle_apt)
+                                    if parking_amount:
+                                        parking_already_assigned.add(tech_date_key)
+                                        print(f"   🅿️ Stationnement détecté: {parking_amount} $ (1x pour {gazelle_tech} le {appointment_date})")
 
                                 if not dry_run:
                                     success = self._update_request_status(
