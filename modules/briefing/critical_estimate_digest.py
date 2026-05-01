@@ -246,9 +246,21 @@ async def run_critical_estimate_digest() -> Dict:
         # Exclure les soumissions archivées — elles sont considérées comme
         # "fermées" (travaux faits, refusés, ou abandonnés) et ne doivent
         # plus apparaître dans les alertes.
+        #
+        # Exclure aussi les soumissions trop anciennes (> 12 mois) — si le
+        # client a pris plusieurs RV depuis, le travail a probablement été
+        # fait ou refusé. Le tech n'a pas archivé la soumission dans Gazelle,
+        # mais ça ne veut pas dire qu'elle est encore pertinente.
+        # Cas Jacqueline Ifergan #11592 : soumission avril 2024, travail fait,
+        # mais remontait en alerte à chaque RV parce que jamais archivée.
+        STALE_MONTHS = 12
+        stale_cutoff = (today - timedelta(days=STALE_MONTHS * 30)).isoformat()
+
         criticals = [
             e for e in ests
-            if e.get("is_critical") and not e.get("is_archived")
+            if e.get("is_critical")
+            and not e.get("is_archived")
+            and (e.get("estimated_on") or "9999") >= stale_cutoff
         ]
         if not criticals:
             continue
