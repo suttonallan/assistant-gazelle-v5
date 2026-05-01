@@ -197,6 +197,40 @@ def _build_html_body(items: List[Dict], today_str: str) -> str:
 </body></html>"""
 
 
+def _fetch_client_paid_invoice_totals(storage: SupabaseStorage, client_id: str) -> List[int]:
+    """Fetch les totaux (en cents) de toutes les factures PAID d'un client via Gazelle."""
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        gz = GazelleAPIClient()
+        query = """
+        query($cid: String!) {
+            allInvoices(first: 50, filters: {clientId: $cid, status: PAID}) {
+                nodes { total }
+            }
+        }
+        """
+        r = gz._execute_query(query, {"cid": client_id})
+        nodes = (r.get("data", {}).get("allInvoices", {}) or {}).get("nodes", []) or []
+        return [inv.get("total", 0) for inv in nodes]
+    except Exception as exc:
+        print(f"⚠️ Fetch invoices pour {client_id}: {exc}")
+        return []
+
+
+def _estimate_likely_invoiced(estimate_total_cents: int, invoice_totals: List[int]) -> bool:
+    """Vérifie si une facture PAID correspond au montant de la soumission.
+
+    Tolère une différence de 5% pour les arrondis de taxes et ajustements mineurs.
+    """
+    if not invoice_totals or estimate_total_cents <= 0:
+        return False
+    tolerance = estimate_total_cents * 0.05  # 5%
+    for inv_total in invoice_totals:
+        if abs(inv_total - estimate_total_cents) <= tolerance:
+            return True
+    return False
+
+
 async def run_critical_estimate_digest() -> Dict:
     """Entry point appelée par le scheduler. Retourne un rapport.
 
@@ -247,21 +281,22 @@ async def run_critical_estimate_digest() -> Dict:
         # "fermées" (travaux faits, refusés, ou abandonnés) et ne doivent
         # plus apparaître dans les alertes.
         #
-        # Exclure aussi les soumissions trop anciennes (> 12 mois) — si le
-        # client a pris plusieurs RV depuis, le travail a probablement été
-        # fait ou refusé. Le tech n'a pas archivé la soumission dans Gazelle,
-        # mais ça ne veut pas dire qu'elle est encore pertinente.
-        # Cas Jacqueline Ifergan #11592 : soumission avril 2024, travail fait,
-        # mais remontait en alerte à chaque RV parce que jamais archivée.
-        STALE_MONTHS = 12
-        stale_cutoff = (today - timedelta(days=STALE_MONTHS * 30)).isoformat()
+        # Exclure aussi les soumissions dont le montant correspond à une
+        # facture PAID du même client — le travail a été fait et payé.
+        # Cas Jacqueline Ifergan #11592 : soumission 2 327 $ d'avril 2024,
+        # facture #5959 de 2 327,09 $ payée en sept 2024. Remontait en
+        # alerte à chaque RV parce que jamais archivée dans Gazelle.
+        client_invoices = _fetch_client_paid_invoice_totals(storage, cid)
 
-        criticals = [
-            e for e in ests
-            if e.get("is_critical")
-            and not e.get("is_archived")
-            and (e.get("estimated_on") or "9999") >= stale_cutoff
-        ]
+        criticals = []
+        for e in ests:
+            if not e.get("is_critical") or e.get("is_archived"):
+                continue
+            # Vérifier si une facture PAID correspond au montant de la soumission
+            est_total = e.get("total_cents") or 0
+            if est_total > 0 and _estimate_likely_invoiced(est_total, client_invoices):
+                continue  # Travail fait et payé, on skip
+            criticals.append(e)
         if not criticals:
             continue
         total_critical_found += len(criticals)
