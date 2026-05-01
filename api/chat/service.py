@@ -144,6 +144,32 @@ class ChatService:
                 data_source=self.data_source
             )
 
+        elif query_type == "knowledge_search":
+            # Recherche dans le Cerveau PTM
+            knowledge_results = self._search_knowledge(
+                query=request.query,
+                role=request.user_role
+            )
+
+            if knowledge_results:
+                return ChatResponse(
+                    interpreted_query=f"Recherche dans le Cerveau PTM: {request.query}",
+                    query_type="knowledge_search",
+                    knowledge_results=knowledge_results,
+                    text_response=self._format_knowledge_response(knowledge_results),
+                    data_source=self.data_source
+                )
+            else:
+                # Rien trouvé dans le Cerveau, fallback journée
+                from core.timezone_utils import MONTREAL_TZ
+                today = datetime.now(MONTREAL_TZ).strftime("%Y-%m-%d")
+                return ChatResponse(
+                    interpreted_query=f"Aucun résultat trouvé pour: {request.query}",
+                    query_type="text_response",
+                    text_response=f"Je n'ai pas trouvé d'information sur « {request.query} » dans le Cerveau PTM. Allan pourra ajouter cette connaissance.",
+                    data_source=self.data_source
+                )
+
         else:
             # Fallback: retourner journée d'aujourd'hui
             from core.timezone_utils import MONTREAL_TZ
@@ -253,6 +279,16 @@ class ChatService:
             if id_match:
                 return ("appointment_detail", {"appointment_id": id_match.group(1)})
 
+        # Avant le fallback journée : chercher dans le Cerveau PTM
+        # Si la requête contient des mots-clés qui ne sont pas des dates/RV,
+        # c'est probablement une question de connaissance
+        date_words = {"aujourd'hui", "demain", "lundi", "mardi", "mercredi", "jeudi",
+                      "vendredi", "samedi", "dimanche", "semaine", "jour", "journée",
+                      "today", "tomorrow", "ma journée"}
+        query_words = set(query_lower.split())
+        if not query_words.intersection(date_words) and len(query_lower) > 5:
+            return ("knowledge_search", {"query": query_lower})
+
         # Default: journée du jour
         target_date = date_override or now_mtl.strftime("%Y-%m-%d")
         return ("day_overview", {"date": target_date, "requested_technician": requested_technician})
@@ -283,6 +319,65 @@ class ChatService:
                     return gazelle_id  # Retourner ID Gazelle
 
         return None
+
+    def _search_knowledge(self, query: str, role: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Recherche dans le Cerveau PTM via la fonction search_knowledge de Supabase."""
+        try:
+            params = {'query_text': query, 'max_results': 5}
+            if role:
+                params['filter_role'] = role
+            result = self.storage.client.rpc('search_knowledge', params).execute()
+            results = result.data or []
+
+            # Si pas de résultats avec la phrase complète, essayer avec les mots-clés
+            if not results:
+                stop_words = {'le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et',
+                              'en', 'à', 'au', 'aux', 'ce', 'on', 'ou', 'est', 'que',
+                              'qui', 'dans', 'pour', 'pas', 'par', 'sur', 'avec', 'son',
+                              'sa', 'ses', 'comment', 'quoi', 'quel', 'quelle', 'dire',
+                              'dit', 'fait', 'bien', 'plus', 'très', 'aussi', 'tout'}
+                words = [w for w in query.lower().split() if w not in stop_words and len(w) > 2]
+                if words:
+                    keyword_query = ' '.join(words)
+                    params['query_text'] = keyword_query
+                    result = self.storage.client.rpc('search_knowledge', params).execute()
+                    results = result.data or []
+
+            # Dernier recours : recherche par ilike sur le contenu brut
+            if not results:
+                words = [w for w in query.lower().split() if len(w) > 3]
+                for word in words:
+                    try:
+                        r = self.storage.client.table('knowledge_entries')\
+                            .select('id, title, content, category, domain, why, confidence')\
+                            .eq('is_active', True)\
+                            .or_(f"title.ilike.%{word}%,content.ilike.%{word}%")\
+                            .limit(5)\
+                            .execute()
+                        if r.data:
+                            results = r.data
+                            break
+                    except Exception:
+                        continue
+
+            return results
+        except Exception as e:
+            logger.warning(f"Erreur recherche Cerveau: {e}")
+            return []
+
+    def _format_knowledge_response(self, results: List[Dict[str, Any]]) -> str:
+        """Formate les résultats du Cerveau en réponse lisible."""
+        lines = []
+        for r in results:
+            lines.append(f"**{r['title']}**")
+            content = r['content']
+            if len(content) > 300:
+                content = content[:300] + "..."
+            lines.append(content)
+            if r.get('why'):
+                lines.append(f"_Pourquoi :_ {r['why']}")
+            lines.append("")
+        return "\n".join(lines)
 
 
 # ============================================================

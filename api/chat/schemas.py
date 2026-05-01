@@ -231,6 +231,7 @@ class ChatResponse(BaseModel):
     day_overview: Optional[DayOverview] = Field(None, description="Vue journée (si applicable)")
     appointment_detail: Optional[AppointmentDetail] = Field(None, description="Détail RDV (si applicable)")
     text_response: Optional[str] = Field(None, description="Réponse textuelle (questions de suivi)")
+    knowledge_results: Optional[List[Dict[str, Any]]] = Field(None, description="Résultats du Cerveau PTM")
 
     # Métadata
     data_source: str = Field(default="v5", description="v5|v6 (pour debugging)")
