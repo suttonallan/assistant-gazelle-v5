@@ -32,6 +32,7 @@ CLIENT_KEYWORDS = {
     "UQAM": ["uqam"],
     "Vincent": ["vincent"],
     "Place des Arts": ["place des arts"],
+    "Orford": ["orford"],
 }
 
 # Mots-clés pour l'onglet Alertes Maintenance (notes ou description)
@@ -89,7 +90,7 @@ MAINTENANCE_KEYWORDS = [
 ]
 
 # Clients institutionnels pour les Alertes Maintenance
-INSTITUTIONAL_CLIENTS = ["uqam", "vincent", "place des arts"]
+INSTITUTIONAL_CLIENTS = ["uqam", "vincent", "place des arts", "orford"]
 
 MAINTENANCE_TABLES_CANDIDATES = [
     "maintenance_alerts",
