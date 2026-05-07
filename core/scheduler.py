@@ -527,13 +527,13 @@ def task_critical_estimate_digest():
 
 def task_push_digest():
     """
-    Digest quotidien 17h (lun-ven) des fiches d'accord validees pas encore
-    poussees vers Gazelle. Destinataire info@, escalation Allan en CC apres
-    3 jours sans push. Aucun email si zero fiche en attente.
+    Digest quotidien 17h (lun-ven) des fiches d'accord saisies par les techs
+    en attente de validation par Nicolas. Destinataire info@, escalation
+    Allan en CC apres 3 jours sans validation. Aucun email si zero fiche.
     """
     try:
         print("\n" + "=" * 70)
-        print("TACHE : Push Digest (17h)")
+        print("TACHE : Digest fiches a valider (17h)")
         print("=" * 70)
         from modules.briefing.push_digest import run_push_digest
         import asyncio
@@ -846,7 +846,7 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
 
-    # 17:00 - Digest fiches d'accord validees a pousser (lun-ven)
+    # 17:00 - Digest fiches d'accord a valider (lun-ven)
     scheduler.add_job(
         task_push_digest,
         trigger=CronTrigger(
@@ -855,11 +855,11 @@ def configure_jobs(scheduler: BackgroundScheduler):
             timezone='America/Montreal',
         ),
         id='push_digest',
-        name='Digest fiches d\'accord a pousser info@ (17:00 lun-ven)',
+        name='Digest fiches a valider info@ (17:00 lun-ven)',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 17:00 - Digest fiches d'accord a pousser (info@, lun-ven) configurée")
+    print("   ✅ 17:00 - Digest fiches a valider (info@, lun-ven) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
