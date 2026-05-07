@@ -275,9 +275,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } else if (currentView === 'technicien') {
       // Tous les pianos sont visibles — aucun filtre par statut de fiche
 
-      // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
+      // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed, top, ou en cours de travail)
       if (showOnlyProposed) {
-        result = result.filter(p => p.status === 'proposed');
+        result = result.filter(p => p.status === 'proposed' || p.status === 'top' || p.status === 'work_in_progress');
       }
 
       // Filtre de recherche par local (vue technicien)
@@ -539,7 +539,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         ? {
             ...p,
             travail: noteToSave,
-            status: noteToSave ? 'work_in_progress' : p.status,
+            // Garder le status proposed/top — le piano reste "à faire" même avec du travail en cours
+            status: (p.status === 'proposed' || p.status === 'top') ? p.status : (noteToSave ? 'work_in_progress' : p.status),
             service_record: p.service_record?.status === 'draft' || p.service_record?.status === 'completed'
               ? p.service_record
               : { id: p.service_record?.id || null, status: 'draft', completed_at: null, completed_by: null, technician_email: currentUser?.email || '' },
@@ -628,7 +629,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return {
       total: pianos.length,
       top: pianos.filter(p => p && p.status === 'top').length,
-      proposed: pianos.filter(p => p && p.status === 'proposed').length,
+      proposed: pianos.filter(p => p && (p.status === 'proposed' || p.status === 'top' || p.status === 'work_in_progress')).length,
       completed: pianos.filter(p => p && p.status === 'completed').length,
     };
   }, [pianos]);
