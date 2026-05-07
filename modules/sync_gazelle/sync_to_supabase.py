@@ -769,6 +769,7 @@ class GazelleToSupabaseSync:
                         'technicien': technicien,
                         'location': location,
                         'notes': notes,
+                        'travel_mode': travel_mode,
                         # NOTE: created_at n'est PAS inclus ici - la DB le set automatiquement sur INSERT
                         # Inclure created_at avec start_time causait des faux positifs dans la détection Late Assignment
                         'updated_at': format_for_supabase(datetime.now())

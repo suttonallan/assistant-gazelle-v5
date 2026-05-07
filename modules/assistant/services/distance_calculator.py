@@ -51,9 +51,10 @@ HOME_ADDRESSES = {
 
 
 def google_distance_with_duration(
-    origin: str, 
+    origin: str,
     destination: str,
-    departure_time: Optional[datetime] = None
+    departure_time: Optional[datetime] = None,
+    google_mode: str = "driving"
 ) -> Dict:
     """
     Calcule distance ET durée entre 2 adresses avec Google Maps.
@@ -80,7 +81,7 @@ def google_distance_with_duration(
     params = {
         "origins": origin,
         "destinations": destination,
-        "mode": "driving",
+        "mode": google_mode,
         "units": "metric",
         "language": "fr",
         "key": api_key
@@ -116,8 +117,9 @@ def google_distance_with_duration(
 
 
 def calculate_day_route(
-    appointments: List[Dict], 
-    technician_id: str
+    appointments: List[Dict],
+    technician_id: str,
+    travel_mode: str = "driving"
 ) -> Dict:
     """
     Calcule trajet complet d'une journée pour un technicien.
@@ -194,7 +196,7 @@ def calculate_day_route(
                 departure_time = first_appt['start_time'] - timedelta(minutes=30)
 
         try:
-            route_info = google_distance_with_duration(origin, destination, departure_time)
+            route_info = google_distance_with_duration(origin, destination, departure_time, google_mode=travel_mode)
 
             segments.append({
                 'from': origin[:50] + '...' if len(origin) > 50 else origin,

@@ -42,6 +42,7 @@ class KilometersRequest(BaseModel):
     date: Optional[str] = None  # Format: YYYY-MM-DD (date de début si plage)
     date_end: Optional[str] = None  # Format: YYYY-MM-DD (date de fin si plage)
     quarter: Optional[str] = None  # Q1, Q2, Q3 ou Q4
+    travel_mode: Optional[str] = "DRIVING"  # DRIVING ou BICYCLING
     appointments: Optional[List[Dict[str, Any]]] = None  # Optionnel: si fourni, utilise ces RV
 
 
@@ -52,10 +53,11 @@ class KilometersResponse(BaseModel):
     date_start: str
     date_end: str
     quarter: Optional[str] = None
+    travel_mode: str = "DRIVING"
     total_km: float
     total_duration_minutes: float
     segments: List[Dict[str, Any]]
-    reimbursement: float  # Remboursement à 0.72$/km
+    reimbursement: float  # Remboursement à 0.72$/km (0 pour vélo)
 
 
 # ============================================================
@@ -212,12 +214,24 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
 
             supabase = create_client(storage.supabase_url, storage.supabase_key)
 
-            # Récupérer TOUS les RV de la plage en UNE SEULE requête
-            result = supabase.table('gazelle_appointments') \
+            # Récupérer les RV de la plage, filtrés par mode de transport
+            query = supabase.table('gazelle_appointments') \
                 .select('*') \
                 .gte('appointment_date', date_start_str) \
                 .lte('appointment_date', date_end_str) \
-                .eq('technicien', request.technician_id) \
+                .eq('technicien', request.technician_id)
+
+            # Filtrer par mode de transport (si colonne travel_mode existe)
+            travel_mode = request.travel_mode or "DRIVING"
+            try:
+                if travel_mode == "BICYCLING":
+                    query = query.eq('travel_mode', 'BICYCLING')
+                else:
+                    query = query.neq('travel_mode', 'BICYCLING')
+            except Exception:
+                pass  # Colonne travel_mode pas encore migrée
+
+            result = query \
                 .order('appointment_date', desc=False) \
                 .order('appointment_time', desc=False) \
                 .execute()
@@ -300,7 +314,9 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
             appointments = request.appointments
         
         # Calculer le trajet
-        route = calculate_day_route(appointments, request.technician_id)
+        # Mode Google Maps: "driving" ou "bicycling"
+        google_mode = "bicycling" if travel_mode == "BICYCLING" else "driving"
+        route = calculate_day_route(appointments, request.technician_id, travel_mode=google_mode)
         
         # Mapper l'ID technicien vers le nom
         technician_names = {
@@ -310,16 +326,20 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         }
         technician_name = technician_names.get(request.technician_id, request.technician_id)
         
+        # Vélo = informatif (pas de remboursement), auto = 0.72$/km
+        reimbursement = 0.0 if travel_mode == "BICYCLING" else round(route['total_km'] * 0.72, 2)
+
         return KilometersResponse(
             technician_id=request.technician_id,
             technician_name=technician_name,
             date_start=date_start_str,
             date_end=date_end_str,
             quarter=request.quarter,
+            travel_mode=travel_mode,
             total_km=route['total_km'],
             total_duration_minutes=round(route['total_duration_seconds'] / 60, 1),
             segments=route['segments'],
-            reimbursement=round(route['total_km'] * 0.72, 2)
+            reimbursement=reimbursement
         )
     
     except Exception as e:
