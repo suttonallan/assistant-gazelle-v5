@@ -176,17 +176,16 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
             now = datetime.now()
             year = now.year
 
-            # Mapper le trimestre au mois de fin
-            quarter_end_months = {'Q1': 3, 'Q2': 6, 'Q3': 9, 'Q4': 12}
+            # Mapper le trimestre au mois de début et fin
+            quarter_months = {'Q1': (1, 3), 'Q2': (4, 6), 'Q3': (7, 9), 'Q4': (10, 12)}
 
-            if request.quarter not in quarter_end_months:
+            if request.quarter not in quarter_months:
                 raise HTTPException(status_code=400, detail=f"Trimestre invalide: {request.quarter}. Utilisez Q1, Q2, Q3 ou Q4.")
 
-            # Si on est dans l'année courante mais avant la fin du trimestre demandé,
-            # utiliser l'année précédente
-            quarter_end_month = quarter_end_months[request.quarter]
-            if now.month <= quarter_end_month:
-                # On est avant ou pendant le trimestre demandé → utiliser année précédente
+            # Si le trimestre demandé n'a pas encore commencé cette année, utiliser l'année précédente
+            quarter_start_month, quarter_end_month = quarter_months[request.quarter]
+            if now.month < quarter_start_month:
+                # Le trimestre est dans le futur → utiliser année précédente
                 year = year - 1
 
             quarters = {
