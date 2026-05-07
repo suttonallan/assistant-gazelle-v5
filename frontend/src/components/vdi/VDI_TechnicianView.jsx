@@ -55,7 +55,11 @@ export default function VDI_TechnicianView({
   // Tournées (sélection institution)
   selectedInstitution,
   setSelectedInstitution,
-  onInstitutionChange
+  onInstitutionChange,
+
+  // Multi-tech
+  parseSections,
+  currentUser
 }) {
   // Auto-save state
   const [saveStatus, setSaveStatus] = useState({});
@@ -67,7 +71,14 @@ export default function VDI_TechnicianView({
       setTravailInput('');
     } else {
       setExpandedPianoId(piano.id);
-      setTravailInput(piano.travail || '');
+      // Initialiser avec seulement la section du tech actuel
+      const myInitials = currentUser?.initials;
+      if (myInitials && parseSections) {
+        const sections = parseSections(piano.travail || '');
+        setTravailInput(sections[myInitials] || '');
+      } else {
+        setTravailInput(piano.travail || '');
+      }
     }
   };
 
@@ -239,12 +250,33 @@ export default function VDI_TechnicianView({
                       </div>
                     )}
 
-                    {/* Textarea auto-save */}
+                    {/* Textarea auto-save — multi-tech */}
                     <div>
                       {(() => {
                         const isLocked = piano.service_record?.status === 'validated';
+                        const myInitials = currentUser?.initials;
+                        const sections = parseSections ? parseSections(piano.travail || '') : {};
+                        const otherSections = Object.entries(sections)
+                          .filter(([k]) => k !== myInitials && k !== '_legacy');
+
                         return (
                           <>
+                            {/* Notes des autres techs — lecture seule */}
+                            {otherSections.length > 0 && (
+                              <div className="bg-gray-100 rounded-lg p-2 mb-2 text-sm text-gray-600 space-y-1">
+                                {otherSections.map(([init, text]) => (
+                                  <div key={init}>
+                                    <span className="font-semibold text-gray-700">[{init}]</span> {text}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Legacy text sans initiales */}
+                            {sections._legacy && (
+                              <div className="bg-gray-50 rounded-lg p-2 mb-2 text-sm text-gray-500 italic">
+                                {sections._legacy}
+                              </div>
+                            )}
                             <textarea
                               value={travailInput}
                               onChange={(e) => handleTravailChange(piano.id, e.target.value)}
@@ -253,14 +285,14 @@ export default function VDI_TechnicianView({
                                   ? 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
                                   : 'border-gray-300 focus:ring-2 focus:ring-blue-300 focus:border-blue-400'
                               }`}
-                              placeholder="Notes d'accord, observations..."
+                              placeholder={myInitials ? `[${myInitials}] Notes d'accord, observations...` : "Notes d'accord, observations..."}
                               autoFocus={!isLocked}
                               disabled={isLocked}
                               readOnly={isLocked}
                             />
                             {!isLocked && (
                               <div className="flex justify-between items-center mt-1">
-                                <div className="text-xs text-gray-400">auto-save</div>
+                                <div className="text-xs text-gray-400">auto-save {myInitials ? `[${myInitials}]` : ''}</div>
                                 <SaveBadge status={saveStatus[piano.id]} />
                               </div>
                             )}
