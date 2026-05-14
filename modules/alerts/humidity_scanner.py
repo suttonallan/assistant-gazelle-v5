@@ -594,8 +594,56 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
             send_slack=True   # Slack à Louise + Nicolas
         )
 
+        # Envoi explicite à nlessard@piano-tek.com avec destinataire hardcodé,
+        # en plus du chemin notifier (qui dépend d'EMAIL_NICOLAS / RECIPIENTS).
+        # Garantit que Nicolas reçoit l'email même si l'env var est mal résolue.
+        try:
+            from core.email_notifier import get_email_notifier
+            direct_notifier = get_email_notifier()
+            emoji = "🏜️" if alert_type_mapped == "TROP_SEC" else "💧"
+            subject = (
+                f"{emoji} Alerte PLS — {piano_info['client']} — "
+                f"{piano_info['nom']} ({piano_info['lieu']})"
+            )
+            html = (
+                f"<html><body style='font-family:Arial,sans-serif;line-height:1.5;'>"
+                f"<div style='background:#fef3c7;border-left:4px solid #f59e0b;padding:16px;'>"
+                f"<h2 style='margin:0 0 8px 0;'>🚨 Alerte entretien PLS détectée</h2>"
+                f"<p style='margin:0;color:#666;'>Type : <strong>{alert_type}</strong></p>"
+                f"</div>"
+                f"<table style='margin-top:16px;'>"
+                f"<tr><td><strong>Piano :</strong></td><td>{piano_info['nom']}</td></tr>"
+                f"<tr><td><strong>Client :</strong></td><td>{piano_info['client']}</td></tr>"
+                f"<tr><td><strong>Lieu :</strong></td><td>{piano_info['lieu']}</td></tr>"
+                f"<tr><td><strong>Description :</strong></td><td>{description}</td></tr>"
+                f"</table>"
+                f"<p style='color:#888;font-size:12px;margin-top:20px;'>"
+                f"Détecté lors du scan automatique des notes de service. "
+                f"Consultez le Dashboard humidité pour le détail."
+                f"</p>"
+                f"</body></html>"
+            )
+            ok = direct_notifier.send_email(
+                to_emails=["nlessard@piano-tek.com"],
+                subject=subject,
+                html_content=html,
+            )
+            if ok:
+                print(f"✅ Email PLS direct envoyé à nlessard@piano-tek.com")
+                results['email_direct'] = True
+            else:
+                print(f"⚠️ Échec envoi email direct à nlessard@piano-tek.com")
+                results['email_direct'] = False
+        except Exception as e:
+            print(f"❌ Erreur envoi email direct à nlessard: {e}")
+            results['email_direct'] = False
+
         # Succès si au moins un canal a fonctionné
-        return results.get('email', False) or results.get('slack', False)
+        return (
+            results.get('email', False)
+            or results.get('email_direct', False)
+            or results.get('slack', False)
+        )
 
 
 # ============================================================
