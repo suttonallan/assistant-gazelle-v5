@@ -1,0 +1,38 @@
+name: 💵 Digest quotidien cash JP
+
+on:
+  schedule:
+    # 18h Montréal : 22h UTC (EDT, mars-nov) ou 23h UTC (EST, nov-mars)
+    # Script garde une hour-gate interne pour ne s'exécuter que si heure Montréal == 18h
+    - cron: '0 22,23 * * *'
+  workflow_dispatch:  # Lancement manuel possible
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run digest
+        env:
+          # Gmail API token est lu depuis Supabase (system_settings.GMAIL_TOKEN_JSON)
+          # via la même chaîne que les autres workflows
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+          GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+          # Fallback Resend si Gmail échoue
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: python scripts/daily_jp_cash_digest.py
