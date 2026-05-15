@@ -15,6 +15,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
+  const pianosRef = useRef([]);
+  useEffect(() => { pianosRef.current = pianos; }, [pianos]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -345,7 +347,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // Actions
   const toggleProposed = async (id) => {
-    const piano = pianos.find(p => p.id === id);
+    // Lire depuis le ref (toujours frais), pas le closure
+    const piano = pianosRef.current.find(p => p.id === id);
     if (!piano) return;
 
     // Cycle à 3 états : blanc → jaune (à faire) → ambre (Top) → blanc
@@ -367,8 +370,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     if (!window.confirm(`Changer le statut de ${piano.local || piano.piano} à « ${label} » ?`)) return;
 
-    // Mise à jour optimiste
-    setPianos(pianos.map(p =>
+    // Mise à jour optimiste (setter fonctionnel pour éviter le stale closure)
+    setPianos(prev => prev.map(p =>
       p.id === id ? { ...p, status: newStatus } : p
     ));
 
