@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
+import { isPushedRecently } from '../../utils/serviceRecord';
 
 // Save status badge (same pattern as VDI_NotesView)
 function SaveBadge({ status }) {
@@ -183,8 +184,7 @@ export default function VDI_TechnicianView({
 
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
-                piano.service_record?.status === 'validated' ? 'bg-blue-50 border-l-4 border-blue-400' :
-                piano.is_work_completed ? 'bg-green-100' :
+                isPushedRecently(piano) ? 'bg-green-100' :
                 hasTravail && piano.status === 'top' ? 'bg-blue-50 border-l-4 border-orange-500' :
                 hasTravail && piano.status === 'proposed' ? 'bg-blue-50 border-l-4 border-yellow-400' :
                 piano.status === 'top' ? 'bg-orange-200 border-l-4 border-orange-500' :

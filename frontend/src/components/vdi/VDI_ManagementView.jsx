@@ -489,6 +489,7 @@ export default function VDI_ManagementView({
         <span key="legend-normal" className="flex items-center gap-1"><span className="w-3 h-3 bg-white border rounded"></span> Normal</span>
         <span key="legend-proposed" className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-200 rounded"></span> À faire</span>
         <span key="legend-top" className="flex items-center gap-1"><span className="w-3 h-3 bg-orange-200 rounded"></span> Top (priorité)</span>
+        <span key="legend-pushed" className="flex items-center gap-1"><span className="w-3 h-3 bg-green-100 rounded"></span> Poussé &lt; 7 jours</span>
       </div>
 
       {/* Modal historique d'entretien — tableur */}
