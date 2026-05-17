@@ -7,6 +7,7 @@ import VDI_Navigation from './vdi/VDI_Navigation';
 import VDI_TechnicianView from './vdi/VDI_TechnicianView';
 import VDI_ManagementView from './vdi/VDI_ManagementView';
 import VDI_NotesView from './vdi/VDI_NotesView';
+import { isPushedRecently } from '../utils/serviceRecord';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
@@ -620,6 +621,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
+
+    // Priorité 4: Poussé < 7 jours (vert)
+    if (isPushedRecently(piano)) return 'bg-green-100';
 
     // Par défaut: blanc
     return 'bg-white';

@@ -156,6 +156,7 @@ async def get_pianos(include_inactive: bool = False):
 
         # 2b. Charger fiches de service actives (draft/completed/validated)
         service_records_by_piano = {}
+        last_pushed_at_by_piano = {}
         try:
             import supabase as _sb_mod
             _sb = _sb_mod.create_client(
@@ -172,6 +173,23 @@ async def get_pianos(include_inactive: bool = False):
             for rec in (sr_resp.data or []):
                 service_records_by_piano[rec["piano_id"]] = rec
             logging.info(f"📋 {len(service_records_by_piano)} fiches de service actives")
+
+            # Fiches poussées récemment (7 derniers jours) — pour pastille verte
+            from datetime import datetime as _dt, timedelta as _td
+            recent_cutoff = (_dt.utcnow() - _td(days=7)).isoformat()
+            recent_resp = (
+                _sb.table("piano_service_records")
+                .select("piano_id,pushed_at")
+                .eq("institution_slug", "vincent-dindy")
+                .gte("pushed_at", recent_cutoff)
+                .order("pushed_at", desc=True)
+                .execute()
+            )
+            for rec in (recent_resp.data or []):
+                pid = rec.get("piano_id")
+                if pid and pid not in last_pushed_at_by_piano:
+                    last_pushed_at_by_piano[pid] = rec.get("pushed_at")
+            logging.info(f"🟢 {len(last_pushed_at_by_piano)} fiches poussées < 7 jours")
         except Exception as e:
             logging.warning(f"⚠️ Chargement fiches de service échoué: {e}")
 
@@ -268,6 +286,7 @@ async def get_pianos(include_inactive: bool = False):
                 "gazelleStatus": gz_piano.get('status', 'UNKNOWN'),
                 "updated_at": updates.get('updated_at', ''),
                 "last_validated_at": validation_statuses.get(gz_id, ''),
+                "last_pushed_at": last_pushed_at_by_piano.get(gz_id, ''),
                 "service_status": updates.get('service_status', None),
                 # Fiche de service (même format que institutions.py)
                 "service_record": {
