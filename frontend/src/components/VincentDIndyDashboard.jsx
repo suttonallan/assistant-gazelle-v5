@@ -652,13 +652,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   const getRowClass = (piano) => {
     // Coloration basée sur le statut du piano
-    // Priorité 1: Sélection (mauve)
+    // Priorité 1: Sélection (mauve) — état temporaire UI
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Top priorité (ambre)
+    // Priorité 2: Fait/validé (vert) — JP veut voir d'un coup d'œil ce qui est fait
+    if (piano.status === 'completed' || piano.status === 'validated') return 'bg-green-200';
+
+    // Priorité 3: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-orange-200';
 
-    // Priorité 3: Proposé (jaune)
+    // Priorité 4: Proposé (jaune)
     if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
