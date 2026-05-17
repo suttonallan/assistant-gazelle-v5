@@ -43,6 +43,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   if (flags?.pls) badges.push({ icon: '💧', label: 'PLS', color: 'bg-blue-100 text-blue-800' })
   if (flags?.dog_name) badges.push({ icon: '🐕', label: flags.dog_name, color: 'bg-amber-100 text-amber-800' })
   if (flags?.children_names) badges.push({ icon: '👧', label: flags.children_names, color: 'bg-pink-100 text-pink-800' })
+  if (flags?.payment_method) badges.push({ icon: '💳', label: flags.payment_method, color: 'bg-green-100 text-green-800' })
 
   // Collaboration
   const collaboration = appointment?.collaboration || []

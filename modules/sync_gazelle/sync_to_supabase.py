@@ -175,7 +175,8 @@ class GazelleToSupabaseSync:
         appointment_date: str,
         appointment_time: Optional[str] = None,
         client_name: Optional[str] = None,
-        location: Optional[str] = None
+        location: Optional[str] = None,
+        change_type: str = 'new'
     ):
         """
         Insère une alerte dans la file d'attente late_assignment_queue.
@@ -258,14 +259,20 @@ class GazelleToSupabaseSync:
                 'client_name': client_name,
                 'location': location,
                 'scheduled_send_at': scheduled_send_at.isoformat(),
-                'status': 'pending'
+                'status': 'pending',
+                'change_type': change_type
             }
-            
+
             url = f"{self.storage.api_url}/late_assignment_queue"
             headers = self.storage._get_headers()
             headers["Prefer"] = "resolution=merge-duplicates"
-            
+
             response = requests.post(url, headers=headers, json=queue_entry)
+
+            # Fallback: si change_type column n'existe pas encore, retry sans
+            if response.status_code in [400, 406] and 'change_type' in (response.text or ''):
+                del queue_entry['change_type']
+                response = requests.post(url, headers=headers, json=queue_entry)
             
             if response.status_code in [200, 201]:
                 send_time_str = scheduled_send_at.strftime('%Y-%m-%d %H:%M')
@@ -361,22 +368,9 @@ class GazelleToSupabaseSync:
                     personal_notes = client_data.get('personalNotes', '') or ''
                     preference_notes = client_data.get('preferenceNotes', '') or ''
 
-                    # Langue du client (depuis defaultClientLocalization)
-                    localization = client_data.get('defaultClientLocalization') or {}
-                    locale = localization.get('locale') or None
-
-                    # Préférences de communication du contact
-                    wants_email = default_contact.get('wantsEmail') if default_contact else None
-                    wants_phone = default_contact.get('wantsPhone') if default_contact else None
-                    wants_text = default_contact.get('wantsText') if default_contact else None
-
-                    # Mobile confirmé
-                    mobile_phone = None
-                    if default_contact:
-                        confirmed_mobile = default_contact.get('defaultConfirmedMobilePhone') or {}
-                        mobile_phone = confirmed_mobile.get('phoneNumber')
-
                     # Préparer données pour Supabase
+                    # NOTE: Seuls les champs existant dans la table gazelle_clients
+                    # Colonnes absentes = erreur 400 PostgREST = sync cassée silencieusement
                     client_record = {
                         'external_id': external_id,
                         'company_name': company_name,
@@ -389,17 +383,6 @@ class GazelleToSupabaseSync:
                         'postal_code': postal_code,
                         'personal_notes': personal_notes.strip() if personal_notes else None,
                         'preference_notes': preference_notes.strip() if preference_notes else None,
-                        'locale': locale,
-                        'preferred_technician_id': client_data.get('preferredTechnicianId'),
-                        'client_type': client_data.get('clientType'),
-                        'lifecycle_state': client_data.get('lifecycleState'),
-                        'referred_by': client_data.get('referredBy'),
-                        'no_contact_until': client_data.get('noContactUntil'),
-                        'no_contact_reason': client_data.get('noContactReason'),
-                        'wants_email': wants_email,
-                        'wants_phone': wants_phone,
-                        'wants_text': wants_text,
-                        'mobile_phone': mobile_phone,
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
@@ -418,8 +401,8 @@ class GazelleToSupabaseSync:
 
                     if response.status_code in [200, 201]:
                         self.stats['clients']['synced'] += 1
-                    elif response.status_code == 409:
-                        # 409 = Conflict (déjà synchronisé, normal avec UPSERT)
+                    elif response.status_code == 409 and '23503' not in (response.text or ''):
+                        # 409 sans FK violation = conflit d'upsert normal
                         self.stats['clients']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT client {external_id}: {response.status_code}")
@@ -757,6 +740,9 @@ class GazelleToSupabaseSync:
                     source = appt_data.get('source', 'MANUAL')
                     travel_mode = appt_data.get('travelMode', '')
 
+                    # CreatedAt (Gazelle — date réelle de création du RV)
+                    gazelle_created_at = appt_data.get('createdAt')
+
                     # CreatedBy
                     created_by_obj = appt_data.get('createdBy', {})
                     created_by_user_id = created_by_obj.get('id') if created_by_obj else None
@@ -783,17 +769,22 @@ class GazelleToSupabaseSync:
                         'technicien': technicien,
                         'location': location,
                         'notes': notes,
+                        'travel_mode': travel_mode,
                         # NOTE: created_at n'est PAS inclus ici - la DB le set automatiquement sur INSERT
                         # Inclure created_at avec start_time causait des faux positifs dans la détection Late Assignment
                         'updated_at': format_for_supabase(datetime.now())
                     }
 
-                    # Détecter changement de technicien AVANT l'UPSERT
+                    # Détecter changement AVANT l'UPSERT
                     # Récupérer l'ancien record pour comparer
                     old_record = None
                     try:
-                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date,updated_at,created_at"
+                        # Fetch old record — last_notified_schedule may not exist yet (migration pending)
+                        check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,last_notified_schedule,appointment_date,appointment_time,status,updated_at,created_at"
                         check_response = requests.get(check_url, headers=self.storage._get_headers())
+                        if check_response.status_code in [400, 406] and 'last_notified_schedule' in (check_response.text or ''):
+                            check_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}&select=technicien,last_notified_tech_id,appointment_date,appointment_time,status,updated_at,created_at"
+                            check_response = requests.get(check_url, headers=self.storage._get_headers())
                         if check_response.status_code == 200:
                             old_data = check_response.json()
                             if old_data and len(old_data) > 0:
@@ -810,11 +801,11 @@ class GazelleToSupabaseSync:
 
                     if response.status_code in [200, 201]:
                         self.stats['appointments']['synced'] += 1
-                    elif response.status_code == 409:
-                        # 409 = Conflict (déjà synchronisé, normal avec UPSERT)
+                    elif response.status_code == 409 and '23503' not in (response.text or ''):
+                        # 409 sans FK violation = conflit d'upsert normal (déjà sync)
                         self.stats['appointments']['synced'] += 1
                     else:
-                        print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text}")
+                        print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text[:200]}")
                         self.stats['appointments']['errors'] += 1
                         continue  # Skip la détection de changement si l'UPSERT a échoué
 
@@ -859,56 +850,108 @@ class GazelleToSupabaseSync:
                                     pass
 
                             # Calculer le datetime complet du RV
-                            is_less_than_24h = False
+                            # Fenêtre de 7 jours : les techs consultent leur calendrier de la semaine
+                            # le dimanche — toute assignation/changement de la semaine doit être notifié
+                            ALERT_WINDOW_HOURS = 7 * 24  # 168h = 7 jours
+                            is_within_alert_window = False
                             if appt_date:
                                 appt_datetime = datetime.combine(appt_date, appt_time, MONTREAL_TZ)
                                 hours_until_appt = (appt_datetime - now).total_seconds() / 3600
-                                is_less_than_24h = 0 < hours_until_appt < 24
+                                is_within_alert_window = 0 < hours_until_appt < ALERT_WINDOW_HOURS
 
-                                if is_less_than_24h:
-                                    print(f"⏰ RV dans {hours_until_appt:.1f}h (< 24h) → vérification late assignment")
+                                if is_within_alert_window:
+                                    days_until = hours_until_appt / 24
+                                    print(f"⏰ RV dans {days_until:.1f}j ({hours_until_appt:.0f}h) → vérification late assignment")
 
-                            if is_less_than_24h:
+                            if is_within_alert_window:
                                 old_technicien = old_record.get('technicien') if old_record else None
                                 last_notified = old_record.get('last_notified_tech_id') if old_record else None
+                                last_notified_schedule = old_record.get('last_notified_schedule') if old_record else None
 
-                                print(f"🔍 Late Assignment check {external_id}: tech={technicien}, old={old_technicien}, notified={last_notified}")
+                                # Snapshot horaire actuel pour comparaison
+                                current_schedule = f"{appointment_date} {appointment_time or '09:00'}"
 
-                                # Alerter seulement si:
-                                # 1. Nouveau RV (pas encore en DB) OU
-                                # 2. Technicien a changé ET pas déjà notifié pour ce technicien
-                                should_alert = False
+                                # Vérifier si le RV a été CRÉÉ récemment dans Gazelle (< 24h)
+                                is_recently_created = False
+                                created_age_hours = None
+                                if gazelle_created_at:
+                                    try:
+                                        created_dt = datetime.fromisoformat(gazelle_created_at.replace('Z', '+00:00'))
+                                        created_age_hours = (now - created_dt).total_seconds() / 3600
+                                        is_recently_created = created_age_hours < 24
+                                    except:
+                                        pass
 
-                                if not old_record:
-                                    print(f"   ✅ Nouveau RV → alerte")
-                                    should_alert = True
+                                print(f"🔍 Late Assignment check {external_id}: tech={technicien}, old={old_technicien}, notified={last_notified}, schedule={current_schedule}, old_schedule={last_notified_schedule}, created_recently={is_recently_created}")
+
+                                # Déterminer le type de changement (par priorité)
+                                # 1. Nouveau RV (créé < 24h, jamais vu)
+                                # 2. Technicien changé
+                                # 3. Horaire modifié (date ou heure)
+                                # JAMAIS alerter pour un vieux RV simplement modifié (notes, etc.)
+                                change_type = None
+
+                                if not old_record and is_recently_created:
+                                    change_type = 'new'
+                                    age_str = f"{created_age_hours:.1f}h" if created_age_hours else ""
+                                    print(f"   ✅ Nouveau RV (créé il y a {age_str}) → alerte")
+                                elif not old_record and not is_recently_created:
+                                    age_str = f"{created_age_hours:.1f}h" if created_age_hours else "inconnue"
+                                    print(f"   ⏭���  RV absent de la DB mais créé il y a {age_str} → pas d'alerte (vieux RV)")
                                 elif old_technicien != technicien and last_notified != technicien:
+                                    change_type = 'reassigned'
                                     print(f"   ✅ Technicien changé ({old_technicien} → {technicien}) → alerte")
-                                    should_alert = True
+                                elif current_schedule != last_notified_schedule and last_notified_schedule is not None:
+                                    change_type = 'rescheduled'
+                                    print(f"   ✅ Horaire modifié ({last_notified_schedule} → {current_schedule}) → alerte")
+                                elif last_notified is None and old_record:
+                                    # Première notification pour ce RV (jamais notifié, mais existe en DB)
+                                    # Seulement si créé récemment OU si on n'a jamais notifié du tout
+                                    if is_recently_created:
+                                        change_type = 'new'
+                                        print(f"   ✅ RV récent jamais notifié → alerte")
                                 else:
-                                    print(f"   ⏭️  Pas de changement → pas d'alerte")
-                                
-                                if should_alert:
-                                    # Insérer dans la file d'attente
+                                    print(f"   ⏭️  Pas de changement pertinent → pas d'alerte")
+
+                                if change_type:
+                                    # Insérer dans la file d'attente avec le type de changement
                                     self._queue_late_assignment_alert(
                                         appointment_external_id=external_id,
                                         technician_id=technicien,
                                         appointment_date=appointment_date,
                                         appointment_time=appointment_time,
                                         client_name=client_obj.get('name', '') if client_obj else None,
-                                        location=location
+                                        location=location,
+                                        change_type=change_type
                                     )
-                                    
-                                    # Mettre à jour last_notified_tech_id (sera confirmé après envoi)
-                                    # On le met à jour maintenant pour éviter les doublons si plusieurs syncs rapides
+
+                                    # Si réassignation : notifier aussi l'ancien tech
+                                    # que sa plage est libérée
+                                    if change_type == 'reassigned' and old_technicien and old_technicien in GAZELLE_IDS:
+                                        self._queue_late_assignment_alert(
+                                            appointment_external_id=external_id,
+                                            technician_id=old_technicien,
+                                            appointment_date=appointment_date,
+                                            appointment_time=appointment_time,
+                                            client_name=client_obj.get('name', '') if client_obj else None,
+                                            location=location,
+                                            change_type='cancelled'
+                                        )
+                                        print(f"   📤 Plage libérée envoyée à l'ancien tech {old_technicien}")
+
+                                    # Mettre à jour les marqueurs anti-doublon
                                     update_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{external_id}"
                                     update_headers = self.storage._get_headers()
                                     update_headers["Prefer"] = "return=representation"
-                                    requests.patch(
-                                        update_url,
-                                        headers=update_headers,
-                                        json={'last_notified_tech_id': technicien}
-                                    )
+                                    update_data = {
+                                        'last_notified_tech_id': technicien,
+                                        'last_notified_schedule': current_schedule
+                                    }
+                                    patch_resp = requests.patch(update_url, headers=update_headers, json=update_data)
+                                    # Fallback: si last_notified_schedule n'existe pas encore
+                                    if patch_resp.status_code in [400, 406] and 'last_notified_schedule' in (patch_resp.text or ''):
+                                        del update_data['last_notified_schedule']
+                                        requests.patch(update_url, headers=update_headers, json=update_data)
                                     
                         except Exception as e:
                             print(f"⚠️  Erreur détection changement technicien {external_id}: {e}")
@@ -968,8 +1011,18 @@ class GazelleToSupabaseSync:
                             print(f"   🔒 MARQUAGE BLOQUÉ - Trop de RV à annuler (possible erreur API)")
                         else:
                             # Marquer comme CANCELLED (réversible, pas de suppression)
+                            # ET notifier le technicien que la plage est libérée
                             cancelled_count = 0
                             for ext_id in ids_to_cancel:
+                                # Récupérer les infos du RV AVANT de le marquer CANCELLED
+                                info_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}&select=technicien,appointment_date,appointment_time,title,location"
+                                info_response = requests.get(info_url, headers=self.storage._get_headers())
+                                rv_info = None
+                                if info_response.status_code == 200:
+                                    info_data = info_response.json()
+                                    if info_data:
+                                        rv_info = info_data[0]
+
                                 patch_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}"
                                 headers = self.storage._get_headers()
                                 patch_data = {
@@ -981,6 +1034,29 @@ class GazelleToSupabaseSync:
                                 if patch_response.status_code in [200, 204]:
                                     cancelled_count += 1
                                     print(f"      ✓ Marqué CANCELLED: {ext_id}")
+
+                                    # Notifier le technicien que la plage est libérée
+                                    if rv_info and rv_info.get('technicien') and rv_info['technicien'] in GAZELLE_IDS:
+                                        rv_date = rv_info.get('appointment_date')
+                                        if rv_date:
+                                            from datetime import date as date_class
+                                            try:
+                                                rv_date_obj = date_class.fromisoformat(str(rv_date)[:10])
+                                                today = datetime.now(MONTREAL_TZ).date()
+                                                days_until = (rv_date_obj - today).days
+                                                # Notifier seulement si le RV était dans les 7 prochains jours
+                                                if 0 <= days_until <= 7:
+                                                    self._queue_late_assignment_alert(
+                                                        appointment_external_id=ext_id,
+                                                        technician_id=rv_info['technicien'],
+                                                        appointment_date=str(rv_date)[:10],
+                                                        appointment_time=rv_info.get('appointment_time'),
+                                                        client_name=rv_info.get('title', ''),
+                                                        location=rv_info.get('location', ''),
+                                                        change_type='cancelled'
+                                                    )
+                                            except:
+                                                pass
                                 else:
                                     print(f"      ⚠️  Erreur marquage {ext_id}: {patch_response.status_code}")
 
@@ -1535,6 +1611,16 @@ class GazelleToSupabaseSync:
                 warm_briefing_cache()
             except Exception as cache_err:
                 print(f"⚠️ Cache briefings non mis à jour: {cache_err}")
+
+            # Déductions d'inventaire automatiques
+            try:
+                from modules.inventory_deductions.process_deductions import InventoryDeductionProcessor
+                print("\n📦 Déductions d'inventaire automatiques...")
+                processor = InventoryDeductionProcessor(days_lookback=7)
+                deduction_stats = processor.process_recent_invoices()
+                print(f"   {deduction_stats.get('deductions_created', 0)} déduction(s) créée(s)")
+            except Exception as ded_err:
+                print(f"⚠️ Déductions inventaire non traitées: {ded_err}")
 
             return {
                 'success': True,

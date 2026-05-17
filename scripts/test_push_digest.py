@@ -3,8 +3,8 @@
 """Test manuel du module modules/briefing/push_digest.py.
 
 Exerce la logique pure (groupement par institution, calcul age_days,
-escalation, rendu HTML/plain) avec des donnees mockees. Ne touche pas
-a Supabase ni a l'email.
+escalation, rendu HTML/plain, abbreviation tech) avec des donnees mockees.
+Ne touche pas a Supabase ni a l'email.
 
 Usage :
     python3 scripts/test_push_digest.py           # tous les tests
@@ -23,8 +23,9 @@ from modules.briefing.push_digest import (
     _build_html,
     _build_plain,
     _days_since,
-    _format_validated_on,
+    _format_date,
     _group_by_institution,
+    _tech_abbreviation,
     ESCALATION_DAYS,
 )
 
@@ -46,7 +47,6 @@ def _fail(msg: str):
 
 def _iso_days_ago(n: int) -> str:
     dt = datetime.now(timezone.utc) - timedelta(days=n)
-    # format sans timezone, comme datetime.utcnow().isoformat() dans service_records.py
     return dt.replace(tzinfo=None).isoformat()
 
 
@@ -64,24 +64,40 @@ def test_days_since():
     _ok("il y a 5 jours -> 5")
 
 
-def test_format_validated_on():
-    print("\n[2] _format_validated_on")
-    assert _format_validated_on(None) == "date inconnue"
+def test_format_date():
+    print("\n[2] _format_date")
+    assert _format_date(None) == "date inconnue"
     _ok("None -> 'date inconnue'")
-    formatted = _format_validated_on("2026-04-18T14:30:00")
+    formatted = _format_date("2026-04-18T14:30:00")
     assert "2026" in formatted and ("Apr" in formatted or "avr" in formatted.lower()), formatted
     _ok(f"ISO -> '{formatted}'")
 
 
+def test_tech_abbreviation():
+    print("\n[3] _tech_abbreviation")
+    assert _tech_abbreviation(None) == "?"
+    _ok("None -> '?'")
+    assert _tech_abbreviation("") == "?"
+    _ok("'' -> '?'")
+    # Avec un email connu (nlessard@piano-tek.com -> Nick)
+    result = _tech_abbreviation("nlessard@piano-tek.com")
+    assert result == "Nick", f"Expected 'Nick', got '{result}'"
+    _ok("nlessard@piano-tek.com -> 'Nick'")
+    # Avec un email inconnu
+    result = _tech_abbreviation("unknown@example.com")
+    assert result == "Unknown", f"Expected 'Unknown', got '{result}'"
+    _ok("unknown@example.com -> fallback 'Unknown'")
+
+
 def test_group_empty():
-    print("\n[3] _group_by_institution (empty)")
+    print("\n[4] _group_by_institution (empty)")
     grouped = _group_by_institution([])
     assert grouped == {}
     _ok("[] -> {}")
 
 
 def test_group_single_institution():
-    print("\n[4] _group_by_institution (une institution, pas d'escalation)")
+    print("\n[5] _group_by_institution (une institution, pas d'escalation)")
     records = [
         {
             "id": "r1",
@@ -89,8 +105,10 @@ def test_group_single_institution():
             "piano_local": "240",
             "piano_name": "Yamaha U1",
             "institution_slug": "vincent-dindy",
-            "validated_at": _iso_days_ago(1),
-            "validated_by": "Nicolas",
+            "started_at": _iso_days_ago(1),
+            "updated_at": _iso_days_ago(0),
+            "technician_email": "nlessard@piano-tek.com",
+            "tech_abbrev": "Nick",
             "travail": "Accord complet",
         },
     ]
@@ -103,24 +121,30 @@ def test_group_single_institution():
 
 
 def test_group_escalation():
-    print("\n[5] _group_by_institution (escalation declenchee)")
+    print("\n[6] _group_by_institution (escalation declenchee)")
     records = [
         {
             "id": "r1",
             "piano_id": "pno_1",
             "piano_local": "103",
+            "piano_name": "",
             "institution_slug": "orford",
-            "validated_at": _iso_days_ago(ESCALATION_DAYS),
-            "validated_by": "Marie",
+            "started_at": _iso_days_ago(ESCALATION_DAYS),
+            "updated_at": _iso_days_ago(ESCALATION_DAYS),
+            "technician_email": "jp@piano-tek.com",
+            "tech_abbrev": "JP",
             "travail": "Accord",
         },
         {
             "id": "r2",
             "piano_id": "pno_2",
             "piano_local": "305",
+            "piano_name": "",
             "institution_slug": "orford",
-            "validated_at": _iso_days_ago(ESCALATION_DAYS + 2),
-            "validated_by": "Marie",
+            "started_at": _iso_days_ago(ESCALATION_DAYS + 2),
+            "updated_at": _iso_days_ago(ESCALATION_DAYS + 2),
+            "technician_email": "jp@piano-tek.com",
+            "tech_abbrev": "JP",
             "travail": "Accord + reparation pedale",
         },
     ]
@@ -131,17 +155,20 @@ def test_group_escalation():
 
 
 def test_group_multi_institutions():
-    print("\n[6] _group_by_institution (3 institutions)")
+    print("\n[7] _group_by_institution (3 institutions)")
     records = [
         {"id": "r1", "piano_id": "p1", "piano_local": "240",
+         "piano_name": "", "tech_abbrev": "Nick",
          "institution_slug": "vincent-dindy",
-         "validated_at": _iso_days_ago(0), "validated_by": "Nicolas"},
+         "started_at": _iso_days_ago(0), "updated_at": _iso_days_ago(0)},
         {"id": "r2", "piano_id": "p2", "piano_local": "12",
+         "piano_name": "", "tech_abbrev": "JP",
          "institution_slug": "place-des-arts",
-         "validated_at": _iso_days_ago(1), "validated_by": "Marie"},
+         "started_at": _iso_days_ago(1), "updated_at": _iso_days_ago(1)},
         {"id": "r3", "piano_id": "p3", "piano_local": "A",
+         "piano_name": "", "tech_abbrev": "Allan",
          "institution_slug": "orford",
-         "validated_at": _iso_days_ago(5), "validated_by": "JP"},
+         "started_at": _iso_days_ago(5), "updated_at": _iso_days_ago(5)},
     ]
     grouped = _group_by_institution(records)
     assert set(grouped.keys()) == {"vincent-dindy", "place-des-arts", "orford"}
@@ -152,12 +179,13 @@ def test_group_multi_institutions():
 
 
 def test_build_html_no_escalation():
-    print("\n[7] _build_html (sans escalation)")
+    print("\n[8] _build_html (sans escalation)")
     records = [
         {"id": "r1", "piano_id": "p1", "piano_local": "240",
          "piano_name": "Yamaha U1",
          "institution_slug": "vincent-dindy",
-         "validated_at": _iso_days_ago(0), "validated_by": "Nicolas",
+         "started_at": _iso_days_ago(0), "updated_at": _iso_days_ago(0),
+         "tech_abbrev": "Nick",
          "travail": "Accord complet"},
     ]
     grouped = _group_by_institution(records)
@@ -166,35 +194,41 @@ def test_build_html_no_escalation():
     assert "Vincent d'Indy" in html
     assert "Local <strong>240</strong>" in html
     assert "Yamaha U1" in html
-    assert "Nicolas" in html
-    assert "Allan est en copie" not in html  # pas de banniere
-    _ok("HTML contient piano, institution, validator, pas de banniere escalation")
+    assert "Nick" in html
+    assert "Saisi par" in html
+    assert "Allan est en copie" not in html
+    _ok("HTML contient piano, institution, tech, pas de banniere escalation")
 
 
 def test_build_html_with_escalation():
-    print("\n[8] _build_html (avec escalation)")
+    print("\n[9] _build_html (avec escalation)")
     records = [
         {"id": "r1", "piano_id": "p1", "piano_local": "305",
+         "piano_name": "",
          "institution_slug": "orford",
-         "validated_at": _iso_days_ago(5), "validated_by": "Marie",
+         "started_at": _iso_days_ago(5), "updated_at": _iso_days_ago(5),
+         "tech_abbrev": "JP",
          "travail": "Accord"},
     ]
     grouped = _group_by_institution(records)
     html = _build_html(grouped, total=1, has_escalation=True, today_str="2026-04-18")
     assert "Allan est en copie" in html
     assert "il y a 5 jours" in html
-    _ok("HTML contient banniere escalation + age en texte")
+    assert "JP" in html
+    _ok("HTML contient banniere escalation + age + tech")
 
 
 def test_build_plain():
-    print("\n[9] _build_plain")
+    print("\n[10] _build_plain")
     records = [
         {"id": "r1", "piano_id": "p1", "piano_local": "240",
+         "piano_name": "", "tech_abbrev": "Nick",
          "institution_slug": "vincent-dindy",
-         "validated_at": _iso_days_ago(1), "validated_by": "Nicolas"},
+         "started_at": _iso_days_ago(1), "updated_at": _iso_days_ago(1)},
         {"id": "r2", "piano_id": "p2", "piano_local": "305",
+         "piano_name": "", "tech_abbrev": "JP",
          "institution_slug": "orford",
-         "validated_at": _iso_days_ago(5), "validated_by": "Marie"},
+         "started_at": _iso_days_ago(5), "updated_at": _iso_days_ago(5)},
     ]
     grouped = _group_by_institution(records)
     plain = _build_plain(grouped, total=2)
@@ -202,8 +236,10 @@ def test_build_plain():
     assert "Vincent d'Indy" in plain
     assert "Orford" in plain
     assert "Local 240" in plain
+    assert "Nick" in plain
+    assert "JP" in plain
     assert "[!]" in plain  # escalation marker
-    _ok("Plain text contient institutions, locaux, marker escalation")
+    _ok("Plain text contient institutions, locaux, techs, marker escalation")
 
 
 def test_live_run():
@@ -222,6 +258,8 @@ def test_live_run():
         print(f"  [FAKE SEND] to={to_emails}")
         print(f"             subject={subject}")
         print(f"             html={len(html_content or '')} chars")
+        if plain_content:
+            print(f"             plain preview:\n{plain_content[:500]}")
         return True
 
     en_mod.EmailNotifier.send_email = fake_send
@@ -230,8 +268,8 @@ def test_live_run():
         import asyncio
         result = asyncio.run(run_push_digest())
         print(f"  Rapport : {result}")
-        if result.get("validated_count", 0) == 0:
-            print(f"  {YELLOW}Aucune fiche validee en attente -> rien envoye (comportement attendu).{RESET}")
+        if result.get("draft_count", 0) == 0:
+            print(f"  {YELLOW}Aucune fiche draft en attente -> rien envoye (comportement attendu).{RESET}")
         else:
             print(f"  {GREEN}Email aurait ete envoye a : {captured.get('to')}{RESET}")
     finally:
@@ -241,11 +279,12 @@ def test_live_run():
 def main():
     live = "--live" in sys.argv
     print("=" * 60)
-    print("Tests push_digest.py")
+    print("Tests push_digest.py (fiches a valider)")
     print("=" * 60)
 
     test_days_since()
-    test_format_validated_on()
+    test_format_date()
+    test_tech_abbreviation()
     test_group_empty()
     test_group_single_institution()
     test_group_escalation()

@@ -219,6 +219,10 @@ class GazelleSyncService:
             # ET synchroniser les techniciens depuis Gazelle (source de vérité)
             completed_count = 0
             tech_sync_count = 0
+            # Track quels (technicien, date) ont déjà reçu du stationnement
+            # pour ne pas dupliquer. Un seul parking par tech par jour.
+            parking_already_assigned = set()
+
             if not request_ids:  # Seulement en mode "sync all"
                 linked_requests = self._get_linked_not_completed_requests()
                 if linked_requests:
@@ -267,9 +271,15 @@ class GazelleSyncService:
                                 print(f"   RV Gazelle: {apt_id}")
 
                                 # Extraire le montant de stationnement depuis la description Gazelle
-                                parking_amount = self._extract_parking_from_appointment(gazelle_apt)
-                                if parking_amount:
-                                    print(f"   🅿️ Stationnement détecté: {parking_amount} $")
+                                # Un seul stationnement par technicien par jour — "stat 20"
+                                # veut dire 20$ pour la visite, pas 20$ par piano.
+                                parking_amount = None
+                                tech_date_key = (gazelle_tech, appointment_date)
+                                if tech_date_key not in parking_already_assigned:
+                                    parking_amount = self._extract_parking_from_appointment(gazelle_apt)
+                                    if parking_amount:
+                                        parking_already_assigned.add(tech_date_key)
+                                        print(f"   🅿️ Stationnement détecté: {parking_amount} $ (1x pour {gazelle_tech} le {appointment_date})")
 
                                 if not dry_run:
                                     success = self._update_request_status(
@@ -640,26 +650,37 @@ class GazelleSyncService:
     def _extract_parking_from_appointment(self, gazelle_apt: Dict) -> Optional[str]:
         """
         Extrait le montant de stationnement exclusivement depuis les notes de service
-        (gazelle_timeline_entries de type SERVICE) du même jour.
+        (gazelle_timeline_entries de type SERVICE) du même jour, écrites par le même
+        technicien que celui assigné au RV.
 
         IMPORTANT: Ne PAS chercher dans description/notes/title du RV Gazelle —
         ces champs contiennent des nombres (températures, humidité, etc.)
         qui génèrent des faux positifs.
+
+        IMPORTANT: Filtrer par user_id du technicien — sinon quand Allan écrit
+        "stat 20" dans sa note, le montant est appliqué à TOUS les RV du jour,
+        incluant ceux de Nicolas qui ne charge jamais de stationnement.
         """
         apt_date = gazelle_apt.get('appointment_date')
         apt_ext_id = gazelle_apt.get('external_id')
+        apt_tech = gazelle_apt.get('technicien')
         if not apt_date:
             return None
 
         try:
             date_str = apt_date[:10] if isinstance(apt_date, str) else str(apt_date)[:10]
-            result = self.storage.client.table('gazelle_timeline_entries')\
+            query = self.storage.client.table('gazelle_timeline_entries')\
                 .select('title, description')\
                 .eq('client_id', self.PDA_CLIENT_ID)\
-                .eq('entry_type', 'SERVICE')\
+                .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', f"{date_str}T00:00:00")\
-                .lte('occurred_at', f"{date_str}T23:59:59")\
-                .execute()
+                .lte('occurred_at', f"{date_str}T23:59:59")
+
+            # Filtrer par technicien si assigné — chaque tech ne voit que ses propres notes
+            if apt_tech:
+                query = query.eq('user_id', apt_tech)
+
+            result = query.execute()
 
             if result.data:
                 for entry in result.data:
@@ -667,7 +688,7 @@ class GazelleSyncService:
                         text = entry.get(field) or ''
                         amount = extract_parking_amount(text)
                         if amount:
-                            logger.info(f"🅿️ Stationnement trouvé dans note de service: {amount}$ (RV {apt_ext_id})")
+                            logger.info(f"🅿️ Stationnement trouvé dans note de service: {amount}$ (RV {apt_ext_id}, tech {apt_tech})")
                             return amount
         except Exception as e:
             logger.warning(f"Erreur lecture timeline entries pour parking (RV {apt_ext_id}): {e}")

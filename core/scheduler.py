@@ -288,6 +288,52 @@ def task_generate_rapport_timeline():
         raise
 
 
+def task_rv_item_enrichment():
+    """
+    22h Montréal — Enrichissement des items de RV du lendemain.
+
+    Pour chaque RV booké en ligne (Entretien et accord, Service Premium,
+    Extra-propre, avec ou sans PLS), remplace les items client-facing courts
+    par les templates tech complets (Accord 440Hz, nettoyage, lecture
+    température/humidité). La facture générée depuis le RV hérite ainsi
+    de la description complète.
+
+    Garde-fous : durée du RV préservée, items non-trigger conservés,
+    RV CANCELLED skippés, updateEvent (pas delete).
+    """
+    from core.scheduler_logger import get_logger
+    from modules.briefing.rv_item_enrichment import run_tomorrow
+
+    logger = get_logger()
+    log_id = logger.start_task(
+        task_name='rv_item_enrichment',
+        task_label='Enrichissement items RV du lendemain',
+        triggered_by='scheduler'
+    )
+
+    try:
+        result = run_tomorrow(dry_run=False)
+        stats = {
+            'total_rvs': result.get('total_rvs', 0),
+            'modified': result.get('modified', 0),
+            'skipped': result.get('skipped', 0),
+            'errors': result.get('errors', 0),
+        }
+        message = (
+            f"{stats['modified']} RV modifiés, "
+            f"{stats['skipped']} skippés, "
+            f"{stats['errors']} erreurs"
+        )
+        logger.complete_task(log_id=log_id, status='success', message=message, stats=stats)
+        return stats
+    except Exception as e:
+        print(f"\n❌ Erreur enrichissement RV: {e}")
+        import traceback
+        traceback.print_exc()
+        logger.complete_task(log_id=log_id, status='error', message=str(e), stats={})
+        raise
+
+
 def task_scan_pda_emails():
     """
     Scan automatique des emails PDA/OSM.
@@ -481,13 +527,13 @@ def task_critical_estimate_digest():
 
 def task_push_digest():
     """
-    Digest quotidien 17h (lun-ven) des fiches d'accord validees pas encore
-    poussees vers Gazelle. Destinataire info@, escalation Allan en CC apres
-    3 jours sans push. Aucun email si zero fiche en attente.
+    Digest quotidien 17h (lun-ven) des fiches d'accord saisies par les techs
+    en attente de validation par Nicolas. Destinataire info@, escalation
+    Allan en CC apres 3 jours sans validation. Aucun email si zero fiche.
     """
     try:
         print("\n" + "=" * 70)
-        print("TACHE : Push Digest (17h)")
+        print("TACHE : Digest fiches a valider (17h)")
         print("=" * 70)
         from modules.briefing.push_digest import run_push_digest
         import asyncio
@@ -555,17 +601,31 @@ def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
 
         # Mode incrémental (7 derniers jours) pour performance
         syncer = GazelleToSupabaseSync(incremental_mode=True)
-        
+
         # Sync appointments uniquement
         appointments_count = syncer.sync_appointments()
         print(f"✅ Appointments synchronisés: {appointments_count}")
 
+        # Lier les demandes PDA/OSM aux RV Gazelle automatiquement
+        # Sans ça, place_des_arts_requests.technician_id reste à "À attribuer"
+        # jusqu'à ce que quelqu'un clique le bouton Synchroniser dans le dashboard
+        pda_sync_count = 0
+        try:
+            from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+            pda_service = GazelleSyncService()
+            pda_result = pda_service.sync_requests_with_gazelle(dry_run=False)
+            pda_sync_count = pda_result.get('updated', 0)
+            print(f"✅ Demandes PDA/OSM synchronisées avec Gazelle: {pda_sync_count}")
+        except Exception as pda_exc:
+            print(f"⚠️  Sync PDA/OSM échouée (non bloquant): {pda_exc}")
+
         print("\n" + "="*70)
-        print("✅ SYNC APPOINTMENTS (16:30) - Terminé")
+        print("✅ SYNC APPOINTMENTS - Terminé")
         print("="*70 + "\n")
 
         stats = {
-            'appointments': appointments_count
+            'appointments': appointments_count,
+            'pda_sync': pda_sync_count
         }
 
         # Logger le succès
@@ -786,7 +846,7 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
 
-    # 17:00 - Digest fiches d'accord validees a pousser (lun-ven)
+    # 17:00 - Digest fiches d'accord a valider (lun-ven)
     scheduler.add_job(
         task_push_digest,
         trigger=CronTrigger(
@@ -795,11 +855,11 @@ def configure_jobs(scheduler: BackgroundScheduler):
             timezone='America/Montreal',
         ),
         id='push_digest',
-        name='Digest fiches d\'accord a pousser info@ (17:00 lun-ven)',
+        name='Digest fiches a valider info@ (17:00 lun-ven)',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 17:00 - Digest fiches d'accord a pousser (info@, lun-ven) configurée")
+    print("   ✅ 17:00 - Digest fiches a valider (info@, lun-ven) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
@@ -877,6 +937,19 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 17:00 - Rappel validation fiches de service configuré")
+
+    # 22:00 - Enrichissement automatique des items de RV du lendemain
+    # Remplace "Entretien et accord" (etc.) par les templates tech pour que
+    # les factures générées depuis le RV aient la bonne description
+    scheduler.add_job(
+        task_rv_item_enrichment,
+        trigger=CronTrigger(hour=22, minute=0, timezone='America/Montreal'),
+        id='rv_item_enrichment',
+        name='Enrichissement items RV du lendemain',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 22:00 - Enrichissement items RV du lendemain configuré")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré par GitHub Actions (full_gazelle_sync.yml), pas par le scheduler Render\n")

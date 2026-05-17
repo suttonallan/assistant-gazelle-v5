@@ -32,6 +32,14 @@ from modules.briefing.client_intelligence_service import NarrativeBriefingServic
 DAYS_AHEAD = 7  # Fenêtre des RV à scanner
 DEDUP_WINDOW_DAYS = 7  # On ne re-notifie pas si déjà envoyé dans les 7 derniers jours
 
+# Clients institutionnels — exclure du digest soumissions critiques.
+# Ces clients ont des contrats de service, pas des soumissions résidentielles.
+INSTITUTIONAL_CLIENT_IDS = {
+    'cli_9UMLkteep8EsISbG',  # Vincent-d'Indy
+    'cli_HbEwl9rN11pSuDEU',  # Place des Arts
+    'cli_PmqPUBTbPFeCMGmz',  # Orford
+}
+
 
 def _fetch_upcoming_appointments(storage: SupabaseStorage, days_ahead: int) -> List[Dict]:
     """Liste les RV ACTIVE dans les N prochains jours depuis la cache Supabase."""
@@ -86,7 +94,8 @@ def _already_notified_recently(
     cutoff = (datetime.now() - timedelta(days=DEDUP_WINDOW_DAYS)).isoformat()
     url = (
         f"{storage.api_url}/critical_estimate_notifications"
-        f"?client_external_id=eq.{client_id}"
+        f"?kind=eq.critical_louise"
+        f"&client_external_id=eq.{client_id}"
         f"&estimate_number=eq.{estimate_number}"
         f"&sent_at=gte.{cutoff}"
         f"&select=id&limit=1"
@@ -109,6 +118,7 @@ def _record_notification(
 ) -> None:
     """Insert a row in critical_estimate_notifications to avoid re-sending."""
     row = {
+        "kind": "critical_louise",
         "client_external_id": client_id,
         "estimate_number": estimate_number,
         "appointment_external_id": appointment_id,
@@ -187,6 +197,40 @@ def _build_html_body(items: List[Dict], today_str: str) -> str:
 </body></html>"""
 
 
+def _fetch_client_paid_invoice_totals(storage: SupabaseStorage, client_id: str) -> List[int]:
+    """Fetch les totaux (en cents) de toutes les factures PAID d'un client via Gazelle."""
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        gz = GazelleAPIClient()
+        query = """
+        query($cid: String!) {
+            allInvoices(first: 50, filters: {clientId: $cid, status: PAID}) {
+                nodes { total }
+            }
+        }
+        """
+        r = gz._execute_query(query, {"cid": client_id})
+        nodes = (r.get("data", {}).get("allInvoices", {}) or {}).get("nodes", []) or []
+        return [inv.get("total", 0) for inv in nodes]
+    except Exception as exc:
+        print(f"⚠️ Fetch invoices pour {client_id}: {exc}")
+        return []
+
+
+def _estimate_likely_invoiced(estimate_total_cents: int, invoice_totals: List[int]) -> bool:
+    """Vérifie si une facture PAID correspond au montant de la soumission.
+
+    Tolère une différence de 5% pour les arrondis de taxes et ajustements mineurs.
+    """
+    if not invoice_totals or estimate_total_cents <= 0:
+        return False
+    tolerance = estimate_total_cents * 0.05  # 5%
+    for inv_total in invoice_totals:
+        if abs(inv_total - estimate_total_cents) <= tolerance:
+            return True
+    return False
+
+
 async def run_critical_estimate_digest() -> Dict:
     """Entry point appelée par le scheduler. Retourne un rapport.
 
@@ -230,10 +274,29 @@ async def run_critical_estimate_digest() -> Dict:
     total_critical_found = 0
     for appt in appts:
         cid = appt.get("client_external_id")
-        if not cid:
+        if not cid or cid in INSTITUTIONAL_CLIENT_IDS:
             continue
         ests = estimates_by_client.get(cid, [])
-        criticals = [e for e in ests if e.get("is_critical")]
+        # Exclure les soumissions archivées — elles sont considérées comme
+        # "fermées" (travaux faits, refusés, ou abandonnés) et ne doivent
+        # plus apparaître dans les alertes.
+        #
+        # Exclure aussi les soumissions dont le montant correspond à une
+        # facture PAID du même client — le travail a été fait et payé.
+        # Cas Jacqueline Ifergan #11592 : soumission 2 327 $ d'avril 2024,
+        # facture #5959 de 2 327,09 $ payée en sept 2024. Remontait en
+        # alerte à chaque RV parce que jamais archivée dans Gazelle.
+        client_invoices = _fetch_client_paid_invoice_totals(storage, cid)
+
+        criticals = []
+        for e in ests:
+            if not e.get("is_critical") or e.get("is_archived"):
+                continue
+            # Vérifier si une facture PAID correspond au montant de la soumission
+            est_total = e.get("total_cents") or 0
+            if est_total > 0 and _estimate_likely_invoiced(est_total, client_invoices):
+                continue  # Travail fait et payé, on skip
+            criticals.append(e)
         if not criticals:
             continue
         total_critical_found += len(criticals)

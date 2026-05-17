@@ -199,12 +199,12 @@ export default function VDI_ManagementView({
             <button
               onClick={() => {
                 setShowOnlySelected(false);
-                setShowAllPianos(true);
+                setShowAllPianos(!showAllPianos);
               }}
               className={`px-4 py-2 rounded text-sm font-medium ${!showOnlySelected && showAllPianos ? 'bg-purple-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}
-              title="Afficher tous les pianos (même ceux masqués de l'inventaire)"
+              title={showAllPianos ? "Filtrer pour masquer les pianos cachés" : "Afficher tous les pianos (même ceux masqués de l'inventaire)"}
             >
-              📋 Tout voir ({stats.total})
+              {showAllPianos ? `🔽 Filtrer (${pianos.filter(p => !p.is_hidden).length})` : `📋 Tout voir (${stats.total})`}
             </button>
           )}
           <button
@@ -349,9 +349,11 @@ export default function VDI_ManagementView({
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usage</th>
               <ColumnHeader columnKey="mois">Mois</ColumnHeader>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-yellow-50">Note</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                Visible
-              </th>
+              {showAllPianos && (
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Visible
+                </th>
+              )}
               <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase w-12">
                 Hist.
               </th>
@@ -440,22 +442,24 @@ export default function VDI_ManagementView({
                     )}
                   </td>
 
-                  {/* Colonne Visible - simple checkbox */}
-                  <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={!piano.is_hidden}
-                      onChange={async () => {
-                        const newIsHidden = !piano.is_hidden;
-                        setPianos(pianos.map(p =>
-                          p.id === piano.id ? { ...p, is_hidden: newIsHidden } : p
-                        ));
-                        await savePianoToAPI(piano.id, { isHidden: newIsHidden });
-                      }}
-                      className="rounded"
-                      title={piano.is_hidden ? 'Masqué — cocher pour afficher' : 'Visible — décocher pour masquer'}
-                    />
-                  </td>
+                  {/* Colonne Visible - seulement en mode "Tout voir" */}
+                  {showAllPianos && (
+                    <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={!piano.is_hidden}
+                        onChange={async () => {
+                          const newIsHidden = !piano.is_hidden;
+                          setPianos(pianos.map(p =>
+                            p.id === piano.id ? { ...p, is_hidden: newIsHidden } : p
+                          ));
+                          await savePianoToAPI(piano.id, { isHidden: newIsHidden });
+                        }}
+                        className="rounded"
+                        title={piano.is_hidden ? 'Masqué — cocher pour afficher' : 'Visible — décocher pour masquer'}
+                      />
+                    </td>
+                  )}
 
                   {/* Bouton historique */}
                   <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>

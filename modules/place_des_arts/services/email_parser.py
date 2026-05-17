@@ -40,6 +40,11 @@ def parse_date_flexible(date_str: str, current_date: datetime) -> datetime:
 
     date_str_clean = date_str.strip()
 
+    # Format ISO YYYY-MM-DD (ex: 2026-04-28)
+    iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', date_str_clean)
+    if iso_match:
+        return datetime(int(iso_match.group(1)), int(iso_match.group(2)), int(iso_match.group(3)))
+
     # Format général "27 November 2025" ou "27 November" ou "5 décembre"
     match_en_full = re.match(r'(\d{1,2})\s+(\w+)(?:\s+(\d{4}))?', date_str_clean, re.IGNORECASE)
     if match_en_full:
@@ -127,6 +132,24 @@ parse_time = parse_time_flexible
 # ------------------------------------------------------------
 # Parser
 # ------------------------------------------------------------
+
+def _looks_like_date(text: str) -> bool:
+    """Vérifie si un texte ressemble à une date (YYYY-MM-DD, DD/MM/YYYY, etc.)."""
+    import re
+    text = text.strip()
+    if re.match(r'^\d{4}-\d{2}-\d{2}', text):
+        return True
+    if re.match(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', text):
+        return True
+    if re.match(r'^\d{1,2}\s+\w+', text):
+        # "28 avril" etc. - try parsing
+        try:
+            parse_date_flexible(text, datetime.now())
+            return True
+        except Exception:
+            pass
+    return False
+
 
 def normalize_room(room_text: str) -> str:
     """
@@ -253,9 +276,23 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
         parts = [p.strip() for p in line.split('\t')]
         if len(parts) < 8:
             continue
+
+        # Détection de décalage : si la colonne 0 est un nom de salle
+        # (pas une date), les colonnes sont décalées de 1.
+        # Format standard :  DateDemande | DateRV | Salle | PourQui | ...
+        # Format décalé   :  NomSalle | DateDemande | DateRV | CodeSalle | PourQui | ...
+        offset = 0
+        col0_is_room = False
+        if parts[0] and not _looks_like_date(parts[0]):
+            room_test = normalize_room(parts[0])
+            if room_test and room_test != parts[0]:
+                # La colonne 0 est un nom de salle reconnu → décalage
+                col0_is_room = True
+                offset = 1
+
         # RÈGLE 4: Séparation stricte Date / Heure
-        req_date_raw = parts[0] or None
-        appt_date_raw = parts[1]
+        req_date_raw = parts[offset] or None
+        appt_date_raw = parts[1 + offset] if len(parts) > 1 + offset else ''
 
         try:
             # Date RDV (YYYY-MM-DD seulement)
@@ -270,16 +307,33 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
             except Exception:
                 req_date = None
 
-        # Heure (colonne 7) - ne JAMAIS mélanger avec la date
-        time_str = parts[7] if len(parts) >= 8 else ''
+        # Si décalé, la salle est le code en colonne 3 (offset+2),
+        # sinon c'est la colonne 2 standard
+        if col0_is_room:
+            # Utiliser le code court (ex: "CL") s'il existe, sinon le nom long
+            room_code = parts[2 + offset] if len(parts) > 2 + offset else ''
+            room_raw = room_code if room_code else parts[0]
+        else:
+            room_raw = parts[2] if len(parts) > 2 else ''
+
+        # Ajuster les index des autres colonnes selon le décalage
+        col_for_who = 3 + offset if col0_is_room else 3
+        col_diapason = 4 + offset if col0_is_room else 4
+        col_requester = 5 + offset if col0_is_room else 5
+        col_piano = 6 + offset if col0_is_room else 6
+        col_time = 7 + offset if col0_is_room else 7
+        col_tech = 8 + offset if col0_is_room else 8
+        col_notes = 9 + offset if col0_is_room else 9
+
+        # Heure - ne JAMAIS mélanger avec la date
+        time_str = parts[col_time] if len(parts) > col_time else ''
 
         # Technicien
-        tech = parts[8] if len(parts) >= 9 else ''
+        tech = parts[col_tech] if len(parts) > col_tech else ''
         tech_id = tech_map.get(tech.lower())
 
-        # RÈGLE 2: Commentaire (colonne 9) pour infos contextuelles
-        # Ex: "alternative du samedi 10 janvier"
-        notes_raw = parts[9] if len(parts) >= 10 else ''
+        # RÈGLE 2: Commentaire pour infos contextuelles
+        notes_raw = parts[col_notes] if len(parts) > col_notes else ''
 
         # Calculer le jour de la semaine (seulement samedi/dimanche)
         jours_semaine = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
@@ -302,7 +356,7 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
             notes = notes_raw
 
         # RÈGLE 1: Champ Demandeur - vérifier et nettoyer
-        requester = parts[5].strip() if len(parts) >= 6 else ''
+        requester = parts[col_requester].strip() if len(parts) > col_requester else ''
         if requester:
             requester_lower = requester.lower()
             # Ne pas deviner depuis codes de salle
@@ -316,11 +370,11 @@ def parse_tabular_rows(text: str, current_date: datetime) -> List[Dict]:
         rows.append({
             'date': appt_date,
             'request_date': req_date,
-            'room': normalize_room(parts[2]) if len(parts) >= 3 else '',
-            'for_who': parts[3] if len(parts) >= 4 else '',
-            'diapason': parts[4] if len(parts) >= 5 else '',
+            'room': normalize_room(room_raw),
+            'for_who': parts[col_for_who] if len(parts) > col_for_who else '',
+            'diapason': parts[col_diapason] if len(parts) > col_diapason else '',
             'requester': requester,
-            'piano': parts[6] if len(parts) >= 7 else '',
+            'piano': parts[col_piano] if len(parts) > col_piano else '',
             'time': time_str,  # Heure seule (ex: "Avant 10h", "14h30")
             'technician': tech,
             'technician_id': tech_id or '',

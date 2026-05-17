@@ -16,6 +16,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
   // mais le sélecteur a été supprimé avec le header sticky
   const [pianos, setPianos] = useState([]);
+  const pianosRef = useRef([]);
+  useEffect(() => { pianosRef.current = pianos; }, [pianos]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -276,9 +278,9 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     } else if (currentView === 'technicien') {
       // Tous les pianos sont visibles — aucun filtre par statut de fiche
 
-      // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed)
+      // Par défaut : tous les pianos. Si demandé : seulement les pianos à faire (proposed, top, ou en cours de travail)
       if (showOnlyProposed) {
-        result = result.filter(p => p.status === 'proposed');
+        result = result.filter(p => p.status === 'proposed' || p.status === 'top' || p.status === 'work_in_progress');
       }
 
       // Filtre de recherche par local (vue technicien)
@@ -346,7 +348,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // Actions
   const toggleProposed = async (id) => {
-    const piano = pianos.find(p => p.id === id);
+    // Lire depuis le ref (toujours frais), pas le closure
+    const piano = pianosRef.current.find(p => p.id === id);
     if (!piano) return;
 
     // Cycle à 3 états : blanc → jaune (à faire) → ambre (Top) → blanc
@@ -368,8 +371,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     if (!window.confirm(`Changer le statut de ${piano.local || piano.piano} à « ${label} » ?`)) return;
 
-    // Mise à jour optimiste
-    setPianos(pianos.map(p =>
+    // Mise à jour optimiste (setter fonctionnel pour éviter le stale closure)
+    setPianos(prev => prev.map(p =>
       p.id === id ? { ...p, status: newStatus } : p
     ));
 
@@ -480,28 +483,68 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
   // Technicien - auto-save (appelé par debounce dans VDI_TechnicianView)
   // Utilise la nouvelle API fiches de service
+  // Parse les sections [XX] dans un texte de travail multi-tech
+  const parseSections = useCallback((text) => {
+    if (!text || !text.trim()) return {};
+    const sections = {};
+    const regex = /\[([A-Za-z]{2,})\]\s*/g;
+    let match;
+    const markers = [];
+    while ((match = regex.exec(text)) !== null) {
+      markers.push({ initials: match[1], start: match.index, contentStart: match.index + match[0].length });
+    }
+    for (let i = 0; i < markers.length; i++) {
+      const end = i + 1 < markers.length ? markers[i + 1].start : text.length;
+      sections[markers[i].initials] = text.slice(markers[i].contentStart, end).trim();
+    }
+    // Texte legacy sans marqueur [XX] — garder tel quel sous clé spéciale
+    if (markers.length === 0 && text.trim()) {
+      sections["_legacy"] = text.trim();
+    }
+    return sections;
+  }, []);
+
   const saveTravail = async (id, value) => {
     const noteValue = value !== undefined ? value : travailInput;
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
-    // Auto-préfixer les initiales du technicien (ex: [AB], [NG], [GL])
-    let noteToSave = noteValue;
     const initials = currentUser?.initials;
-    if (initials && noteToSave.trim() && !noteToSave.startsWith(`[${initials}]`)) {
-      noteToSave = noteToSave.replace(/^\[.+?\]\s*/, '');
-      noteToSave = `[${initials}] ${noteToSave}`;
+    let noteToSave;
+
+    if (initials && noteValue.trim()) {
+      // Multi-tech : reconstruire le texte complet en preservant les sections des autres
+      const existingFull = piano.travail || '';
+      const sections = parseSections(existingFull);
+      // Retirer la clé legacy si elle existe et qu'on a des initiales
+      if (sections._legacy) {
+        // Assigner le texte legacy au tech actuel s'il n'y a pas d'autre section
+        if (Object.keys(sections).length === 1) {
+          delete sections._legacy;
+        }
+      }
+      sections[initials] = noteValue.trim();
+      // Reconstruire
+      noteToSave = Object.entries(sections)
+        .filter(([k, v]) => k !== '_legacy' && v)
+        .map(([init, text]) => `[${init}] ${text}`)
+        .join('\n');
+      // Ajouter le legacy en tête s'il reste
+      if (sections._legacy) {
+        noteToSave = sections._legacy + '\n' + noteToSave;
+      }
+    } else {
+      noteToSave = noteValue;
     }
 
     // Mise à jour optimiste : travail + service_record placeholder
-    // Garantit que le piano apparaitra en "A valider" immediatement
-    // (sinon le tech tape, backend cree une fiche draft, mais l'UI ne le sait pas).
     setPianos(pianos.map(p =>
       p.id === id
         ? {
             ...p,
             travail: noteToSave,
-            status: noteToSave ? 'work_in_progress' : p.status,
+            // Garder le status proposed/top — le piano reste "à faire" même avec du travail en cours
+            status: (p.status === 'proposed' || p.status === 'top') ? p.status : (noteToSave ? 'work_in_progress' : p.status),
             service_record: p.service_record?.status === 'draft' || p.service_record?.status === 'completed'
               ? p.service_record
               : { id: p.service_record?.id || null, status: 'draft', completed_at: null, completed_by: null, technician_email: currentUser?.email || '' },
@@ -519,7 +562,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
           technician_email: currentUser?.email || ''
         })
       });
-      // Si la reponse renvoie un record_id, patcher le state avec le vrai id
       if (r.ok) {
         const data = await r.json().catch(() => null);
         if (data && data.record_id) {
@@ -532,7 +574,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     } catch (e) {
       console.error('Erreur saveTravail via service-records:', e);
-      // Fallback: ancienne API
       await savePianoToAPI(id, { travail: noteToSave });
     }
   };
@@ -592,7 +633,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     return {
       total: pianos.length,
       top: pianos.filter(p => p && p.status === 'top').length,
-      proposed: pianos.filter(p => p && p.status === 'proposed').length,
+      proposed: pianos.filter(p => p && (p.status === 'proposed' || p.status === 'top' || p.status === 'work_in_progress')).length,
       completed: pianos.filter(p => p && p.status === 'completed').length,
     };
   }, [pianos]);
@@ -1393,6 +1434,8 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
               selectedInstitution={selectedInstitutionForTechnician || institution}
               setSelectedInstitution={setSelectedInstitutionForTechnician}
               onInstitutionChange={handleInstitutionChangeForTechnician}
+              parseSections={parseSections}
+              currentUser={currentUser}
             />
                       </div>
         </div>

@@ -113,7 +113,8 @@ class EventManager:
 
         def suggest(field: str, default_value: str = "À compléter"):
             """Champ optionnel - ajoute un warning mais n'empêche pas l'import"""
-            if not row.get(field):
+            val = row.get(field)
+            if not val or val == default_value or val == "Salle à confirmer":
                 warnings.append(f"champ manquant: {field} (sera marqué '{default_value}')")
                 row[field] = default_value
 

@@ -13,6 +13,7 @@ export default function KilometersCalculator() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [dateEnd, setDateEnd] = useState('')
   const [quarter, setQuarter] = useState('')
+  const [travelMode, setTravelMode] = useState('DRIVING')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState(null)
   const [error, setError] = useState(null)
@@ -46,6 +47,7 @@ export default function KilometersCalculator() {
           date: date,
           date_end: dateEnd || null,
           quarter: quarter || null,
+          travel_mode: travelMode,
         })
       })
 
@@ -66,7 +68,7 @@ export default function KilometersCalculator() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h2 className="text-3xl font-bold mb-6 text-gray-800">
-        🚗 Calculateur de Kilomètres Parcourus
+        {travelMode === 'BICYCLING' ? '🚲' : '🚗'} Calculateur de Kilomètres Parcourus
       </h2>
 
       {/* Formulaire */}
@@ -85,6 +87,34 @@ export default function KilometersCalculator() {
                 <option key={tech.id} value={tech.id}>{tech.name}</option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              🚗 Mode de transport
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTravelMode('DRIVING')}
+                className={`flex-1 py-2 px-4 text-sm font-medium rounded-lg transition-colors ${
+                  travelMode === 'DRIVING'
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                🚗 Auto
+              </button>
+              <button
+                onClick={() => setTravelMode('BICYCLING')}
+                className={`flex-1 py-2 px-4 text-sm font-medium rounded-lg transition-colors ${
+                  travelMode === 'BICYCLING'
+                    ? 'bg-green-600 text-white shadow'
+                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                🚲 Vélo
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -154,11 +184,16 @@ export default function KilometersCalculator() {
       {results && (
         <div className="space-y-6">
           {/* Résumé principal */}
-          <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg shadow-lg p-6">
+          <div className={`text-white rounded-lg shadow-lg p-6 ${
+            results.travel_mode === 'BICYCLING'
+              ? 'bg-gradient-to-r from-green-500 to-emerald-600'
+              : 'bg-gradient-to-r from-blue-500 to-purple-500'
+          }`}>
             <h3 className="text-2xl font-bold mb-4">
-              📊 Résumé - {results.technician_name}
+              {results.travel_mode === 'BICYCLING' ? '🚲' : '📊'} Résumé - {results.technician_name}
+              {results.travel_mode === 'BICYCLING' && <span className="text-sm font-normal ml-2 opacity-80">(vélo)</span>}
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className={`grid grid-cols-2 ${results.travel_mode === 'BICYCLING' ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4`}>
               <div>
                 <p className="text-sm opacity-90">Distance Totale</p>
                 <p className="text-3xl font-bold">{results.total_km} km</p>
@@ -167,11 +202,13 @@ export default function KilometersCalculator() {
                 <p className="text-sm opacity-90">Temps Total</p>
                 <p className="text-3xl font-bold">{results.total_duration_minutes} min</p>
               </div>
-              <div>
-                <p className="text-sm opacity-90">Remboursement</p>
-                <p className="text-3xl font-bold">{results.reimbursement.toFixed(2)}$</p>
-                <p className="text-xs opacity-75">(0.72$/km)</p>
-              </div>
+              {results.travel_mode !== 'BICYCLING' && (
+                <div>
+                  <p className="text-sm opacity-90">Remboursement</p>
+                  <p className="text-3xl font-bold">{results.reimbursement.toFixed(2)}$</p>
+                  <p className="text-xs opacity-75">(0.72$/km)</p>
+                </div>
+              )}
               <div>
                 <p className="text-sm opacity-90">Période</p>
                 <p className="text-lg font-semibold">
@@ -190,7 +227,7 @@ export default function KilometersCalculator() {
               <h4 className="text-xl font-bold mb-4 text-gray-800">📍 Segments Détaillés</h4>
               <div className="space-y-3">
                 {results.segments.map((segment, idx) => (
-                  <div key={idx} className="border-l-4 border-blue-500 pl-4 py-2 bg-gray-50 rounded">
+                  <div key={idx} className={`border-l-4 ${results.travel_mode === 'BICYCLING' ? 'border-green-500' : 'border-blue-500'} pl-4 py-2 bg-gray-50 rounded`}>
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
                         <p className="font-semibold text-gray-800">

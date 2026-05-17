@@ -528,6 +528,7 @@ class GazelleAPIClient:
               type
               status
               user { id }
+              createdAt
               createdBy { id }
               confirmedByClient
               source
@@ -617,7 +618,12 @@ class GazelleAPIClient:
                 edges {
                     node {
                         id
-                        client { id }
+                        client {
+                            id
+                            companyName
+                            defaultContact { firstName lastName }
+                        }
+                        user { id }
                         number
                         status
                         subTotal

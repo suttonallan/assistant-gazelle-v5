@@ -1476,22 +1476,35 @@ async def sync_manual(payload: SyncManualRequest):
     """
     try:
         from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
-        
+        from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
+
         storage = get_storage()
+
+        # ÉTAPE 1: Pull frais des appointments depuis Gazelle en direct
+        # Sinon on travaille avec les données de la dernière sync horaire et
+        # les assignations récentes (dans Gazelle mais pas encore en Supabase)
+        # sont invisibles.
+        appointments_synced = 0
+        try:
+            syncer = GazelleToSupabaseSync(incremental_mode=True)
+            appointments_synced = syncer.sync_appointments()
+        except Exception as sync_exc:
+            logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
+
+        # ÉTAPE 2: Lier les demandes PDA aux RV Gazelle (maintenant à jour)
         sync_service = GazelleSyncService(storage)
-        
-        # Synchroniser
         result = sync_service.sync_requests_with_gazelle(
             request_ids=payload.request_ids if payload else None,
             dry_run=False
         )
-        
+
         return {
             "success": result.get("success", True),
             "message": result.get("message", "Synchronisation terminée"),
             "updated": result.get("updated", 0),
             "checked": result.get("checked", 0),
             "matched": result.get("matched", 0),
+            "appointments_refreshed": appointments_synced,
             "details": result.get("details", []),
             "warnings": result.get("warnings", []),
             "has_warnings": len(result.get("warnings", [])) > 0
