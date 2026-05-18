@@ -73,7 +73,29 @@ function App() {
         try {
           const parsedUser = JSON.parse(savedUser)
           console.log('[App.jsx] Utilisateur parsé:', parsedUser?.email || parsedUser?.name);
-          setCurrentUser(parsedUser)
+
+          // Rehydrate: combler les champs manquants depuis ROLES (initials, gazelleId)
+          // Bug observé: utilisateurs avec localStorage antérieur à l'ajout des initiales
+          // (Feb 2026) avaient currentUser.initials = undefined → saveTravail saute le préfixe
+          // [XX] dans les notes. Solution: re-merger les champs depuis ROLES à chaque load.
+          const role = getUserRole(parsedUser?.email, parsedUser?.role);
+          const roleConfig = ROLES[role];
+          let rehydrated = parsedUser;
+          if (roleConfig) {
+            const needsRehydrate =
+              (!parsedUser.initials && roleConfig.initials) ||
+              (!parsedUser.gazelleId && roleConfig.gazelleId);
+            if (needsRehydrate) {
+              rehydrated = {
+                ...parsedUser,
+                initials: parsedUser.initials || roleConfig.initials || null,
+                gazelleId: parsedUser.gazelleId || roleConfig.gazelleId || null,
+              };
+              localStorage.setItem('currentUser', JSON.stringify(rehydrated));
+              console.log('[App.jsx] Utilisateur rehydraté avec initials/gazelleId depuis ROLES');
+            }
+          }
+          setCurrentUser(rehydrated)
         } catch (e) {
           console.error('[App.jsx] Erreur parsing utilisateur:', e);
           localStorage.removeItem('currentUser')
