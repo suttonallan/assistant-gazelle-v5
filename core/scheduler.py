@@ -527,8 +527,8 @@ def task_critical_estimate_digest():
 
 def task_push_digest():
     """
-    Digest quotidien 17h (lun-ven) des fiches d'accord saisies par les techs
-    en attente de validation par Nicolas. Destinataire info@, escalation
+    Digest quotidien 17h (tous les jours) des fiches d'accord saisies par les
+    techs en attente de validation par Nicolas. Destinataire info@, escalation
     Allan en CC apres 3 jours sans validation. Aucun email si zero fiche.
     """
     try:
@@ -846,20 +846,21 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
 
-    # 17:00 - Digest fiches d'accord a valider (lun-ven)
+    # 17:00 - Digest fiches d'accord a valider (tous les jours)
+    # Couvre aussi les tournées weekend (VDI samedi-dimanche → digest dim soir
+    # rappelle de valider avant le lundi)
     scheduler.add_job(
         task_push_digest,
         trigger=CronTrigger(
-            day_of_week='mon-fri',
             hour=17, minute=0,
             timezone='America/Montreal',
         ),
         id='push_digest',
-        name='Digest fiches a valider info@ (17:00 lun-ven)',
+        name='Digest fiches a valider info@ (17:00 tous les jours)',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 17:00 - Digest fiches a valider (info@, lun-ven) configurée")
+    print("   ✅ 17:00 - Digest fiches a valider (info@, tous les jours) configurée")
 
     # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
     scheduler.add_job(
