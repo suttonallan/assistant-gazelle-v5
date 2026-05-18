@@ -8,6 +8,7 @@ import VDI_TechnicianView from './vdi/VDI_TechnicianView';
 import VDI_ManagementView from './vdi/VDI_ManagementView';
 import VDI_NotesView from './vdi/VDI_NotesView';
 import { isPushedRecently } from '../utils/serviceRecord';
+import { getUserRole } from '../config/roles';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
@@ -790,6 +791,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
+      serviceRecordId: p.service_record?.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
@@ -808,6 +810,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
       pianoId: p.id,
       gazelleId: p.gazelleId || p.id,
+      serviceRecordId: p.service_record?.id,
       local: p.local,
       pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
       aFaire: p.aFaire || '',
@@ -934,7 +937,34 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const validatedCount = validatedPianos.length;
     const pushedCount = pushedPianos.length;
 
+    // --- Permissions ---
+    // Admin (Allan) + Nicolas peuvent supprimer une note avant push
+    const userRole = getUserRole(currentUser?.email);
+    const canDeleteRecord = userRole === 'admin' || userRole === 'nick';
+
     // --- Actions --- (utilise le nouveau système piano_service_records)
+    const handleDeleteRecord = async (row) => {
+      if (!row.serviceRecordId) {
+        alert('Aucune fiche à supprimer pour ce piano.');
+        return;
+      }
+      if (!confirm(`Supprimer la note de ${row.local} (${row.pianoName})?\n\nLa note ne sera pas poussée vers Gazelle. Le piano redeviendra "sans note".`)) return;
+      try {
+        const r = await fetch(
+          `${API_URL}/api/service-records/${institution}/record/${row.serviceRecordId}/soft-delete`,
+          { method: 'PATCH' }
+        );
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${r.status}`);
+        }
+        await loadPianosFromAPI();
+        await loadServiceHistory();
+      } catch (e) {
+        alert('Erreur suppression: ' + e.message);
+      }
+    };
+
     const handleValidate = async (pianoId) => {
       try {
         const r = await fetch(`${API_URL}/api/service-records/${institution}/validate`, {
@@ -1326,6 +1356,17 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
                                   className="px-2 py-1 text-xs font-medium bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
                                 >
                                   Valider
+                                </button>
+                              )}
+                              {canDeleteRecord && (row.status === 'pending' || row.status === 'validated') && row.serviceRecordId && (
+                                <button
+                                  onClick={() => handleDeleteRecord(row)}
+                                  className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  title="Supprimer la note (ne sera pas poussée vers Gazelle)"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
                               )}
                               <button

@@ -667,6 +667,47 @@ async def get_push_history(
     }
 
 
+@router.patch("/{institution}/record/{record_id}/soft-delete")
+async def soft_delete_record(
+    institution: str = PathParam(...),
+    record_id: str = PathParam(...)
+):
+    """
+    Marque une fiche comme 'deleted' (soft delete).
+    Le filtre du GET /api/{inst}/pianos exclut déjà 'deleted',
+    donc la fiche disparaît du dashboard sans perdre l'historique en DB.
+    Permet à un admin (Allan/Nicolas) de retirer une note avant qu'elle
+    soit poussée vers Gazelle.
+    """
+    sb = _get_supabase()
+    now_iso = datetime.utcnow().isoformat() + "+00:00"
+
+    existing = (
+        sb.table(TABLE)
+        .select("id,status,institution_slug")
+        .eq("id", record_id)
+        .eq("institution_slug", institution)
+        .limit(1)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Fiche non trouvée")
+
+    current_status = existing.data[0].get("status")
+    if current_status == "pushed":
+        raise HTTPException(
+            status_code=400,
+            detail="Impossible de supprimer une fiche déjà poussée vers Gazelle"
+        )
+
+    sb.table(TABLE).update({
+        "status": "deleted",
+        "updated_at": now_iso,
+    }).eq("id", record_id).execute()
+
+    return {"success": True, "record_id": record_id, "previous_status": current_status}
+
+
 @router.patch("/{institution}/record/{record_id}/clear-a-faire")
 async def clear_a_faire(
     institution: str = PathParam(...),
