@@ -655,9 +655,16 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 1: Sélection (mauve) — état temporaire UI
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Fait par tech (vert foncé) — work_in_progress = tech a tapé des notes
-    // (auto-save) et a donc traité le piano. completed/validated sont legacy/post-validation
-    // mais on les couvre aussi.
+    // Priorité 2: Fait par tech (vert foncé) — lecture sur la vraie source de vérité,
+    // piano.service_record.status (table piano_service_records), pas piano.status (table
+    // legacy vincent_dindy_piano_updates qui n'est plus mise à jour par saveTravail).
+    // draft = tech a tapé des notes, validated = Nick a validé, completed = legacy.
+    // On garde aussi piano.status === completed/validated/work_in_progress en filet
+    // de sécurité pour les fiches legacy.
+    const srStatus = piano.service_record?.status;
+    if (srStatus === 'draft' || srStatus === 'completed' || srStatus === 'validated') {
+      return 'bg-green-200';
+    }
     if (piano.status === 'work_in_progress' ||
         piano.status === 'completed' ||
         piano.status === 'validated') {
