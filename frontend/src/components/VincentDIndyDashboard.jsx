@@ -656,7 +656,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 1: Sélection (mauve) — état temporaire UI
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Fait par tech (vert foncé) — lecture sur la vraie source de vérité,
+    // Priorité 2: Poussé récemment (vert clair) — le travail est terminé ET synchronisé
+    // Gazelle. Doit l'emporter sur piano.status legacy 'top'/'proposed' qui n'est pas
+    // effacé automatiquement après le push, sinon les pianos récemment faits restent
+    // orange/jaune éternellement.
+    if (isPushedRecently(piano)) return 'bg-green-100';
+
+    // Priorité 3: Fait par tech (vert foncé) — lecture sur la vraie source de vérité,
     // piano.service_record.status (table piano_service_records), pas piano.status (table
     // legacy vincent_dindy_piano_updates qui n'est plus mise à jour par saveTravail).
     // draft = tech a tapé des notes, validated = Nick a validé, completed = legacy.
@@ -672,16 +678,13 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       return 'bg-green-200';
     }
 
-    // Priorité 3: Top priorité (ambre)
+    // Priorité 4: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-orange-200';
 
-    // Priorité 4: Proposé (jaune)
+    // Priorité 5: Proposé (jaune)
     if (piano.status === 'proposed') {
       return 'bg-yellow-200';
     }
-
-    // Priorité 5: Poussé < 7 jours (vert clair)
-    if (isPushedRecently(piano)) return 'bg-green-100';
 
     // Par défaut: blanc
     return 'bg-white';
