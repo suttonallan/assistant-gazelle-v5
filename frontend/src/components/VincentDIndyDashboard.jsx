@@ -655,8 +655,14 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 1: Sélection (mauve) — état temporaire UI
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Fait/validé (vert) — JP veut voir d'un coup d'œil ce qui est fait
-    if (piano.status === 'completed' || piano.status === 'validated') return 'bg-green-200';
+    // Priorité 2: Fait par tech (vert foncé) — work_in_progress = tech a tapé des notes
+    // (auto-save) et a donc traité le piano. completed/validated sont legacy/post-validation
+    // mais on les couvre aussi.
+    if (piano.status === 'work_in_progress' ||
+        piano.status === 'completed' ||
+        piano.status === 'validated') {
+      return 'bg-green-200';
+    }
 
     // Priorité 3: Top priorité (ambre)
     if (piano.status === 'top') return 'bg-orange-200';
@@ -666,7 +672,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       return 'bg-yellow-200';
     }
 
-    // Priorité 4: Poussé < 7 jours (vert)
+    // Priorité 5: Poussé < 7 jours (vert clair)
     if (isPushedRecently(piano)) return 'bg-green-100';
 
     // Par défaut: blanc
