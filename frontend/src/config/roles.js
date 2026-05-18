@@ -8,6 +8,7 @@ export const ROLES = {
     name: 'Administrateur',
     email: 'asutton@piano-tek.com',
     gazelleId: 'usr_ofYggsCDt2JAVeNP', // Allan Sutton dans Gazelle
+    initials: 'AS',
     permissions: ['*'], // Tout
     dashboards: ['inventaire', 'commissions', 'stats', 'admin', 'sync_gazelle', 'tournees'],
     technicianName: 'allan' // Allan est aussi technicien
@@ -17,6 +18,7 @@ export const ROLES = {
     name: 'Nick (Gestionnaire)',
     email: 'nlessard@piano-tek.com',
     gazelleId: 'usr_HcCiFk7o0vZ9xAI0', // Nicolas Lessard dans Gazelle
+    initials: 'NL',
     permissions: [
       'view_inventory',
       'manage_own_inventory',
@@ -31,6 +33,7 @@ export const ROLES = {
     name: 'Louise (Assistante)',
     email: 'info@piano-tek.com',
     gazelleId: 'usr_tndhXmnT0iakT4HF', // Louise Paradis dans Gazelle
+    initials: 'L',
     permissions: [
       'view_inventory',
       'edit_inventory', // Louise peut modifier les quantités
@@ -44,6 +47,7 @@ export const ROLES = {
     name: 'Jean-Philippe (Technicien)',
     email: 'jpreny@gmail.com',
     gazelleId: 'usr_ReUSmIJmBF86ilY1', // Jean-Philippe Reny dans Gazelle
+    initials: 'JP',
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier toutes les colonnes
@@ -57,6 +61,7 @@ export const ROLES = {
     name: 'Margot (Assistante + Technicienne)',
     email: 'margotcharignon@gmail.com',
     gazelleId: 'usr_bbt59aCUqUaDWA8n', // Margot Charignon dans Gazelle
+    initials: 'MC',
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier les quantités
