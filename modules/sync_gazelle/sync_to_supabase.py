@@ -214,12 +214,15 @@ class GazelleToSupabaseSync:
                 scheduled_send_at = now + timedelta(minutes=5)
             
             # Anti-doublon: vérifier si une entrée pending OU sent existe déjà
-            # pour ce RV+technicien+date (une seule requête pour éviter race conditions)
+            # pour ce RV+technicien+date+type (une seule requête pour éviter race conditions)
+            # IMPORTANT: filtrer aussi sur change_type — sinon un avis 'new'/'reassigned'
+            # déjà envoyé bloquerait à tort l'avis 'cancelled' du même RV.
             check_url = (
                 f"{self.storage.api_url}/late_assignment_queue"
                 f"?appointment_external_id=eq.{appointment_external_id}"
                 f"&technician_id=eq.{technician_id}"
                 f"&appointment_date=eq.{appointment_date}"
+                f"&change_type=eq.{change_type}"
                 f"&status=in.(pending,sent)"
             )
             check_response = requests.get(check_url, headers=self.storage._get_headers())
@@ -282,6 +285,74 @@ class GazelleToSupabaseSync:
                 
         except Exception as e:
             print(f"⚠️  Erreur queue alerte {appointment_external_id}: {e}")
+            # Ne pas faire échouer la sync pour ça
+
+    def _sweep_cancellation_notices(self):
+        """
+        Filet de sécurité pour les avis d'annulation.
+
+        L'avis 'cancelled' inline (bloc NETTOYAGE) dépend du moment exact de la
+        transition ACTIVE→CANCELLED et peut être manqué (échec silencieux de la
+        re-requête, garde-fou >10, ou annulation faite par le nettoyage 16h qui
+        ne notifie pas). Ce balayage garantit qu'un avis est mis en file pour
+        tout RV récemment passé CANCELLED dans la fenêtre 7 jours, peu importe le
+        chemin qui l'a annulé.
+
+        Idempotent : la dédup par (external_id, technicien, date, change_type)
+        dans _queue_late_assignment_alert empêche tout doublon entre les runs.
+        Borné aux annulations détectées dans les dernières 48h pour ne jamais
+        re-notifier l'historique.
+        """
+        try:
+            from core.timezone_utils import MONTREAL_TZ
+            now = datetime.now(MONTREAL_TZ)
+            today = now.date()
+            horizon = today + timedelta(days=7)
+            recent_cutoff = (now - timedelta(hours=48)).strftime('%Y-%m-%dT%H:%M:%S')
+            ids_csv = ",".join(GAZELLE_IDS)
+
+            url = (
+                f"{self.storage.api_url}/gazelle_appointments"
+                f"?status=eq.CANCELLED"
+                f"&technicien=in.({ids_csv})"
+                f"&appointment_date=gte.{today.isoformat()}"
+                f"&appointment_date=lte.{horizon.isoformat()}"
+                f"&updated_at=gte.{recent_cutoff}"
+                f"&select=external_id,technicien,appointment_date,appointment_time,title,location,description,client_external_id"
+            )
+            resp = requests.get(url, headers=self.storage._get_headers())
+            if resp.status_code != 200:
+                print(f"   ⚠️  Sweep avis d'annulation: erreur récupération {resp.status_code}")
+                return
+
+            rows = resp.json() or []
+            if not rows:
+                return
+
+            print(f"\n🔔 Sweep avis d'annulation : {len(rows)} RV annulé(s) récent(s) dans la fenêtre 7j (vérification)")
+            for a in rows:
+                # Même règle que les avis de création : ne notifier que les RV
+                # rattachés à un client OU à une institution. Les RV strictement
+                # personnels (ex. « Retrait? », notes de planification) sont ignorés.
+                has_client_or_institution = bool(a.get('client_external_id')) or _is_institution_appointment(
+                    a.get('title'), a.get('location'), a.get('description')
+                )
+                if not has_client_or_institution:
+                    print(f"   ⏭️  RV personnel (sans client/institution) ignoré: {a.get('title', '')[:40]} ({a['external_id']})")
+                    continue
+
+                self._queue_late_assignment_alert(
+                    appointment_external_id=a['external_id'],
+                    technician_id=a['technicien'],
+                    appointment_date=str(a['appointment_date'])[:10],
+                    appointment_time=a.get('appointment_time'),
+                    client_name=a.get('title', ''),
+                    location=a.get('location', ''),
+                    change_type='cancelled'
+                )
+
+        except Exception as e:
+            print(f"   ⚠️  Sweep avis d'annulation: {e}")
             # Ne pas faire échouer la sync pour ça
 
     def sync_clients(self) -> int:
@@ -1010,19 +1081,11 @@ class GazelleToSupabaseSync:
                             print(f"   🚨 ALERTE: {len(ids_to_cancel)} > {MAX_CANCELLATIONS_ALLOWED} (seuil max)")
                             print(f"   🔒 MARQUAGE BLOQUÉ - Trop de RV à annuler (possible erreur API)")
                         else:
-                            # Marquer comme CANCELLED (réversible, pas de suppression)
-                            # ET notifier le technicien que la plage est libérée
+                            # Marquer comme CANCELLED (réversible, pas de suppression).
+                            # L'avis d'annulation est émis par _sweep_cancellation_notices()
+                            # en fin de sync (point unique, filtré, idempotent).
                             cancelled_count = 0
                             for ext_id in ids_to_cancel:
-                                # Récupérer les infos du RV AVANT de le marquer CANCELLED
-                                info_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}&select=technicien,appointment_date,appointment_time,title,location"
-                                info_response = requests.get(info_url, headers=self.storage._get_headers())
-                                rv_info = None
-                                if info_response.status_code == 200:
-                                    info_data = info_response.json()
-                                    if info_data:
-                                        rv_info = info_data[0]
-
                                 patch_url = f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}"
                                 headers = self.storage._get_headers()
                                 patch_data = {
@@ -1034,29 +1097,6 @@ class GazelleToSupabaseSync:
                                 if patch_response.status_code in [200, 204]:
                                     cancelled_count += 1
                                     print(f"      ✓ Marqué CANCELLED: {ext_id}")
-
-                                    # Notifier le technicien que la plage est libérée
-                                    if rv_info and rv_info.get('technicien') and rv_info['technicien'] in GAZELLE_IDS:
-                                        rv_date = rv_info.get('appointment_date')
-                                        if rv_date:
-                                            from datetime import date as date_class
-                                            try:
-                                                rv_date_obj = date_class.fromisoformat(str(rv_date)[:10])
-                                                today = datetime.now(MONTREAL_TZ).date()
-                                                days_until = (rv_date_obj - today).days
-                                                # Notifier seulement si le RV était dans les 7 prochains jours
-                                                if 0 <= days_until <= 7:
-                                                    self._queue_late_assignment_alert(
-                                                        appointment_external_id=ext_id,
-                                                        technician_id=rv_info['technicien'],
-                                                        appointment_date=str(rv_date)[:10],
-                                                        appointment_time=rv_info.get('appointment_time'),
-                                                        client_name=rv_info.get('title', ''),
-                                                        location=rv_info.get('location', ''),
-                                                        change_type='cancelled'
-                                                    )
-                                            except:
-                                                pass
                                 else:
                                     print(f"      ⚠️  Erreur marquage {ext_id}: {patch_response.status_code}")
 
@@ -1069,6 +1109,10 @@ class GazelleToSupabaseSync:
             except Exception as e:
                 print(f"   ⚠️  Erreur lors du nettoyage: {e}")
                 # Ne pas faire échouer toute la synchro pour ça
+
+            # Filet de sécurité: garantir l'avis d'annulation pour tout RV
+            # récemment passé CANCELLED (peu importe le chemin de détection)
+            self._sweep_cancellation_notices()
 
             # Marquer l'import historique comme terminé si c'était un import complet
             if not start_date_override and (force_historical or not historical_done):

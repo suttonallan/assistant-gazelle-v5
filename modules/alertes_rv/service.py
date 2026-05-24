@@ -152,8 +152,12 @@ class UnconfirmedAlertsService:
                     # Le RV n'existe plus dans Gazelle - marquer comme annulé
                     apt_id = supabase_apt.get('id')
                     try:
+                        # updated_at explicite: permet au balayage d'avis d'annulation
+                        # du sync (_sweep_cancellation_notices) de détecter cette
+                        # annulation comme récente et d'émettre l'avis manquant.
                         self.storage.client.table('gazelle_appointments').update({
-                            'status': 'CANCELLED'
+                            'status': 'CANCELLED',
+                            'updated_at': datetime.now(timezone.utc).isoformat()
                         }).eq('id', apt_id).execute()
                         ghost_count += 1
                         print(f"   🧹 RV fantôme nettoyé: {supabase_apt.get('title', 'N/A')[:50]} ({external_id})")
