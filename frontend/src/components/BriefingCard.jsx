@@ -28,6 +28,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
     appointment,
     narrative,
     action_items,
+    signaux,
     flags,
     piano,
     client_name,
@@ -212,6 +213,26 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
         {narrative && (
           <div className="text-gray-800 text-sm leading-relaxed">
             {narrative}
+          </div>
+        )}
+
+        {/* ── À surveiller — problèmes restés en suspens ── */}
+        {signaux?.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-semibold text-red-700 uppercase tracking-wider flex items-center gap-1">
+              <span>⚠️</span> À surveiller
+            </div>
+            {signaux.map((s, idx) => (
+              <div
+                key={idx}
+                className="text-sm bg-red-50 border-l-4 border-red-400 px-3 py-1.5 text-red-900"
+              >
+                <div className="font-medium">{s.texte}</div>
+                {s.source && (
+                  <div className="text-xs text-red-600 mt-0.5">{s.source}</div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 

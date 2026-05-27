@@ -45,17 +45,34 @@ import requests as http_requests
 # NARRATIVE PROMPT
 # ═══════════════════════════════════════════════════════════════════
 
-NARRATIVE_PROMPT = """Tu prépares un briefing pour un technicien de piano avant sa visite.
-Écris 2-4 phrases en français, comme un collègue qui résume l'essentiel avant que le tech parte.
+# Instructions statiques (partagées entre tous les clients d'une journée → mises en
+# cache via prompt caching). Le dossier propre à chaque client est passé séparément
+# dans le message utilisateur.
+BRIEFING_SYSTEM = """Tu prépares un briefing pour un technicien de piano avant sa visite.
+Tu reçois le DOSSIER COMPLET du client (notes, historique de service, rendez-vous passés
+— y compris annulés —, soumissions). Lis TOUT le dossier avant d'écrire.
+
+Tu produis deux choses :
+1. NARRATIF — 2 à 4 phrases en français, comme un collègue qui résume l'essentiel avant le départ.
+2. SIGNAUX — une liste de points qui méritent l'attention du tech, surtout les PROBLÈMES NON RÉSOLUS.
 
 CONCENTRE-TOI SUR:
 - Le piano spécifique: numéro de série, salle/emplacement, diapason habituel (440 ou 442)
 - Ce que le tech devrait SAVOIR avant d'arriver (accès, langue si anglophone, personnalité)
 - L'historique pertinent (dernier tech, quand)
-- Ce qui est INHABITUEL ou mérite attention
+- Ce qui est INHABITUEL, resté EN SUSPENS, ou mérite attention
+
+SIGNAUX — ce qui est resté en suspens:
+- Un problème physique signalé mais jamais réparé (corde cassée, fissure, pièce à commander,
+  réglage reporté, etc.) — MÊME s'il a été noté lors d'un rendez-vous ensuite ANNULÉ.
+- Une promesse de suivi, un retour attendu, un travail recommandé non détecté comme fait.
+- RÈGLE D'OR — chaque signal DOIT citer sa source précise (date + tech + type d'entrée).
+  Si tu ne peux pas pointer une entrée précise du dossier, N'INCLUS PAS le signal.
+- N'invente jamais un signal. Pas de source dans le dossier = pas de signal.
 
 POUR LES INSTITUTIONS (Place des Arts, UQAM, Vincent-d'Indy, Orford, OSM, etc.):
 - NE PAS suggérer de faire des travaux de réglage/réparation. Le RV est un accord standard.
+- Les signaux d'institution portent sur l'accès, la logistique, le diapason par salle — pas sur des réparations à faire.
 - Si des choses ont été notées lors de visites précédentes, les mentionner simplement : "Des choses ont été notées : [liste]" — sans dire de les corriger.
 - NE PAS mentionner le nombre total de pianos du client.
 - "avant Xh" signifie que l'accord doit être TERMINÉ à cette heure, pas qu'il faut arriver avant.
@@ -82,33 +99,17 @@ RÈGLES CRITIQUES:
 
 Si c'est un premier RV pour un CLIENT PRIVÉ (aucun historique), dis-le simplement.
 Pour les INSTITUTIONS, ne jamais dire "premier RV" — ces pianos sont accordés régulièrement.
-Si les notes sont vides ou inutiles, dis "Aucune info particulière à signaler."
+Si les notes sont vides ou inutiles, narrative = "Aucune info particulière à signaler." et signaux = [].
 
-CLIENT: {client_name} ({client_since})
-PIANO PRINCIPAL: {piano_summary}
-{all_pianos_context}
-NOTES PERSONNELLES DU CLIENT:
-{personal_notes}
-
-PRÉFÉRENCES DU CLIENT:
-{preference_notes}
-
-NOTES DU PIANO:
-{piano_notes}
-
-NOTES DE SERVICE (les plus récentes en premier):
-{timeline_summary}
-
-{soumissions_context}
-CONTEXTE DU RV: {appointment_context}
-
-{feedback_context}
-
-Retourne UNIQUEMENT ce JSON:
-{{
+Retourne UNIQUEMENT ce JSON, sans texte autour ni markdown:
+{
   "narrative": "Le paragraphe de briefing en français...",
-  "action_items": ["item actionable 1", "item actionable 2"]
-}}"""
+  "action_items": ["item actionable 1", "item actionable 2"],
+  "signaux": [
+    {"type": "probleme_non_resolu", "texte": "Corde cassée signalée, jamais réparée", "source": "RV du 12 mai (annulé) — note de JP", "confiance": "elevee"}
+  ]
+}
+Si aucun signal, mets "signaux": []."""
 
 
 # Entry types to include in timeline queries
@@ -365,6 +366,7 @@ class NarrativeBriefingService:
             # ── Generate narrative via AI ──
             narrative = "Aucune info particulière à signaler."
             action_items = []
+            signaux = []
 
             if self.anthropic:
                 # Enrichir piano_summary avec SN et salle pour l'IA
@@ -374,7 +376,7 @@ class NarrativeBriefingService:
                 if piano.get('location'):
                     piano_detail += f" — {piano['location']}"
 
-                narrative, action_items = await asyncio.to_thread(
+                narrative, action_items, signaux = await asyncio.to_thread(
                     self._call_narrative_ai,
                     client_name=client_name,
                     client_since=client_since or "nouveau client",
@@ -388,6 +390,7 @@ class NarrativeBriefingService:
                     piano_notes=piano.get('notes', '') or '',
                     all_pianos=all_pianos_list,
                     gazelle_estimates=gazelle_estimates_enriched,
+                    is_institution=is_institution,
                 )
 
             # ── Build final briefing ──
@@ -397,6 +400,7 @@ class NarrativeBriefingService:
                 "client_since": client_since,
                 "narrative": narrative,
                 "action_items": action_items,
+                "signaux": signaux,
                 "flags": {
                     "language": language,
                     "pls": has_pls,
@@ -459,13 +463,24 @@ class NarrativeBriefingService:
                             personal_notes: str = "", preference_notes: str = "",
                             piano_notes: str = "",
                             all_pianos: List[Dict] = None,
-                            gazelle_estimates: List[Dict] = None) -> tuple:
-        """Call Claude Haiku to generate a narrative briefing. Returns (narrative, action_items)."""
+                            gazelle_estimates: List[Dict] = None,
+                            is_institution: bool = False) -> tuple:
+        """Génère le briefing via Claude. Retourne (narrative, action_items, signaux).
+
+        On passe le DOSSIER COMPLET du client (pas de troncature agressive) pour que
+        le modèle puisse repérer un problème resté en suspens, même enfoui dans
+        l'historique ou noté lors d'un RV ensuite annulé.
+        """
         today_str = date_type.today().isoformat()
 
-        # Format timeline for prompt (skip noise, keep last 15 useful entries)
+        # Plafonds larges de sécurité (protègent contre les clients institutionnels
+        # à très long historique) — bien au-delà des anciennes limites 15/300/10.
+        TIMELINE_MAX = 80
+        PAST_APPT_MAX = 25
+        ENTRY_CHARS = 800
+
         timeline_lines = []
-        for entry in timeline[:30]:  # Look at more, keep 15
+        for entry in timeline:
             entry_date = (entry.get('occurred_at', '') or '')[:10]
             if entry_date >= today_str:
                 continue
@@ -481,28 +496,28 @@ class NarrativeBriefingService:
 
             tech_name = resolve_technician_name(user_id)
             entry_type = entry.get('entry_type', '')
-            timeline_lines.append(f"[{entry_date}] ({tech_name or 'Tech'}, {entry_type}) {text[:300]}")
+            timeline_lines.append(f"[{entry_date}] ({tech_name or 'Tech'}, {entry_type}) {text[:ENTRY_CHARS]}")
 
-            if len(timeline_lines) >= 15:
+            if len(timeline_lines) >= TIMELINE_MAX:
                 break
 
-        # Add past appointments (contain rich descriptions/notes not in timeline)
-        for pa in past_appointments[:10]:
+        # Rendez-vous passés — incluant les ANNULÉS. Un problème noté lors d'un RV
+        # ensuite annulé doit quand même remonter au tech (cas corde cassée).
+        for pa in past_appointments[:PAST_APPT_MAX]:
             pa_date = (pa.get('appointment_date', '') or '')[:10]
             if pa_date >= today_str:
                 continue
             desc = (pa.get('description', '') or '').strip()
             notes = (pa.get('notes', '') or '').strip()
-            # Only add if there's actual content beyond the client name
             text = f"{desc} {notes}".strip()
             if not text or len(text) < 15 or text == client_name:
                 continue
             tech_name = resolve_technician_name(pa.get('technicien', ''))
-            timeline_lines.append(f"[{pa_date}] ({tech_name or 'Tech'}, RV) {text[:300]}")
+            annule = " — RV ANNULÉ" if (pa.get('status') == 'CANCELLED') else ""
+            timeline_lines.append(f"[{pa_date}] ({tech_name or 'Tech'}, RV{annule}) {text[:ENTRY_CHARS]}")
 
-        # Sort by date descending and keep top 15
+        # Tri par date décroissante (plus récent en premier)
         timeline_lines.sort(key=lambda l: l[:12], reverse=True)
-        timeline_lines = timeline_lines[:15]
 
         timeline_summary = "\n".join(timeline_lines) if timeline_lines else "(Aucun historique)"
 
@@ -599,45 +614,71 @@ class NarrativeBriefingService:
             if sections:
                 soumissions_context = "\n\n".join(sections) + "\n"
 
-        prompt = NARRATIVE_PROMPT.format(
-            client_name=client_name,
-            client_since=client_since,
-            piano_summary=piano_summary,
-            all_pianos_context=all_pianos_context,
-            personal_notes=personal_notes or "(Aucune)",
-            preference_notes=preference_notes or "(Aucune)",
-            piano_notes=piano_notes or "(Aucune)",
-            timeline_summary=timeline_summary,
-            appointment_context=appt_context,
-            feedback_context=feedback_context,
-            soumissions_context=soumissions_context,
-        )
+        client_type = "INSTITUTION" if is_institution else "CLIENT PRIVÉ"
+        dossier = f"""TYPE DE CLIENT: {client_type}
+CLIENT: {client_name} ({client_since})
+PIANO PRINCIPAL: {piano_summary}
+{all_pianos_context}
+NOTES PERSONNELLES DU CLIENT:
+{personal_notes or "(Aucune)"}
+
+PRÉFÉRENCES DU CLIENT:
+{preference_notes or "(Aucune)"}
+
+NOTES DU PIANO:
+{piano_notes or "(Aucune)"}
+
+NOTES DE SERVICE ET RENDEZ-VOUS PASSÉS (les plus récents en premier):
+{timeline_summary}
+
+{soumissions_context}CONTEXTE DU RV: {appt_context}
+
+{feedback_context}"""
 
         try:
+            # Sonnet 4.6 + thinking adaptatif : le modèle lit tout le dossier et
+            # raisonne sur ce qui est resté en suspens. Le bloc système (instructions
+            # partagées) est mis en cache → réutilisé sur les rafraîchissements et
+            # entre les clients d'une même journée.
             response = self.anthropic.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=500,
-                temperature=0.2,
-                system="Tu retournes UNIQUEMENT du JSON valide sans markdown. Sois concis et utile.",
-                messages=[{"role": "user", "content": prompt}],
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                thinking={"type": "adaptive"},
+                output_config={"effort": "medium"},
+                system=[{
+                    "type": "text",
+                    "text": BRIEFING_SYSTEM,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": "user", "content": [{
+                    "type": "text",
+                    "text": dossier,
+                    # Cache le dossier complet : un rafraîchissement de la même fiche
+                    # (même client, même journée) est servi depuis le cache.
+                    "cache_control": {"type": "ephemeral"},
+                }]}],
             )
 
-            raw = response.content[0].text.strip()
-            # Clean markdown fences if present
+            # Avec le thinking adaptatif, la réponse contient des blocs thinking +
+            # un bloc texte. On extrait le bloc texte (le JSON).
+            raw = next((b.text for b in response.content if b.type == "text"), "").strip()
             if raw.startswith("```"):
                 raw = re.sub(r'^```(?:json)?\s*', '', raw)
                 raw = re.sub(r'\s*```$', '', raw)
 
             result = json.loads(raw)
             narrative = result.get('narrative', 'Aucune info particulière à signaler.')
-            action_items = result.get('action_items', [])
-            # Filter empty items
-            action_items = [item for item in action_items if item and len(item) > 3]
-            return narrative, action_items
+            action_items = [item for item in (result.get('action_items') or []) if item and len(item) > 3]
+            # Grounding : on ne garde que les signaux qui citent une source (texte + source).
+            signaux = [
+                s for s in (result.get('signaux') or [])
+                if isinstance(s, dict) and s.get('texte') and s.get('source')
+            ]
+            return narrative, action_items, signaux
 
         except Exception as e:
             print(f"⚠️  Narrative AI error: {e}")
-            return "Aucune info particulière à signaler.", []
+            return "Aucune info particulière à signaler.", [], []
 
     # ═══════════════════════════════════════════════════════════════
     # PYTHON-COMPUTED FLAGS
