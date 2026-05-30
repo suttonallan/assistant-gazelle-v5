@@ -97,82 +97,141 @@ class LateAssignmentNotifier:
             traceback.print_exc()
             return {'processed': 0, 'sent': 0, 'failed': 0, 'errors': [error_msg]}
     
+    def _load_timeline_context(self, appointment_external_id: str):
+        """
+        Charge le RV + les entrées récentes (21 j) de la timeline de son client,
+        formatées pour Claude (une ligne « [date | type | user_id] texte »).
+
+        Retourne (appt, timeline_text, known_user_ids) ou (None, None, None) si le
+        RV n'a pas de client rattaché ou si la timeline est vide. `known_user_ids`
+        sert de garde-fou anti-hallucination pour résoudre l'auteur ensuite.
+        """
+        appt_url = (
+            f"{self.storage.api_url}/gazelle_appointments"
+            f"?external_id=eq.{appointment_external_id}"
+            f"&select=client_external_id,appointment_date,appointment_time,title"
+            f"&limit=1"
+        )
+        appt_resp = requests.get(appt_url, headers=self.storage._get_headers())
+        if appt_resp.status_code != 200 or not appt_resp.json():
+            return None, None, None
+        appt = appt_resp.json()[0]
+        client_id = appt.get('client_external_id')
+        if not client_id:
+            return None, None, None
+
+        from core.timezone_utils import MONTREAL_TZ
+        now = datetime.now(MONTREAL_TZ)
+        cutoff = (now - timedelta(days=21)).strftime('%Y-%m-%dT%H:%M:%S')
+        tl_url = (
+            f"{self.storage.api_url}/gazelle_timeline_entries"
+            f"?client_id=eq.{client_id}"
+            f"&occurred_at=gte.{cutoff}"
+            f"&order=occurred_at.desc"
+            f"&limit=40"
+            f"&select=occurred_at,entry_type,user_id,title,description"
+        )
+        tl_resp = requests.get(tl_url, headers=self.storage._get_headers())
+        if tl_resp.status_code != 200 or not tl_resp.json():
+            return None, None, None
+
+        known_user_ids = set()
+        lines = []
+        for e in tl_resp.json():
+            parts = [str(e.get(k, '')).strip() for k in ('title', 'description')]
+            txt = ' — '.join([p for p in parts if p])
+            if not txt:
+                continue
+            uid = (e.get('user_id') or '').strip()
+            if uid:
+                known_user_ids.add(uid)
+            when = str(e.get('occurred_at', ''))[:16]
+            lines.append(f"[{when} | {e.get('entry_type', '')} | {uid or '-'}] {txt}")
+        if not lines:
+            return None, None, None
+        return appt, "\n".join(lines[:40]), known_user_ids
+
+    def _resolve_user(self, user_id: Optional[str], known_user_ids: set) -> Optional[Dict[str, Any]]:
+        """
+        Résout un user_id Gazelle en membre de l'équipe via la table `users`
+        (couvre tout le monde : techniciens ET bureau comme Louise).
+
+        Garde-fou anti-hallucination : le user_id doit réellement figurer dans la
+        timeline (`known_user_ids`) avant d'être pris au sérieux. Retourne
+        {id, prenom, email, nom_complet} ou None si inconnu/non résolu.
+        """
+        try:
+            uid = str(user_id).strip() if user_id else ''
+            if not uid or uid not in known_user_ids:
+                return None
+            url = (
+                f"{self.storage.api_url}/users"
+                f"?external_id=eq.{uid}&select=first_name,last_name,email&limit=1"
+            )
+            resp = requests.get(url, headers=self.storage._get_headers())
+            if resp.status_code != 200 or not resp.json():
+                return None
+            u = resp.json()[0]
+            prenom = (u.get('first_name') or '').strip()
+            if not prenom:
+                return None
+            nom = (u.get('last_name') or '').strip()
+            return {
+                'id': uid,
+                'prenom': prenom,
+                'email': (u.get('email') or '').strip() or None,
+                'nom_complet': f"{prenom} {nom}".strip(),
+            }
+        except Exception:
+            return None
+
+    def _ask_claude_json(self, system_prompt: str, user_content: str,
+                         max_tokens: int = 200) -> Optional[Dict[str, Any]]:
+        """
+        Appel one-shot à Claude qui doit répondre en JSON. Extrait le premier objet
+        {...} (robuste aux blocs ``` ou au texte parasite). Retourne le dict parsé,
+        ou None si pas de clé API / erreur / JSON invalide. N'échoue jamais fort.
+        """
+        try:
+            api_key = os.getenv('ANTHROPIC_API_KEY')
+            if not api_key:
+                return None
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            raw = response.content[0].text.strip()
+            import re
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if m:
+                raw = m.group(0)
+            return json.loads(raw)
+        except Exception as e:
+            print(f"   [avertissement] Appel Claude JSON: {e}")
+            return None
+
     def _analyze_cancellation(self, appointment_external_id: str) -> Dict[str, Any]:
         """
         Lit la timeline du client d'un RV annulé pour en tirer, quand c'est possible :
           - la RAISON de l'annulation (texte libre, déduit par Claude, jamais inventé) ;
-          - l'AUTEUR de l'annulation, c.-à-d. le membre de l'équipe qui l'a faite, via
-            l'entrée SYSTEM_MESSAGE « Rendez-vous annulé pour <date> » qui porte son
-            user_id.
+          - l'AUTEUR de l'annulation (membre de l'équipe), via l'entrée SYSTEM_MESSAGE
+            « Rendez-vous annulé pour <date> » qui porte son user_id.
 
         Gazelle n'expose ni raison ni « qui a annulé » sur le RV lui-même (l'annulation
         est détectée par absence). La seule trace fiable vit dans la timeline du client.
-        On laisse Claude lire ce texte libre (pas un filtre de mots-clés) : il corrèle
-        avec la date/titre du RV, en extrait la raison et le user_id de l'auteur.
 
         Retourne {reason, author_id, author_prenom, author_email}. Tout champ inconnu
         vaut None. Tolérant aux pannes : toute erreur -> dict vide.
         """
         empty = {'reason': None, 'author_id': None, 'author_prenom': None, 'author_email': None}
         try:
-            api_key = os.getenv('ANTHROPIC_API_KEY')
-            if not api_key:
+            appt, timeline_text, known_user_ids = self._load_timeline_context(appointment_external_id)
+            if not appt:
                 return empty
-
-            # 1. Retrouver le client + contexte du RV annulé.
-            appt_url = (
-                f"{self.storage.api_url}/gazelle_appointments"
-                f"?external_id=eq.{appointment_external_id}"
-                f"&select=client_external_id,appointment_date,appointment_time,title"
-                f"&limit=1"
-            )
-            appt_resp = requests.get(appt_url, headers=self.storage._get_headers())
-            if appt_resp.status_code != 200 or not appt_resp.json():
-                return empty
-            appt = appt_resp.json()[0]
-            client_id = appt.get('client_external_id')
-            if not client_id:
-                # RV sans client rattaché (ex. note de planif) : pas de timeline à lire.
-                return empty
-
-            # 2. Entrées récentes de la timeline du client (texte libre + user_id).
-            from core.timezone_utils import MONTREAL_TZ
-            now = datetime.now(MONTREAL_TZ)
-            cutoff = (now - timedelta(days=21)).strftime('%Y-%m-%dT%H:%M:%S')
-            tl_url = (
-                f"{self.storage.api_url}/gazelle_timeline_entries"
-                f"?client_id=eq.{client_id}"
-                f"&occurred_at=gte.{cutoff}"
-                f"&order=occurred_at.desc"
-                f"&limit=40"
-                f"&select=occurred_at,entry_type,user_id,title,description"
-            )
-            tl_resp = requests.get(tl_url, headers=self.storage._get_headers())
-            if tl_resp.status_code != 200 or not tl_resp.json():
-                return empty
-            entries = tl_resp.json()
-
-            # Compacter les entrées pour le prompt. On expose le user_id entre crochets
-            # pour que Claude puisse renvoyer l'auteur de l'annulation.
-            known_user_ids = set()
-            lines = []
-            for e in entries:
-                parts = [str(e.get(k, '')).strip() for k in ('title', 'description')]
-                txt = ' — '.join([p for p in parts if p])
-                if not txt:
-                    continue
-                uid = (e.get('user_id') or '').strip()
-                if uid:
-                    known_user_ids.add(uid)
-                when = str(e.get('occurred_at', ''))[:16]
-                lines.append(f"[{when} | {e.get('entry_type', '')} | {uid or '-'}] {txt}")
-            if not lines:
-                return empty
-            timeline_text = "\n".join(lines[:40])
-
-            # 3. Laisser Claude corréler : raison + user_id de l'auteur de l'annulation.
-            from anthropic import Anthropic
-            client = Anthropic(api_key=api_key)
 
             appt_ctx = (
                 f"Date du RV annulé : {appt.get('appointment_date', '?')} "
@@ -200,23 +259,10 @@ class LateAssignmentNotifier:
                 f"Entrées récentes de la timeline du client (plus récentes en haut) :\n"
                 f"{timeline_text}"
             )
+            parsed = self._ask_claude_json(system_prompt, user_content)
+            if not parsed:
+                return empty
 
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=200,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_content}],
-            )
-            raw = response.content[0].text.strip()
-            # Extraire le premier objet JSON, même si Claude entoure d'un bloc
-            # ``` ou ajoute du texte avant/après (évite les erreurs "Extra data").
-            import re
-            m = re.search(r'\{.*\}', raw, re.DOTALL)
-            if m:
-                raw = m.group(0)
-            parsed = json.loads(raw)
-
-            # Raison (ou rien).
             reason = parsed.get('raison')
             if reason and str(reason).strip():
                 reason = str(reason).strip().rstrip('.')
@@ -225,28 +271,69 @@ class LateAssignmentNotifier:
             else:
                 reason = None
 
-            # Auteur. Garde-fou anti-hallucination : le user_id doit réellement
-            # apparaître dans les entrées, ET correspondre à un membre connu de
-            # l'équipe (sinon on ne peut ni le nommer ni le contacter).
-            author_id = author_prenom = author_email = None
-            cand = parsed.get('auteur_user_id')
-            cand = str(cand).strip() if cand else ''
-            if cand and cand in known_user_ids:
-                tech = get_technicien_by_id(cand)
-                if tech and tech.get('email'):
-                    author_id = cand
-                    author_prenom = tech.get('prenom')
-                    author_email = tech.get('email')
-
+            author = self._resolve_user(parsed.get('auteur_user_id'), known_user_ids)
             return {
                 'reason': reason,
-                'author_id': author_id,
-                'author_prenom': author_prenom,
-                'author_email': author_email,
+                'author_id': author['id'] if author else None,
+                'author_prenom': author['prenom'] if author else None,
+                'author_email': author['email'] if author else None,
             }
 
         except Exception as e:
             print(f"   [avertissement] Analyse annulation {appointment_external_id}: {e}")
+            return empty
+
+    def _analyze_reschedule(self, appointment_external_id: str) -> Dict[str, Any]:
+        """
+        Identifie QUI a déplacé un RV (changé sa date/heure), via l'entrée
+        SYSTEM_MESSAGE « Rendez-vous ... modifié pour <date> » de la timeline du
+        client. Pas de « raison » : un déplacement n'en documente pas.
+
+        Retourne {author_id, author_prenom, author_email} ; champs None si l'auteur
+        n'est pas déterminé. Tolérant aux pannes : toute erreur -> dict vide.
+        """
+        empty = {'author_id': None, 'author_prenom': None, 'author_email': None}
+        try:
+            appt, timeline_text, known_user_ids = self._load_timeline_context(appointment_external_id)
+            if not appt:
+                return empty
+
+            appt_ctx = (
+                f"Nouvelle date du RV déplacé : {appt.get('appointment_date', '?')} "
+                f"{appt.get('appointment_time', '') or ''}\n"
+                f"Titre du RV : {appt.get('title', '') or '(sans titre)'}"
+            )
+            system_prompt = (
+                "Tu analyses la timeline (journal) d'un client de Piano Tek Musique pour "
+                "identifier QUI a déplacé (changé la date ou l'heure) un rendez-vous "
+                "précis. Chaque ligne est préfixée par [date | type | user_id].\n\n"
+                "auteur_user_id : le user_id (format usr_...) de l'entrée qui ENREGISTRE le "
+                "déplacement de CE rendez-vous — souvent un SYSTEM_MESSAGE « Rendez-vous ... "
+                "modifié pour <date> » dont la date correspond. Recopie le user_id tel quel. "
+                "Si aucune entrée de déplacement correspondante, auteur_user_id=null. "
+                "N'invente jamais un user_id qui n'est pas dans le texte.\n\n"
+                'Réponds UNIQUEMENT en JSON : {"auteur_user_id": <usr_...|null>}'
+            )
+            user_content = (
+                f"{appt_ctx}\n\n"
+                f"Entrées récentes de la timeline du client (plus récentes en haut) :\n"
+                f"{timeline_text}"
+            )
+            parsed = self._ask_claude_json(system_prompt, user_content, max_tokens=80)
+            if not parsed:
+                return empty
+
+            author = self._resolve_user(parsed.get('auteur_user_id'), known_user_ids)
+            if not author:
+                return empty
+            return {
+                'author_id': author['id'],
+                'author_prenom': author['prenom'],
+                'author_email': author['email'],
+            }
+
+        except Exception as e:
+            print(f"   [avertissement] Analyse déplacement {appointment_external_id}: {e}")
             return empty
 
     def _send_documentation_nudge(self, author_prenom: str, author_email: str,
@@ -396,11 +483,28 @@ class LateAssignmentNotifier:
                     f"Assistant Gazelle"
                 )
             elif change_type == 'rescheduled':
+                resched = self._analyze_reschedule(queue_item.get('appointment_external_id'))
+                mover_id = resched.get('author_id')
+                mover_prenom = resched.get('author_prenom')
+
+                # Si c'est le technicien lui-même qui a déplacé son RV : rien faire.
+                # Il le sait déjà, l'alerte ne serait que du bruit. (On ne supprime
+                # que sur identification POSITIVE de l'auteur = le tech ; en cas de
+                # doute, l'alerte part normalement.)
+                if mover_id and mover_id == technician_id:
+                    print(f"   RV déplacé par le tech lui-même ({technician_name}) -> pas d'alerte")
+                    return True
+
                 subject = "Rendez-vous déplacé"
+                if mover_prenom and mover_id != technician_id:
+                    mover_text = f"Déplacé par {mover_prenom}. À contacter au besoin.\n\n"
+                else:
+                    mover_text = ""
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :\n"
                     f"{location_text.lstrip(', ')}, {client_name}.\n\n"
+                    f"{mover_text}"
                     f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
                     f"Cordialement,\n"
                     f"Assistant Gazelle"
