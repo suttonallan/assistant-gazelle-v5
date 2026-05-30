@@ -369,6 +369,27 @@ class LateAssignmentNotifier:
         except Exception as e:
             print(f"   [avertissement] Nudge documentation: {e}")
 
+    def _compose_alert_body(self, technician_name: str, intro: str, detail: str,
+                            footer: str, extra: str = "") -> str:
+        """
+        Assemble un corps d'alerte de façon uniforme pour tous les types de
+        changement : salutation, `intro` (ligne d'accroche terminée par « : »),
+        `detail` (description du RV), `extra` (ligne d'acteur optionnelle, déjà
+        terminée par un double saut de ligne ou vide), `footer`, signature.
+
+        Chaque type de changement fournit ses propres intro/detail/footer ; seule
+        l'enveloppe (salutation + signature + structure) est mutualisée ici.
+        """
+        return (
+            f"Bonjour {technician_name},\n\n"
+            f"{intro}\n"
+            f"{detail}\n\n"
+            f"{extra}"
+            f"{footer}\n\n"
+            f"Cordialement,\n"
+            f"Assistant Gazelle"
+        )
+
     def _send_alert(self, queue_item: Dict[str, Any]) -> bool:
         """
         Envoie l'email d'alerte pour un item de la queue.
@@ -445,7 +466,8 @@ class LateAssignmentNotifier:
             location_text = f", {location}" if location else ""
             change_type = queue_item.get('change_type', 'new')
 
-            # Sujet et corps adaptés au type de changement
+            # Sujet + parties (intro/detail/footer/extra) adaptés au type de
+            # changement, assemblés ensuite par _compose_alert_body.
             if change_type == 'cancelled':
                 subject = "Plage libérée — rendez-vous annulé"
                 analysis = self._analyze_cancellation(queue_item.get('appointment_external_id'))
@@ -455,11 +477,11 @@ class LateAssignmentNotifier:
                 author_id = analysis.get('author_id')
 
                 if reason:
-                    reason_text = f"Raison : {reason}.\n\n"
+                    extra = f"Raison : {reason}.\n\n"
                 elif author_prenom and author_id != technician_id:
                     # Annulation non documentée, mais on connaît l'auteur (et ce n'est
                     # pas le tech notifié) : on le nomme ici ET on le relance séparément.
-                    reason_text = (
+                    extra = (
                         f"{author_prenom} a annulé le rendez-vous sans documenter de raison. "
                         f"À contacter au besoin.\n\n"
                     )
@@ -472,15 +494,14 @@ class LateAssignmentNotifier:
                         location=location,
                     )
                 else:
-                    reason_text = "Le système n'a pas trouvé de raison.\n\n"
-                plain_content = (
-                    f"Bonjour {technician_name},\n\n"
-                    f"Le rendez-vous {date_text}{time_text} a été annulé :\n"
-                    f"{location_text.lstrip(', ')}, {client_name}.\n\n"
-                    f"{reason_text}"
-                    f"Cette plage est maintenant libre dans votre calendrier.\n\n"
-                    f"Cordialement,\n"
-                    f"Assistant Gazelle"
+                    extra = "Le système n'a pas trouvé de raison.\n\n"
+
+                plain_content = self._compose_alert_body(
+                    technician_name,
+                    intro=f"Le rendez-vous {date_text}{time_text} a été annulé :",
+                    detail=f"{location_text.lstrip(', ')}, {client_name}.",
+                    footer="Cette plage est maintenant libre dans votre calendrier.",
+                    extra=extra,
                 )
             elif change_type == 'rescheduled':
                 resched = self._analyze_reschedule(queue_item.get('appointment_external_id'))
@@ -496,38 +517,31 @@ class LateAssignmentNotifier:
                     return True
 
                 subject = "Rendez-vous déplacé"
+                extra = ""
                 if mover_prenom and mover_id != technician_id:
-                    mover_text = f"Déplacé par {mover_prenom}. À contacter au besoin.\n\n"
-                else:
-                    mover_text = ""
-                plain_content = (
-                    f"Bonjour {technician_name},\n\n"
-                    f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :\n"
-                    f"{location_text.lstrip(', ')}, {client_name}.\n\n"
-                    f"{mover_text}"
-                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
-                    f"Cordialement,\n"
-                    f"Assistant Gazelle"
+                    extra = f"Déplacé par {mover_prenom}. À contacter au besoin.\n\n"
+                plain_content = self._compose_alert_body(
+                    technician_name,
+                    intro=f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :",
+                    detail=f"{location_text.lstrip(', ')}, {client_name}.",
+                    footer="Merci de consulter 'Ma Journée' pour les détails.",
+                    extra=extra,
                 )
             elif change_type == 'reassigned':
                 subject = "Rendez-vous assigné"
-                plain_content = (
-                    f"Bonjour {technician_name},\n\n"
-                    f"Un rendez-vous vous a été assigné pour {date_text} :\n"
-                    f"{location_text.lstrip(', ')}{time_text}, {client_name}.\n\n"
-                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
-                    f"Cordialement,\n"
-                    f"Assistant Gazelle"
+                plain_content = self._compose_alert_body(
+                    technician_name,
+                    intro=f"Un rendez-vous vous a été assigné pour {date_text} :",
+                    detail=f"{location_text.lstrip(', ')}{time_text}, {client_name}.",
+                    footer="Merci de consulter 'Ma Journée' pour les détails.",
                 )
             else:  # 'new'
                 subject = "Nouveau rendez-vous"
-                plain_content = (
-                    f"Bonjour {technician_name},\n\n"
-                    f"Un nouveau rendez-vous a été ajouté pour {date_text} :\n"
-                    f"{location_text.lstrip(', ')}{time_text}, {client_name}.\n\n"
-                    f"Merci de consulter 'Ma Journée' pour les détails.\n\n"
-                    f"Cordialement,\n"
-                    f"Assistant Gazelle"
+                plain_content = self._compose_alert_body(
+                    technician_name,
+                    intro=f"Un nouveau rendez-vous a été ajouté pour {date_text} :",
+                    detail=f"{location_text.lstrip(', ')}{time_text}, {client_name}.",
+                    footer="Merci de consulter 'Ma Journée' pour les détails.",
                 )
             
             # Envoyer l'email (texte brut uniquement)
