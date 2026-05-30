@@ -21,6 +21,8 @@ from core.supabase_storage import SupabaseStorage
 from core.email_notifier import EmailNotifier
 from core.timezone_utils import MONTREAL_TZ
 from config.techniciens_config import GAZELLE_IDS, get_technicien_by_id
+import os
+import json
 import requests
 
 
@@ -39,7 +41,7 @@ class LateAssignmentNotifier:
         Returns:
             Dict avec stats (processed, sent, failed)
         """
-        print("\n📧 Traitement de la file d'attente late_assignment_queue...")
+        print("\nTraitement de la file d'attente late_assignment_queue...")
         
         now = datetime.now(MONTREAL_TZ)
         # Convertir en UTC pour la comparaison (scheduled_send_at est stocké en UTC)
@@ -59,16 +61,16 @@ class LateAssignmentNotifier:
             response = requests.get(url, headers=self.storage._get_headers())
             
             if response.status_code != 200:
-                print(f"❌ Erreur récupération queue: {response.status_code}")
+                print(f"Erreur récupération queue: {response.status_code}")
                 return {'processed': 0, 'sent': 0, 'failed': 0, 'errors': [f"Erreur API: {response.status_code}"]}
             
             queue_items = response.json() or []
             
             if not queue_items:
-                print("   ✅ Aucune alerte à envoyer")
+                print("   Aucune alerte à envoyer")
                 return {'processed': 0, 'sent': 0, 'failed': 0}
             
-            print(f"   📋 {len(queue_items)} alerte(s) à traiter")
+            print(f"   {len(queue_items)} alerte(s) à traiter")
             
             stats = {'processed': 0, 'sent': 0, 'failed': 0, 'errors': []}
             
@@ -85,16 +87,136 @@ class LateAssignmentNotifier:
                     # Marquer comme failed
                     self._mark_as_failed(item['id'], "Erreur lors de l'envoi")
             
-            print(f"   ✅ Traitement terminé: {stats['sent']} envoyé(s), {stats['failed']} échec(s)")
+            print(f"   Traitement terminé: {stats['sent']} envoyé(s), {stats['failed']} échec(s)")
             return stats
             
         except Exception as e:
             error_msg = f"Erreur traitement queue: {e}"
-            print(f"❌ {error_msg}")
+            print(f"{error_msg}")
             import traceback
             traceback.print_exc()
             return {'processed': 0, 'sent': 0, 'failed': 0, 'errors': [error_msg]}
     
+    def _get_cancellation_reason(self, appointment_external_id: str) -> Optional[str]:
+        """
+        Tente de déduire POURQUOI un RV a été annulé en lisant la timeline du client.
+
+        La raison n'existe sur aucun champ du RV (Gazelle n'expose pas de
+        `cancelledReason` ; l'annulation est détectée par absence). Mais quand
+        l'annulation est faite, une entrée de timeline est souvent ajoutée sur le
+        client (« annulé à la demande du client », « événement annulé »,
+        « reporté », etc.). On récupère les entrées récentes du client et on laisse
+        Claude lire ce texte libre pour en extraire la raison — pas un simple
+        filtre de mots-clés, donc ça attrape les formulations qu'on n'a pas
+        prévues. Si rien ne décrit clairement l'annulation, on retourne None
+        (on n'invente pas de raison).
+
+        Tolérant aux pannes : toute erreur retourne None, l'alerte part sans raison.
+        """
+        try:
+            api_key = os.getenv('ANTHROPIC_API_KEY')
+            if not api_key:
+                return None
+
+            # 1. Retrouver le client du RV annulé.
+            appt_url = (
+                f"{self.storage.api_url}/gazelle_appointments"
+                f"?external_id=eq.{appointment_external_id}"
+                f"&select=client_external_id,appointment_date,appointment_time,title"
+                f"&limit=1"
+            )
+            appt_resp = requests.get(appt_url, headers=self.storage._get_headers())
+            if appt_resp.status_code != 200 or not appt_resp.json():
+                return None
+            appt = appt_resp.json()[0]
+            client_id = appt.get('client_external_id')
+            if not client_id:
+                # RV sans client rattaché (ex. note de planif) : pas de timeline à lire.
+                return None
+
+            # 2. Entrées récentes de la timeline du client (texte libre).
+            from core.timezone_utils import MONTREAL_TZ
+            now = datetime.now(MONTREAL_TZ)
+            cutoff = (now - timedelta(days=21)).strftime('%Y-%m-%dT%H:%M:%S')
+            tl_url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries"
+                f"?client_id=eq.{client_id}"
+                f"&occurred_at=gte.{cutoff}"
+                f"&order=occurred_at.desc"
+                f"&limit=40"
+                f"&select=occurred_at,entry_type,title,description"
+            )
+            tl_resp = requests.get(tl_url, headers=self.storage._get_headers())
+            if tl_resp.status_code != 200 or not tl_resp.json():
+                return None
+            entries = tl_resp.json()
+
+            # Compacter les entrées pour le prompt (titre + description non vides).
+            lines = []
+            for e in entries:
+                parts = [str(e.get(k, '')).strip() for k in ('title', 'description')]
+                txt = ' — '.join([p for p in parts if p])
+                if not txt:
+                    continue
+                when = str(e.get('occurred_at', ''))[:16]
+                lines.append(f"[{when} | {e.get('entry_type', '')}] {txt}")
+            if not lines:
+                return None
+            timeline_text = "\n".join(lines[:40])
+
+            # 3. Laisser Claude corréler et extraire la raison (ou rien).
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key)
+
+            appt_ctx = (
+                f"Date du RV annulé : {appt.get('appointment_date', '?')} "
+                f"{appt.get('appointment_time', '') or ''}\n"
+                f"Titre du RV : {appt.get('title', '') or '(sans titre)'}"
+            )
+            system_prompt = (
+                "Tu analyses la timeline (journal) d'un client de Piano Tek Musique pour "
+                "trouver POURQUOI un rendez-vous précis a été annulé.\n\n"
+                "Règles strictes :\n"
+                "- Base-toi UNIQUEMENT sur le texte fourni. N'invente jamais de raison.\n"
+                "- Trouve l'entrée qui explique l'annulation de CE rendez-vous (corrèle "
+                "avec la date et le titre du RV). Ignore les entrées sans rapport.\n"
+                "- Si aucune entrée n'explique clairement l'annulation, retourne raison=null. "
+                "Mieux vaut rien qu'une supposition.\n"
+                "- La raison doit être courte (max ~12 mots), en français du Québec, factuelle, "
+                "sans guillemets ni point final.\n\n"
+                'Réponds UNIQUEMENT avec un JSON : {"raison": "..."} ou {"raison": null}'
+            )
+            user_content = (
+                f"{appt_ctx}\n\n"
+                f"Entrées récentes de la timeline du client (plus récentes en haut) :\n"
+                f"{timeline_text}"
+            )
+
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=150,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            raw = response.content[0].text.strip()
+            if raw.startswith("```"):
+                import re
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```$', '', raw)
+            parsed = json.loads(raw)
+            reason = parsed.get('raison')
+            if not reason or not str(reason).strip():
+                return None
+            reason = str(reason).strip().rstrip('.')
+            # Garde-fou longueur (au cas où le modèle déborde).
+            if len(reason) > 120:
+                reason = reason[:117] + '...'
+            return reason
+
+        except Exception as e:
+            print(f"   [avertissement] Extraction raison d'annulation {appointment_external_id}: {e}")
+            return None
+
     def _send_alert(self, queue_item: Dict[str, Any]) -> bool:
         """
         Envoie l'email d'alerte pour un item de la queue.
@@ -110,7 +232,7 @@ class LateAssignmentNotifier:
 
             # Filtrer: seulement les techniciens connus (pas Louise/assistants)
             if technician_id not in GAZELLE_IDS:
-                print(f"   ⏭️  {technician_id} n'est pas un technicien → alerte ignorée")
+                print(f"   {technician_id} n'est pas un technicien -> alerte ignorée")
                 return True  # Retourner True pour marquer comme "traité" sans erreur
 
             appointment_date = queue_item.get('appointment_date')
@@ -123,7 +245,7 @@ class LateAssignmentNotifier:
                     appt_date = date_class.fromisoformat(str(appointment_date)[:10])
                     today = datetime.now(MONTREAL_TZ).date()
                     if appt_date < today:
-                        print(f"   ⏭️  RV {appointment_date} est passé → alerte annulée")
+                        print(f"   RV {appointment_date} est passé -> alerte annulée")
                         return True
                 except Exception:
                     pass
@@ -133,14 +255,14 @@ class LateAssignmentNotifier:
             # Récupérer l'email du technicien depuis techniciens_config (source de vérité)
             tech = get_technicien_by_id(technician_id)
             if not tech:
-                print(f"   ⚠️  Technicien {technician_id} non trouvé dans techniciens_config")
+                print(f"   Technicien {technician_id} non trouvé dans techniciens_config")
                 return False
 
             email = tech['email']
             technician_name = tech['prenom']
             
             if not email:
-                print(f"   ⚠️  Pas d'email pour technicien {technician_id}")
+                print(f"   Pas d'email pour technicien {technician_id}")
                 return False
             
             # Déterminer "aujourd'hui" ou "demain"
@@ -173,17 +295,20 @@ class LateAssignmentNotifier:
 
             # Sujet et corps adaptés au type de changement
             if change_type == 'cancelled':
-                subject = "📋 Plage libérée — rendez-vous annulé"
+                subject = "Plage libérée — rendez-vous annulé"
+                reason = self._get_cancellation_reason(queue_item.get('appointment_external_id'))
+                reason_text = f"Raison : {reason}.\n\n" if reason else ""
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Le rendez-vous {date_text}{time_text} a été annulé :\n"
                     f"{location_text.lstrip(', ')}, {client_name}.\n\n"
+                    f"{reason_text}"
                     f"Cette plage est maintenant libre dans votre calendrier.\n\n"
                     f"Cordialement,\n"
                     f"Assistant Gazelle"
                 )
             elif change_type == 'rescheduled':
-                subject = "🔄 Rendez-vous déplacé"
+                subject = "Rendez-vous déplacé"
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :\n"
@@ -193,7 +318,7 @@ class LateAssignmentNotifier:
                     f"Assistant Gazelle"
                 )
             elif change_type == 'reassigned':
-                subject = "⚠️ Rendez-vous assigné"
+                subject = "Rendez-vous assigné"
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Un rendez-vous vous a été assigné pour {date_text} :\n"
@@ -203,7 +328,7 @@ class LateAssignmentNotifier:
                     f"Assistant Gazelle"
                 )
             else:  # 'new'
-                subject = "⚠️ Nouveau rendez-vous"
+                subject = "Nouveau rendez-vous"
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Un nouveau rendez-vous a été ajouté pour {date_text} :\n"
@@ -222,14 +347,14 @@ class LateAssignmentNotifier:
             )
             
             if success:
-                print(f"   ✅ Email envoyé à {email} pour RV {queue_item.get('appointment_external_id')}")
+                print(f"   Email envoyé à {email} pour RV {queue_item.get('appointment_external_id')}")
             else:
-                print(f"   ❌ Échec envoi email à {email}")
+                print(f"   Échec envoi email à {email}")
             
             return success
             
         except Exception as e:
-            print(f"   ❌ Erreur envoi alerte {queue_item.get('id')}: {e}")
+            print(f"   Erreur envoi alerte {queue_item.get('id')}: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -250,7 +375,7 @@ class LateAssignmentNotifier:
             requests.patch(url, headers=headers, json=data)
             
         except Exception as e:
-            print(f"   ⚠️  Erreur marquage sent {queue_id}: {e}")
+            print(f"   Erreur marquage sent {queue_id}: {e}")
     
     def _mark_as_failed(self, queue_id: str, error_message: str):
         """Marque un item de la queue comme échoué."""
@@ -268,14 +393,14 @@ class LateAssignmentNotifier:
             requests.patch(url, headers=headers, json=data)
             
         except Exception as e:
-            print(f"   ⚠️  Erreur marquage failed {queue_id}: {e}")
+            print(f"   Erreur marquage failed {queue_id}: {e}")
 
 
 def main():
     """Point d'entrée pour exécution standalone."""
     notifier = LateAssignmentNotifier()
     result = notifier.process_queue()
-    print(f"\n📊 Résultat: {result}")
+    print(f"\nRésultat: {result}")
     return result
 
 
