@@ -99,12 +99,12 @@ class LateAssignmentNotifier:
     
     def _load_timeline_context(self, appointment_external_id: str):
         """
-        Charge le RV + les entrées récentes (21 j) de la timeline de son client,
-        formatées pour Claude (une ligne « [date | type | user_id] texte »).
+        Charge le RV + les entrées récentes (21 j) de la timeline de son client.
 
-        Retourne (appt, timeline_text, known_user_ids) ou (None, None, None) si le
-        RV n'a pas de client rattaché ou si la timeline est vide. `known_user_ids`
-        sert de garde-fou anti-hallucination pour résoudre l'auteur ensuite.
+        Retourne (appt, entries, timeline_text) ou (None, None, None) si le RV n'a
+        pas de client rattaché ou si la timeline est vide. `entries` = liste brute
+        (pour la détection déterministe de l'auteur) ; `timeline_text` = version
+        compacte une-ligne-par-entrée (pour l'extraction de la raison par Claude).
         """
         appt_url = (
             f"{self.storage.api_url}/gazelle_appointments"
@@ -134,22 +134,20 @@ class LateAssignmentNotifier:
         tl_resp = requests.get(tl_url, headers=self.storage._get_headers())
         if tl_resp.status_code != 200 or not tl_resp.json():
             return None, None, None
+        entries = tl_resp.json()
 
-        known_user_ids = set()
         lines = []
-        for e in tl_resp.json():
+        for e in entries:
             parts = [str(e.get(k, '')).strip() for k in ('title', 'description')]
             txt = ' — '.join([p for p in parts if p])
             if not txt:
                 continue
             uid = (e.get('user_id') or '').strip()
-            if uid:
-                known_user_ids.add(uid)
             when = str(e.get('occurred_at', ''))[:16]
             lines.append(f"[{when} | {e.get('entry_type', '')} | {uid or '-'}] {txt}")
         if not lines:
             return None, None, None
-        return appt, "\n".join(lines[:40]), known_user_ids
+        return appt, entries, "\n".join(lines[:40])
 
     def _resolve_user(self, user_id: Optional[str], known_user_ids: set) -> Optional[Dict[str, Any]]:
         """
@@ -214,25 +212,74 @@ class LateAssignmentNotifier:
             print(f"   [avertissement] Appel Claude JSON: {e}")
             return None
 
+    def _appt_date_token(self, appt: Dict[str, Any]) -> Optional[str]:
+        """
+        Fragment de date anglais que Gazelle écrit dans ses SYSTEM_MESSAGE d'action,
+        p.ex. '2026-05-25' -> 'May 25, 2026'. Sert à apparier l'entrée d'action AU
+        bon rendez-vous (un client peut avoir plusieurs RV).
+        """
+        try:
+            from datetime import date as date_class
+            d = date_class.fromisoformat(str(appt.get('appointment_date') or '')[:10])
+            months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+            return f"{months[d.month]} {d.day}, {d.year}"
+        except Exception:
+            return None
+
+    def _find_action_author(self, entries, appt, keywords) -> Optional[Dict[str, Any]]:
+        """
+        Identifie de façon DÉTERMINISTE l'auteur d'une action (annulation, déplacement)
+        sur un RV. Cherche, parmi les SYSTEM_MESSAGE (texte TEMPLATÉ par Gazelle, pas
+        de la prose libre), la plus récente entrée qui contient un mot-clé d'action ET
+        référence la date du RV, puis résout son user_id via la table `users`.
+
+        Retourne {id, prenom, email, nom_complet} ou None si aucune entrée d'action
+        correspondante. Crucial : on n'attribue JAMAIS un auteur deviné quand l'action
+        n'est pas réellement tracée (sinon risque de nommer/supprimer à tort — cf. cas
+        Yves Daoust où le déplacement réel était hors fenêtre).
+        """
+        date_token = self._appt_date_token(appt)
+        for e in entries or []:
+            if (e.get('entry_type') or '') != 'SYSTEM_MESSAGE':
+                continue
+            title = (e.get('title') or '').lower()
+            if not any(k in title for k in keywords):
+                continue
+            # L'entrée DOIT référencer la date du RV — sinon on n'attribue pas
+            # (évite d'attraper l'action d'un autre RV du même client, ou de deviner).
+            if not date_token or date_token.lower() not in title:
+                continue
+            uid = (e.get('user_id') or '').strip()
+            if uid:
+                return self._resolve_user(uid, {uid})
+        return None
+
+    # Mots-clés des SYSTEM_MESSAGE d'action (templatés par Gazelle).
+    _CANCEL_KEYWORDS = ('annulé', 'annule', 'cancel')
+    _RESCHEDULE_KEYWORDS = ('modifié', 'modifie', 'moved', 'reschedul')
+
     def _analyze_cancellation(self, appointment_external_id: str) -> Dict[str, Any]:
         """
         Lit la timeline du client d'un RV annulé pour en tirer, quand c'est possible :
-          - la RAISON de l'annulation (texte libre, déduit par Claude, jamais inventé) ;
-          - l'AUTEUR de l'annulation (membre de l'équipe), via l'entrée SYSTEM_MESSAGE
-            « Rendez-vous annulé pour <date> » qui porte son user_id.
-
-        Gazelle n'expose ni raison ni « qui a annulé » sur le RV lui-même (l'annulation
-        est détectée par absence). La seule trace fiable vit dans la timeline du client.
+          - l'AUTEUR de l'annulation : DÉTERMINISTE, via l'entrée SYSTEM_MESSAGE
+            « Rendez-vous annulé pour <date> » de Gazelle (jamais deviné) ;
+          - la RAISON de l'annulation : texte libre, déduit par Claude (la seule part
+            qui demande du jugement), jamais inventé.
 
         Retourne {reason, author_id, author_prenom, author_email}. Tout champ inconnu
         vaut None. Tolérant aux pannes : toute erreur -> dict vide.
         """
         empty = {'reason': None, 'author_id': None, 'author_prenom': None, 'author_email': None}
         try:
-            appt, timeline_text, known_user_ids = self._load_timeline_context(appointment_external_id)
+            appt, entries, timeline_text = self._load_timeline_context(appointment_external_id)
             if not appt:
                 return empty
 
+            # Auteur : déterministe (entrée d'annulation templatée + date du RV).
+            author = self._find_action_author(entries, appt, self._CANCEL_KEYWORDS)
+
+            # Raison : texte libre -> Claude.
             appt_ctx = (
                 f"Date du RV annulé : {appt.get('appointment_date', '?')} "
                 f"{appt.get('appointment_time', '') or ''}\n"
@@ -240,28 +287,20 @@ class LateAssignmentNotifier:
             )
             system_prompt = (
                 "Tu analyses la timeline (journal) d'un client de Piano Tek Musique pour "
-                "comprendre l'annulation d'un rendez-vous précis. Chaque ligne est "
+                "trouver POURQUOI un rendez-vous précis a été annulé. Chaque ligne est "
                 "préfixée par [date | type | user_id].\n\n"
-                "Extrais DEUX choses :\n"
-                "1. raison : POURQUOI ce rendez-vous a été annulé. Base-toi UNIQUEMENT sur "
-                "le texte. N'invente jamais. Corrèle avec la date et le titre du RV ; ignore "
-                "les entrées sans rapport. Si rien ne l'explique clairement, raison=null. "
-                "Courte (max ~12 mots), français du Québec, sans guillemets ni point final.\n"
-                "2. auteur_user_id : le user_id (format usr_...) de l'entrée qui ENREGISTRE "
-                "l'annulation de CE rendez-vous — souvent un SYSTEM_MESSAGE « Rendez-vous "
-                "annulé pour <date> » dont la date/heure correspond au RV. Recopie le "
-                "user_id tel quel. Si aucune entrée d'annulation correspondante, "
-                "auteur_user_id=null.\n\n"
-                'Réponds UNIQUEMENT en JSON : {"raison": <texte|null>, "auteur_user_id": <usr_...|null>}'
+                "Base-toi UNIQUEMENT sur le texte. N'invente jamais. Corrèle avec la date "
+                "et le titre du RV ; ignore les entrées sans rapport. Si rien ne l'explique "
+                "clairement, raison=null. Courte (max ~12 mots), français du Québec, sans "
+                "guillemets ni point final.\n\n"
+                'Réponds UNIQUEMENT en JSON : {"raison": <texte|null>}'
             )
             user_content = (
                 f"{appt_ctx}\n\n"
                 f"Entrées récentes de la timeline du client (plus récentes en haut) :\n"
                 f"{timeline_text}"
             )
-            parsed = self._ask_claude_json(system_prompt, user_content)
-            if not parsed:
-                return empty
+            parsed = self._ask_claude_json(system_prompt, user_content, max_tokens=120) or {}
 
             reason = parsed.get('raison')
             if reason and str(reason).strip():
@@ -271,7 +310,6 @@ class LateAssignmentNotifier:
             else:
                 reason = None
 
-            author = self._resolve_user(parsed.get('auteur_user_id'), known_user_ids)
             return {
                 'reason': reason,
                 'author_id': author['id'] if author else None,
@@ -285,45 +323,20 @@ class LateAssignmentNotifier:
 
     def _analyze_reschedule(self, appointment_external_id: str) -> Dict[str, Any]:
         """
-        Identifie QUI a déplacé un RV (changé sa date/heure), via l'entrée
-        SYSTEM_MESSAGE « Rendez-vous ... modifié pour <date> » de la timeline du
-        client. Pas de « raison » : un déplacement n'en documente pas.
+        Identifie QUI a déplacé un RV (changé sa date/heure) de façon DÉTERMINISTE,
+        via l'entrée SYSTEM_MESSAGE « Rendez-vous ... modifié pour <date> » de Gazelle
+        appariée à la date du RV. Pas de Claude, pas de « raison » : un déplacement
+        n'en documente pas, et deviner l'auteur risquerait une fausse suppression.
 
-        Retourne {author_id, author_prenom, author_email} ; champs None si l'auteur
-        n'est pas déterminé. Tolérant aux pannes : toute erreur -> dict vide.
+        Retourne {author_id, author_prenom, author_email} ; champs None si aucune
+        entrée de déplacement correspondante. Tolérant aux pannes : erreur -> dict vide.
         """
         empty = {'author_id': None, 'author_prenom': None, 'author_email': None}
         try:
-            appt, timeline_text, known_user_ids = self._load_timeline_context(appointment_external_id)
+            appt, entries, _ = self._load_timeline_context(appointment_external_id)
             if not appt:
                 return empty
-
-            appt_ctx = (
-                f"Nouvelle date du RV déplacé : {appt.get('appointment_date', '?')} "
-                f"{appt.get('appointment_time', '') or ''}\n"
-                f"Titre du RV : {appt.get('title', '') or '(sans titre)'}"
-            )
-            system_prompt = (
-                "Tu analyses la timeline (journal) d'un client de Piano Tek Musique pour "
-                "identifier QUI a déplacé (changé la date ou l'heure) un rendez-vous "
-                "précis. Chaque ligne est préfixée par [date | type | user_id].\n\n"
-                "auteur_user_id : le user_id (format usr_...) de l'entrée qui ENREGISTRE le "
-                "déplacement de CE rendez-vous — souvent un SYSTEM_MESSAGE « Rendez-vous ... "
-                "modifié pour <date> » dont la date correspond. Recopie le user_id tel quel. "
-                "Si aucune entrée de déplacement correspondante, auteur_user_id=null. "
-                "N'invente jamais un user_id qui n'est pas dans le texte.\n\n"
-                'Réponds UNIQUEMENT en JSON : {"auteur_user_id": <usr_...|null>}'
-            )
-            user_content = (
-                f"{appt_ctx}\n\n"
-                f"Entrées récentes de la timeline du client (plus récentes en haut) :\n"
-                f"{timeline_text}"
-            )
-            parsed = self._ask_claude_json(system_prompt, user_content, max_tokens=80)
-            if not parsed:
-                return empty
-
-            author = self._resolve_user(parsed.get('auteur_user_id'), known_user_ids)
+            author = self._find_action_author(entries, appt, self._RESCHEDULE_KEYWORDS)
             if not author:
                 return empty
             return {
@@ -331,7 +344,6 @@ class LateAssignmentNotifier:
                 'author_prenom': author['prenom'],
                 'author_email': author['email'],
             }
-
         except Exception as e:
             print(f"   [avertissement] Analyse déplacement {appointment_external_id}: {e}")
             return empty
