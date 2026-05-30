@@ -97,28 +97,29 @@ class LateAssignmentNotifier:
             traceback.print_exc()
             return {'processed': 0, 'sent': 0, 'failed': 0, 'errors': [error_msg]}
     
-    def _get_cancellation_reason(self, appointment_external_id: str) -> Optional[str]:
+    def _analyze_cancellation(self, appointment_external_id: str) -> Dict[str, Any]:
         """
-        Tente de déduire POURQUOI un RV a été annulé en lisant la timeline du client.
+        Lit la timeline du client d'un RV annulé pour en tirer, quand c'est possible :
+          - la RAISON de l'annulation (texte libre, déduit par Claude, jamais inventé) ;
+          - l'AUTEUR de l'annulation, c.-à-d. le membre de l'équipe qui l'a faite, via
+            l'entrée SYSTEM_MESSAGE « Rendez-vous annulé pour <date> » qui porte son
+            user_id.
 
-        La raison n'existe sur aucun champ du RV (Gazelle n'expose pas de
-        `cancelledReason` ; l'annulation est détectée par absence). Mais quand
-        l'annulation est faite, une entrée de timeline est souvent ajoutée sur le
-        client (« annulé à la demande du client », « événement annulé »,
-        « reporté », etc.). On récupère les entrées récentes du client et on laisse
-        Claude lire ce texte libre pour en extraire la raison — pas un simple
-        filtre de mots-clés, donc ça attrape les formulations qu'on n'a pas
-        prévues. Si rien ne décrit clairement l'annulation, on retourne None
-        (on n'invente pas de raison).
+        Gazelle n'expose ni raison ni « qui a annulé » sur le RV lui-même (l'annulation
+        est détectée par absence). La seule trace fiable vit dans la timeline du client.
+        On laisse Claude lire ce texte libre (pas un filtre de mots-clés) : il corrèle
+        avec la date/titre du RV, en extrait la raison et le user_id de l'auteur.
 
-        Tolérant aux pannes : toute erreur retourne None, l'alerte part sans raison.
+        Retourne {reason, author_id, author_prenom, author_email}. Tout champ inconnu
+        vaut None. Tolérant aux pannes : toute erreur -> dict vide.
         """
+        empty = {'reason': None, 'author_id': None, 'author_prenom': None, 'author_email': None}
         try:
             api_key = os.getenv('ANTHROPIC_API_KEY')
             if not api_key:
-                return None
+                return empty
 
-            # 1. Retrouver le client du RV annulé.
+            # 1. Retrouver le client + contexte du RV annulé.
             appt_url = (
                 f"{self.storage.api_url}/gazelle_appointments"
                 f"?external_id=eq.{appointment_external_id}"
@@ -127,14 +128,14 @@ class LateAssignmentNotifier:
             )
             appt_resp = requests.get(appt_url, headers=self.storage._get_headers())
             if appt_resp.status_code != 200 or not appt_resp.json():
-                return None
+                return empty
             appt = appt_resp.json()[0]
             client_id = appt.get('client_external_id')
             if not client_id:
                 # RV sans client rattaché (ex. note de planif) : pas de timeline à lire.
-                return None
+                return empty
 
-            # 2. Entrées récentes de la timeline du client (texte libre).
+            # 2. Entrées récentes de la timeline du client (texte libre + user_id).
             from core.timezone_utils import MONTREAL_TZ
             now = datetime.now(MONTREAL_TZ)
             cutoff = (now - timedelta(days=21)).strftime('%Y-%m-%dT%H:%M:%S')
@@ -144,27 +145,32 @@ class LateAssignmentNotifier:
                 f"&occurred_at=gte.{cutoff}"
                 f"&order=occurred_at.desc"
                 f"&limit=40"
-                f"&select=occurred_at,entry_type,title,description"
+                f"&select=occurred_at,entry_type,user_id,title,description"
             )
             tl_resp = requests.get(tl_url, headers=self.storage._get_headers())
             if tl_resp.status_code != 200 or not tl_resp.json():
-                return None
+                return empty
             entries = tl_resp.json()
 
-            # Compacter les entrées pour le prompt (titre + description non vides).
+            # Compacter les entrées pour le prompt. On expose le user_id entre crochets
+            # pour que Claude puisse renvoyer l'auteur de l'annulation.
+            known_user_ids = set()
             lines = []
             for e in entries:
                 parts = [str(e.get(k, '')).strip() for k in ('title', 'description')]
                 txt = ' — '.join([p for p in parts if p])
                 if not txt:
                     continue
+                uid = (e.get('user_id') or '').strip()
+                if uid:
+                    known_user_ids.add(uid)
                 when = str(e.get('occurred_at', ''))[:16]
-                lines.append(f"[{when} | {e.get('entry_type', '')}] {txt}")
+                lines.append(f"[{when} | {e.get('entry_type', '')} | {uid or '-'}] {txt}")
             if not lines:
-                return None
+                return empty
             timeline_text = "\n".join(lines[:40])
 
-            # 3. Laisser Claude corréler et extraire la raison (ou rien).
+            # 3. Laisser Claude corréler : raison + user_id de l'auteur de l'annulation.
             from anthropic import Anthropic
             client = Anthropic(api_key=api_key)
 
@@ -175,16 +181,19 @@ class LateAssignmentNotifier:
             )
             system_prompt = (
                 "Tu analyses la timeline (journal) d'un client de Piano Tek Musique pour "
-                "trouver POURQUOI un rendez-vous précis a été annulé.\n\n"
-                "Règles strictes :\n"
-                "- Base-toi UNIQUEMENT sur le texte fourni. N'invente jamais de raison.\n"
-                "- Trouve l'entrée qui explique l'annulation de CE rendez-vous (corrèle "
-                "avec la date et le titre du RV). Ignore les entrées sans rapport.\n"
-                "- Si aucune entrée n'explique clairement l'annulation, retourne raison=null. "
-                "Mieux vaut rien qu'une supposition.\n"
-                "- La raison doit être courte (max ~12 mots), en français du Québec, factuelle, "
-                "sans guillemets ni point final.\n\n"
-                'Réponds UNIQUEMENT avec un JSON : {"raison": "..."} ou {"raison": null}'
+                "comprendre l'annulation d'un rendez-vous précis. Chaque ligne est "
+                "préfixée par [date | type | user_id].\n\n"
+                "Extrais DEUX choses :\n"
+                "1. raison : POURQUOI ce rendez-vous a été annulé. Base-toi UNIQUEMENT sur "
+                "le texte. N'invente jamais. Corrèle avec la date et le titre du RV ; ignore "
+                "les entrées sans rapport. Si rien ne l'explique clairement, raison=null. "
+                "Courte (max ~12 mots), français du Québec, sans guillemets ni point final.\n"
+                "2. auteur_user_id : le user_id (format usr_...) de l'entrée qui ENREGISTRE "
+                "l'annulation de CE rendez-vous — souvent un SYSTEM_MESSAGE « Rendez-vous "
+                "annulé pour <date> » dont la date/heure correspond au RV. Recopie le "
+                "user_id tel quel. Si aucune entrée d'annulation correspondante, "
+                "auteur_user_id=null.\n\n"
+                'Réponds UNIQUEMENT en JSON : {"raison": <texte|null>, "auteur_user_id": <usr_...|null>}'
             )
             user_content = (
                 f"{appt_ctx}\n\n"
@@ -194,28 +203,84 @@ class LateAssignmentNotifier:
 
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=150,
+                max_tokens=200,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_content}],
             )
             raw = response.content[0].text.strip()
-            if raw.startswith("```"):
-                import re
-                raw = re.sub(r'^```(?:json)?\s*', '', raw)
-                raw = re.sub(r'\s*```$', '', raw)
+            # Extraire le premier objet JSON, même si Claude entoure d'un bloc
+            # ``` ou ajoute du texte avant/après (évite les erreurs "Extra data").
+            import re
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            if m:
+                raw = m.group(0)
             parsed = json.loads(raw)
+
+            # Raison (ou rien).
             reason = parsed.get('raison')
-            if not reason or not str(reason).strip():
-                return None
-            reason = str(reason).strip().rstrip('.')
-            # Garde-fou longueur (au cas où le modèle déborde).
-            if len(reason) > 120:
-                reason = reason[:117] + '...'
-            return reason
+            if reason and str(reason).strip():
+                reason = str(reason).strip().rstrip('.')
+                if len(reason) > 120:
+                    reason = reason[:117] + '...'
+            else:
+                reason = None
+
+            # Auteur. Garde-fou anti-hallucination : le user_id doit réellement
+            # apparaître dans les entrées, ET correspondre à un membre connu de
+            # l'équipe (sinon on ne peut ni le nommer ni le contacter).
+            author_id = author_prenom = author_email = None
+            cand = parsed.get('auteur_user_id')
+            cand = str(cand).strip() if cand else ''
+            if cand and cand in known_user_ids:
+                tech = get_technicien_by_id(cand)
+                if tech and tech.get('email'):
+                    author_id = cand
+                    author_prenom = tech.get('prenom')
+                    author_email = tech.get('email')
+
+            return {
+                'reason': reason,
+                'author_id': author_id,
+                'author_prenom': author_prenom,
+                'author_email': author_email,
+            }
 
         except Exception as e:
-            print(f"   [avertissement] Extraction raison d'annulation {appointment_external_id}: {e}")
-            return None
+            print(f"   [avertissement] Analyse annulation {appointment_external_id}: {e}")
+            return empty
+
+    def _send_documentation_nudge(self, author_prenom: str, author_email: str,
+                                  date_text: str, time_text: str,
+                                  client_name: str, location: str) -> None:
+        """
+        Nudge séparé envoyé à la personne qui a annulé un RV sans documenter de raison,
+        pour l'inviter à noter une courte raison dans Gazelle la prochaine fois.
+        Best-effort : n'interrompt jamais l'alerte au technicien.
+        """
+        try:
+            if not author_email:
+                return
+            loc = f"{location}, " if location else ""
+            subject = "Rappel — documenter l'annulation d'un rendez-vous"
+            plain = (
+                f"Bonjour {author_prenom},\n\n"
+                f"Tu as annulé le rendez-vous {date_text}{time_text} ({loc}{client_name}) "
+                f"sans noter de raison dans Gazelle.\n\n"
+                f"Quand tu annules un rendez-vous, ajoute une courte note (ex. « annulé à la "
+                f"demande du client », « reporté ») : le technicien concerné est alors informé "
+                f"automatiquement de la raison.\n\n"
+                f"Merci,\n"
+                f"Assistant Gazelle"
+            )
+            self.email_notifier.send_email(
+                to_emails=[author_email],
+                subject=subject,
+                html_content=plain.replace('\n', '<br>'),
+                plain_content=plain,
+            )
+            print(f"   Nudge documentation envoyé à {author_email}")
+        except Exception as e:
+            print(f"   [avertissement] Nudge documentation: {e}")
 
     def _send_alert(self, queue_item: Dict[str, Any]) -> bool:
         """
@@ -296,8 +361,31 @@ class LateAssignmentNotifier:
             # Sujet et corps adaptés au type de changement
             if change_type == 'cancelled':
                 subject = "Plage libérée — rendez-vous annulé"
-                reason = self._get_cancellation_reason(queue_item.get('appointment_external_id'))
-                reason_text = f"Raison : {reason}.\n\n" if reason else ""
+                analysis = self._analyze_cancellation(queue_item.get('appointment_external_id'))
+                reason = analysis.get('reason')
+                author_prenom = analysis.get('author_prenom')
+                author_email = analysis.get('author_email')
+                author_id = analysis.get('author_id')
+
+                if reason:
+                    reason_text = f"Raison : {reason}.\n\n"
+                elif author_prenom and author_id != technician_id:
+                    # Annulation non documentée, mais on connaît l'auteur (et ce n'est
+                    # pas le tech notifié) : on le nomme ici ET on le relance séparément.
+                    reason_text = (
+                        f"{author_prenom} a annulé le rendez-vous sans documenter de raison. "
+                        f"À contacter au besoin.\n\n"
+                    )
+                    self._send_documentation_nudge(
+                        author_prenom=author_prenom,
+                        author_email=author_email,
+                        date_text=date_text,
+                        time_text=time_text,
+                        client_name=client_name,
+                        location=location,
+                    )
+                else:
+                    reason_text = "Le système n'a pas trouvé de raison.\n\n"
                 plain_content = (
                     f"Bonjour {technician_name},\n\n"
                     f"Le rendez-vous {date_text}{time_text} a été annulé :\n"
