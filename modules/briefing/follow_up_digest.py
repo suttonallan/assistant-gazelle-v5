@@ -72,6 +72,13 @@ def _build_html(items, today_str):
         est = it["estimate"]
         main_items = est.get("main_items") or []
         items_str = " + ".join(main_items[:3]) if main_items else ""
+        expires_on = est.get("expires_on") or ""
+        if expires_on and expires_on < today_str:
+            expires_cell = (
+                f"<span style='color:#c0392b;font-weight:bold;'>{expires_on} (expirée)</span>"
+            )
+        else:
+            expires_cell = expires_on or "?"
         rows.append(
             f"<tr>"
             f"<td style='padding:10px 8px;border-bottom:1px solid #eee;'>"
@@ -80,6 +87,8 @@ def _build_html(items, today_str):
             f"#{est.get('number','?')}</td>"
             f"<td style='padding:10px 8px;border-bottom:1px solid #eee;'>"
             f"{est.get('estimated_on','?')}</td>"
+            f"<td style='padding:10px 8px;border-bottom:1px solid #eee;'>"
+            f"{expires_cell}</td>"
             f"<td style='padding:10px 8px;border-bottom:1px solid #eee;'>"
             f"<strong>{est.get('total_dollars','?')} $</strong></td>"
             f"<td style='padding:10px 8px;border-bottom:1px solid #eee;'>"
@@ -106,6 +115,7 @@ def _build_html(items, today_str):
   <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">Client</th>
   <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">#</th>
   <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">Date</th>
+  <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">Expire le</th>
   <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">Total</th>
   <th style="text-align:left;padding:10px 8px;border-bottom:2px solid #ccc;">Services</th>
 </tr></thead>
@@ -137,7 +147,7 @@ async def run_follow_up_digest() -> Dict:
     query($f: PrivateAllEstimatesFilter) {
         allEstimates(first: 200, filters: $f) {
             nodes {
-                id number estimatedOn recommendedTierTotal tags
+                id number estimatedOn expiresOn recommendedTierTotal tags
                 client { id defaultContact { firstName lastName } companyName }
                 allEstimateTiers {
                     isPrimary
@@ -219,6 +229,7 @@ async def run_follow_up_digest() -> Dict:
             "estimate": {
                 "number": number,
                 "estimated_on": (est.get("estimatedOn") or "")[:10],
+                "expires_on": (est.get("expiresOn") or "")[:10],
                 "total_cents": total_cents,
                 "total_dollars": f"{total_cents/100:,.0f}".replace(",", " "),
                 "main_items": top_items,
