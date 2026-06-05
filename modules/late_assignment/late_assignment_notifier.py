@@ -348,6 +348,39 @@ class LateAssignmentNotifier:
             print(f"   [avertissement] Analyse déplacement {appointment_external_id}: {e}")
             return empty
 
+    def _appointment_still_active_in_gazelle(self, external_id, appointment_date) -> bool:
+        """
+        Re-vérifie EN DIRECT dans Gazelle si le RV existe encore et est ACTIVE,
+        PEU IMPORTE le technicien.
+
+        Garde anti-faux-positif : une « annulation » détectée par absence du RV chez
+        un technicien peut n'être qu'un glitch de synchro OU une réassignation à un
+        autre technicien — dans les deux cas le RV n'est PAS annulé. Si le RV est
+        toujours ACTIVE dans Gazelle, l'alerte « rendez-vous annulé » ne doit pas
+        partir (elle serait fausse).
+
+        Retourne True UNIQUEMENT si on confirme que le RV est ACTIVE ; en cas de
+        doute ou d'erreur -> False (on laisse l'alerte partir, pour ne jamais rater
+        une vraie annulation).
+        """
+        try:
+            if not (external_id and appointment_date):
+                return False
+            if not hasattr(self, '_gz'):
+                from core.gazelle_api_client import GazelleAPIClient
+                self._gz = GazelleAPIClient()
+            d = str(appointment_date)[:10]
+            q = ('query($f: PrivateAllEventsFilter){ allEventsBatched(first:200, filters:$f)'
+                 '{ nodes{ id status } } }')
+            res = self._gz._execute_query(q, {'f': {'dateGet': d, 'dateLet': d}})
+            nodes = ((res.get('data') or {}).get('allEventsBatched') or {}).get('nodes') or []
+            for nd in nodes:
+                if nd.get('id') == external_id and str(nd.get('status') or '').upper() == 'ACTIVE':
+                    return True
+            return False
+        except Exception:
+            return False
+
     def _send_documentation_nudge(self, author_prenom: str, author_email: str,
                                   date_text: str, time_text: str,
                                   client_name: str, location: str) -> None:
@@ -509,6 +542,12 @@ class LateAssignmentNotifier:
             # Sujet + parties (intro/detail/footer/extra) adaptés au type de
             # changement, assemblés ensuite par _compose_alert_body.
             if change_type == 'cancelled':
+                # Garde anti-faux-positif : si le RV est en fait toujours ACTIVE dans
+                # Gazelle (glitch de synchro l'ayant fait « disparaître »), ne pas
+                # envoyer l'alerte d'annulation — la plage n'est pas libérée.
+                if self._appointment_still_active_in_gazelle(ext_id, appointment_date):
+                    print(f"   RV {ext_id} toujours ACTIVE dans Gazelle (glitch ou réassignation) -> alerte annulée")
+                    return True
                 subject = "Plage libérée — rendez-vous annulé"
                 analysis = self._analyze_cancellation(queue_item.get('appointment_external_id'))
                 reason = analysis.get('reason')
