@@ -423,6 +423,27 @@ class LateAssignmentNotifier:
             appointment_date = queue_item.get('appointment_date')
             appointment_time = queue_item.get('appointment_time', '')
 
+            # Le titre/lieu/heure réels du RV (la file peut les avoir vides, ce qui
+            # donnait des alertes du genre « , Client. »). On va chercher la source.
+            appt_title = appt_location = ''
+            ext_id = queue_item.get('appointment_external_id')
+            if ext_id:
+                try:
+                    _a = requests.get(
+                        f"{self.storage.api_url}/gazelle_appointments?external_id=eq.{ext_id}"
+                        f"&select=title,location,appointment_time&limit=1",
+                        headers=self.storage._get_headers()).json()
+                    if _a:
+                        appt_title = (_a[0].get('title') or '').strip()
+                        appt_location = (_a[0].get('location') or '').strip()
+                        if not appointment_time:
+                            appointment_time = _a[0].get('appointment_time') or ''
+                except Exception:
+                    pass
+            # Heure sans les secondes (HH:MM, pas « 12:00:00 »).
+            if appointment_time:
+                appointment_time = str(appointment_time)[:5]
+
             # Ne pas envoyer si le RV est déjà passé
             if appointment_date:
                 from datetime import date as date_class
@@ -434,8 +455,15 @@ class LateAssignmentNotifier:
                         return True
                 except Exception:
                     pass
-            client_name = queue_item.get('client_name') or queue_item.get('location') or 'Client'
-            location = queue_item.get('location', '')
+            client_name = (queue_item.get('client_name') or queue_item.get('location')
+                           or appt_title or 'le rendez-vous')
+            location = queue_item.get('location') or appt_location or ''
+            # Lieu + client nettoyés : évite « , Client. » quand le lieu est vide.
+            _loc, _cli = location.strip(), client_name.strip()
+            if _loc and _cli and _loc != _cli:
+                lieu_client = f"{_loc}, {_cli}"
+            else:
+                lieu_client = _cli or _loc or 'le rendez-vous'
             
             # Récupérer l'email du technicien depuis techniciens_config (source de vérité)
             tech = get_technicien_by_id(technician_id)
@@ -511,7 +539,7 @@ class LateAssignmentNotifier:
                 plain_content = self._compose_alert_body(
                     technician_name,
                     intro=f"Le rendez-vous {date_text}{time_text} a été annulé :",
-                    detail=f"{location_text.lstrip(', ')}, {client_name}.",
+                    detail=f"{lieu_client}.",
                     footer="Cette plage est maintenant libre dans votre calendrier.",
                     extra=extra,
                 )
@@ -535,7 +563,7 @@ class LateAssignmentNotifier:
                 plain_content = self._compose_alert_body(
                     technician_name,
                     intro=f"Un rendez-vous a été déplacé. Nouvelle date : {date_text}{time_text} :",
-                    detail=f"{location_text.lstrip(', ')}, {client_name}.",
+                    detail=f"{lieu_client}.",
                     footer="Merci de consulter 'Ma Journée' pour les détails.",
                     extra=extra,
                 )
@@ -544,7 +572,7 @@ class LateAssignmentNotifier:
                 plain_content = self._compose_alert_body(
                     technician_name,
                     intro=f"Un rendez-vous vous a été assigné pour {date_text} :",
-                    detail=f"{location_text.lstrip(', ')}{time_text}, {client_name}.",
+                    detail=f"{lieu_client}{time_text}.",
                     footer="Merci de consulter 'Ma Journée' pour les détails.",
                 )
             else:  # 'new'
@@ -552,7 +580,7 @@ class LateAssignmentNotifier:
                 plain_content = self._compose_alert_body(
                     technician_name,
                     intro=f"Un nouveau rendez-vous a été ajouté pour {date_text} :",
-                    detail=f"{location_text.lstrip(', ')}{time_text}, {client_name}.",
+                    detail=f"{lieu_client}{time_text}.",
                     footer="Merci de consulter 'Ma Journée' pour les détails.",
                 )
             
