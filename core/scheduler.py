@@ -505,6 +505,25 @@ def task_follow_up_digest():
         traceback.print_exc()
 
 
+def task_pda_access_reminder():
+    """
+    Rappel d'accès Place des Arts (1400 fermé) envoyé la veille des RV au Théâtre
+    Maisonneuve et au Théâtre Jean-Duceppe. Temporaire (travaux). Désactivable via
+    system_settings 'pda_access_reminder_enabled' = 'false'.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("TACHE : Rappel acces Place des Arts TM/JD (17h30)")
+        print("=" * 70)
+        from modules.briefing.pda_access_reminder import run_pda_access_reminder
+        result = run_pda_access_reminder()
+        print(f"Resultat : {result}")
+    except Exception as exc:
+        import traceback
+        print(f"Erreur pda_access_reminder : {exc}")
+        traceback.print_exc()
+
+
 def task_critical_estimate_digest():
     """
     Envoie le digest quotidien à Louise des RV à venir avec soumissions
@@ -845,6 +864,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 08:00 - Digest suivi soumissions (info@) configurée")
+
+    # 17:30 - Rappel acces Place des Arts (TM/JD) la veille des RV (travaux 1400)
+    scheduler.add_job(
+        task_pda_access_reminder,
+        trigger=CronTrigger(hour=17, minute=30, timezone='America/Montreal'),
+        id='pda_access_reminder',
+        name='Rappel acces Place des Arts TM/JD (17:30)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   17:30 - Rappel acces Place des Arts (TM/JD) configure")
 
     # 17:00 - Digest fiches d'accord a valider (tous les jours)
     # Couvre aussi les tournées weekend (VDI samedi-dimanche → digest dim soir
