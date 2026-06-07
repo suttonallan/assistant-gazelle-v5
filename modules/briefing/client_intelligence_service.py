@@ -179,6 +179,13 @@ class NarrativeBriefingService:
         """
         target_date = target_date or datetime.now().strftime('%Y-%m-%d')
 
+        # Rappel d'accès PdA (travaux 1400) : évalué une seule fois par jour.
+        try:
+            from modules.briefing.pda_access_reminder import is_enabled as _pda_enabled
+            self._pda_access_on = _pda_enabled(self.storage)
+        except Exception:
+            self._pda_access_on = False
+
         # 1. Fetch appointments
         appointments = await asyncio.to_thread(
             self._fetch_appointments, target_date, technician_id, exclude_technician_id
@@ -389,6 +396,14 @@ class NarrativeBriefingService:
                     all_pianos=all_pianos_list,
                     gazelle_estimates=gazelle_estimates_enriched,
                 )
+
+            # Mention d'accès PdA (travaux 1400) pour les RV Théâtre Maisonneuve /
+            # Jean-Duceppe : ajoutée en tête des action items, visible dans Ma Journée.
+            if getattr(self, '_pda_access_on', False):
+                from modules.briefing.pda_access_reminder import matches_tm_jd, BRIEFING_ACCESS_NOTE
+                _salle_txt = f"{appt.get('title', '')} {appt.get('description', '')} {piano.get('location', '') or ''}"
+                if matches_tm_jd(_salle_txt) and BRIEFING_ACCESS_NOTE not in (action_items or []):
+                    action_items = [BRIEFING_ACCESS_NOTE] + (action_items or [])
 
             # ── Build final briefing ──
             return {

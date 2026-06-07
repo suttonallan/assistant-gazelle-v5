@@ -38,8 +38,21 @@ ACCESS_BLOCK = (
     "- Un agent accueille et dirige les équipes sur place."
 )
 
+# Version courte pour « Ma Journée » (un action item).
+BRIEFING_ACCESS_NOTE = (
+    "Accès PdA (travaux) : entrée des artistes du 1400 FERMÉE — passer par l'entrée "
+    "de la sécurité principale (TM/JD). Un agent accueille sur place."
+)
 
-def _enabled(storage) -> bool:
+
+def matches_tm_jd(text: str) -> bool:
+    """Vrai si le texte (titre + notes + local du piano) désigne le Théâtre
+    Maisonneuve ou le Théâtre Jean-Duceppe."""
+    t = (text or '').lower()
+    return any(k in t for k in SALLE_KEYWORDS)
+
+
+def is_enabled(storage) -> bool:
     """Activé par défaut ; désactivable via system_settings sans redéploiement."""
     try:
         r = requests.get(
@@ -55,7 +68,7 @@ def _enabled(storage) -> bool:
 def run_pda_access_reminder() -> dict:
     """Envoie le rappel d'accès aux techniciens ayant un RV TM/JD demain."""
     storage = SupabaseStorage(silent=True)
-    if not _enabled(storage):
+    if not is_enabled(storage):
         print("Rappel accès PdA : désactivé (system_settings)")
         return {"enabled": False, "sent": 0}
 
