@@ -29,6 +29,7 @@ TECHNICIAN_EMAILS = {
     'jp': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
     'jean-philippe': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
     'jean philippe': os.getenv('EMAIL_JP', 'jpreny@gmail.com'),
+    'margot': os.getenv('EMAIL_MARGOT', 'margotcharignon@gmail.com'),
 }
 
 # Email de Louise pour les alertes de relance de vieux rendez-vous
@@ -76,10 +77,18 @@ class UnconfirmedAlertsService:
             return ('Allan', TECHNICIAN_EMAILS.get('allan', tech_email))
         elif 'jean-philippe' in tech_name or 'jean philippe' in tech_name or 'jp' in tech_name.lower():
             return ('JP', TECHNICIAN_EMAILS.get('jp', tech_email))
+        elif 'margot' in tech_name:
+            return ('Margot', TECHNICIAN_EMAILS.get('margot', tech_email))
         else:
-            # Fallback: Nicolas par défaut si non reconnu
-            print(f"⚠️ Technicien non reconnu: {tech_name} - routage vers Nicolas par défaut")
-            return ('Nicolas', TECHNICIAN_EMAILS.get('nicolas', 'nlessard@piano-tek.com'))
+            # Technicien connu de Gazelle mais hors du mapping ci-dessus : on utilise
+            # SES PROPRES nom/email (source : table users), jamais un reroutage vers
+            # quelqu'un d'autre. (Avant, tout inconnu tombait sur Nicolas, donc un RV
+            # de Margot finissait chez Nicolas.)
+            prenom = (tech_info.get('name') or 'Technicien').split()[0]
+            if tech_email:
+                return (prenom, tech_email)
+            print(f"Technicien sans email, alerte non routable: {tech_name}")
+            return (prenom, '')
 
     def _format_urgence_message(
         self,
@@ -99,7 +108,7 @@ class UnconfirmedAlertsService:
         return f"""
         <html>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #d9534f;">⚠️ Rendez-vous non confirmé</h2>
+            <h2 style="color: #d9534f;">Rendez-vous non confirmé</h2>
             <p>Salut {technician_name},</p>
             <p>Ton rendez-vous de demain chez <strong>{client_name}</strong> n'est toujours pas confirmé.</p>
             <p style="margin-top: 20px; color: #777;">
@@ -242,20 +251,23 @@ class UnconfirmedAlertsService:
             
             # Identification et routage ciblé
             technician_name, technician_email = self._identify_technician_and_route(tech_info)
-            
+            if not technician_email:
+                print(f"   Alerte non routable (pas d'email) pour {tech_id} - ignorée")
+                continue
+
             # Envoyer un email par RV (message personnalisé)
             for apt in appointments:
                 external_id = apt.get('external_id')
                 client_name = apt.get('client_name', 'Client inconnu')
-                
+
                 # 3. FIABILITÉ: Vérification finale dans Gazelle avant envoi
                 if not self._verify_appointment_exists_in_gazelle(external_id):
-                    print(f"   ⚠️ RV {external_id} n'existe plus dans Gazelle - alerte annulée")
+                    print(f"   RV {external_id} n'existe plus dans Gazelle - alerte annulée")
                     continue
-                
+
                 # Message personnalisé pour chaque RV
                 html_content = self._format_urgence_message(technician_name, client_name)
-                subject = f"⚠️ RV non confirmé demain chez {client_name}"
+                subject = f"RV non confirmé demain chez {client_name}"
                 
                 alerts_to_send.append(
                     {
