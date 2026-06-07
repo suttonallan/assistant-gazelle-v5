@@ -67,6 +67,9 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                         preferenceNotes
                         status
                         tags
+                        defaultClientLocalization {
+                            locale
+                        }
                         createdAt
                         updatedAt
                         defaultContact {
