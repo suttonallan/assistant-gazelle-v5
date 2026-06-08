@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Daily digest 18h Montréal — paiements cash assignés à Jean-Philippe Reny.
+"""Daily digest 18h Montreal — paiements cash assignes a Jean-Philippe ou Margot.
 
-Interroge Gazelle pour les factures où :
-  - assignedTo = JP Reny
+Interroge Gazelle pour les factures ou :
+  - assignedTo = JP Reny OU Margot Charignon
   - un paiement de type CASH existe
-  - paymentDate = aujourd'hui (date Montréal)
+  - paymentDate = aujourd'hui (date Montreal)
 
-Si ≥1 facture trouvée, envoie un email résumé à info@piano-tek.com (capté par Front).
-Si 0, sort silencieusement.
+Si >=1 facture trouvee, envoie un email resume a info@piano-tek.com (capte par Front),
+avec la colonne Technicien pour savoir qui a recu le cash. Si 0, sort silencieusement.
 
-Exécution : tous les jours à 18h Montréal via GitHub Actions
-(cron 22+23 UTC, script gate par heure locale pour gérer EST/EDT).
+Execution : tous les jours a 18h Montreal via GitHub Actions
+(cron 22+23 UTC, script gate par heure locale pour gerer EST/EDT).
 """
 import os
 import sys
@@ -23,13 +23,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.gazelle_api_client import GazelleAPIClient  # noqa: E402
 from core.email_notifier import get_email_notifier    # noqa: E402
 
-JP_USER_ID = "usr_ReUSmIJmBF86ilY1"
-JP_NAME = "Jean-Philippe Reny"
+# Techniciens dont le cash recu doit etre signale a info@ (facture a leur nom).
+CASH_TECHS = {
+    "usr_ReUSmIJmBF86ilY1": "Jean-Philippe Reny",
+    "usr_bbt59aCUqUaDWA8n": "Margot Charignon",
+}
 RECIPIENT = "info@piano-tek.com"
 MTL_TZ = pytz.timezone("America/Montreal")
 
 INVOICES_QUERY = """
-query DailyJpCash($filters: PrivateAllInvoicesFilter) {
+query DailyCash($filters: PrivateAllInvoicesFilter) {
   allInvoices(filters: $filters) {
     nodes {
       id
@@ -71,13 +74,21 @@ def client_label(invoice: dict) -> str:
     return name or "Client inconnu"
 
 
+def tech_label(invoice: dict) -> str:
+    assigned = invoice.get("assignedTo") or {}
+    name = CASH_TECHS.get(assigned.get("id"))
+    if name:
+        return name
+    return " ".join(p for p in [assigned.get("firstName"), assigned.get("lastName")] if p) or "?"
+
+
 def fetch_invoices(date_str: str) -> list[dict]:
     client = GazelleAPIClient()
     r = client._execute_query(
         INVOICES_QUERY,
         variables={
             "filters": {
-                "assignedTo": [JP_USER_ID],
+                "assignedTo": list(CASH_TECHS.keys()),
                 "paymentMethods": {"invoicePaymentType": ["CASH"]},
                 "paymentDateGet": date_str,
                 "paymentDateLet": date_str,
@@ -87,14 +98,17 @@ def fetch_invoices(date_str: str) -> list[dict]:
     return (r.get("data", {}).get("allInvoices") or {}).get("nodes", []) or []
 
 
+def _cash_total(inv: dict) -> int:
+    return sum(p["amount"] for p in (inv.get("allInvoicePayments") or {}).get("nodes", [])
+               if p.get("type") == "CASH")
+
+
 def build_html(invoices: list[dict], date_str: str) -> str:
     rows = []
     total_cash = 0
     for inv in invoices:
-        cash_payments = [
-            p for p in (inv.get("allInvoicePayments") or {}).get("nodes", [])
-            if p.get("type") == "CASH"
-        ]
+        cash_payments = [p for p in (inv.get("allInvoicePayments") or {}).get("nodes", [])
+                         if p.get("type") == "CASH"]
         cash_total = sum(p["amount"] for p in cash_payments)
         total_cash += cash_total
         paid_times = ", ".join(
@@ -104,7 +118,8 @@ def build_html(invoices: list[dict], date_str: str) -> str:
         )
         rows.append(f"""
           <tr>
-            <td style="padding:8px;border-bottom:1px solid #eee;"><strong>#{inv['number']}</strong></td>
+            <td style="padding:8px;border-bottom:1px solid #eee;"><strong>{tech_label(inv)}</strong></td>
+            <td style="padding:8px;border-bottom:1px solid #eee;">#{inv['number']}</td>
             <td style="padding:8px;border-bottom:1px solid #eee;">{client_label(inv)}</td>
             <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">{format_amount(cash_total)}</td>
             <td style="padding:8px;border-bottom:1px solid #eee;color:#666;">{paid_times}</td>
@@ -116,12 +131,13 @@ def build_html(invoices: list[dict], date_str: str) -> str:
     return f"""<html>
 <body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.5;color:#111;">
   <div style="background:#fff8e1;border-left:4px solid #f59e0b;padding:16px;border-radius:6px;">
-    <h2 style="margin:0 0 8px 0;">💵 Digest cash — {JP_NAME}</h2>
-    <p style="margin:0;color:#666;">{date_str} · {n} facture{plural} payée{plural} en argent comptant</p>
+    <h2 style="margin:0 0 8px 0;">Digest cash recu (JP / Margot)</h2>
+    <p style="margin:0;color:#666;">{date_str} - {n} facture{plural} payee{plural} en argent comptant</p>
   </div>
   <table style="border-collapse:collapse;width:100%;margin-top:20px;">
     <thead>
       <tr style="background:#f5f5f5;">
+        <th style="padding:8px;text-align:left;">Technicien</th>
         <th style="padding:8px;text-align:left;">Facture</th>
         <th style="padding:8px;text-align:left;">Client</th>
         <th style="padding:8px;text-align:right;">Montant cash</th>
@@ -132,27 +148,27 @@ def build_html(invoices: list[dict], date_str: str) -> str:
     <tbody>
       {''.join(rows)}
       <tr style="background:#fffbeb;font-weight:bold;">
-        <td colspan="2" style="padding:10px;">TOTAL CASH JP</td>
+        <td colspan="3" style="padding:10px;">TOTAL CASH</td>
         <td style="padding:10px;text-align:right;">{format_amount(total_cash)}</td>
         <td colspan="2"></td>
       </tr>
     </tbody>
   </table>
   <p style="color:#888;font-size:12px;margin-top:20px;">
-    Digest généré automatiquement à 18h Montréal · scripts/daily_jp_cash_digest.py
+    Digest genere automatiquement a 18h Montreal - scripts/daily_jp_cash_digest.py
   </p>
 </body>
 </html>"""
 
 
 def build_text(invoices: list[dict], date_str: str) -> str:
-    lines = [f"💵 Digest cash — {JP_NAME} — {date_str}", "", f"{len(invoices)} facture(s) payée(s) en argent comptant aujourd'hui :", ""]
+    lines = [f"Digest cash recu (JP / Margot) - {date_str}", "",
+             f"{len(invoices)} facture(s) payee(s) en argent comptant aujourd'hui :", ""]
     total = 0
     for inv in invoices:
-        cash_payments = [p for p in (inv.get("allInvoicePayments") or {}).get("nodes", []) if p.get("type") == "CASH"]
-        cash_total = sum(p["amount"] for p in cash_payments)
+        cash_total = _cash_total(inv)
         total += cash_total
-        lines.append(f"  #{inv['number']} — {client_label(inv)} — {format_amount(cash_total)} ({inv['status']})")
+        lines.append(f"  {tech_label(inv)} - #{inv['number']} - {client_label(inv)} - {format_amount(cash_total)} ({inv['status']})")
     lines.append("")
     lines.append(f"TOTAL CASH : {format_amount(total)}")
     return "\n".join(lines)
@@ -165,28 +181,28 @@ def main() -> int:
     skip_hour_gate = os.getenv("SKIP_HOUR_GATE", "").lower() in ("1", "true", "yes")
     dry_run = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
 
-    print(f"🕐 Heure Montréal : {now_mtl.strftime('%Y-%m-%d %H:%M %Z')}")
-    print(f"📅 Date cible : {today_str}")
+    print(f"Heure Montreal : {now_mtl.strftime('%Y-%m-%d %H:%M %Z')}")
+    print(f"Date cible : {today_str}")
 
     if not skip_hour_gate and current_hour != 18:
-        print(f"⏭️  Pas 18h Montréal (actuel: {current_hour}h), digest ignoré")
+        print(f"Pas 18h Montreal (actuel: {current_hour}h), digest ignore")
         return 0
 
-    print(f"🔍 Requête Gazelle : factures cash assignées à {JP_NAME}, payées aujourd'hui")
+    print(f"Requete Gazelle : factures cash assignees a JP/Margot, payees aujourd'hui")
     invoices = fetch_invoices(today_str)
-    print(f"   → {len(invoices)} facture(s) trouvée(s)")
+    print(f"   -> {len(invoices)} facture(s) trouvee(s)")
 
     if not invoices:
-        print("✅ Rien à signaler — digest non envoyé")
+        print("Rien a signaler - digest non envoye")
         return 0
 
     html = build_html(invoices, today_str)
     text = build_text(invoices, today_str)
-    subject = f"💵 Digest cash JP — {len(invoices)} paiement(s) le {today_str}"
+    subject = f"Digest cash JP/Margot - {len(invoices)} paiement(s) le {today_str}"
 
     if dry_run:
         print("\n--- DRY RUN ---")
-        print(f"À : {RECIPIENT}")
+        print(f"A : {RECIPIENT}")
         print(f"Sujet : {subject}")
         print()
         print(text)
