@@ -132,13 +132,22 @@ class ChatService:
             )
 
         elif query_type == "search_client":
-            # Recherche de client/contact
-            search_results = self.data_provider.search_clients(
-                search_term=parsed_params["search_term"]
-            )
+            # Recherche client intelligente : multi-champs (notes + timeline + pianos)
+            # avec provenance. Tombe sur l'ancienne recherche si le module echoue.
+            try:
+                from api.chat.client_search import search_clients_intelligent
+                anthropic = getattr(self.conversation_handler, "anthropic", None)
+                search_results = search_clients_intelligent(
+                    self.storage, parsed_params["search_term"], anthropic=anthropic
+                )
+            except Exception as exc:
+                logger.warning(f"Recherche intelligente echouee, repli basique: {exc}")
+                search_results = self.data_provider.search_clients(
+                    search_term=parsed_params["search_term"]
+                )
 
             return ChatResponse(
-                interpreted_query=f"Recherche: {parsed_params['search_term']}",
+                interpreted_query=f"Recherche client : {parsed_params['search_term']}",
                 query_type="search_client",
                 text_response=search_results,
                 data_source=self.data_source
