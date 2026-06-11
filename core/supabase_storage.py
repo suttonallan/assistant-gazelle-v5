@@ -7,6 +7,7 @@ Plus rapide, fiable et scalable que GitHub Gist.
 
 import os
 import json
+import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import requests
@@ -682,20 +683,30 @@ class SupabaseStorage:
             if token:
                 access_token = token.get("access_token")
         """
-        try:
-            url = f"{self.api_url}/system_settings?key=eq.{key}&select=value"
-            response = requests.get(url, headers=self._get_headers())
-
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    return data[0].get("value")
-
-            return None
-
-        except Exception as e:
-            print(f"⚠️ Erreur lors de la récupération de '{key}': {e}")
-            return None
+        # Retry sur erreurs transitoires (reseau, 5xx, 429). Un seul hoquet ne
+        # doit pas faire "disparaitre" un parametre critique comme le token OAuth
+        # Gazelle : sinon le client tombe sur _generate_new_token (grant non
+        # supporte) et tout le sync plante avec une erreur 400 trompeuse.
+        # Cf. echec sync_appointments 2026-06-10 20h08.
+        url = f"{self.api_url}/system_settings?key=eq.{key}&select=value"
+        last_err = None
+        for attempt in range(3):
+            try:
+                response = requests.get(url, headers=self._get_headers(), timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data[0].get("value") if data else None
+                if response.status_code in (429, 500, 502, 503, 504):
+                    last_err = f"HTTP {response.status_code}"  # transitoire -> retry
+                else:
+                    print(f"⚠️ get_system_setting('{key}') HTTP {response.status_code}")
+                    return None
+            except Exception as e:
+                last_err = e
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+        print(f"⚠️ Lecture de '{key}' echouee apres 3 tentatives: {last_err}")
+        return None
 
     def delete_system_setting(self, key: str) -> bool:
         """
