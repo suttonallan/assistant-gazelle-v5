@@ -6,9 +6,17 @@ import { submitReport, getReports, getPianos, updatePiano, getActivity } from '.
 import VDI_Navigation from './vdi/VDI_Navigation';
 import VDI_TechnicianView from './vdi/VDI_TechnicianView';
 import VDI_ManagementView from './vdi/VDI_ManagementView';
+import { enqueue, dequeue, flush, pendingCount as queuePendingCount } from '../utils/offlineServiceQueue';
 
 // Configuration de l'API - utiliser le proxy Vite en développement
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://assistant-gazelle-v5-api.onrender.com');
+
+// Course contre un délai max — sur réseau faible, on n'attend pas indéfiniment.
+const withTimeout = (promise, ms = 12000) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
 
 const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = false, institution = 'orford' }) => {
   // Note: hideLocationSelector était utilisé pour masquer le sélecteur d'établissement,
@@ -61,6 +69,11 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
   // Pour push vers Gazelle
   const [readyForPushCount, setReadyForPushCount] = useState(0);
   const [pushInProgress, setPushInProgress] = useState(false);
+
+  // Offline-safe : file d'attente de synchronisation (réseau faible Orford)
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [offlineNotice, setOfflineNotice] = useState('');
+  const flushQueueRef = useRef(() => {});
 
   const usages = ['Piano', 'Accompagnement', 'Pratique', 'Concert', 'Enseignement', 'Loisir'];
 
@@ -138,6 +151,69 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
       await loadPianosFromAPI();
     }
   };
+
+  // ── Offline-safe : écriture de l'overlay sans alerte/reload (pour la file) ──
+  const savePianoOverlayRaw = async (pianoId, inst, updates) => {
+    const res = await withTimeout(fetch(`${API_URL}/api/${inst}/pianos/${pianoId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...updates, updated_by: currentUser?.email || currentUser?.name || 'Unknown' }),
+    }));
+    if (!res.ok) throw new Error(`overlay HTTP ${res.status}`);
+  };
+
+  // Envoi d'une entrée vers le TAMPON (idempotent : upsert de la fiche de service).
+  // Aucun push direct vers Gazelle ici → pas de doublon, le push reste l'étape « à valider ».
+  const sendBufferSave = async (pianoId, entry) => {
+    const inst = entry.institution || institution;
+    // 1. Fiche tampon (travail/observations) — upsert idempotent
+    const notesRes = await withTimeout(fetch(`${API_URL}/api/service-records/${inst}/piano/${pianoId}/notes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        travail: entry.travail || '',
+        observations: entry.observations || '',
+        technician_email: entry.technician_email || '',
+      }),
+    }));
+    if (!notesRes.ok) throw new Error(`notes HTTP ${notesRes.status}`);
+
+    // 2. Marquer terminé si demandé. 'complete' est un TOGGLE → on ne l'appelle
+    //    que si la fiche n'est pas déjà 'completed' (rend le ré-essai idempotent).
+    if (entry.isWorkCompleted) {
+      const curRes = await withTimeout(fetch(`${API_URL}/api/service-records/${inst}/piano/${pianoId}`));
+      const curRec = curRes.ok ? ((await curRes.json()).record || null) : null;
+      if (!curRec || curRec.status !== 'completed') {
+        const compRes = await withTimeout(fetch(`${API_URL}/api/service-records/${inst}/piano/${pianoId}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ completed_by: entry.completed_by || entry.technician_email || '' }),
+        }));
+        if (!compRes.ok) throw new Error(`complete HTTP ${compRes.status}`);
+      }
+    }
+
+    // 3. Statut overlay (pour la coloration de la vue) — idempotent
+    await savePianoOverlayRaw(pianoId, inst, {
+      travail: entry.travail || '',
+      isWorkCompleted: !!entry.isWorkCompleted,
+      status: entry.status,
+    });
+  };
+
+  // Vide la file : ré-essaie toutes les entrées en attente. Appelée au retour du
+  // réseau et périodiquement. Idempotent → aucun doublon même si déjà reçu.
+  const flushQueue = async () => {
+    const before = queuePendingCount();
+    if (before === 0) return;
+    const { ok } = await flush(sendBufferSave);
+    setPendingSyncCount(queuePendingCount());
+    if (ok > 0) {
+      setOfflineNotice('');
+      await loadPianosFromAPI();
+    }
+  };
+  flushQueueRef.current = flushQueue;
 
   const moisDepuisAccord = (dateStr) => {
     if (!dateStr || dateStr.trim() === '') return 999; // Valeur très élevée pour trier à la fin
@@ -404,52 +480,46 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
     const piano = pianos.find(p => p.id === id);
     if (!piano) return;
 
+    // Statut selon la logique de transition
+    let newStatus = piano.status;
+    if (isWorkCompleted) {
+      newStatus = 'completed';
+    } else if (travailInput) {
+      newStatus = 'work_in_progress';
+    }
+
+    const entry = {
+      institution: institution || 'orford',
+      travail: travailInput,
+      observations: observationsInput,
+      technician_email: currentUser?.email || '',
+      completed_by: currentUser?.name || currentUser?.email || '',
+      isWorkCompleted,
+      status: newStatus,
+    };
+
+    // 1. Persister localement AVANT le réseau : la saisie n'est JAMAIS perdue.
+    enqueue(id, entry);
+    setPendingSyncCount(queuePendingCount());
+
+    // 2. Mise à jour optimiste (affichage immédiat, marqué « en attente »)
+    setPianos(prev => prev.map(p =>
+      p.id === id
+        ? { ...p, travail: travailInput, is_work_completed: isWorkCompleted, status: newStatus, sync_status: 'pending' }
+        : p
+    ));
+
+    // 3. Tenter l'envoi vers le TAMPON (idempotent, pas de push direct Gazelle).
+    //    Sur réseau faible : on garde l'entrée en file (ré-essai auto), on N'avance
+    //    PAS, et rien n'est perdu.
     try {
-      // Créer le rapport pour l'API
-      const report = {
-        technician_name: 'Technicien', // TODO: Récupérer depuis l'authentification
-        client_name: 'Orford Musique',
-        piano_id: piano.gazelleId || null, // NOUVEAU: ID Gazelle pour push automatique
-        date: new Date().toISOString().split('T')[0],
-        report_type: 'maintenance',
-        description: `Travail effectué sur piano ${piano.piano} (Série: ${piano.serie}) - Local: ${piano.local}`,
-        service_history_notes: piano.aFaire ? `À faire: ${piano.aFaire}\n\nTravail: ${travailInput}\n\nObservations: ${observationsInput}` : `Travail: ${travailInput}\n\nObservations: ${observationsInput}`,
-        hours_worked: null,
-        institution: institution || 'orford' // NOUVEAU: Support multi-institutions
-      };
+      await sendBufferSave(id, entry);
+      dequeue(id);
+      setPendingSyncCount(queuePendingCount());
+      setOfflineNotice('');
+      setPianos(prev => prev.map(p => p.id === id ? { ...p, sync_status: 'synced' } : p));
 
-      // Envoyer le rapport à l'API
-      await submitReport(API_URL, report);
-
-      // Déterminer le statut selon la logique de transition
-      let newStatus = piano.status;
-      if (isWorkCompleted) {
-        newStatus = 'completed';
-      } else if (travailInput) {
-        newStatus = 'work_in_progress';
-      }
-
-      // Mise à jour optimiste
-      setPianos(pianos.map(p =>
-        p.id === id ? { 
-          ...p, 
-          travail: travailInput, 
-          is_work_completed: isWorkCompleted,
-          status: newStatus
-        } : p
-      ));
-
-      // Sauvegarder le piano via API
-      await savePianoToAPI(id, {
-        travail: travailInput,
-        isWorkCompleted: isWorkCompleted,
-        status: newStatus
-      });
-
-      // Le push vers Gazelle est maintenant géré automatiquement par l'endpoint /reports
-      // quand piano_id est fourni dans le rapport (pas besoin d'appel séparé)
-
-      // Passer au suivant
+      // Passer au piano suivant à faire
       const currentIndex = pianosFiltres.findIndex(p => p.id === id);
       const nextPiano = pianosFiltres[currentIndex + 1];
       if (nextPiano && nextPiano.status === 'proposed') {
@@ -460,8 +530,10 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
         setExpandedPianoId(null);
       }
     } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
-      alert('Erreur lors de la sauvegarde du rapport. Veuillez réessayer.');
+      console.warn('Sauvegarde différée (réseau faible):', error);
+      setPianos(prev => prev.map(p => p.id === id ? { ...p, sync_status: 'pending_offline' } : p));
+      setPendingSyncCount(queuePendingCount());
+      setOfflineNotice(`Réseau faible — « ${piano.local || piano.piano} » sauvegardé localement. Synchronisation automatique au retour du réseau.`);
     }
   };
 
@@ -476,6 +548,21 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
       alert(`Erreur au chargement initial: ${e.message}\n\nStack: ${e.stack}`);
     }
   }, [loadPianosFromAPI, institution]); // Recharger si l'institution change
+
+  // Offline-safe : vider la file au montage, au retour du réseau, et toutes les 30s.
+  useEffect(() => {
+    setPendingSyncCount(queuePendingCount());
+    const run = () => { if (flushQueueRef.current) flushQueueRef.current(); };
+    run();
+    const onOnline = () => run();
+    window.addEventListener('online', onOnline);
+    const iv = setInterval(run, 30000);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      clearInterval(iv);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Charger le compteur de pianos prêts pour push
   useEffect(() => {
@@ -644,6 +731,26 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
           setSelectedIds={setSelectedIds}
           hideNickView={hideNickView}
         />
+        {(pendingSyncCount > 0 || offlineNotice) && (
+          <div className="w-full max-w-md mx-auto px-4 pt-2">
+            <div className="bg-amber-50 border border-amber-300 text-amber-800 rounded-md px-3 py-2 text-sm flex items-center justify-between gap-2">
+              <span>
+                {pendingSyncCount > 0
+                  ? `${pendingSyncCount} service(s) en attente de synchronisation. ${offlineNotice || 'Sauvegardé localement — sera synchronisé au retour du réseau.'}`
+                  : offlineNotice}
+              </span>
+              {pendingSyncCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => flushQueueRef.current && flushQueueRef.current()}
+                  className="shrink-0 bg-amber-600 text-white rounded px-2 py-1 text-xs font-medium hover:bg-amber-700"
+                >
+                  Synchroniser
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {/* Container simulé téléphone portable - centré avec bordure et ombre */}
         <div className="w-full max-w-md mx-auto px-4 py-4 sm:px-3 sm:py-2">
           <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
