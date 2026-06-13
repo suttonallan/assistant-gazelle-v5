@@ -454,6 +454,9 @@ class GazelleToSupabaseSync:
                         'postal_code': postal_code,
                         'personal_notes': personal_notes.strip() if personal_notes else None,
                         'preference_notes': preference_notes.strip() if preference_notes else None,
+                        # Langue autoritaire du foyer (Ma Journee phase 0 / B1). La query
+                        # complete ET incrementale recuperent defaultClientLocalization.
+                        'locale': (client_data.get('defaultClientLocalization') or {}).get('locale'),
                         'created_at': client_data.get('createdAt'),
                         'updated_at': datetime.now().isoformat()
                     }
@@ -841,6 +844,10 @@ class GazelleToSupabaseSync:
                         'location': location,
                         'notes': notes,
                         'travel_mode': travel_mode,
+                        # Type d'evenement + journee complete (Ma Journee phase 0) :
+                        # deja extraits ci-dessus, persistes pour le scope et les RV perso.
+                        'event_type': event_type,
+                        'is_all_day': is_all_day,
                         # NOTE: created_at n'est PAS inclus ici - la DB le set automatiquement sur INSERT
                         # Inclure created_at avec start_time causait des faux positifs dans la détection Late Assignment
                         'updated_at': format_for_supabase(datetime.now())
