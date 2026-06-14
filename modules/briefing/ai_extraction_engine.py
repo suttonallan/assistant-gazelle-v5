@@ -32,6 +32,13 @@ ADMIN_STAFF_IDS = {
     "usr_bbt59aCUqUaDWA8n",  # Margot
 }
 
+# Noms des assistantes — affichés UNIQUEMENT comme proprietaire d'un RV (« Ma Journee »),
+# jamais dans l'historique technique (timeline / services passes) ni la collaboration.
+ADMIN_STAFF_NAMES = {
+    "usr_tndhXmnT0iakT4HF": "Louise",
+    "usr_bbt59aCUqUaDWA8n": "Margot",
+}
+
 
 # ═══════════════════════════════════════════════════════════════════
 # UTILITY FUNCTIONS
@@ -145,10 +152,14 @@ def _format_client_since(oldest: datetime) -> str:
     return "nouveau client"
 
 
-def resolve_technician_name(user_id: str) -> str:
-    """Résout un user_id Gazelle en nom lisible. Masque les IDs bruts inconnus."""
+def resolve_technician_name(user_id: str, include_admin: bool = False) -> str:
+    """Résout un user_id Gazelle en nom lisible. Masque les IDs bruts inconnus.
+
+    include_admin=True : les assistantes (Louise/Margot) sont resolues a leur nom.
+    A n'utiliser QUE pour le proprietaire d'un RV dans « Ma Journee » — jamais pour
+    l'historique technique, les services passes ou la collaboration (cf. §7 M5)."""
     if user_id in ADMIN_STAFF_IDS:
-        return ""  # Pas un technicien
+        return ADMIN_STAFF_NAMES.get(user_id, "") if include_admin else ""
     name = TECHNICIAN_NAMES.get(user_id, "")
     if not name and user_id and user_id.startswith("usr_"):
         return ""  # ID inconnu — ne pas afficher le code brut

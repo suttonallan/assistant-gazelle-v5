@@ -330,8 +330,12 @@ class NarrativeBriefingService:
             # PLS badge (default False if data missing)
             has_pls = bool(piano.get('dampp_chaser_installed'))
 
-            # Language detection: Gazelle locale field > client notes > timeline heuristic
+            # Langue : locale Gazelle (autoritaire) > heuristique notes. Un locale
+            # fr* renvoie « FR_CONFIRMED » (truthy) qui court-circuite le `or` →
+            # l'heuristique notes ne s'execute pas (corrige le faux tag anglophone).
             language = self._detect_language_from_locale(client) or self._detect_language_from_client(client)
+            if language == "FR_CONFIRMED":
+                language = None  # FR fiable depuis le foyer → aucun flag
 
             # Dog name detection
             dog_name = self._detect_dog_from_notes(timeline)
@@ -445,7 +449,10 @@ class NarrativeBriefingService:
                     "title": appt.get('title', ''),
                     "description": appt.get('description', ''),
                     "technician_id": appt.get('technicien'),
-                    "technician_name": resolve_technician_name(appt.get('technicien', '')),
+                    # include_admin=True : Margot/Louise s'affichent comme proprietaire
+                    # de LEUR RV (« M »/« L » dans Ma Journee). Les autres sites
+                    # (collaboration, timeline, RV passes) gardent le filtre admin.
+                    "technician_name": resolve_technician_name(appt.get('technicien', ''), include_admin=True),
                     "collaboration": collaboration,
                 },
                 "follow_ups": followups,
@@ -701,7 +708,11 @@ class NarrativeBriefingService:
         if locale.startswith('en'):
             return "EN"
         if locale.startswith('fr'):
-            return None  # FR is default, no flag needed
+            # Sentinelle « FR confirme » : FR fiable depuis le foyer. Bloque le
+            # fallback heuristique sur les notes (sinon un marqueur « anglo » du
+            # conjoint tagge le client a tort — cas Helene Langevin). Resolu en
+            # None (FR = defaut, aucun flag) au point d'appel.
+            return "FR_CONFIRMED"
         return None
 
     def _detect_language_from_client(self, client: Dict) -> Optional[str]:
