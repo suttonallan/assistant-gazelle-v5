@@ -3,7 +3,12 @@
 > Statut : actif (conception validée + revue adversariale intégrée, en cours d'application)
 > Créé : 2026-06-07
 > Dernière mise à jour : 2026-06-13
-> Prochain pas : FAIT & vérifié 2026-06-13/14 — Phase 0 persistance (`locale` 3992/4001, `event_type`/`is_all_day` sur RV) ; Phase 0 initiale Margot (`resolve_technician_name(include_admin=True)` au site propriétaire-RV uniquement, §7 M5 respecté) ; Phase 1 LANGUE (sentinelle `FR_CONFIRMED` bloque le fallback notes — Hélène `fr_CA` + « anglo » notes → langue None, vérifié). RESTE Phase 1 SCOPE PIANO/ESTIMÉS (§7 G3/G4/G5) : confiance dans `_match_piano_from_context` (SN/location exacte seulement), dégrader notes/PLS/label/SN si non confiant, scoper `estimate_items` au piano matché. NON FAIT car §7 G3 exige vérif sur le cas réel PdA (estimé cordelettes Yamaha piano.id ≠ RV) en exécutant le briefing — à faire en session dédiée avec ton œil. Puis B2 (flag+version clé de cache) avant toute bascule, puis Phases 2-5.
+> Prochain pas : PHASES 0 ET 1 FAITES & vérifiées 2026-06-13/14 :
+>   - P0 persistance `locale` (3992/4001, Hélène=`fr_CA`) + `event_type`/`is_all_day` (RV).
+>   - P0 initiale Margot (`resolve_technician_name(include_admin=True)` au site propriétaire-RV uniquement, §7 M5 respecté).
+>   - P1 LANGUE : sentinelle `FR_CONFIRMED` bloque le fallback notes (Hélène plus taggée anglophone — vérifié).
+>   - P1 SCOPE PIANO/ESTIMÉS (§7 G3/G4/G5) : `_match_piano_from_context` rend (piano, matched_confidently) — confiant SEULEMENT sur SN/location exacte ; estimés scopés au piano du RV (les 2 chemins portent `piano_id`) ; PLS/label dégradés si non confiant. VÉRIFIÉ sur le vrai cas PdA : cordelettes U1 (#11873/#11846) exclues d'un RV sur le C5.
+> RESTE : Phase 2 (récence/supersession/PLS — ATTENTION §7 G1 liste blanche stricte = le plus dangereux ; G2 polarité REPAIR ; M3 couverture PLS), Phase 3 (événements perso — DÉBLOQUÉ par `event_type`/`is_all_day` ; §7 M6 institution km/avis ; besoin frontend), Phase 4 (provenance frontend), Phase 5 (cron qualité). + pipeline de Faits + réécriture prompt + B2 (flag/version clé cache) avant toute bascule A/B.
 > Bloqué par : rien
 >
 > **IMPORTANT : lire §7 (corrections de la revue adversariale) AVANT de coder une phase.** Plusieurs hypothèses du plan original sont fausses ou dangereuses ; §7 est contraignant et prime sur le texte des phases.
