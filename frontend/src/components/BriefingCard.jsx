@@ -36,6 +36,27 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
     estimate_items,
   } = briefing
 
+  // ── Évènement personnel / congé (Phase 3) : carte compacte, lecture seule ──
+  if (briefing.kind === 'personal') {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-gray-100 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-bold font-mono text-gray-500">
+              {briefing.is_all_day ? 'Journée' : (appointment?.time || '--:--')}
+            </span>
+            <span className="text-gray-800 font-medium">
+              {appointment?.title || 'Personnel'}
+            </span>
+          </div>
+          <span className="bg-gray-200 text-gray-600 text-xs font-semibold px-2 py-1 rounded-full">
+            Perso
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   // ── Badges ──
   const badges = []
   if (flags?.language === 'EN') badges.push({ icon: '🇬🇧', label: 'Anglophone', color: 'bg-red-100 text-red-800' })

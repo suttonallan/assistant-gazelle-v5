@@ -233,8 +233,18 @@ class NarrativeBriefingService:
 
         # 4. Generate narrative briefings in PARALLEL
         gen_tasks = []
+        personal_entries = []
         for appt in appointments:
+            event_type = (appt.get('event_type') or '').upper()
             cid = appt.get('client_external_id')
+            # Evenements personnels / conges SANS client (Phase 3) : entree minimale
+            # en lecture seule, sans appel IA, pour completer la journee. On exige
+            # l'absence de client pour ne PAS court-circuiter un perso rattache a une
+            # institution (§7 M6) — celui-la garde le flux normal. Le km/avis reste
+            # de toute facon gere par le module alertes_rv (separe).
+            if event_type in ('PERSONAL', 'HOLIDAY') and not cid:
+                personal_entries.append(self._build_personal_entry(appt))
+                continue
             if not cid:
                 continue
             gen_tasks.append(self._generate_one_briefing(
@@ -251,11 +261,49 @@ class NarrativeBriefingService:
             ))
 
         briefings = await asyncio.gather(*gen_tasks)
-        return [b for b in briefings if b]
+        # Fusionner RV et entrees perso, tries par heure (journee-complete en tete).
+        all_entries = personal_entries + [b for b in briefings if b]
+        all_entries.sort(key=lambda b: (b.get('appointment') or {}).get('time') or '')
+        return all_entries
 
     # ═══════════════════════════════════════════════════════════════
     # PER-CLIENT BRIEFING GENERATION
     # ═══════════════════════════════════════════════════════════════
+
+    def _build_personal_entry(self, appt: Dict) -> Dict:
+        """Entree minimale pour un evenement PERSONNEL / CONGE (Phase 3).
+
+        Visible dans Ma Journee en lecture seule (heure ou « journee », titre),
+        SANS appel IA ni intelligence client. Conserve toutes les cles du contrat
+        de sortie pour ne pas casser le rendu frontend (tableaux vides)."""
+        et = (appt.get('event_type') or '').upper()
+        title = (appt.get('title') or '').strip()
+        return {
+            "kind": "personal",
+            "is_all_day": bool(appt.get('is_all_day')),
+            "client_id": appt.get('client_external_id') or "",
+            "client_name": title or ("Conge" if et == 'HOLIDAY' else "Personnel"),
+            "client_since": None,
+            "narrative": "",
+            "action_items": [],
+            "flags": {},
+            "piano": {},
+            "all_pianos": [],
+            "appointment": {
+                "id": appt.get('external_id'),
+                "time": (appt.get('appointment_time', '') or '')[:5],
+                "title": title,
+                "description": appt.get('description', '') or '',
+                "technician_id": appt.get('technicien'),
+                "technician_name": resolve_technician_name(appt.get('technicien', ''), include_admin=True),
+                "collaboration": [],
+            },
+            "follow_ups": [],
+            "estimate_items": [],
+            "gazelle_estimates": [],
+            "critical_estimates": [],
+            "generated_at": datetime.now().isoformat(),
+        }
 
     async def _generate_one_briefing(self, appt: Dict, client: Dict,
                                       pianos: List[Dict], timeline: List[Dict],
