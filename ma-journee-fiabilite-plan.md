@@ -2,8 +2,8 @@
 
 > Statut : actif (conception validée + revue adversariale intégrée, en cours d'application)
 > Créé : 2026-06-07
-> Dernière mise à jour : 2026-06-07
-> Prochain pas : Phase 0 corrigée — (1) `locale` sur les DEUX queries (complète ET incrémentale), (2) flag dans la clé de cache, (3) `event_type`/`is_all_day`, (4) initiale Margot
+> Dernière mise à jour : 2026-06-13
+> Prochain pas : FAIT & vérifié 2026-06-13/14 — Phase 0 persistance (`locale` 3992/4001, `event_type`/`is_all_day` sur RV) ; Phase 0 initiale Margot (`resolve_technician_name(include_admin=True)` au site propriétaire-RV uniquement, §7 M5 respecté) ; Phase 1 LANGUE (sentinelle `FR_CONFIRMED` bloque le fallback notes — Hélène `fr_CA` + « anglo » notes → langue None, vérifié). RESTE Phase 1 SCOPE PIANO/ESTIMÉS (§7 G3/G4/G5) : confiance dans `_match_piano_from_context` (SN/location exacte seulement), dégrader notes/PLS/label/SN si non confiant, scoper `estimate_items` au piano matché. NON FAIT car §7 G3 exige vérif sur le cas réel PdA (estimé cordelettes Yamaha piano.id ≠ RV) en exécutant le briefing — à faire en session dédiée avec ton œil. Puis B2 (flag+version clé de cache) avant toute bascule, puis Phases 2-5.
 > Bloqué par : rien
 >
 > **IMPORTANT : lire §7 (corrections de la revue adversariale) AVANT de coder une phase.** Plusieurs hypothèses du plan original sont fausses ou dangereuses ; §7 est contraignant et prime sur le texte des phases.
