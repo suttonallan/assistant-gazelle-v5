@@ -294,12 +294,17 @@ class NarrativeBriefingService:
                 appt['description'] = f"{existing_desc} | PDA: {', '.join(pda_context)}".strip(' |')
 
             # ── Match piano(s) for this appointment ──
+            # matched_confidently : certain seulement via l'id exact du RV, un seul
+            # piano client, le numero de serie ou la location exacte (§7 G4/G5).
             piano_id_from_appt = appt.get('piano_external_id')
             piano = {}
+            matched_confidently = False
             if piano_id_from_appt and pianos:
                 piano = next((p for p in pianos if p.get('external_id') == piano_id_from_appt), {})
+                if piano:
+                    matched_confidently = True
             if not piano and pianos:
-                piano = self._match_piano_from_context(pianos, appt)
+                piano, matched_confidently = self._match_piano_from_context(pianos, appt)
 
             # All pianos for this client (for narrative context)
             all_pianos_list = pianos if len(pianos) > 1 else []
@@ -322,13 +327,18 @@ class NarrativeBriefingService:
                     [{'date': t.get('occurred_at', '')[:10]} for t in timeline]
                 )
 
-            # Piano label (mention count if multiple)
-            piano_label = self._compute_piano_label(piano)
-            if len(pianos) > 1:
-                piano_label = f"{piano_label} (+{len(pianos) - 1} autre{'s' if len(pianos) > 2 else ''})"
+            # Piano label — si le piano n'est pas identifie avec certitude (§7 G4),
+            # ne pas affirmer un piano potentiellement faux.
+            if piano and matched_confidently:
+                piano_label = self._compute_piano_label(piano)
+                if len(pianos) > 1:
+                    piano_label = f"{piano_label} (+{len(pianos) - 1} autre{'s' if len(pianos) > 2 else ''})"
+            else:
+                piano_label = "Piano a confirmer sur place" + (
+                    f" ({len(pianos)} pianos au dossier)" if len(pianos) > 1 else "")
 
-            # PLS badge (default False if data missing)
-            has_pls = bool(piano.get('dampp_chaser_installed'))
+            # PLS badge — seulement si le piano est identifie avec certitude (§7 G4)
+            has_pls = bool(piano.get('dampp_chaser_installed')) if matched_confidently else False
 
             # Langue : locale Gazelle (autoritaire) > heuristique notes. Un locale
             # fr* renvoie « FR_CONFIRMED » (truthy) qui court-circuite le `or` →
@@ -364,6 +374,23 @@ class NarrativeBriefingService:
                             'technician_name': resolve_technician_name(other['technicien']),
                             'time': (other.get('appointment_time', '') or '')[:5],
                         })
+
+            # Scope des estimes au piano du RV (§7 G3). Si le piano est identifie
+            # avec CERTITUDE, on n'affiche que les estimes de CE piano (ou sans
+            # piano) ; un estime d'un AUTRE piano du client remontait a tort
+            # (bug « cordelettes Yamaha » sur le mauvais piano a PdA). Si le piano
+            # n'est pas certain, on ne scope pas (on ne sait pas a qui attribuer).
+            matched_pid = piano.get('external_id') if matched_confidently else None
+            if matched_pid:
+                estimates = [
+                    e for e in estimates
+                    if not e.get('piano_id') or e.get('piano_id') == matched_pid
+                ]
+                gazelle_estimates = [
+                    e for e in (gazelle_estimates or [])
+                    if not (e.get('piano') or {}).get('id')
+                    or (e.get('piano') or {}).get('id') == matched_pid
+                ]
 
             # Estimate summary (timeline-based, legacy)
             estimate_items = self._format_estimates(estimates)
@@ -431,6 +458,7 @@ class NarrativeBriefingService:
                     "year": piano.get('year', 0),
                     "age_years": (datetime.now().year - piano['year']) if piano.get('year') and piano['year'] > 1800 else 0,
                     "dampp_chaser": has_pls or False,
+                    "matched_confidently": matched_confidently,
                 },
                 "all_pianos": [
                     {
@@ -1334,57 +1362,48 @@ class NarrativeBriefingService:
     # PIANO MATCHING
     # ═══════════════════════════════════════════════════════════════
 
-    def _match_piano_from_context(self, pianos: List[Dict], appt: Dict) -> Dict:
-        """Find the piano matching the appointment based on description/title."""
+    def _match_piano_from_context(self, pianos: List[Dict], appt: Dict):
+        """Retourne (piano, matched_confidently).
+
+        On n'est CONFIANT que sur le numero de serie ou la location exacte (§7 G5).
+        Jamais sur marque/modele/type ni sous-chaine floue par mot (« Salle E »
+        matchait n'importe quoi). En cas de doute on rend un best-guess marque
+        NON confiant -> les couches suivantes degradent piano/PLS/estimes (G3/G4)."""
         if not pianos:
-            return {}
+            return {}, False
         if len(pianos) == 1:
-            return pianos[0]
+            return pianos[0], True  # seul piano du client → certain
 
         search_text = " ".join([
             appt.get('title', ''), appt.get('description', ''), appt.get('notes', ''),
         ]).lower()
 
         if not search_text.strip():
-            return pianos[0]
+            return pianos[0], False
 
-        # 1. Match par numéro de série (le plus fiable)
+        # 1. Numero de serie exact (le plus fiable) → CONFIANT
         for piano in pianos:
-            sn = (piano.get('serial_number') or '').strip()
+            sn = (piano.get('serial_number') or '').strip().lower()
             if sn and len(sn) >= 4 and sn in search_text:
-                return piano
+                return piano, True
 
-        # 2. Match par salle/location
+        # 2. Location exacte (la salle du piano apparait telle quelle) → CONFIANT
         for piano in pianos:
             loc = (piano.get('location') or '').lower().strip()
             if loc and len(loc) >= 3 and loc in search_text:
-                return piano
-            # Aussi vérifier si la salle du RV est dans la location du piano
-            if loc:
-                for word in search_text.split():
-                    if len(word) >= 3 and word in loc:
-                        return piano
+                return piano, True
 
-        # 3. Match par marque
+        # 3. Marque / modele : best-guess NON confiant (jamais decisif seul, §7 G5)
         for piano in pianos:
             make = (piano.get('make') or '').lower()
             if make and len(make) > 2 and make in search_text:
-                return piano
-
-        # 4. Match par modèle
+                return piano, False
         for piano in pianos:
             model = (piano.get('model') or '').lower()
             if model and len(model) > 2 and model in search_text:
-                return piano
+                return piano, False
 
-        # 5. Match par type
-        if 'queue' in search_text or 'grand' in search_text:
-            for piano in pianos:
-                ptype = (piano.get('type') or '').lower()
-                if ptype in ['grand', 'queue', 'baby grand']:
-                    return piano
-
-        return pianos[0]
+        return pianos[0], False
 
     # ═══════════════════════════════════════════════════════════════
     # FOLLOW-UP RESOLUTION (kept for API endpoint)
