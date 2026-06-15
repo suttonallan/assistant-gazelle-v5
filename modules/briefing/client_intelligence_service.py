@@ -735,7 +735,47 @@ class NarrativeBriefingService:
 
         except Exception as e:
             print(f"⚠️  Narrative AI error: {e}")
-            return "Aucune info particulière à signaler.", []
+            msg = str(e).lower()
+            if any(k in msg for k in ('credit balance', 'too low', 'billing',
+                                      'quota', 'insufficient', 'payment')):
+                self._maybe_alert_ai_credit_issue(str(e))
+            # Degradation claire : c'est une PANNE IA, pas « rien a signaler ».
+            return "Résumé IA temporairement indisponible.", []
+
+    def _maybe_alert_ai_credit_issue(self, error: str):
+        """Alerte courriel (1x/jour max) quand l'IA echoue faute de credits API.
+        Filet de securite meme si l'auto-reload est actif (ex. carte expiree)."""
+        try:
+            from datetime import date
+            today = date.today().isoformat()
+            # Dedup en memoire : evite le burst quand N briefings echouent en parallele.
+            if getattr(self, '_credit_alert_date', None) == today:
+                return
+            self._credit_alert_date = today
+            # Dedup persistant (1x/jour, meme entre executions).
+            if self.storage.get_system_setting('anthropic_credit_alert_date') == today:
+                return
+            self.storage.save_system_setting('anthropic_credit_alert_date', today)
+            body = (
+                "Les appels à l'API Anthropic échouent — probablement un solde de crédits "
+                "épuisé. Conséquence : « Ma Journée » affiche « Résumé IA temporairement "
+                "indisponible » et le chat assistant ne répond plus.\n\n"
+                "Action : recharger les crédits dans console.anthropic.com -> Billing, et "
+                "activer le Rechargement automatique (Auto-reload) pour que ça ne se "
+                "reproduise plus.\n\n"
+                f"Erreur technique : {error[:300]}"
+            )
+            html = "<p>" + body.replace("\n\n", "</p><p>").replace("\n", "<br>") + "</p>"
+            from core.email_notifier import get_email_notifier
+            get_email_notifier().send_email(
+                to_emails=['asutton@piano-tek.com'],
+                subject="[PTM] Crédits API Anthropic épuisés — Ma Journée dégradée",
+                html_content=html,
+                plain_content=body,
+            )
+            print("Alerte credits API envoyee a Allan")
+        except Exception as e:
+            print(f"Alerte credit non envoyee: {e}")
 
     # ═══════════════════════════════════════════════════════════════
     # PYTHON-COMPUTED FLAGS
