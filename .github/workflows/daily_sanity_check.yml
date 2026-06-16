@@ -1,0 +1,36 @@
+name: Verificateur quotidien des donnees
+
+# Detecte des anomalies (stationnement double, contradictions PLS, etc.) et envoie
+# un courriel a Allan UNIQUEMENT s'il y a quelque chose a signaler.
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # ~8h-9h Montreal (apres le sync du matin)
+  workflow_dispatch:
+
+jobs:
+  sanity-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run daily sanity check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+          GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: python modules/data_quality/daily_sanity_check.py
