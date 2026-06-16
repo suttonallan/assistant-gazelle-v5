@@ -24,19 +24,20 @@ TECHNICIAN_NAMES = {
     "usr_HcCiFk7o0vZ9xAI0": "Nicolas",
     "usr_ReUSmIJmBF86ilY1": "Jean-Philippe",
     "usr_ofYggsCDt2JAVeNP": "Allan",
+    "usr_bbt59aCUqUaDWA8n": "Margot",  # technicienne (accorde) + garde l'acces assistante (role frontend)
 }
 
-# Assistantes administratives — leurs entrées sont exclues de l'historique technique
+# Assistantes administratives — leurs entrées sont exclues de l'historique technique.
+# Margot N'est PLUS ici : elle est devenue technicienne a part entiere (ses interventions
+# comptent dans l'historique). Son acces « assistante » passe par le role frontend, distinct.
 ADMIN_STAFF_IDS = {
-    "usr_tndhXmnT0iakT4HF",  # Louise
-    "usr_bbt59aCUqUaDWA8n",  # Margot
+    "usr_tndhXmnT0iakT4HF",  # Louise (assistante uniquement)
 }
 
 # Noms des assistantes — affichés UNIQUEMENT comme proprietaire d'un RV (« Ma Journee »),
 # jamais dans l'historique technique (timeline / services passes) ni la collaboration.
 ADMIN_STAFF_NAMES = {
     "usr_tndhXmnT0iakT4HF": "Louise",
-    "usr_bbt59aCUqUaDWA8n": "Margot",
 }
 
 
