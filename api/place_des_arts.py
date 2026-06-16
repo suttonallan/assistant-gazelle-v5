@@ -1689,7 +1689,7 @@ async def check_completed_requests():
         for item in found_completed:
             # Extraire le stationnement depuis la description Gazelle
             gazelle_apt = gazelle_by_id.get(item['appointment_id'])
-            parking = sync_service._extract_parking_from_appointment(gazelle_apt) if gazelle_apt else None
+            parking = sync_service._extract_parking_from_appointment(gazelle_apt, request_id=item['request_id']) if gazelle_apt else None
             if parking:
                 logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
             success = sync_service._update_request_status(item['request_id'], 'COMPLETED', parking=parking)
@@ -1704,7 +1704,7 @@ async def check_completed_requests():
             gazelle_apt = gazelle_by_id.get(item['appointment_id'])
             if gazelle_apt:
                 apt_technician = gazelle_apt.get('technicien')
-                parking = sync_service._extract_parking_from_appointment(gazelle_apt)
+                parking = sync_service._extract_parking_from_appointment(gazelle_apt, request_id=item['request_id'])
                 if parking:
                     logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
 
@@ -1727,7 +1727,7 @@ async def check_completed_requests():
             gazelle_apt = gazelle_by_id.get(item['appointment_id'])
             if gazelle_apt:
                 apt_technician = gazelle_apt.get('technicien')
-                parking = sync_service._extract_parking_from_appointment(gazelle_apt)
+                parking = sync_service._extract_parking_from_appointment(gazelle_apt, request_id=item['request_id'])
                 if parking:
                     logging.info(f"🅿️ Stationnement détecté pour {item['request_id']}: {parking} $")
 

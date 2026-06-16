@@ -219,9 +219,6 @@ class GazelleSyncService:
             # ET synchroniser les techniciens depuis Gazelle (source de vérité)
             completed_count = 0
             tech_sync_count = 0
-            # Track quels (technicien, date) ont déjà reçu du stationnement
-            # pour ne pas dupliquer. Un seul parking par tech par jour.
-            parking_already_assigned = set()
 
             if not request_ids:  # Seulement en mode "sync all"
                 linked_requests = self._get_linked_not_completed_requests()
@@ -270,16 +267,12 @@ class GazelleSyncService:
                                 print(f"   Demande: {appointment_date} - Salle {room}")
                                 print(f"   RV Gazelle: {apt_id}")
 
-                                # Extraire le montant de stationnement depuis la description Gazelle
-                                # Un seul stationnement par technicien par jour — "stat 20"
-                                # veut dire 20$ pour la visite, pas 20$ par piano.
-                                parking_amount = None
-                                tech_date_key = (gazelle_tech, appointment_date)
-                                if tech_date_key not in parking_already_assigned:
-                                    parking_amount = self._extract_parking_from_appointment(gazelle_apt)
-                                    if parking_amount:
-                                        parking_already_assigned.add(tech_date_key)
-                                        print(f"   🅿️ Stationnement détecté: {parking_amount} $ (1x pour {gazelle_tech} le {appointment_date})")
+                                # Stationnement de CE RV : depuis la note de service de
+                                # SON piano (ecrit une fois = rapporte une fois ; un 2e
+                                # passage sur un autre piano = un 2e stationnement).
+                                parking_amount = self._extract_parking_from_appointment(gazelle_apt, request_id=request_id)
+                                if parking_amount:
+                                    print(f"   Stationnement: {parking_amount} $ (RV {apt_id}, piano {gazelle_apt.get('piano_external_id')})")
 
                                 if not dry_run:
                                     success = self._update_request_status(
@@ -647,36 +640,43 @@ class GazelleSyncService:
             logger.error(f"Erreur lien demande {request_id}: {e}")
             return False
 
-    def _extract_parking_from_appointment(self, gazelle_apt: Dict) -> Optional[str]:
+    def _extract_parking_from_appointment(self, gazelle_apt: Dict,
+                                          request_id: Optional[str] = None) -> Optional[str]:
         """
-        Extrait le montant de stationnement exclusivement depuis les notes de service
-        (gazelle_timeline_entries de type SERVICE) du même jour, écrites par le même
-        technicien que celui assigné au RV.
+        Extrait le stationnement depuis les notes de service du jour RATTACHÉES AU
+        PIANO DE CE RV, écrites par le même technicien.
 
-        IMPORTANT: Ne PAS chercher dans description/notes/title du RV Gazelle —
-        ces champs contiennent des nombres (températures, humidité, etc.)
-        qui génèrent des faux positifs.
+        Règle (voulue par Allan) : écrit une fois = rapporté une fois. Chaque RV ne
+        compte QUE le « stat » écrit dans la note de SON propre piano. Si le tech
+        retourne le même jour sur un AUTRE piano et réécrit « stat », c'est un autre
+        RV (autre piano) → compté à nouveau. Deux passages = deux stationnements.
 
-        IMPORTANT: Filtrer par user_id du technicien — sinon quand Allan écrit
-        "stat 20" dans sa note, le montant est appliqué à TOUS les RV du jour,
-        incluant ceux de Nicolas qui ne charge jamais de stationnement.
+        Le scope par piano_id (et non par client/jour) est l'essentiel : avant, un
+        seul « stat 20 » écrit sur un piano était appliqué à TOUS les RV du jour du
+        technicien → double comptage (bug du 13 juin 2026).
+
+        Ne PAS chercher dans description/notes/title du RV (faux positifs
+        température/humidité). request_id est conservé pour compatibilité d'appel.
         """
         apt_date = gazelle_apt.get('appointment_date')
         apt_ext_id = gazelle_apt.get('external_id')
         apt_tech = gazelle_apt.get('technicien')
-        if not apt_date:
+        piano_id = gazelle_apt.get('piano_external_id')
+        if not apt_date or not piano_id:
+            # Sans piano, on ne peut pas rattacher le stationnement au bon RV.
             return None
 
         try:
             date_str = apt_date[:10] if isinstance(apt_date, str) else str(apt_date)[:10]
             query = self.storage.client.table('gazelle_timeline_entries')\
                 .select('title, description')\
-                .eq('client_id', self.PDA_CLIENT_ID)\
+                .eq('piano_id', piano_id)\
                 .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', f"{date_str}T00:00:00")\
                 .lte('occurred_at', f"{date_str}T23:59:59")
 
-            # Filtrer par technicien si assigné — chaque tech ne voit que ses propres notes
+            # Chaque tech ne voit que ses propres notes (le stat de Nicolas ne va pas
+            # sur un RV d'Allan).
             if apt_tech:
                 query = query.eq('user_id', apt_tech)
 
@@ -685,10 +685,9 @@ class GazelleSyncService:
             if result.data:
                 for entry in result.data:
                     for field in ('title', 'description'):
-                        text = entry.get(field) or ''
-                        amount = extract_parking_amount(text)
+                        amount = extract_parking_amount(entry.get(field) or '')
                         if amount:
-                            logger.info(f"🅿️ Stationnement trouvé dans note de service: {amount}$ (RV {apt_ext_id}, tech {apt_tech})")
+                            logger.info(f"Stationnement {amount}$ sur piano {piano_id} (RV {apt_ext_id}, tech {apt_tech})")
                             return amount
         except Exception as e:
             logger.warning(f"Erreur lecture timeline entries pour parking (RV {apt_ext_id}): {e}")
