@@ -93,7 +93,9 @@ def check_pda_parking(storage) -> list:
 # CHECK 2 — Note de piano qui contredit le statut PLS
 # ════════════════════════════════════════════════════════════════════
 
-_PLS_REMOVED = re.compile(r"pls\s+(?:retir|enlev|d[ée]branch|absent|plus de pls|sans pls)", re.I)
+# RETIRE = vrai retrait (contredit « installé »). On exclut « débranché » : un PLS
+# débranché reste INSTALLÉ (juste pas en usage) — ce n'est pas une contradiction.
+_PLS_REMOVED = re.compile(r"pls\s+(?:retir|enlev|absent)|(?:retir[ée]s?|enlev[ée]s?)\s+(?:le\s+)?pls", re.I)
 _PLS_PRESENT_NOTE = re.compile(r"(nouveau|neuf|install[ée]).{0,20}(pls|piano life saver|life saver)", re.I)
 
 
