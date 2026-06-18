@@ -286,12 +286,19 @@ export default function VDI_ManagementView({
               >
                 → Top
               </button>
-              <button 
-                onClick={() => batchSetStatus('proposed')} 
+              <button
+                onClick={() => batchSetStatus('proposed')}
                 className="px-3 py-1 rounded text-sm bg-yellow-400 hover:bg-yellow-500"
                 title="Marquer les pianos sélectionnés comme à faire"
               >
                 → À faire
+              </button>
+              <button
+                onClick={() => batchSetStatus('normal')}
+                className="px-3 py-1 rounded text-sm bg-gray-300 hover:bg-gray-400"
+                title="Retirer l'étiquette « à faire » des pianos sélectionnés (remettre à normal)"
+              >
+                Enlever « à faire »
               </button>
               <select onChange={(e) => { if (e.target.value) batchSetUsage(e.target.value); }} className="border rounded px-2 py-1 text-sm" value="">
                 <option value="">Usage...</option>
