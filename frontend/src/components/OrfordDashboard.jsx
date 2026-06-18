@@ -796,8 +796,9 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
         hideNickView={hideNickView}
       />
 
-        {/* Vue Gestion & Pianos */}
-        {currentView === 'nicolas' && (
+        {/* Vue Gestion & Pianos + « À valider » (l'onglet 'vdi' n'avait aucune
+            branche de rendu -> page blanche pour qui cliquait dessus, ex. Nicolas). */}
+        {(currentView === 'nicolas' || currentView === 'vdi') && (
           <VDI_ManagementView
             pianosFiltres={pianosFiltres}
             pianos={pianos}
