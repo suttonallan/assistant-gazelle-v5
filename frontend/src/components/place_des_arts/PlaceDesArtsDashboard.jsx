@@ -237,7 +237,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         `1 - Nick\n` +
         `2 - Allan\n` +
         `3 - JP\n` +
-        `\nEntrez le numéro (1, 2 ou 3):`
+        `4 - Margot\n` +
+        `\nEntrez le numéro (1, 2, 3 ou 4):`
       )
 
       if (!techChoice) return // Annulé
@@ -246,11 +247,12 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         '1': 'usr_HcCiFk7o0vZ9xAI0', // Nick (ID Gazelle)
         '2': 'usr_ofYggsCDt2JAVeNP', // Allan (ID Gazelle)
         '3': 'usr_ReUSmIJmBF86ilY1', // JP (ID Gazelle)
+        '4': 'usr_bbt59aCUqUaDWA8n', // Margot (ID Gazelle)
       }
 
       const techId = techMap[techChoice.trim()]
       if (!techId) {
-        alert('Choix invalide. Veuillez entrer 1, 2 ou 3.')
+        alert('Choix invalide. Veuillez entrer 1, 2, 3 ou 4.')
         return
       }
 
@@ -908,6 +910,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_HcCiFk7o0vZ9xAI0': 'Nick',     // ID Gazelle pour Nicolas
     'usr_ofYggsCDt2JAVeNP': 'Allan',    // ID Gazelle pour Allan
     'usr_ReUSmIJmBF86ilY1': 'JP',       // ID Gazelle pour Jean-Philippe
+    'usr_bbt59aCUqUaDWA8n': 'Margot',   // ID Gazelle pour Margot Charignon
     'usr_HihJsEgkmpTEziJo': 'À attribuer', // Placeholder "À attribuer" dans Gazelle
     'usr_QmEpdeM2xMgZVkDS': 'JP',       // ID alternatif pour JP (si différent dans Gazelle)
     // Anciens IDs pour compatibilité (ne devraient plus être utilisés)
@@ -922,6 +925,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     'usr_HcCiFk7o0vZ9xAI0',  // Nick
     'usr_ofYggsCDt2JAVeNP',  // Allan
     'usr_ReUSmIJmBF86ilY1',  // JP
+    'usr_bbt59aCUqUaDWA8n',  // Margot
     'usr_QmEpdeM2xMgZVkDS',  // JP (ID alternatif si différent dans Gazelle)
   ])
   
@@ -942,7 +946,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     return [
       { id: 'usr_HcCiFk7o0vZ9xAI0', label: 'Nick' },
       { id: 'usr_ofYggsCDt2JAVeNP', label: 'Allan' },
-      { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' }
+      { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' },
+      { id: 'usr_bbt59aCUqUaDWA8n', label: 'Margot' }
     ]
   }, [])
   
