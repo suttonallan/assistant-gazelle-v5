@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.gazelle_api_client import GazelleAPIClient  # noqa: E402
 from core.email_notifier import get_email_notifier    # noqa: E402
+from core.supabase_storage import SupabaseStorage      # noqa: E402
 
 # Techniciens dont le cash recu doit etre signale a info@ (facture a leur nom).
 CASH_TECHS = {
@@ -30,6 +31,14 @@ CASH_TECHS = {
 }
 RECIPIENT = "info@piano-tek.com"
 MTL_TZ = pytz.timezone("America/Montreal")
+
+# Garde anti-doublon : date du dernier envoi reussi, stockee dans Supabase.
+DEDUP_KEY = "cash_digest_last_sent_date"
+# Fenetre d'envoi (heure Montreal). Large pour absorber les retards de
+# declenchement de GitHub Actions : le cron prevu pour 18h tombe souvent a
+# 19h-20h, et l'ancienne barriere "== 18h" rejetait alors le digest en
+# silence (incident 17 juin 2026 : paiement cash JP jamais signale).
+SEND_HOURS = range(18, 22)  # 18h, 19h, 20h, 21h
 
 INVOICES_QUERY = """
 query DailyCash($filters: PrivateAllInvoicesFilter) {
@@ -184,8 +193,8 @@ def main() -> int:
     print(f"Heure Montreal : {now_mtl.strftime('%Y-%m-%d %H:%M %Z')}")
     print(f"Date cible : {today_str}")
 
-    if not skip_hour_gate and current_hour != 18:
-        print(f"Pas 18h Montreal (actuel: {current_hour}h), digest ignore")
+    if not skip_hour_gate and current_hour not in SEND_HOURS:
+        print(f"Hors fenetre d'envoi 18h-21h (actuel: {current_hour}h), digest ignore")
         return 0
 
     print(f"Requete Gazelle : factures cash assignees a JP/Margot, payees aujourd'hui")
@@ -208,6 +217,17 @@ def main() -> int:
         print(text)
         return 0
 
+    # Garde anti-doublon : la fenetre large (18h-21h) et les deux declenchements
+    # cron (22h/23h UTC) peuvent faire passer plusieurs runs le meme jour. On
+    # n'envoie qu'une fois par date. FORCE_SEND=1 outrepasse (envoi retroactif).
+    force_send = os.getenv("FORCE_SEND", "").lower() in ("1", "true", "yes")
+    storage = SupabaseStorage(silent=True)
+    if not force_send:
+        last_sent = storage.get_system_setting(DEDUP_KEY)
+        if last_sent == today_str:
+            print(f"Digest deja envoye pour {today_str} (anti-doublon), envoi ignore")
+            return 0
+
     notifier = get_email_notifier()
     ok = notifier.send_email(
         to_emails=[RECIPIENT],
@@ -215,6 +235,9 @@ def main() -> int:
         html_content=html,
         plain_content=text,
     )
+    if ok:
+        storage.save_system_setting(DEDUP_KEY, today_str)
+        print(f"Digest envoye - marque comme envoye pour {today_str}")
     return 0 if ok else 1
 
 
