@@ -321,7 +321,8 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         technician_names = {
             'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',
             'usr_ofYggsCDt2JAVeNP': 'Allan',
-            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe'
+            'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe',
+            'usr_bbt59aCUqUaDWA8n': 'Margot'
         }
         technician_name = technician_names.get(request.technician_id, request.technician_id)
         

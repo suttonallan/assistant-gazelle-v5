@@ -316,6 +316,7 @@ class ChatService:
             "usr_HcCiFk7o0vZ9xAI0": ["nicolas", "nick", "nic"],  # Nicolas
             "usr_ReUSmIJmBF86ilY1": ["jp", "jean-philippe", "jeanphilippe", "jean philippe"],  # JP
             "usr_ofYggsCDt2JAVeNP": ["allan", "al"],  # Allan
+            "usr_bbt59aCUqUaDWA8n": ["margot", "margot charignon"],  # Margot
         }
 
         for gazelle_id, patterns in technician_patterns.items():

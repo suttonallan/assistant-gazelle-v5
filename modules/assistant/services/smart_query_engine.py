@@ -115,6 +115,7 @@ Techniciens connus:
 - usr_ofYggsCDt2JAVeNP = Allan Sutton (admin)
 - usr_HcCiFk7o0vZ9xAI0 = Nicolas Lessard
 - usr_ReUSmIJmBF86ilY1 = Jean-Philippe Reny
+- usr_bbt59aCUqUaDWA8n = Margot Charignon
 
 API REST PostgREST:
 - Filtres: eq, neq, gt, gte, lt, lte, like, ilike, in, is
@@ -566,6 +567,7 @@ JSON:"""
                 'usr_ofYggsCDt2JAVeNP': 'Allan',
                 'usr_HcCiFk7o0vZ9xAI0': 'Nicolas',
                 'usr_ReUSmIJmBF86ilY1': 'Jean-Philippe',
+                'usr_bbt59aCUqUaDWA8n': 'Margot',
             }
             parts.append(f"[{tech_names.get(tech, tech)}]")
 

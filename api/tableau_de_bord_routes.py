@@ -122,7 +122,7 @@ async def get_unconfirmed_appointments() -> Dict[str, Any]:
             # Enrichir avec le nom du technicien
             if apt.get('technicien'):
                 try:
-                    tech_resp = storage.client.table('gazelle_users').select(
+                    tech_resp = storage.client.table('users').select(
                         'first_name, last_name'
                     ).eq(
                         'external_id', apt['technicien']

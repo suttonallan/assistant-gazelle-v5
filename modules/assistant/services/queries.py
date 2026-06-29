@@ -30,7 +30,8 @@ class GazelleQueries:
             'nlessard@piano-tek.com': 'usr_HcCiFk7o0vZ9xAI0',   # Nick
             'jp@pianotekinc.com': 'usr_ReUSmIJmBF86ilY1',        # Jean-Philippe
             'asutton@piano-tek.com': 'usr_ofYggsCDt2JAVeNP',     # Allan (admin ET technicien)
-            'allan@pianotekinc.com': 'usr_ofYggsCDt2JAVeNP'      # Allan
+            'allan@pianotekinc.com': 'usr_ofYggsCDt2JAVeNP',     # Allan
+            'margotcharignon@gmail.com': 'usr_bbt59aCUqUaDWA8n'  # Margot
         }
 
     def _get_technicien_from_email(self, email: str) -> Optional[str]:
