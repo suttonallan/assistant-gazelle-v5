@@ -61,10 +61,19 @@ def find_best_match(request, gazelle_appointments):
             apt_text, apt_hour, has_real_tech,
         )
         if quality > 0:
-            candidates.append((apt, quality))
+            # Distance horaire, pour departager les egalites : deux RV le meme
+            # jour/salle/client (ex: 9h Margot et 17h Nicolas) obtiennent la meme
+            # qualite (le bonus heure "<= limite" vaut pour les deux), et sans ce
+            # critere le premier trouve gagne et vole l'attribution.
+            if request_hour_limit is not None and apt_hour is not None:
+                hour_distance = abs(apt_hour - request_hour_limit)
+            else:
+                hour_distance = 99
+            candidates.append((apt, quality, hour_distance))
 
     if candidates:
-        candidates.sort(key=lambda x: -x[1])
+        # Qualite decroissante, puis l'heure la plus proche de la demande.
+        candidates.sort(key=lambda x: (-x[1], x[2]))
         return candidates[0][0]
 
     # Fallback IA
