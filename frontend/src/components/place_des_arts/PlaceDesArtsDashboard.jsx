@@ -59,18 +59,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [infoMessage, setInfoMessage] = useState(null)
   // plus de CSV direct ici
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (silent = false) => {
     try {
-      setLoading(true)
-      setError(null)
+      if (!silent) setLoading(true)
+      if (!silent) setError(null)
       const resp = await fetch(`${API_URL}/api/place-des-arts/requests?limit=200`)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setItems(data || [])
     } catch (err) {
-      setError(err.message)
+      if (!silent) setError(err.message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -85,10 +85,36 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }, [])
 
+  // Fetch ciblé live : rendre le rafraîchissement = synchronisation Gazelle.
+  // Au chargement (et toutes les 4 min tant que le tableau est ouvert), on
+  // déclenche le pull live Gazelle (anti-rebond côté serveur) puis on recharge,
+  // silencieusement. Envoi { auto: true } sans request_ids => ne touche qu'aux
+  // demandes non liées + rafraîchit les RV : aucun risque sur les COMPLETED.
+  // Le bouton manuel « Synchroniser tout » reste inchangé.
+  const autoSyncGazelle = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/sync-manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto: true })
+      })
+      if (resp.ok) {
+        await fetchData(true)
+        await fetchStats()
+      }
+    } catch (err) {
+      // silencieux : l'auto-sync ne doit jamais bloquer l'affichage
+    }
+  }, [fetchData, fetchStats])
+
   useEffect(() => {
     fetchData()
     fetchStats()
-  }, [fetchData])
+    // Synchro live automatique : au chargement puis toutes les 4 minutes.
+    autoSyncGazelle()
+    const intervalId = setInterval(autoSyncGazelle, 4 * 60 * 1000)
+    return () => clearInterval(intervalId)
+  }, [fetchData, fetchStats, autoSyncGazelle])
 
   // Recherche de programme de concert — liens directs (PDA bloque le scraping)
   const handleConcertSearch = useCallback((item) => {

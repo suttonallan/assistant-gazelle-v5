@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import List, Literal, Optional, Dict, Any
 import requests
+import json
 from datetime import datetime, timedelta, timezone
 import time
 
@@ -1463,6 +1464,40 @@ async def import_email(payload: ImportRequest):
 
 class SyncManualRequest(BaseModel):
     request_ids: Optional[List[str]] = None
+    # auto=True : appel automatique (chargement/rafraîchissement du tableau).
+    # On applique alors un anti-rebond pour ne pas marteler l'API Gazelle si
+    # plusieurs personnes ouvrent le tableau en même temps. auto=False (bouton
+    # manuel) force toujours un pull live frais.
+    auto: bool = False
+
+
+# Anti-rebond serveur : ne pas relancer le pull live Gazelle si un pull a eu
+# lieu il y a moins de N secondes (partagé entre tous les utilisateurs via
+# system_settings). Le bouton manuel (auto=False) ignore cet anti-rebond.
+_LIVE_SYNC_DEBOUNCE_SECONDS = 90
+_LIVE_SYNC_SETTING_KEY = "pda_last_live_sync_ts"
+
+
+def _seconds_since_last_live_sync(storage) -> Optional[float]:
+    try:
+        resp = storage.client.table('system_settings').select('value')\
+            .eq('key', _LIVE_SYNC_SETTING_KEY).limit(1).execute()
+        if resp.data:
+            last_ts = float(json.loads(resp.data[0]['value']))
+            return time.time() - last_ts
+    except Exception as e:
+        logging.warning(f"Lecture anti-rebond sync live échouée: {e}")
+    return None
+
+
+def _mark_live_sync_now(storage) -> None:
+    try:
+        storage.client.table('system_settings').upsert(
+            {'key': _LIVE_SYNC_SETTING_KEY, 'value': json.dumps(time.time())},
+            on_conflict='key'
+        ).execute()
+    except Exception as e:
+        logging.warning(f"Écriture anti-rebond sync live échouée: {e}")
 
 
 @router.post("/sync-manual")
@@ -1470,7 +1505,7 @@ async def sync_manual(payload: SyncManualRequest):
     """
     Synchronisation manuelle: Met à jour le statut 'Créé Gazelle' pour les demandes
     qui ont un RV correspondant dans Gazelle.
-    
+
     Trouve automatiquement les RV Gazelle correspondant aux demandes Place des Arts
     et lie les deux systèmes via le champ appointment_id.
     """
@@ -1484,12 +1519,20 @@ async def sync_manual(payload: SyncManualRequest):
         # Sinon on travaille avec les données de la dernière sync horaire et
         # les assignations récentes (dans Gazelle mais pas encore en Supabase)
         # sont invisibles.
+        # Anti-rebond : en mode auto, on saute le pull live s'il vient d'être fait.
         appointments_synced = 0
-        try:
-            syncer = GazelleToSupabaseSync(incremental_mode=True)
-            appointments_synced = syncer.sync_appointments()
-        except Exception as sync_exc:
-            logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
+        skipped_live_pull = False
+        if payload and payload.auto:
+            elapsed = _seconds_since_last_live_sync(storage)
+            if elapsed is not None and elapsed < _LIVE_SYNC_DEBOUNCE_SECONDS:
+                skipped_live_pull = True
+        if not skipped_live_pull:
+            try:
+                syncer = GazelleToSupabaseSync(incremental_mode=True)
+                appointments_synced = syncer.sync_appointments()
+                _mark_live_sync_now(storage)
+            except Exception as sync_exc:
+                logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
 
         # ÉTAPE 2: Lier les demandes PDA aux RV Gazelle (maintenant à jour)
         sync_service = GazelleSyncService(storage)
@@ -1505,6 +1548,7 @@ async def sync_manual(payload: SyncManualRequest):
             "checked": result.get("checked", 0),
             "matched": result.get("matched", 0),
             "appointments_refreshed": appointments_synced,
+            "live_pull_skipped": skipped_live_pull,
             "details": result.get("details", []),
             "warnings": result.get("warnings", []),
             "has_warnings": len(result.get("warnings", [])) > 0
