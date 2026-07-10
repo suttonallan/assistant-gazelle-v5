@@ -1,0 +1,42 @@
+name: 📋 Briefing Slack (pilote nuage)
+
+on:
+  schedule:
+    # 12h Montréal : 16h UTC (EDT, mars-nov) ou 17h UTC (EST, nov-mars)
+    # Le script garde une hour-gate interne pour ne s'exécuter que si l'heure
+    # Montréal == 12h (évite le double-envoi entre les deux crons DST).
+    - cron: '0 16,17 * * *'
+  workflow_dispatch:  # Lancement manuel possible
+    inputs:
+      force:
+        description: "Ignorer la fenêtre horaire (envoi immédiat)"
+        required: false
+        default: 'true'
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run briefing pilote (Allan uniquement)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Webhook Slack d'Allan — secret chiffré, jamais en clair dans le code
+          BRIEFING_SLACK_WEBHOOK_ALLAN: ${{ secrets.BRIEFING_SLACK_WEBHOOK_ALLAN }}
+          # Dispatch manuel => force l'envoi hors fenêtre horaire
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force || '' }}
+        run: python scripts/briefing_slack_pilot.py --technician allan
