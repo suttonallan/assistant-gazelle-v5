@@ -165,3 +165,5 @@ minimal, le vérifie, puis le déploie (Render backend + GitHub Pages frontend, 
   (`createEvent`/`completeEvent`, `userId` singulier).
 - `C:\PTM\transferabilite-plan.md` — plan de transférabilité opérationnelle (faire tourner
   l'entreprise sans le PC d'Allan).
+
+— Test dev nuage réussi.
