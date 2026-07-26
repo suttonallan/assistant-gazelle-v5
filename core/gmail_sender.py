@@ -12,6 +12,7 @@ Cherche le token dans cet ordre :
 import os
 import sys
 import json
+import time
 import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -42,6 +43,7 @@ class GmailSender:
     def __init__(self):
         self.service = None
         self.email_address = None
+        self.last_error = None  # dernière erreur d'envoi (pour diagnostic/journalisation)
         self._init_service()
 
     def _load_token_data(self) -> Optional[dict]:
@@ -138,36 +140,54 @@ class GmailSender:
         Returns:
             True si envoyé avec succès
         """
+        self.last_error = None
         if not self.service:
+            self.last_error = "Gmail API non initialisé"
             print("⚠️ Gmail API non initialisé — email non envoyé")
             return False
 
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["from"] = self.email_address
-            msg["to"] = ", ".join(to_emails)
-            msg["subject"] = subject
+        # Retry : les envois Gmail échouent par intermittence (jeton OAuth rafraîchi
+        # en parallèle par un autre job, erreur transitoire 5xx/429). Sans reprise, un
+        # échec passager = alerte perdue. On réessaie en rafraîchissant le service.
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["from"] = self.email_address
+                msg["to"] = ", ".join(to_emails)
+                msg["subject"] = subject
 
-            if plain_content:
-                msg.attach(MIMEText(plain_content, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
+                if plain_content:
+                    msg.attach(MIMEText(plain_content, "plain"))
+                msg.attach(MIMEText(html_content, "html"))
 
-            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-            result = self.service.users().messages().send(
-                userId="me",
-                body={"raw": raw},
-            ).execute()
+                raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+                result = self.service.users().messages().send(
+                    userId="me",
+                    body={"raw": raw},
+                ).execute()
 
-            if result and result.get("id"):
-                print(f"✅ Email envoyé via Gmail à {len(to_emails)} destinataire(s) (id: {result['id']})")
-                return True
-            else:
+                if result and result.get("id"):
+                    suffixe = f" (essai {attempt})" if attempt > 1 else ""
+                    print(f"✅ Email envoyé via Gmail à {len(to_emails)} destinataire(s){suffixe} (id: {result['id']})")
+                    return True
+
+                self.last_error = f"Réponse Gmail inattendue: {result}"
                 print(f"⚠️ Gmail réponse inattendue : {result}")
-                return False
 
-        except Exception as e:
-            print(f"❌ Erreur envoi Gmail : {e}")
-            return False
+            except Exception as e:
+                self.last_error = f"{type(e).__name__}: {e}"
+                print(f"❌ Erreur envoi Gmail (essai {attempt}/{max_attempts}) : {e}")
+
+            # Échec de cet essai : backoff court + rafraîchir le service (token) avant de réessayer
+            if attempt < max_attempts:
+                time.sleep(1.5 * attempt)
+                try:
+                    self._init_service()
+                except Exception as re_err:
+                    self.last_error = f"Réinit Gmail échouée: {re_err}"
+
+        return False
 
 
 # Singleton

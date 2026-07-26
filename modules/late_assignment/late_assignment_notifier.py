@@ -76,16 +76,19 @@ class LateAssignmentNotifier:
             
             for item in queue_items:
                 stats['processed'] += 1
+                # Reset avant l'envoi : ne capture que l'erreur de CET item (pas une périmée)
+                self.email_notifier.last_error = None
                 success = self._send_alert(item)
-                
+
                 if success:
                     stats['sent'] += 1
                     # Marquer comme envoyé
                     self._mark_as_sent(item['id'])
                 else:
                     stats['failed'] += 1
-                    # Marquer comme failed
-                    self._mark_as_failed(item['id'], "Erreur lors de l'envoi")
+                    # Marquer comme failed AVEC la vraie raison (Gmail/token) si dispo
+                    reason = getattr(self.email_notifier, 'last_error', None) or "Erreur lors de l'envoi"
+                    self._mark_as_failed(item['id'], reason)
             
             print(f"   Traitement terminé: {stats['sent']} envoyé(s), {stats['failed']} échec(s)")
             return stats

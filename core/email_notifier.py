@@ -24,6 +24,7 @@ class EmailNotifier:
         self.method = None
         self._gmail_sender = None
         self._resend_ready = False
+        self.last_error = None  # dernière erreur d'envoi (pour diagnostic/journalisation)
 
         # 1. Essayer Gmail API
         try:
@@ -74,17 +75,22 @@ class EmailNotifier:
         Returns:
             True si envoyé avec succès
         """
+        self.last_error = None
         if self.method == 'gmail':
-            return self._gmail_sender.send_email(
+            ok = self._gmail_sender.send_email(
                 to_emails=to_emails,
                 subject=subject,
                 html_content=html_content,
                 plain_content=plain_content,
             )
+            if not ok:
+                self.last_error = getattr(self._gmail_sender, 'last_error', None)
+            return ok
 
         if self.method == 'resend':
             return self._send_via_resend(to_emails, subject, html_content, plain_content)
 
+        self.last_error = "Aucune méthode d'envoi configurée"
         print("⚠️ Aucune méthode d'envoi configurée — email non envoyé")
         return False
 
