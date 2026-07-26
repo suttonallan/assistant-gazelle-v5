@@ -47,6 +47,7 @@ export default function VDI_TechnicianView({
   // Actions
   saveTravail,
   clearAFaire,
+  newService,
 
   // Utilitaires
   moisDepuisAccord,
@@ -101,6 +102,26 @@ export default function VDI_TechnicianView({
       }
     }, 2000);
   }, [saveTravail, setTravailInput]);
+
+  // Figer le service courant et en ouvrir un nouveau.
+  // On flush d'abord la saisie en cours (annule le debounce) pour ne rien perdre.
+  const handleNewService = useCallback(async (pianoId, currentText) => {
+    clearTimeout(debounceTimers.current[pianoId]);
+    if (!window.confirm('Clore ce service et en démarrer un nouveau ?\nLe service actuel sera figé et transmis pour validation.')) {
+      return;
+    }
+    setSaveStatus(prev => ({ ...prev, [pianoId]: 'saving' }));
+    try {
+      if (currentText && currentText.trim()) {
+        await saveTravail(pianoId, currentText);
+      }
+      await newService(pianoId);
+      setTravailInput('');
+      setSaveStatus(prev => ({ ...prev, [pianoId]: 'saved' }));
+    } catch {
+      setSaveStatus(prev => ({ ...prev, [pianoId]: 'error' }));
+    }
+  }, [saveTravail, newService, setTravailInput]);
 
   const institutions = [
     { slug: 'vincent-dindy', name: "Vincent-d'Indy" },
@@ -202,6 +223,12 @@ export default function VDI_TechnicianView({
                     <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    {piano.frozen_service_count > 0 && (
+                      <span
+                        className="text-emerald-700 bg-emerald-100 border border-emerald-300 text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                        title={`${piano.frozen_service_count} service(s) déjà figé(s) aujourd'hui, en attente de validation`}
+                      >🧊 {piano.frozen_service_count}</span>
+                    )}
                     {piano.service_record?.status === 'validated' ? (
                       <span className="text-blue-600 text-sm font-bold" title="Validé par Nicolas">✓N</span>
                     ) : hasTravail ? (
@@ -297,6 +324,16 @@ export default function VDI_TechnicianView({
                                 <div className="text-xs text-gray-400">auto-save {myInitials ? `[${myInitials}]` : ''}</div>
                                 <SaveBadge status={saveStatus[piano.id]} />
                               </div>
+                            )}
+                            {/* Figer le service courant et en démarrer un nouveau (même jour) */}
+                            {!isLocked && newService && hasTravail && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleNewService(piano.id, travailInput); }}
+                                className="mt-2 w-full text-sm font-semibold rounded-lg px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 transition-colors"
+                                title="Fige ce service et ouvre une nouvelle fiche vierge pour ce piano"
+                              >
+                                + Nouveau service (figer celui-ci)
+                              </button>
                             )}
                           </>
                         );

@@ -391,13 +391,20 @@ async def get_institution_pianos(
 
             active_resp = (
                 _sb.table("piano_service_records")
-                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at,updated_at")
+                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at,updated_at,closed_at")
                 .eq("institution_slug", institution)
                 .in_("status", ["draft", "completed", "validated"])
                 .execute()
             )
             stale_ids = []
+            frozen_count_by_piano = {}
             for rec in (active_resp.data or []):
+                # Fiche figée (bouton « Nouveau service ») : elle n'est plus la fiche
+                # éditable du piano — on la compte seulement, en attente de validation.
+                if rec.get("closed_at"):
+                    pid = rec["piano_id"]
+                    frozen_count_by_piano[pid] = frozen_count_by_piano.get(pid, 0) + 1
+                    continue
                 updated = rec.get("updated_at") or rec.get("started_at") or ""
                 # Seuls les vieux DRAFT vides (orphelins de session) sont nettoyés
                 # Les completed et validated sont TOUJOURS gardés (travail réel)
@@ -523,6 +530,9 @@ async def get_institution_pianos(
                     "technician_email": sr.get("technician_email"),
                 } if sr.get("id") else None,
                 "last_service_completed_at": last_pushed.get("completed_at"),
+                # Nombre de services déjà figés aujourd'hui (bouton « Nouveau service »),
+                # en attente de validation par Nicolas.
+                "frozen_service_count": frozen_count_by_piano.get(gz_id, 0),
             }
 
             pianos.append(piano)

@@ -537,6 +537,19 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
     }
   };
 
+  // Figer le service courant d'un piano et libérer une nouvelle fiche vierge.
+  // Permet de consigner plusieurs services le même jour sans validation manuelle.
+  const newService = async (id) => {
+    const inst = selectedInstitutionForTechnician || institution || 'orford';
+    const r = await withTimeout(fetch(`${API_URL}/api/service-records/${inst}/piano/${id}/close-and-new`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completed_by: currentUser?.name || currentUser?.email || '' })
+    }));
+    if (!r.ok) throw new Error(`close-and-new HTTP ${r.status}`);
+    await loadPianosFromAPI();
+  };
+
 
   // Charger les pianos depuis l'API au montage du composant
   useEffect(() => {
@@ -770,6 +783,7 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
               isWorkCompleted={isWorkCompleted}
               setIsWorkCompleted={setIsWorkCompleted}
               saveTravail={saveTravail}
+              newService={newService}
               moisDepuisAccord={moisDepuisAccord}
               formatDateRelative={formatDateRelative}
               getSyncStatusIcon={getSyncStatusIcon}
