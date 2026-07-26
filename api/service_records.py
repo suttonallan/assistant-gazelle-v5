@@ -21,6 +21,15 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/service-records", tags=["service-records"])
 
 # ============================================================
+# Calendrier "À attribuer" (non assigné)
+# ============================================================
+# Certaines institutions ne doivent PAS auto-assigner un technicien lors du
+# push : le RV est cree dans un calendrier "poubelle" non utilise, et un humain
+# assigne ensuite le vrai technicien dans Gazelle. Ex. Orford (accords collectifs).
+CALENDRIER_NON_ASSIGNE_USER_ID = "usr_naFcjSiNRcnqU5mF"  # "Avis système inutiles Piano"
+INSTITUTIONS_PUSH_NON_ASSIGNE = {"orford"}
+
+# ============================================================
 # Helpers Supabase
 # ============================================================
 
@@ -482,6 +491,14 @@ async def push_validated_to_gazelle(
             }
         }
         """
+        # Calendrier cible : "À attribuer" pour les institutions non-assignées
+        # (ex. Orford), sinon le technicien fourni. Override volontaire meme si
+        # un technician_id explicite est passe.
+        push_user_id = (
+            CALENDRIER_NON_ASSIGNE_USER_ID
+            if institution.strip().lower() in INSTITUTIONS_PUSH_NON_ASSIGNE
+            else body.technician_id
+        )
         event_input = {
             "title": f"Accord collectif ({len(piano_ids)} pianos)",
             "start": event_date,
@@ -489,7 +506,7 @@ async def push_validated_to_gazelle(
             "type": "APPOINTMENT",
             "notes": "\n".join(combined_lines),
             "pianos": [{"pianoId": pid, "isTuning": True} for pid in piano_ids],
-            "userId": body.technician_id,
+            "userId": push_user_id,
         }
         if client_id:
             event_input["clientId"] = client_id

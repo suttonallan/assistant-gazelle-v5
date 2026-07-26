@@ -647,7 +647,10 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
     }
   };
 
-  // Fonction push vers Gazelle
+  // Push vers Gazelle via le point d'entrée UNIQUE (service-records).
+  // L'ancien endpoint /api/{institution}/push-to-gazelle n'existe plus (404).
+  // Le backend route Orford vers le calendrier "Avis système inutiles Piano"
+  // (non assigné) — un humain assigne ensuite le vrai technicien dans Gazelle.
   const handlePushToGazelle = async () => {
     if (readyForPushCount === 0) {
       alert('Aucun piano prêt pour être envoyé à Gazelle.');
@@ -661,23 +664,20 @@ const OrfordDashboard = ({ currentUser, initialView = 'nicolas', hideNickView = 
     setPushInProgress(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/${institution}/push-to-gazelle`, {
+      const response = await fetch(`${API_URL}/api/service-records/${institution}/push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          technician_id: 'usr_HcCiFk7o0vZ9xAI0', // Nick par défaut
-          dry_run: false
-        })
+        body: JSON.stringify({ dry_run: false })
       });
 
       const result = await response.json();
 
-      if (result.success) {
-        alert(`✅ ${result.pushed_count}/${result.total_pianos} piano(s) envoyé(s) avec succès!`);
+      if (response.ok && result.success) {
+        alert(`✅ ${result.pushed_count || 0} fiche(s) envoyée(s)!${result.message ? '\n' + result.message : ''}`);
         await loadPianosFromAPI(); // Recharger pour mettre à jour sync_status
       } else {
-        alert(`⚠️ ${result.pushed_count || 0}/${result.total_pianos || 0} piano(s) envoyé(s), ${result.error_count || 0} erreur(s).\n\nVoir console pour détails.`);
-        console.error('Erreurs push:', result.results?.filter(r => r.status === 'error') || []);
+        alert(`❌ Échec du push: ${result.message || result.detail || 'erreur inconnue'}`);
+        console.error('Erreur push:', result);
       }
     } catch (err) {
       alert(`❌ Erreur lors du push: ${err.message}`);
