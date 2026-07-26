@@ -106,6 +106,7 @@ npm run dev  # port 5174, proxy vers localhost:8000
 | Fichier | Rôle |
 |---------|------|
 | `CLAUDE.md` | Contexte projet pour Claude Code |
+| `docs/INSTITUTIONS.md` | **Doc canonique du système multi-institutions** (routage, modèle 2 tables, flux push, particularités, comment demander un aménagement) |
 | `decisions.md` | Décisions techniques avec le pourquoi |
 | `tech-debt-observations.md` | Liste honnête des fragilités connues |
 | `config/techniciens_config.py` | Source de vérité des IDs techniciens |
