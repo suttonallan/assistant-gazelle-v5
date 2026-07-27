@@ -22,6 +22,7 @@ from typing import List, Dict, Optional, Any
 from email.utils import parsedate_to_datetime
 
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -46,6 +47,16 @@ TOKEN_PATH = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
     'config', 'gmail-token.json'
 )
+
+# --- Compte de service (délégation à l'échelle du domaine) ---------------------
+# Les demandes PDA arrivent dans une boîte partagée (info@piano-tek.com) distincte
+# du compte technicien. Un compte de service Workspace avec délégation impersonne
+# cette boîte pour la lire, sans OAuth interactif ni 2FA — idéal pour le nuage.
+# Boîte impersonnée (configurable) ; par défaut info@piano-tek.com.
+SERVICE_ACCOUNT_SUBJECT = os.getenv("GMAIL_SCAN_SUBJECT", "info@piano-tek.com")
+# Clés Supabase où chercher le JSON du compte de service (réutilise celui de
+# Google Sheets si aucune clé dédiée n'existe).
+SERVICE_ACCOUNT_KEYS = ("GMAIL_SERVICE_ACCOUNT_JSON", "GOOGLE_SHEETS_JSON")
 
 
 class GmailScanner:
@@ -86,6 +97,13 @@ class GmailScanner:
         """
         creds = None
 
+        # 0. Priorité : compte de service avec délégation (lecture de la boîte
+        #    partagée info@ sans OAuth interactif ni 2FA). Repli sur OAuth si
+        #    la délégation n'est pas (encore) configurée côté Google Workspace.
+        sa_creds = self._load_service_account_credentials()
+        if sa_creds is not None:
+            return sa_creds
+
         # 1. Charger le token existant
         if os.path.exists(TOKEN_PATH):
             try:
@@ -123,6 +141,51 @@ class GmailScanner:
             return None
 
         return creds
+
+    def _load_service_account_credentials(self) -> Optional[service_account.Credentials]:
+        """
+        Charge des credentials via un compte de service avec délégation à
+        l'échelle du domaine (domain-wide delegation), impersonnant la boîte
+        SERVICE_ACCOUNT_SUBJECT (par défaut info@piano-tek.com).
+
+        Permet au scan de lire une boîte partagée sans OAuth interactif ni 2FA
+        — indispensable pour tourner dans le nuage sans dépendre d'un téléphone.
+
+        Retourne None si non configuré ou indisponible (repli automatique sur
+        le flux OAuth existant, pour ne rien casser tant que la délégation n'est
+        pas activée dans la console d'administration Google Workspace).
+        """
+        if not SERVICE_ACCOUNT_SUBJECT:
+            return None
+        try:
+            from core.supabase_storage import SupabaseStorage
+            storage = SupabaseStorage(silent=True)
+
+            sa_info = None
+            for key in SERVICE_ACCOUNT_KEYS:
+                value = storage.get_system_setting(key)
+                if value:
+                    sa_info = json.loads(value) if isinstance(value, str) else value
+                    break
+            if not sa_info:
+                return None
+
+            creds = service_account.Credentials.from_service_account_info(
+                sa_info, scopes=GMAIL_SCOPES, subject=SERVICE_ACCOUNT_SUBJECT
+            )
+            creds.refresh(Request())
+            if creds.valid:
+                logger.info(
+                    f"Credentials Gmail via compte de service "
+                    f"(boîte impersonnée : {SERVICE_ACCOUNT_SUBJECT})"
+                )
+                return creds
+        except Exception as e:
+            logger.warning(
+                f"Compte de service Gmail indisponible pour {SERVICE_ACCOUNT_SUBJECT} "
+                f"(repli sur OAuth) : {e}"
+            )
+        return None
 
     def _save_token(self, creds: Credentials):
         """Sauvegarde le token dans un fichier local et dans Supabase."""
