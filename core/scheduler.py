@@ -810,16 +810,13 @@ def configure_jobs(scheduler: BackgroundScheduler):
     """
     print("\n📅 Configuration des tâches planifiées...")
 
-    # 01:00 - Sync Gazelle Totale → Timeline (chaînées)
-    scheduler.add_job(
-        task_sync_gazelle_totale,
-        trigger=CronTrigger(hour=1, minute=0, timezone='America/Montreal'),
-        id='sync_gazelle_totale',
-        name='Sync Gazelle → Timeline (01:00)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ 01:00 - Sync Gazelle → Timeline (chaînées)")
+    # 01:00 - Sync Gazelle Totale : RETIRE du scheduler Render.
+    # Deja couvert par GitHub Actions (full_gazelle_sync.yml, nightly).
+    # C'etait le job le plus lourd (full sync clients+contacts+pianos+timeline+
+    # appointments) : son pic memoire sur l'instance web unique pouvait declencher
+    # un OOM/redemarrage et geler le webhook Zoom. La fonction
+    # task_sync_gazelle_totale reste disponible pour un declenchement manuel.
+    print("   (retire) 01:00 - Sync Gazelle Totale -> deleguee a GitHub Actions")
 
     # 03:00 - Backup Database
     scheduler.add_job(
@@ -936,16 +933,11 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 16:30 - Sync Appointments configurée")
 
-    # Toutes les heures (heures ouvrables 7h-21h) - Sync Appointments pour détecter les RV dernière minute
-    scheduler.add_job(
-        task_sync_appointments_only,
-        trigger=CronTrigger(hour='7-21', minute=0, timezone='America/Montreal'),
-        id='sync_appointments_hourly',
-        name='Sync Appointments (horaire 7h-21h)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ Toutes les heures (7h-21h) - Sync Appointments configurée")
+    # Sync Appointments horaire (7h-21h) : RETIRE du scheduler Render.
+    # Deja couvert par GitHub Actions (hourly_appointments_sync.yml).
+    # Le sync 16:30 est CONSERVE ci-dessus car il fait aussi le lien PDA/OSM
+    # (unique, pas couvert par Actions).
+    print("   (retire) horaire 7h-21h - Sync Appointments -> deleguee a GitHub Actions")
 
     # Toutes les heures (heures ouvrables 8h-18h) - Scan Gmail pour demandes PDA
     scheduler.add_job(

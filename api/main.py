@@ -10,6 +10,7 @@ import json
 import time
 import hmac
 import hashlib
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
@@ -56,73 +57,96 @@ app = FastAPI(
 )
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Validation des variables d'environnement critiques au démarrage."""
-    print("\n" + "="*60)
-    print("🚀 DÉMARRAGE API ASSISTANT GAZELLE V5")
-    print("="*60)
-    
-    # Initialiser les singletons au démarrage pour éviter les réinitialisations
+# Reference forte vers la tache de demarrage en arriere-plan (evite que le
+# garbage collector la ramasse avant qu'elle ne se termine).
+_startup_bg_future = None
+
+
+def _deferred_startup():
+    """Travail de demarrage potentiellement lent (reseau/DB).
+
+    Execute dans un thread separe pour NE PAS bloquer la boucle asyncio :
+    l'API sert /health et le webhook Zoom immediatement, pendant que
+    singletons + discovery institutions + scheduler s'initialisent en fond.
+    Avant : cette phase bloquait le demarrage ~90s -> Zoom voyait l'endpoint
+    non repondant a chaque redeploiement.
+    """
+    # Initialiser les singletons pour eviter les reinitialisations
     try:
         from api.place_des_arts import get_storage, get_api_client
-        print("\n🔧 Initialisation des singletons...")
-        get_storage()  # Initialise SupabaseStorage (singleton)
-        get_api_client()  # Initialise GazelleAPIClient (singleton)
-        print("✅ Singletons initialisés")
+        print("\n[startup] Initialisation des singletons...")
+        get_storage()   # SupabaseStorage (singleton)
+        get_api_client()  # GazelleAPIClient (singleton)
+        print("[startup] Singletons initialises")
     except Exception as e:
-        print(f"⚠️  Erreur lors de l'initialisation des singletons: {e}")
-    
+        print(f"[startup] Erreur initialisation des singletons: {e}")
+
     # Discovery automatique des institutions depuis Gazelle
     try:
         from api.institutions import discover_and_sync_institutions
-        print("\n🔍 Discovery automatique des institutions...")
+        print("[startup] Discovery automatique des institutions...")
         result = discover_and_sync_institutions()
         if result.get("success"):
-            print(f"✅ {result.get('synced_count', 0)} institutions synchronisées: {', '.join(result.get('institutions', []))}")
+            print(f"[startup] {result.get('synced_count', 0)} institutions synchronisees: {', '.join(result.get('institutions', []))}")
         else:
-            print(f"⚠️  Discovery échoué: {result.get('error', 'Erreur inconnue')}")
+            print(f"[startup] Discovery echoue: {result.get('error', 'Erreur inconnue')}")
     except Exception as e:
-        print(f"⚠️  Erreur lors du discovery des institutions: {e}")
-        # Ne pas bloquer le démarrage si le discovery échoue
+        print(f"[startup] Erreur discovery des institutions: {e}")
 
-    # Vérification des variables d'environnement critiques
+    # Demarrer le scheduler pour les taches planifiees
+    try:
+        from core.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        print(f"[startup] Erreur demarrage du scheduler: {e}")
+        print("[startup] L'API continuera sans taches planifiees.")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Demarrage NON bloquant.
+
+    Les verifications rapides (variables d'env) restent synchrones ; tout le
+    travail lent part en tache de fond via run_in_executor, pour que l'API
+    reponde tout de suite (health check + webhook Zoom).
+    """
+    print("\n" + "="*60)
+    print("DEMARRAGE API ASSISTANT GAZELLE V5")
+    print("="*60)
+
+    # Verification des variables d'environnement critiques (rapide)
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', os.getenv('SUPABASE_KEY'))
     gazelle_client_id = os.getenv('GAZELLE_CLIENT_ID')
     gazelle_client_secret = os.getenv('GAZELLE_CLIENT_SECRET')
 
-    print("\n📋 Variables d'environnement:")
-    print(f"   SUPABASE_URL: {'✅ Défini' if supabase_url else '❌ MANQUANT'}")
+    print("\nVariables d'environnement:")
+    print(f"   SUPABASE_URL: {'OK' if supabase_url else 'MANQUANT'}")
     if supabase_url:
-        print(f"      → {supabase_url}")
+        print(f"      -> {supabase_url}")
+    print(f"   SUPABASE_KEY: {'OK' if os.getenv('SUPABASE_KEY') else 'non defini'}")
+    print(f"   SUPABASE_SERVICE_ROLE_KEY: {'OK' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'non defini'}")
+    print(f"   Cle utilisee: {'OK' if supabase_key else 'MANQUANT'}")
+    print(f"   GAZELLE_CLIENT_ID: {'OK' if gazelle_client_id else 'non defini'}")
+    print(f"   GAZELLE_CLIENT_SECRET: {'OK' if gazelle_client_secret else 'non defini'}")
 
-    print(f"   SUPABASE_KEY: {'✅ Défini' if os.getenv('SUPABASE_KEY') else '⚠️  Non défini'}")
-    print(f"   SUPABASE_SERVICE_ROLE_KEY: {'✅ Défini' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else '⚠️  Non défini'}")
-    print(f"   → Clé utilisée: {'✅ Défini' if supabase_key else '❌ MANQUANT'}")
-
-    print(f"   GAZELLE_CLIENT_ID: {'✅ Défini' if gazelle_client_id else '⚠️  Non défini'}")
-    print(f"   GAZELLE_CLIENT_SECRET: {'✅ Défini' if gazelle_client_secret else '⚠️  Non défini'}")
-
-    # Variables critiques obligatoires
     if not supabase_url or not supabase_key:
-        print("\n❌ ERREUR: Variables Supabase manquantes!")
-        print("   L'API ne pourra pas se connecter à Supabase.")
-        print("   Vérifiez SUPABASE_URL et SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY")
+        print("\nERREUR: Variables Supabase manquantes!")
+        print("   Verifiez SUPABASE_URL et SUPABASE_KEY/SUPABASE_SERVICE_ROLE_KEY")
     else:
-        print("\n✅ Variables Supabase OK")
+        print("\nVariables Supabase OK")
+
+    # Lancer le travail lent en arriere-plan (ne bloque PAS le demarrage).
+    # run_in_executor (dispo des Python 3.7) plutot que asyncio.to_thread (3.9+)
+    # pour ne dependre d'aucune version Python precise sur Render.
+    print("\nInitialisation en arriere-plan (singletons, discovery, scheduler)...")
+    global _startup_bg_future
+    loop = asyncio.get_running_loop()
+    _startup_bg_future = loop.run_in_executor(None, _deferred_startup)
 
     print("\n" + "="*60)
-    print("✅ API PRÊTE")
+    print("API PRETE (health check + webhook disponibles immediatement)")
     print("="*60 + "\n")
-
-    # Démarrer le scheduler pour les tâches planifiées
-    try:
-        from core.scheduler import start_scheduler
-        start_scheduler()
-    except Exception as e:
-        print(f"⚠️  Erreur lors du démarrage du scheduler: {e}")
-        print("   L'API continuera à fonctionner sans tâches planifiées.")
 
 
 @app.on_event("shutdown")
