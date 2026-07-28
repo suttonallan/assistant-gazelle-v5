@@ -63,12 +63,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     try {
       if (!silent) setLoading(true)
       if (!silent) setError(null)
-      const resp = await fetch(`${API_URL}/api/place-des-arts/requests?limit=200`)
+      // Garde-fou timeout : évite un spinner infini si le backend est saturé.
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 20000)
+      let resp
+      try {
+        resp = await fetch(`${API_URL}/api/place-des-arts/requests?limit=200`, { signal: controller.signal })
+      } finally {
+        clearTimeout(timeoutId)
+      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setItems(data || [])
     } catch (err) {
-      if (!silent) setError(err.message)
+      if (!silent) setError(err.name === 'AbortError' ? 'Le serveur tarde à répondre. Réessayez.' : err.message)
     } finally {
       if (!silent) setLoading(false)
     }
@@ -76,7 +84,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_URL}/api/place-des-arts/stats`)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
+      let resp
+      try {
+        resp = await fetch(`${API_URL}/api/place-des-arts/stats`, { signal: controller.signal })
+      } finally {
+        clearTimeout(timeoutId)
+      }
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setStats(data || { imported: 0, to_bill: 0, this_month: 0 })

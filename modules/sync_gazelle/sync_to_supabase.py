@@ -66,12 +66,15 @@ def _is_institution_appointment(title: str, location: str, description: str) -> 
 class GazelleToSupabaseSync:
     """Synchronise les données Gazelle vers Supabase."""
 
-    def __init__(self, incremental_mode: bool = True):
+    def __init__(self, incremental_mode: bool = True, storage=None):
         """Initialise le gestionnaire de synchronisation.
 
         Args:
             incremental_mode: Si True, utilise le mode incrémental rapide (<50 items/jour).
                              Si False, sync complète (5000+ items).
+            storage: Instance SupabaseStorage à réutiliser (singleton). Si None,
+                     une nouvelle est créée. Passer le singleton évite de recréer
+                     un client + un aller-retour réseau à chaque appel (ex. sync-manual).
         """
         print("🔧 Initialisation du service de synchronisation...")
         self.incremental_mode = incremental_mode
@@ -88,7 +91,7 @@ class GazelleToSupabaseSync:
             raise
 
         try:
-            self.storage = SupabaseStorage()
+            self.storage = storage if storage is not None else SupabaseStorage()
             print("✅ Client Supabase initialisé")
         except Exception as e:
             print(f"❌ Erreur d'initialisation Supabase: {e}")

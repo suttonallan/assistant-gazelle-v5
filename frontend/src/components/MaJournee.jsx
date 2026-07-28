@@ -62,7 +62,17 @@ export default function MaJournee({ currentUser }) {
         }
       }
 
-      const response = await fetch(url)
+      // Garde-fou : si le backend est saturé, fetch peut rester suspendu
+      // indéfiniment (connexion ouverte, aucune réponse) => spinner infini.
+      // AbortController transforme ce hang en erreur => retry / message clair.
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 20000)
+      let response
+      try {
+        response = await fetch(url, { signal: controller.signal })
+      } finally {
+        clearTimeout(timeoutId)
+      }
       if (!response.ok) {
         throw new Error(`Erreur ${response.status}`)
       }
@@ -73,12 +83,13 @@ export default function MaJournee({ currentUser }) {
       setLoading(false)
     } catch (err) {
       console.error('Erreur chargement briefings:', err)
-      // Retry automatique (cold start Render) — max 2 essais
+      const timedOut = err.name === 'AbortError'
+      // Retry automatique (serveur lent / redémarrage) — max 2 essais
       if (retryCount < 2) {
-        setError('Serveur en démarrage... nouvelle tentative')
+        setError(timedOut ? 'Le serveur tarde à répondre... nouvelle tentative' : 'Serveur en démarrage... nouvelle tentative')
         setTimeout(() => loadBriefings(retryCount + 1), 3000)
       } else {
-        setError(err.message)
+        setError(timedOut ? 'Le serveur ne répond pas. Réessayez.' : err.message)
         setLoading(false)
       }
     }

@@ -1528,7 +1528,7 @@ async def sync_manual(payload: SyncManualRequest):
                 skipped_live_pull = True
         if not skipped_live_pull:
             try:
-                syncer = GazelleToSupabaseSync(incremental_mode=True)
+                syncer = GazelleToSupabaseSync(incremental_mode=True, storage=storage)
                 appointments_synced = syncer.sync_appointments()
                 _mark_live_sync_now(storage)
             except Exception as sync_exc:
