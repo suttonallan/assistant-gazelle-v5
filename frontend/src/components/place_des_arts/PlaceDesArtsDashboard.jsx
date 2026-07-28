@@ -204,8 +204,28 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
     }
   }, [filteredItems, monthFilter])
 
+  // Parse une heure brouillonne ("18h", "9h30", "6am", "7pm", "Avant 9") en minutes depuis minuit
+  const timeToMinutes = (t) => {
+    if (!t) return -1
+    const m = String(t).toLowerCase().match(/(\d{1,2})\s*[h:.]?\s*(\d{2})?\s*(am|pm)?/)
+    if (!m) return -1
+    let h = parseInt(m[1], 10)
+    const mn = m[2] ? parseInt(m[2], 10) : 0
+    if (m[3] === 'pm' && h < 12) h += 12
+    if (m[3] === 'am' && h === 12) h = 0
+    return h * 60 + mn
+  }
+
   const sortedItems = useMemo(() => {
-    if (!sortField) return filteredItems
+    // Tri par DÉFAUT (aucune colonne cliquée) : date décroissante puis heure décroissante (récent → ancien)
+    if (!sortField) {
+      return [...filteredItems].sort((a, b) => {
+        const da = a?.appointment_date ? new Date(a.appointment_date).getTime() : 0
+        const db = b?.appointment_date ? new Date(b.appointment_date).getTime() : 0
+        if (da !== db) return db - da
+        return timeToMinutes(b?.time) - timeToMinutes(a?.time)
+      })
+    }
     const dir = sortDir === 'desc' ? -1 : 1
     const compare = (a, b) => {
       const va = a?.[sortField] ?? ''
@@ -215,6 +235,10 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         const da = va ? new Date(va).getTime() : 0
         const db = vb ? new Date(vb).getTime() : 0
         return (da - db) * dir
+      }
+      // Heure : tri numérique intelligent (pas alphabétique)
+      if (sortField === 'time') {
+        return (timeToMinutes(va) - timeToMinutes(vb)) * dir
       }
       return String(va).localeCompare(String(vb)) * dir
     }
