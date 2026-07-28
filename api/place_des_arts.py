@@ -582,7 +582,7 @@ async def get_pianos(include_inactive: bool = False):
 
 
 @router.get("/requests")
-async def list_requests(
+def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
     status: Optional[str] = Query(default=None),
     month: Optional[str] = Query(default=None, description="Format AAAA-MM"),
     technician_id: Optional[str] = Query(default=None),
@@ -805,7 +805,7 @@ async def export_csv(month: str = None):
 
 
 @router.get("/stats")
-async def stats():
+def stats():  # sync volontaire: I/O bloquant -> threadpool, boucle libre
     manager = get_manager()
     try:
         return manager.get_stats()
@@ -1501,7 +1501,7 @@ def _mark_live_sync_now(storage) -> None:
 
 
 @router.post("/sync-manual")
-async def sync_manual(payload: SyncManualRequest):
+def sync_manual(payload: SyncManualRequest):  # sync volontaire: pull live Gazelle bloquant -> threadpool
     """
     Synchronisation manuelle: Met à jour le statut 'Créé Gazelle' pour les demandes
     qui ont un RV correspondant dans Gazelle.

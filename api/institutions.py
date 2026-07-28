@@ -717,7 +717,11 @@ async def get_institution_stats(
 
 
 @router.get("/institutions/list", response_model=Dict[str, Any])
-async def list_institutions() -> Dict[str, Any]:
+def list_institutions() -> Dict[str, Any]:
+    # NB: endpoint SYNCHRONE volontairement. Il fait un appel Supabase bloquant ;
+    # en `async def` il gèlerait la boucle asyncio (menu institutions + /health
+    # qui timeout quand le serveur est occupé). En `def`, FastAPI l'exécute dans
+    # un threadpool et la boucle reste libre.
     """
     Liste toutes les institutions actives disponibles.
 
