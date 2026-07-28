@@ -8,12 +8,18 @@ la logique V4 n'est pas portée.
 import sys
 import os
 import logging
+import threading
 from pathlib import Path
 from typing import List, Literal, Optional, Dict, Any
 import requests
 import json
 from datetime import datetime, timedelta, timezone
 import time
+
+# Verrou anti-empilement : empêche plusieurs pulls Gazelle complets (1150+ RV,
+# 60-90s) de tourner en même temps quand plusieurs onglets/appels déclenchent
+# sync-manual. Si un pull est déjà en cours, les autres sautent le pull live.
+_pda_live_sync_lock = threading.Lock()
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response
 from starlette.responses import StreamingResponse
@@ -1527,12 +1533,21 @@ def sync_manual(payload: SyncManualRequest):  # sync volontaire: pull live Gazel
             if elapsed is not None and elapsed < _LIVE_SYNC_DEBOUNCE_SECONDS:
                 skipped_live_pull = True
         if not skipped_live_pull:
-            try:
-                syncer = GazelleToSupabaseSync(incremental_mode=True, storage=storage)
-                appointments_synced = syncer.sync_appointments()
-                _mark_live_sync_now(storage)
-            except Exception as sync_exc:
-                logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
+            # Un seul pull live à la fois. Si un autre est déjà en cours, on
+            # ne l'empile pas : on saute et on réconcilie avec les données déjà
+            # présentes (évite d'empiler des pulls de 1150+ RV et de saturer).
+            if _pda_live_sync_lock.acquire(blocking=False):
+                try:
+                    syncer = GazelleToSupabaseSync(incremental_mode=True, storage=storage)
+                    appointments_synced = syncer.sync_appointments()
+                    _mark_live_sync_now(storage)
+                except Exception as sync_exc:
+                    logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
+                finally:
+                    _pda_live_sync_lock.release()
+            else:
+                skipped_live_pull = True
+                logging.info("Pull live Gazelle déjà en cours — sauté pour cet appel.")
 
         # ÉTAPE 2: Lier les demandes PDA aux RV Gazelle (maintenant à jour)
         sync_service = GazelleSyncService(storage)

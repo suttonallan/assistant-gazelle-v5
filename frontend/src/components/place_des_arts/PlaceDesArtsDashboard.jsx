@@ -123,13 +123,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   }, [fetchData, fetchStats])
 
   useEffect(() => {
+    // Ouverture RAPIDE : on lit directement Supabase (déjà synchronisé chaque
+    // heure côté serveur). On NE déclenche PLUS un pull Gazelle complet
+    // (~1150 RV, 60-90s) à chaque ouverture ni toutes les 4 min — c'était la
+    // cause de la lenteur et de la saturation. Le bouton « Synchroniser tout »
+    // reste disponible pour un rafraîchissement Gazelle à la demande.
     fetchData()
     fetchStats()
-    // Synchro live automatique : au chargement puis toutes les 4 minutes.
-    autoSyncGazelle()
-    const intervalId = setInterval(autoSyncGazelle, 4 * 60 * 1000)
-    return () => clearInterval(intervalId)
-  }, [fetchData, fetchStats, autoSyncGazelle])
+  }, [fetchData, fetchStats])
 
   // Recherche de programme de concert — liens directs (PDA bloque le scraping)
   const handleConcertSearch = useCallback((item) => {
