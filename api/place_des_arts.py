@@ -782,10 +782,20 @@ async def export_csv(month: str = None):
         except Exception as e:
             logging.warning(f"Erreur enrichissement Gazelle pour export: {e}")
 
+    # Initiales des techniciens (au lieu de l'ID brut usr_... dans l'export)
+    INITIALES_TECH = {
+        'usr_HcCiFk7o0vZ9xAI0': 'NL',  # Nicolas Lessard
+        'usr_bbt59aCUqUaDWA8n': 'MC',  # Margot Charignon
+        'usr_ofYggsCDt2JAVeNP': 'AS',  # Allan Sutton
+        'usr_ReUSmIJmBF86ilY1': 'JP',  # Jean-Philippe Reny
+        'usr_tndhXmnT0iakT4HF': 'LP',  # Louise Paradis
+        'usr_HihJsEgkmpTEziJo': 'À attribuer',
+    }
+
     # Colonnes ordonnées pour lisibilité
     fieldnames = [
         'appointment_date', 'time', 'room', 'for_who', 'piano',
-        'diapason', 'requester', 'technician_id', 'status',
+        'diapason', 'requester', 'technicien', 'status',
         'billing_amount', 'parking', 'notes', 'gazelle_service_notes',
         'service_history', 'request_date', 'appointment_id', 'id',
     ]
@@ -798,6 +808,8 @@ async def export_csv(month: str = None):
         apt_id = row.get('appointment_id', '')
         row['gazelle_service_notes'] = gazelle_map.get(apt_id, '')
         row['service_history'] = service_history_map.get(apt_id, '')
+        # Technicien en initiales (NL, MC, AS, JP…) au lieu de l'ID brut usr_...
+        row['technicien'] = INITIALES_TECH.get(row.get('technician_id'), row.get('technician_id') or '')
         writer.writerow(row)
 
     csv_content = output.getvalue()
