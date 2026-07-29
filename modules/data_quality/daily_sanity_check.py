@@ -130,7 +130,136 @@ def check_pls_note_contradiction(storage) -> list:
     return anomalies
 
 
-CHECKS = [check_pda_parking, check_pls_note_contradiction]
+# ════════════════════════════════════════════════════════════════════
+# CHECK 3 — Cohérence des demandes Place des Arts
+# ════════════════════════════════════════════════════════════════════
+#
+# SIGNALE (ne supprime jamais) les incohérences qui se glissent dans les
+# demandes PDA, avec assez de détails pour que la coordinatrice tranche.
+# Détection FLOUE des doublons (casse/espaces normalisés, time ignoré) —
+# là où le bouton « Nettoyer doublons » (clé stricte date+room+for_who+time,
+# sensible à la casse) les laisse passer. Un doublon peut être légitime
+# (concert 2 pianos, 2 demandes le même soir) : on le montre, on ne tranche pas.
+
+def _d10(v):
+    return (v or "")[:10]
+
+
+def check_pda_coherence(storage) -> list:
+    anomalies = []
+    H = storage._get_headers()
+    api = storage.api_url
+    import requests as http
+    # Fenêtre : récent (30j) + tout le futur (les concerts à venir comptent le plus ;
+    # 30j en arrière attrape aussi les demandes fraîchement importées).
+    since = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    reqs = http.get(
+        f"{api}/place_des_arts_requests?appointment_date=gte.{since}"
+        f"&select=id,appointment_id,appointment_date,room,time,for_who,piano,technician_id,status,invoice_id,billed_at"
+        f"&order=appointment_date.asc",
+        headers=H, timeout=30).json()
+    if not isinstance(reqs, list) or not reqs:
+        return anomalies
+
+    apt_ids = sorted({r["appointment_id"] for r in reqs if r.get("appointment_id")})
+    appts = {}
+    for i in range(0, len(apt_ids), 150):
+        ids_csv = ",".join(apt_ids[i:i + 150])
+        rows = http.get(
+            f"{api}/gazelle_appointments?external_id=in.({ids_csv})"
+            f"&select=external_id,appointment_date,technicien,status",
+            headers=H, timeout=30).json()
+        for a in (rows if isinstance(rows, list) else []):
+            appts[a["external_id"]] = a
+
+    # a) Doublons de demandes. Clé = date + salle + pour-qui + HEURE, mais
+    #    casse/espaces normalisés. On INCLUT l'heure exprès : un accord le matin
+    #    et une retouche le soir pour le même concert ne sont PAS un doublon.
+    #    Le vrai trou de « find-duplicates » est la casse (« ms » vs « MS » à
+    #    même heure lui échappe) — ça, on l'attrape.
+    from collections import defaultdict
+
+    def _norm(v):
+        return (v or "").strip().lower().replace(" ", "")
+
+    groups = defaultdict(list)
+    for r in reqs:
+        k = (_d10(r.get("appointment_date")), _norm(r.get("room")),
+             _norm(r.get("for_who")), _norm(r.get("time")))
+        if k[0]:
+            groups[k].append(r)
+    for (date, room, who, tm), rs in groups.items():
+        if len(rs) > 1:
+            det = " | ".join(
+                f"time='{x.get('time') or ''}' piano='{x.get('piano') or ''}' id={x['id']}" for x in rs)
+            anomalies.append({
+                "check": "pda_doublons", "severity": "warning",
+                "title": f"Doublon possible — {date} {room} « {who} » {tm or '(sans heure)'} ({len(rs)}x)",
+                "detail": f"Même date/salle/pour-qui/heure. À trancher (2 pianos ? erreur ?) : {det}",
+            })
+
+    # b) Un même RV Gazelle lié à plusieurs demandes (double-lien)
+    by_apt = defaultdict(list)
+    for r in reqs:
+        if r.get("appointment_id"):
+            by_apt[r["appointment_id"]].append(r)
+    for aid, rs in by_apt.items():
+        if len(rs) > 1:
+            rooms = {(x.get("room") or "").strip().lower() for x in rs}
+            sev = "error" if len(rooms) > 1 else "warning"
+            note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""
+            det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}" for x in rs)
+            anomalies.append({
+                "check": "pda_double_lien", "severity": sev,
+                "title": f"RV lié à {len(rs)} demandes — {aid}{note}",
+                "detail": f"Demandes : {det}",
+            })
+
+    # c) Intégrité des liens (RV manquant / annulé / date dérivée / tech discordant)
+    for r in reqs:
+        aid = r.get("appointment_id")
+        st = (r.get("status") or "").upper()
+        if st in ("COMPLETED", "BILLED") and not aid:
+            anomalies.append({
+                "check": "pda_statut", "severity": "warning",
+                "title": f"Statut {st} sans lien — {_d10(r.get('appointment_date'))} {r.get('room')}",
+                "detail": f"Demande {r['id']} marquée {st} mais aucun RV Gazelle lié.",
+            })
+        if not aid:
+            continue
+        apt = appts.get(aid)
+        if not apt:
+            anomalies.append({
+                "check": "pda_lien_casse", "severity": "warning",
+                "title": f"Lien cassé — {_d10(r.get('appointment_date'))} {r.get('room')}",
+                "detail": f"Demande {r['id']} → RV {aid} absent de la base (supprimé ?).",
+            })
+            continue
+        if (apt.get("status") or "").upper() in ("CANCELLED", "CANCELED"):
+            anomalies.append({
+                "check": "pda_rv_annule", "severity": "warning",
+                "title": f"Lié à un RV annulé — {_d10(r.get('appointment_date'))} {r.get('room')}",
+                "detail": f"Demande {r['id']} reste liée au RV annulé {aid}.",
+            })
+        if _d10(r.get("appointment_date")) != _d10(apt.get("appointment_date")):
+            anomalies.append({
+                "check": "pda_date_derive", "severity": "warning",
+                "title": f"Date qui a dérivé — {r.get('room')} ({aid})",
+                "detail": f"Demande {_d10(r.get('appointment_date'))} vs RV {_d10(apt.get('appointment_date'))}. RV déplacé, demande pas suivie ?",
+            })
+        rt, at = r.get("technician_id"), apt.get("technicien")
+        if rt and at and rt != at:
+            anomalies.append({
+                "check": "pda_tech_discordant", "severity": "warning",
+                "title": f"Technicien discordant — {_d10(r.get('appointment_date'))} {r.get('room')}",
+                "detail": f"Demande={rt} vs RV={at} ({aid}).",
+            })
+
+    return anomalies
+
+
+CHECKS = [check_pda_parking, check_pls_note_contradiction, check_pda_coherence]
 
 
 # ════════════════════════════════════════════════════════════════════
