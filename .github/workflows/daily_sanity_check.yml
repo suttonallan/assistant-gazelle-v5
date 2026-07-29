@@ -34,3 +34,16 @@ jobs:
           GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: python modules/data_quality/daily_sanity_check.py
+
+      # Canari de sante : frappe l'API en prod, mesure la vitesse, verifie la
+      # fraicheur de la sync. Courriel seulement si l'app est tombee/lente/perimee.
+      # `if: always()` pour qu'il tourne meme si le check de donnees ci-dessus echoue.
+      - name: Run health canary
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+          GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: python modules/data_quality/daily_health_canary.py
