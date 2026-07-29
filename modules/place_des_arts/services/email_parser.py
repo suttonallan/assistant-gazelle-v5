@@ -124,6 +124,34 @@ def parse_time_flexible(time_str: str) -> str:
     return time_str.strip()
 
 
+def canonical_time(time_str: Optional[str]) -> Optional[str]:
+    """
+    Convertit une heure quelconque en 24h « HH:MM » pour comparaison/déduplication.
+
+    Gère : '6am'→'06:00', '7pm'→'19:00', '19h'→'19:00', '14h30'→'14:30',
+    'à 14h'→'14:00', 'avant 9h'→'09:00', 'Avant 9'→'09:00',
+    'entre 8h et 9h'→'08:00' (on retient le début).
+
+    Retourne None si aucune heure exploitable (on ne devine pas).
+    """
+    if not time_str:
+        return None
+    t = str(time_str).lower().strip()
+    m = re.search(r'(\d{1,2})\s*[h:.]?\s*(\d{2})?\s*(am|pm)?', t)
+    if not m:
+        return None
+    h = int(m.group(1))
+    mn = int(m.group(2)) if m.group(2) else 0
+    ap = m.group(3)
+    if ap == 'pm' and h < 12:
+        h += 12
+    if ap == 'am' and h == 12:
+        h = 0
+    if h > 23 or mn > 59:
+        return None
+    return f"{h:02d}:{mn:02d}"
+
+
 # Aliases pour compatibilité
 parse_date_with_year = parse_date_flexible
 parse_time = parse_time_flexible
@@ -178,6 +206,10 @@ def normalize_room(room_text: str) -> str:
     # Normalisation stricte: CL → SCL (Claude-Léveillée)
     if room_text.upper() == 'CL':
         return 'SCL'
+
+    # Jean-Duceppe abrégé « JD » → TJD (même salle que « TJD »)
+    if room_text.upper() == 'JD':
+        return 'TJD'
 
     # WP loge A (cas spécial)
     if 'loge' in room_text.lower() and 'wp' in room_text.lower():
@@ -1239,7 +1271,38 @@ def parse_email_text(email_text: str) -> List[Dict]:
         if not req.get('request_date'):
             req['request_date'] = today_str
 
-    return requests
+    # ─────────────────────────────────────────────────────────────
+    # ANTI-AMALGAME (règle métier Allan) :
+    # une demande = date + heure précise + local + piano.
+    # Deux lignes identiques sur ces 4 axes = LA MÊME demande.
+    # Ex : « 7pm / JD » et « 19h / TJD » → 19:00 · Jean-Duceppe → 1 seule.
+    # Prudence : on ne fusionne JAMAIS si l'heure est indéterminée (on garde
+    # les deux et on flague, pour laisser la coordonatrice trancher).
+    # ─────────────────────────────────────────────────────────────
+    for req in requests:
+        req['time_24h'] = canonical_time(req.get('time'))
+
+    deduped: List[Dict] = []
+    seen: Dict[tuple, Dict] = {}
+    for req in requests:
+        d = req.get('date')
+        key = (
+            d.date().isoformat() if hasattr(d, 'date') else str(d),
+            req.get('time_24h'),
+            normalize_room(req.get('room') or '').upper().strip(),
+            (req.get('piano') or '').lower().strip(),
+        )
+        if req.get('time_24h') and key in seen:
+            kept = seen[key]
+            kept.setdefault('warnings', []).append(
+                f"Doublon fusionné : même date/heure/local/piano "
+                f"(ignoré : {req.get('time')} {req.get('room')})"
+            )
+            continue
+        seen[key] = req
+        deduped.append(req)
+
+    return deduped
 
 
 
