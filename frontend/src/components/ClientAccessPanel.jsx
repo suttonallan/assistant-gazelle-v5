@@ -41,9 +41,15 @@ function detectActionType(text) {
   if (!text) return null
   const lower = text.toLowerCase().trim()
 
+  const hasNumber = /#?\d{4,6}/.test(lower)
+  const dupVerb = /(duplique|dupliqu|duplica|copie|copi|clone|clonu|inspir)/.test(lower)
+
+  // 0. Duplication de facture / soumission (brouillon) — priorité sur révision/RV
+  if (dupVerb && hasNumber && lower.includes('facture')) return 'duplicate_invoice'
+  if (dupVerb && hasNumber && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate'))) return 'duplicate_estimate'
+
   // 1. Révision de soumission : doit contenir 'soumission/devis/estimate' OU un verbe d'amélioration + un # ou nom
   const hasReviewVerb = REVIEW_ESTIMATE_KEYWORDS.some(kw => lower.includes(kw))
-  const hasNumber = /#?\d{4,5}/.test(lower)
   if (hasReviewVerb && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate') || hasNumber)) {
     return 'review_estimate'
   }
@@ -149,7 +155,9 @@ export default function ClientAccessPanel({ currentUser }) {
 
     // Router vers le bon endpoint selon le type d'action
     let endpoint
-    if (actionType === 'review_estimate') endpoint = '/api/assistant/review-estimate'
+    if (actionType === 'duplicate_invoice') endpoint = '/api/assistant/duplicate-invoice'
+    else if (actionType === 'duplicate_estimate') endpoint = '/api/assistant/duplicate-estimate'
+    else if (actionType === 'review_estimate') endpoint = '/api/assistant/review-estimate'
     else if (actionType === 'search_keyword') endpoint = '/api/assistant/search-keyword'
     else endpoint = '/api/assistant/joint-appointment'
 
@@ -323,6 +331,31 @@ export default function ClientAccessPanel({ currentUser }) {
                 {assistantResult.annotation_warning && (
                   <div className="text-yellow-700 mt-1">⚠️ {assistantResult.annotation_warning}</div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {assistantResult && assistantResult.success && assistantResult._action_type === 'duplicate_invoice' && (
+            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">✅ Facture dupliquée en brouillon</div>
+              <div className="text-xs space-y-0.5">
+                <div>
+                  Facture <strong>#{assistantResult.invoice_number}</strong>{assistantResult.client_name ? <> — <strong>{assistantResult.client_name}</strong></> : null}, copiée de #{assistantResult.source_number}.
+                </div>
+                <div>Échéance : <strong>{assistantResult.due_on}</strong> · Total : <strong>{assistantResult.total?.toFixed(2)} $</strong></div>
+                <div className="text-yellow-700 mt-1">📝 Statut <strong>{assistantResult.status}</strong> — à réviser et envoyer dans Gazelle (rien n'est envoyé automatiquement).</div>
+              </div>
+            </div>
+          )}
+
+          {assistantResult && assistantResult.success && assistantResult._action_type === 'duplicate_estimate' && (
+            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
+              <div className="font-semibold mb-1">✅ Soumission copiée</div>
+              <div className="text-xs space-y-0.5">
+                <div>
+                  Nouvelle soumission <strong>#{assistantResult.estimate_number}</strong>{assistantResult.client_name ? <> — <strong>{assistantResult.client_name}</strong></> : null}, inspirée de #{assistantResult.source_number}.
+                </div>
+                <div className="text-yellow-700 mt-1">📝 Brouillon — à réviser et envoyer dans Gazelle (rien n'est envoyé automatiquement).</div>
               </div>
             </div>
           )}

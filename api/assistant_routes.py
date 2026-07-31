@@ -1198,3 +1198,51 @@ async def search_keyword(req: AssistantRequest):
     result["intent_recognized"] = True
     result["tool_input"] = tool_call
     return result
+
+
+# ═════════════════════════════════════════════════════════════════════
+# WORKFLOW 4 — Duplication de facture / soumission
+# Sécurité : facture créée en DRAFT, soumission non envoyée. Jamais d'envoi.
+# ═════════════════════════════════════════════════════════════════════
+
+@router.post("/duplicate-invoice", response_model=Dict[str, Any])
+async def duplicate_invoice_endpoint(req: AssistantRequest):
+    """Duplique une facture Gazelle en BROUILLON (DRAFT).
+
+    Ex : « duplique la facture 7286 avec échéance le 7 août ».
+    L'échéance est optionnelle (sinon celle de la source). Jamais envoyée.
+    """
+    from api.assistant_duplication import (
+        duplicate_invoice, extract_doc_number, parse_due_date,
+    )
+    number = extract_doc_number(req.message)
+    if not number:
+        return {"success": False,
+                "error": "Je n'ai pas trouvé de numéro de facture (ex : « duplique la facture 7286 »)."}
+    due_on = parse_due_date(req.message)
+    try:
+        return duplicate_invoice(number, due_on=due_on)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": f"Erreur d'exécution : {exc}"}
+
+
+@router.post("/duplicate-estimate", response_model=Dict[str, Any])
+async def duplicate_estimate_endpoint(req: AssistantRequest):
+    """Copie une soumission Gazelle en une nouvelle soumission (brouillon).
+
+    Ex : « copie la soumission 11919 », « une soumission inspirée de la 11919 ».
+    Rien n'est envoyé au client.
+    """
+    from api.assistant_duplication import duplicate_estimate, extract_doc_number
+    number = extract_doc_number(req.message)
+    if not number:
+        return {"success": False,
+                "error": "Je n'ai pas trouvé de numéro de soumission (ex : « copie la soumission 11919 »)."}
+    try:
+        return duplicate_estimate(number)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": f"Erreur d'exécution : {exc}"}
