@@ -82,15 +82,6 @@ export const ROLES = {
     dashboards: ['vincent-dindy']
   },
 
-  nikolas: {
-    name: 'Nikolas (VDI)',
-    email: null,
-    gazelleId: null,
-    initials: 'NG',
-    permissions: ['view_inventory', 'view_tours', 'edit_vdi'],
-    dashboards: ['vincent-dindy']
-  },
-
   guillaume: {
     name: 'Guillaume (VDI)',
     email: null,

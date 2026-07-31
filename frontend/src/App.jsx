@@ -334,7 +334,6 @@ function App() {
           </ErrorBoundary>
         )
       case 'alexandre':
-      case 'nikolas':
       case 'guillaume':
         // Techniciens temporaires VDI — vue technicien directe
         return (
@@ -436,9 +435,9 @@ function App() {
             </div>
 
             {/* Navigation conditionnelle par rôle */}
-            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe' || effectiveRole === 'alexandre' || effectiveRole === 'nikolas' || effectiveRole === 'guillaume') && (
+            {(effectiveRole === 'admin' || effectiveRole === 'nick' || effectiveRole === 'louise' || effectiveRole === 'margot' || effectiveRole === 'jeanphilippe' || effectiveRole === 'alexandre' || effectiveRole === 'guillaume') && (
               <nav className="flex gap-2">
-                {(effectiveRole === 'alexandre' || effectiveRole === 'nikolas' || effectiveRole === 'guillaume') ? (
+                {(effectiveRole === 'alexandre' || effectiveRole === 'guillaume') ? (
                   <>
                     {/* Technicien temporaire VDI — bouton unique */}
                     <button
@@ -744,7 +743,6 @@ function App() {
                 <option value="margot">Margot</option>
                 <option value="jeanphilippe">Jean-Philippe</option>
                 <option value="alexandre">Alexandre (AB)</option>
-                <option value="nikolas">Nikolas (NG)</option>
                 <option value="guillaume">Guillaume (GL)</option>
               </select>
             )}

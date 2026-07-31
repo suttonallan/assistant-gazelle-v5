@@ -56,7 +56,6 @@ const USERS = [
   // Ses notes sont identifiées par leurs initiales dans le champ travail
   // ═══════════════════════════════════════════════════════════════════
   { id: 6, name: 'Alexandre', initials: 'AB', email: 'alexandre.bourke@gmail.com', role: 'alexandre', pin: '6346', gazelleId: null },
-  { id: 7, name: 'Nikolas', initials: 'NG', email: 'nikolas.gaudreault@gmail.com', role: 'nikolas', pin: '6347', gazelleId: null },
   { id: 8, name: 'Guillaume', initials: 'GL', email: 'guillaume@laccordeur.ca', role: 'guillaume', pin: '6348', gazelleId: null },
 ]
 
