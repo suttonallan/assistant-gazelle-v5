@@ -794,44 +794,98 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   // ============ Données "À VALIDER" — calculées avant les early returns pour respecter les hooks ============
   // Utilise service_record.status (nouveau système piano_service_records)
   // Pianos pending = ont une fiche draft ou completed (technicien a travaillé)
-  const pendingPianos = useMemo(() => pianos
-    .filter(p => {
+  // Un piano peut porter PLUSIEURS services le même jour (bouton « Nouveau
+  // service » -> fiches figées). On émet une ligne par service : la fiche
+  // active + chaque fiche figée (frozen_records), au lieu d'une seule par piano.
+  const pendingPianos = useMemo(() => {
+    const out = [];
+    pianos.forEach(p => {
+      const pianoName = `${p.piano}${p.modele ? ` ${p.modele}` : ''}`;
       const srStatus = p.service_record?.status;
-      return srStatus === 'draft' || srStatus === 'completed';
-    })
-    .map(p => ({
-      _type: 'pending',
-      _key: `pending-${p.id}`,
-      _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
-      pianoId: p.id,
-      gazelleId: p.gazelleId || p.id,
-      serviceRecordId: p.service_record?.id,
-      local: p.local,
-      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-      aFaire: p.aFaire || '',
-      travail: p.travail,
-      serviceDate: p.service_record?.completed_at || p.updated_at || '',
-      status: 'pending',
-      isCompleted: p.service_record?.status === 'completed',
-    })), [pianos]);
+      if (srStatus === 'draft' || srStatus === 'completed') {
+        out.push({
+          _type: 'pending',
+          _key: `pending-${p.id}`,
+          _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
+          pianoId: p.id,
+          gazelleId: p.gazelleId || p.id,
+          serviceRecordId: p.service_record?.id,
+          local: p.local,
+          pianoName,
+          aFaire: p.aFaire || '',
+          travail: p.travail,
+          serviceDate: p.service_record?.completed_at || p.updated_at || '',
+          status: 'pending',
+          isCompleted: srStatus === 'completed',
+        });
+      }
+      (p.frozen_records || []).forEach(fr => {
+        if (fr.status === 'draft' || fr.status === 'completed') {
+          out.push({
+            _type: 'pending',
+            _key: `pending-frozen-${fr.id}`,
+            _sortDate: fr.completed_at || p.updated_at || '1970-01-01',
+            pianoId: p.id,
+            gazelleId: p.gazelleId || p.id,
+            serviceRecordId: fr.id,
+            local: p.local,
+            pianoName,
+            aFaire: '',
+            travail: fr.travail,
+            serviceDate: fr.completed_at || '',
+            status: 'pending',
+            isCompleted: fr.status === 'completed',
+            _frozen: true,
+          });
+        }
+      });
+    });
+    return out;
+  }, [pianos]);
 
-  // Pianos validés (notes visibles, en attente de push)
-  const validatedPianos = useMemo(() => pianos
-    .filter(p => p.service_record?.status === 'validated')
-    .map(p => ({
-      _type: 'validated_piano',
-      _key: `vp-${p.id}`,
-      _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
-      pianoId: p.id,
-      gazelleId: p.gazelleId || p.id,
-      serviceRecordId: p.service_record?.id,
-      local: p.local,
-      pianoName: `${p.piano}${p.modele ? ` ${p.modele}` : ''}`,
-      aFaire: p.aFaire || '',
-      travail: p.travail || '',
-      serviceDate: p.service_record?.completed_at || p.updated_at || '',
-      status: 'validated',
-    })), [pianos]);
+  // Pianos validés (notes visibles, en attente de push) — une ligne par service.
+  const validatedPianos = useMemo(() => {
+    const out = [];
+    pianos.forEach(p => {
+      const pianoName = `${p.piano}${p.modele ? ` ${p.modele}` : ''}`;
+      if (p.service_record?.status === 'validated') {
+        out.push({
+          _type: 'validated_piano',
+          _key: `vp-${p.id}`,
+          _sortDate: p.service_record?.completed_at || p.updated_at || p.dernierAccord || '1970-01-01',
+          pianoId: p.id,
+          gazelleId: p.gazelleId || p.id,
+          serviceRecordId: p.service_record?.id,
+          local: p.local,
+          pianoName,
+          aFaire: p.aFaire || '',
+          travail: p.travail || '',
+          serviceDate: p.service_record?.completed_at || p.updated_at || '',
+          status: 'validated',
+        });
+      }
+      (p.frozen_records || []).forEach(fr => {
+        if (fr.status === 'validated') {
+          out.push({
+            _type: 'validated_piano',
+            _key: `vp-frozen-${fr.id}`,
+            _sortDate: fr.completed_at || p.updated_at || '1970-01-01',
+            pianoId: p.id,
+            gazelleId: p.gazelleId || p.id,
+            serviceRecordId: fr.id,
+            local: p.local,
+            pianoName,
+            aFaire: '',
+            travail: fr.travail || '',
+            serviceDate: fr.completed_at || '',
+            status: 'validated',
+            _frozen: true,
+          });
+        }
+      });
+    });
+    return out;
+  }, [pianos]);
 
   // Pianos poussés — plus besoin car le push nettoie les fiches
   // Les fiches pushed sont dans l'historique (piano_service_records avec status=pushed)
@@ -1022,7 +1076,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
 
     const handlePushToGazelle = async () => {
       if (validatedCount === 0) return;
-      if (!confirm(`Pousser ${validatedCount} piano(s) validé(s) vers Gazelle?`)) return;
+      if (!confirm(`Pousser ${validatedCount} service(s) validé(s) vers Gazelle?`)) return;
       setPushInProgress(true);
       try {
         const r = await fetch(`${API_URL}/api/service-records/${institution}/push`, {
