@@ -1113,23 +1113,6 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
       }
     };
 
-    const handleSaveHistoryEdit = async () => {
-      if (!editingHistoryId) return;
-      try {
-        const r = await fetch(`${API_URL}/api/vincent-dindy/service-history/${editingHistoryId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ travail: editingHistoryText }),
-        });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        setEditingHistoryId(null);
-        setEditingHistoryText('');
-        await loadServiceHistory();
-      } catch (e) {
-        alert('Erreur sauvegarde: ' + e.message);
-      }
-    };
-
     const toggleGazelleHistory = (pianoId, gazelleId) => {
       const idToUse = gazelleId || pianoId;
       if (expandedGazelleHistoryId === idToUse) {
