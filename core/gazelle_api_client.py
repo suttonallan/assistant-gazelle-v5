@@ -623,7 +623,7 @@ class GazelleAPIClient:
                             companyName
                             defaultContact { firstName lastName }
                         }
-                        user { id }
+                        assignedTo { id }
                         number
                         status
                         subTotal

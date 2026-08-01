@@ -1658,6 +1658,11 @@ class GazelleToSupabaseSync:
             if self.incremental_mode:
                 self._save_last_sync_date(datetime.now())
 
+            # Étapes post-sync : une exception ici ne doit PLUS être avalée en
+            # silence puis rapportée "success". On la collecte pour marquer le
+            # run en échec (→ exit 1 → alerte email), au lieu d'un faux "tout va bien".
+            post_step_errors = []
+
             # Pré-charger le cache des briefings (aujourd'hui + demain)
             try:
                 from modules.briefing.briefing_cache import warm_briefing_cache
@@ -1665,6 +1670,7 @@ class GazelleToSupabaseSync:
                 warm_briefing_cache()
             except Exception as cache_err:
                 print(f"⚠️ Cache briefings non mis à jour: {cache_err}")
+                post_step_errors.append(f"cache briefings: {cache_err}")
 
             # Déductions d'inventaire automatiques
             try:
@@ -1675,11 +1681,17 @@ class GazelleToSupabaseSync:
                 print(f"   {deduction_stats.get('deductions_created', 0)} déduction(s) créée(s)")
             except Exception as ded_err:
                 print(f"⚠️ Déductions inventaire non traitées: {ded_err}")
+                post_step_errors.append(f"déductions inventaire: {ded_err}")
 
+            post_ok = len(post_step_errors) == 0
+            if not post_ok:
+                print(f"\n❌ {len(post_step_errors)} étape(s) post-sync en échec — run marqué en erreur (déclenche l'alerte).")
             return {
-                'success': True,
+                'success': post_ok,
+                'error': None if post_ok else '; '.join(post_step_errors),
                 'duration_seconds': duration,
                 'stats': self.stats,
+                'post_step_errors': post_step_errors,
                 'timestamp': datetime.now().isoformat()
             }
 

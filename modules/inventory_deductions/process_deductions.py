@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import json
 
@@ -58,7 +58,7 @@ class InventoryDeductionProcessor:
         print(f"\n🔍 Analyse des factures des {self.days_lookback} derniers jours...")
 
         # 1. Récupérer les factures récentes
-        cutoff_date = datetime.now() - timedelta(days=self.days_lookback)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.days_lookback)
         print(f"📅 Depuis: {cutoff_date.isoformat()}")
 
         try:
@@ -71,6 +71,8 @@ class InventoryDeductionProcessor:
                 created_at = invoice.get('createdAt', '')
                 if created_at:
                     invoice_date = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    if invoice_date.tzinfo is None:
+                        invoice_date = invoice_date.replace(tzinfo=timezone.utc)
                     if invoice_date >= cutoff_date:
                         recent_invoices.append(invoice)
 
@@ -168,8 +170,9 @@ class InventoryDeductionProcessor:
             invoice_id = invoice.get('id')
             invoice_number = invoice.get('number', 'N/A')
 
-            # Récupérer le technicien (user) de la facture
-            user_obj = invoice.get('user', {})
+            # Récupérer le technicien (assignedTo) de la facture
+            # NB: Gazelle a renommé le champ 'user' -> 'assignedTo' sur PrivateInvoice.
+            user_obj = invoice.get('assignedTo', {})
             user_id = user_obj.get('id') if user_obj else None
 
             # Mapper user_id Gazelle → technicien local
