@@ -391,19 +391,22 @@ async def get_institution_pianos(
 
             active_resp = (
                 _sb.table("piano_service_records")
-                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,started_at,updated_at,closed_at")
+                .select("piano_id,id,status,travail,observations,completed_at,completed_by,technician_email,validated_by,started_at,updated_at,closed_at")
                 .eq("institution_slug", institution)
                 .in_("status", ["draft", "completed", "validated"])
                 .execute()
             )
             stale_ids = []
             frozen_count_by_piano = {}
+            frozen_records_by_piano = {}
             for rec in (active_resp.data or []):
                 # Fiche figée (bouton « Nouveau service ») : elle n'est plus la fiche
-                # éditable du piano — on la compte seulement, en attente de validation.
+                # éditable du piano, mais elle reste un service distinct en attente de
+                # validation/push — on l'expose pour l'afficher dans la vue.
                 if rec.get("closed_at"):
                     pid = rec["piano_id"]
                     frozen_count_by_piano[pid] = frozen_count_by_piano.get(pid, 0) + 1
+                    frozen_records_by_piano.setdefault(pid, []).append(rec)
                     continue
                 updated = rec.get("updated_at") or rec.get("started_at") or ""
                 # Seuls les vieux DRAFT vides (orphelins de session) sont nettoyés
@@ -528,11 +531,24 @@ async def get_institution_pianos(
                     "completed_at": sr.get("completed_at"),
                     "completed_by": sr.get("completed_by"),
                     "technician_email": sr.get("technician_email"),
+                    "validated_by": sr.get("validated_by"),
                 } if sr.get("id") else None,
                 "last_service_completed_at": last_pushed.get("completed_at"),
                 # Nombre de services déjà figés aujourd'hui (bouton « Nouveau service »),
-                # en attente de validation par Nicolas.
+                # en attente de validation puis push.
                 "frozen_service_count": frozen_count_by_piano.get(gz_id, 0),
+                # Contenu de chaque service figé (pour les afficher un par un dans la vue).
+                "frozen_records": [
+                    {
+                        "id": fr.get("id"),
+                        "status": fr.get("status"),
+                        "travail": fr.get("travail", ""),
+                        "observations": fr.get("observations", ""),
+                        "completed_at": fr.get("completed_at"),
+                        "validated_by": fr.get("validated_by"),
+                    }
+                    for fr in frozen_records_by_piano.get(gz_id, [])
+                ],
             }
 
             pianos.append(piano)

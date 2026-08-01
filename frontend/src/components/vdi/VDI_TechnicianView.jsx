@@ -136,6 +136,14 @@ export default function VDI_TechnicianView({
 
   const currentInstitution = selectedInstitution || 'vincent-dindy';
 
+  // Nom lisible du valideur (validated_by peut être un nom ou un courriel).
+  const prettyValidator = (v) => {
+    if (!v) return null;
+    const s = String(v).trim();
+    if (!s) return null;
+    return s.includes('@') ? s.split('@')[0] : s;
+  };
+
   return (
     <div className="bg-gray-50">
       {/* Sélection institution */}
@@ -230,7 +238,10 @@ export default function VDI_TechnicianView({
                       >{piano.frozen_service_count} figé{piano.frozen_service_count > 1 ? 's' : ''}</span>
                     )}
                     {piano.service_record?.status === 'validated' ? (
-                      <span className="text-blue-600 text-sm font-bold" title="Validé par Nicolas">✓N</span>
+                      <span
+                        className="text-blue-600 text-sm font-bold"
+                        title={prettyValidator(piano.service_record?.validated_by) ? `Validé par ${prettyValidator(piano.service_record?.validated_by)}` : 'Validé'}
+                      >✓</span>
                     ) : hasTravail ? (
                       <span className="text-blue-500 text-xs" title="En cours">📝</span>
                     ) : null}
@@ -272,10 +283,32 @@ export default function VDI_TechnicianView({
                       </div>
                     )}
 
-                    {/* Bannière lecture seule si validé par Nicolas */}
+                    {/* Bannière lecture seule si la fiche active est validée */}
                     {piano.service_record?.status === 'validated' && (
                       <div className="text-xs font-medium rounded px-2 py-1.5 bg-blue-100 text-blue-700">
-                        Validé par Nicolas — en attente de push vers Gazelle
+                        {prettyValidator(piano.service_record?.validated_by)
+                          ? `Validé par ${prettyValidator(piano.service_record?.validated_by)}`
+                          : 'Validé'} — en attente de push vers Gazelle
+                      </div>
+                    )}
+
+                    {/* Services figés du jour (bouton « Nouveau service ») — un par un,
+                        chacun est un service distinct en attente de validation/push. */}
+                    {Array.isArray(piano.frozen_records) && piano.frozen_records.length > 0 && (
+                      <div className="space-y-1.5">
+                        {piano.frozen_records.map((fr) => (
+                          <div key={fr.id} className="text-sm rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-emerald-800">Service figé</span>
+                              <span className="text-xs text-emerald-700">
+                                {fr.status === 'validated'
+                                  ? (prettyValidator(fr.validated_by) ? `Validé par ${prettyValidator(fr.validated_by)}` : 'Validé')
+                                  : fr.status === 'pushed' ? 'Poussé' : 'En attente de validation'}
+                              </span>
+                            </div>
+                            <div className="text-gray-700 whitespace-pre-wrap mt-0.5">{fr.travail || '(sans note)'}</div>
+                          </div>
+                        ))}
                       </div>
                     )}
 
