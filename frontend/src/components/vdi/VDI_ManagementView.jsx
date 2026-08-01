@@ -11,7 +11,7 @@
  * - Push vers Gazelle
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { getUserRole } from '../../config/roles';
 
 // Configuration de l'API
@@ -88,6 +88,26 @@ export default function VDI_ManagementView({
   readyForPushCount,
   pushInProgress
 }) {
+
+  // Liste plate des SERVICES validés prêts à pousser (un piano peut en avoir
+  // plusieurs le même jour via le bouton « Nouveau service » : fiche active
+  // validée + fiches figées validées). C'est ce que le push enverra.
+  const servicesAPousser = useMemo(() => {
+    const out = [];
+    (pianos || []).forEach(p => {
+      const pianoLabel = `${p.piano || ''}${p.modele ? ` ${p.modele}` : ''}`.trim();
+      const sr = p.service_record;
+      if (sr && sr.status === 'validated') {
+        out.push({ key: sr.id || `${p.id}-active`, local: p.local, piano: pianoLabel, travail: p.travail || '', frozen: false });
+      }
+      (p.frozen_records || []).forEach(fr => {
+        if (fr.status === 'validated') {
+          out.push({ key: fr.id, local: p.local, piano: pianoLabel, travail: fr.travail || '', frozen: true });
+        }
+      });
+    });
+    return out;
+  }, [pianos]);
 
   const SortIcon = ({ columnKey }) => {
     if (sortConfig.key !== columnKey) return <span className="text-gray-300 ml-1">⇅</span>;
@@ -239,12 +259,34 @@ export default function VDI_ManagementView({
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'
               } disabled:opacity-50`}
               disabled={pushInProgress || readyForPushCount === 0}
-              title={readyForPushCount > 0 ? `Envoyer ${readyForPushCount} piano(s) vers Gazelle` : 'Aucun piano à synchroniser'}
+              title={servicesAPousser.length > 0 ? `Envoyer ${servicesAPousser.length} service(s) vers Gazelle` : 'Aucun service à synchroniser'}
             >
-              {pushInProgress ? '⏳ Envoi...' : `Sync Gazelle${readyForPushCount > 0 ? ` (${readyForPushCount})` : ''}`}
+              {pushInProgress ? 'Envoi...' : `Sync Gazelle${servicesAPousser.length > 0 ? ` (${servicesAPousser.length})` : ''}`}
             </button>
           )}
         </div>
+
+        {/* Services validés prêts à pousser — un par un (un piano peut en avoir
+            plusieurs le même jour). Donne la visibilité avant le Sync. */}
+        {servicesAPousser.length > 0 && (
+          <div className="mt-3 border-t pt-3">
+            <div className="text-sm font-semibold text-gray-700 mb-2">
+              {servicesAPousser.length} service(s) à pousser
+            </div>
+            <div className="space-y-1">
+              {servicesAPousser.map(s => (
+                <div key={s.key} className="text-sm bg-green-50 border border-green-200 rounded px-2.5 py-1.5 flex items-start gap-2">
+                  <span className="font-semibold text-gray-700 shrink-0">{s.local}</span>
+                  <span className="text-gray-600 shrink-0">{s.piano}</span>
+                  <span className="text-gray-700 flex-1">{s.travail || '(sans note)'}</span>
+                  {s.frozen && (
+                    <span className="text-xs text-emerald-700 bg-emerald-100 border border-emerald-300 rounded-full px-1.5 py-0.5 shrink-0">figé</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Filtres */}
         <div className="flex gap-4 flex-wrap items-center border-t pt-3">
