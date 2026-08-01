@@ -463,11 +463,17 @@ async def push_validated_to_gazelle(
             "pianos": [{"piano_id": r["piano_id"], "travail": (r.get("travail") or "")[:50]} for r in records]
         }
 
-    # 2. Déterminer la date de service = completed_at le plus récent
-    completed_dates = [r["completed_at"] for r in records if r.get("completed_at")]
-    if completed_dates:
-        # Trier et prendre le plus récent
-        event_date = max(completed_dates)
+    # 2. Déterminer la date de service. Priorité au completed_at (moment « Terminé »),
+    #    sinon started_at / created_at (jour où le travail a été saisi). On ne
+    #    retombe sur « maintenant » (date du push) que si AUCUNE date de travail
+    #    n'existe — un service doit toujours être daté du jour où il a été fait,
+    #    jamais du jour du push. (Les dates ISO 8601 se comparent lexicalement.)
+    service_dates = [
+        d for r in records
+        if (d := r.get("completed_at") or r.get("started_at") or r.get("created_at"))
+    ]
+    if service_dates:
+        event_date = max(service_dates)
     else:
         event_date = datetime.now(MONTREAL_TZ).isoformat()
 
