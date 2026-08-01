@@ -1048,41 +1048,32 @@ async def get_institution_pianos_ready_for_push(
 
         supabase = create_client(supabase_url, supabase_key)
 
-        logging.info(f"🔍 Recherche pianos prêts pour push - institution={institution}, tournee_id={tournee_id}, limit={limit}")
+        logging.info(f"Recherche pianos prets pour push - institution={institution}, tournee_id={tournee_id}, limit={limit}")
 
-        # Construire les filtres
-        query = supabase.table('vincent_dindy_piano_updates').select('*')
+        # Source de verite = fiches de service VALIDEES (piano_service_records),
+        # exactement ce que push_validated_to_gazelle enverra. L'ancienne table
+        # overlay 'vincent_dindy_piano_updates' n'est plus alimentee par le nouveau
+        # workflow de fiches, ce qui donnait un compteur a 0 et bloquait le bouton
+        # Sync alors que des fiches validees existaient.
+        response = (
+            supabase.table('piano_service_records')
+            .select('piano_id,travail,observations,completed_at')
+            .eq('institution_slug', institution)
+            .eq('status', 'validated')
+            .limit(limit)
+            .execute()
+        )
+        records = response.data or []
 
-        # Filtrer par institution
-        query = query.eq('institution_slug', institution)
+        # Compter par piano distinct (le push cree un seul RV multi-pianos).
+        pianos_by_id = {}
+        for rec in records:
+            pid = rec.get('piano_id')
+            if pid and pid not in pianos_by_id:
+                pianos_by_id[pid] = rec
+        pianos = list(pianos_by_id.values())
 
-        # Filtrer par critères de push
-        query = query.eq('status', 'completed')
-        query = query.eq('is_work_completed', True)
-        query = query.in_('sync_status', ['pending', 'modified', 'error'])
-
-        # Filtrer par tournée si spécifiée
-        if tournee_id:
-            query = query.eq('completed_in_tournee_id', tournee_id)
-
-        # Limiter les résultats
-        query = query.limit(limit)
-
-        # Ordre: erreurs en premier, puis modifiés, puis pending
-        query = query.order('sync_status')
-        query = query.order('updated_at', desc=True)
-
-        response = query.execute()
-        pianos = response.data if response.data else []
-
-        # Filtrer pour garder seulement ceux avec travail OU observations
-        pianos = [
-            p for p in pianos
-            if (p.get('travail') and p.get('travail').strip()) or
-               (p.get('observations') and p.get('observations').strip())
-        ]
-
-        logging.info(f"✅ {len(pianos)} pianos prêts pour push pour {institution}")
+        logging.info(f"{len(pianos)} piano(s) pret(s) pour push pour {institution} ({len(records)} fiche(s) validee(s))")
 
         return {
             "pianos": pianos,
