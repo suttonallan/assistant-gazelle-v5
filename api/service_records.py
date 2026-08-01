@@ -24,9 +24,14 @@ router = APIRouter(prefix="/service-records", tags=["service-records"])
 # Calendrier "À attribuer" (non assigné)
 # ============================================================
 # Certaines institutions ne doivent PAS auto-assigner un technicien lors du
-# push : le RV est cree dans un calendrier "poubelle" non utilise, et un humain
-# assigne ensuite le vrai technicien dans Gazelle. Ex. Orford (accords collectifs).
-CALENDRIER_NON_ASSIGNE_USER_ID = "usr_naFcjSiNRcnqU5mF"  # "Avis système inutiles Piano"
+# push : le RV est cree dans le calendrier "A attribuer" non assigne, et un
+# humain assigne ensuite le vrai technicien dans Gazelle. Ex. Orford (accords
+# collectifs).
+# NB: l'ancien user "Avis systeme inutiles Piano" (usr_naFcjSiNRcnqU5mF) est
+# passe a isSchedulable=False cote Gazelle -> createEvent le rejetait
+# ("Le technicien selectionne ne peut pas etre planifie"). On utilise le user
+# "A attribuer" (info@infopiano.com), isSchedulable=True.
+CALENDRIER_NON_ASSIGNE_USER_ID = "usr_HihJsEgkmpTEziJo"  # "A attribuer"
 INSTITUTIONS_PUSH_NON_ASSIGNE = {"orford"}
 
 # ============================================================
