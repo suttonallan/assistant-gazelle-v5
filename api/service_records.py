@@ -463,21 +463,25 @@ async def push_validated_to_gazelle(
             "pianos": [{"piano_id": r["piano_id"], "travail": (r.get("travail") or "")[:50]} for r in records]
         }
 
-    # 2. Déterminer la date de service. Priorité au completed_at (moment « Terminé »),
-    #    sinon started_at / created_at (jour où le travail a été saisi). On ne
-    #    retombe sur « maintenant » (date du push) que si AUCUNE date de travail
-    #    n'existe — un service doit toujours être daté du jour où il a été fait,
-    #    jamais du jour du push. (Les dates ISO 8601 se comparent lexicalement.)
-    service_dates = [
-        d for r in records
-        if (d := r.get("completed_at") or r.get("started_at") or r.get("created_at"))
-    ]
-    if service_dates:
-        event_date = max(service_dates)
-    else:
-        event_date = datetime.now(MONTREAL_TZ).isoformat()
-
     now_iso = datetime.utcnow().isoformat()
+
+    # Date de service d'une fiche : completed_at (moment « Terminé »), sinon
+    # started_at, sinon created_at — jamais la date du push.
+    def _service_dt(r):
+        return r.get("completed_at") or r.get("started_at") or r.get("created_at")
+
+    def _service_day(r):
+        d = _service_dt(r)
+        return d[:10] if d else None
+
+    # Regrouper les fiches par JOUR de service : UN événement par jour, daté de
+    # son vrai jour. Les services du 31 juillet restent au 31 juillet même s'ils
+    # sont poussés le 1er août. Le regroupement par jour (et non par fiche) garde
+    # l'accord collectif d'une même journée en un seul RV.
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in records:
+        groups[_service_day(r)].append(r)
 
     # Mode skip : marquer pushed sans écrire dans Gazelle
     if body.skip_gazelle:
@@ -510,7 +514,7 @@ async def push_validated_to_gazelle(
             "message": f"{len(records)} fiche(s) marquée(s) pushed (Gazelle ignoré)"
         }
 
-    # 3. Push réel vers Gazelle
+    # 3. Push réel vers Gazelle — un événement par jour de service
     try:
         from core.gazelle_api_client import GazelleAPIClient
         from api.institutions import get_institution_config
@@ -519,42 +523,14 @@ async def push_validated_to_gazelle(
         config = get_institution_config(institution)
         client_id = config.get("gazelle_client_id")
 
-        logging.info(f"🎹 Push lot: {len(records)} fiches pour {len(piano_ids)} pianos ({institution})")
+        # Calendrier cible : calendrier non assigné pour les institutions
+        # concernées (ex. Orford), sinon le technicien fourni.
+        push_user_id = (
+            CALENDRIER_NON_ASSIGNE_USER_ID
+            if institution.strip().lower() in INSTITUTIONS_PUSH_NON_ASSIGNE
+            else body.technician_id
+        )
 
-        # 3a. Activer pianos INACTIVE → ACTIVE
-        activated = []
-        for pid in piano_ids:
-            try:
-                sr = api_client._execute_query(
-                    'query($id:String!){piano(id:$id){id status}}',
-                    {"id": pid}
-                )
-                if sr.get("data", {}).get("piano", {}).get("status") == "INACTIVE":
-                    api_client._execute_query(
-                        'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status}}}',
-                        {"id": pid, "input": {"status": "ACTIVE"}}
-                    )
-                    activated.append(pid)
-            except Exception as e:
-                logging.warning(f"⚠️ Activation {pid}: {e}")
-
-        # 3b. Construire les notes combinées
-        combined_lines = []
-        service_notes = []
-        for record in records:
-            pid = record["piano_id"]
-            parts = []
-            if record.get("a_faire"):
-                parts.append(f"📋 {record['a_faire']}")
-            if record.get("travail"):
-                parts.append(f"🔧 {record['travail']}")
-            if record.get("observations"):
-                parts.append(f"📝 {record['observations']}")
-            note_text = "\n".join(parts) if parts else "Service effectué"
-            combined_lines.append(f"🎹 {pid}: {note_text}")
-            service_notes.append({"pianoId": pid, "notes": note_text})
-
-        # 3c. Créer UN SEUL événement multi-pianos avec date = completed_at
         create_mutation = """
         mutation CreateBundleEvent($input: PrivateEventInput!) {
             createEvent(input: $input) {
@@ -563,36 +539,6 @@ async def push_validated_to_gazelle(
             }
         }
         """
-        # Calendrier cible : "À attribuer" pour les institutions non-assignées
-        # (ex. Orford), sinon le technicien fourni. Override volontaire meme si
-        # un technician_id explicite est passe.
-        push_user_id = (
-            CALENDRIER_NON_ASSIGNE_USER_ID
-            if institution.strip().lower() in INSTITUTIONS_PUSH_NON_ASSIGNE
-            else body.technician_id
-        )
-        event_input = {
-            "title": f"Accord collectif ({len(piano_ids)} pianos)",
-            "start": event_date,
-            "duration": 60 * len(piano_ids),
-            "type": "APPOINTMENT",
-            "notes": "\n".join(combined_lines),
-            "pianos": [{"pianoId": pid, "isTuning": True} for pid in piano_ids],
-            "userId": push_user_id,
-        }
-        if client_id:
-            event_input["clientId"] = client_id
-
-        create_result = api_client._execute_query(create_mutation, {"input": event_input})
-        event = create_result.get("data", {}).get("createEvent", {}).get("event")
-        if not event:
-            errors = create_result.get("data", {}).get("createEvent", {}).get("mutationErrors", [])
-            raise Exception(f"Erreur createEvent: {errors}")
-
-        event_id = event["id"]
-        logging.info(f"✅ Événement créé: {event_id} (date: {event_date})")
-
-        # 3d. Compléter avec notes par piano
         complete_mutation = """
         mutation CompleteBundleEvent($eventId: String!, $input: PrivateCompleteEventInput!) {
             completeEvent(eventId: $eventId, input: $input) {
@@ -601,69 +547,155 @@ async def push_validated_to_gazelle(
             }
         }
         """
-        api_client._execute_query(complete_mutation, {
-            "eventId": event_id,
-            "input": {"resultType": "COMPLETE", "serviceHistoryNotes": service_notes}
-        })
 
-        # 3e. Remettre pianos INACTIVE
-        for pid in activated:
+        logging.info(f"Push lot: {len(records)} fiches, {len(groups)} jour(s) ({institution})")
+
+        created_events = []
+        pushed_total = 0
+        pushed_piano_ids = set()
+        errors = []
+
+        # Un événement par jour : chaque groupe garde sa vraie date de service.
+        for day, group in sorted(groups.items(), key=lambda kv: kv[0] or ""):
+            group_piano_ids = list({r["piano_id"] for r in group})
+            group_dates = [d for r in group if (d := _service_dt(r))]
+            event_date = max(group_dates) if group_dates else datetime.now(MONTREAL_TZ).isoformat()
+
             try:
-                api_client._execute_query(
-                    'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status}}}',
-                    {"id": pid, "input": {"status": "INACTIVE"}}
-                )
-            except Exception as e:
-                logging.warning(f"⚠️ Désactivation {pid}: {e}")
+                # Activer pianos INACTIVE -> ACTIVE
+                activated = []
+                for pid in group_piano_ids:
+                    try:
+                        sr = api_client._execute_query(
+                            'query($id:String!){piano(id:$id){id status}}', {"id": pid}
+                        )
+                        if sr.get("data", {}).get("piano", {}).get("status") == "INACTIVE":
+                            api_client._execute_query(
+                                'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status}}}',
+                                {"id": pid, "input": {"status": "ACTIVE"}}
+                            )
+                            activated.append(pid)
+                    except Exception as e:
+                        logging.warning(f"Activation {pid}: {e}")
 
-        # 4. Marquer toutes les fiches comme pushed
-        for record in records:
-            sb.table(TABLE).update({
-                "status": "pushed",
-                "pushed_at": now_iso,
-                "gazelle_event_id": event_id,
-                "updated_at": now_iso,
-            }).eq("id", record["id"]).execute()
+                # Notes par fiche
+                combined_lines = []
+                service_notes = []
+                for record in group:
+                    pid = record["piano_id"]
+                    parts = []
+                    if record.get("a_faire"):
+                        parts.append(f"A faire: {record['a_faire']}")
+                    if record.get("travail"):
+                        parts.append(record["travail"])
+                    if record.get("observations"):
+                        parts.append(f"Observations: {record['observations']}")
+                    note_text = "\n".join(parts) if parts else "Service effectue"
+                    combined_lines.append(f"{pid}: {note_text}")
+                    service_notes.append({"pianoId": pid, "notes": note_text})
 
-        # 5. Nettoyer les overlays legacy (travail, service_status)
-        # NOTE: a_faire n'est PAS vidé — Nicolas le vide manuellement quand il estime que c'est fait
+                event_input = {
+                    "title": f"Accord collectif ({len(group_piano_ids)} pianos)",
+                    "start": event_date,
+                    "duration": 60 * len(group_piano_ids),
+                    "type": "APPOINTMENT",
+                    "notes": "\n".join(combined_lines),
+                    "pianos": [{"pianoId": pid, "isTuning": True} for pid in group_piano_ids],
+                    "userId": push_user_id,
+                }
+                if client_id:
+                    event_input["clientId"] = client_id
+
+                create_result = api_client._execute_query(create_mutation, {"input": event_input})
+                event = create_result.get("data", {}).get("createEvent", {}).get("event")
+                if not event:
+                    errs = create_result.get("data", {}).get("createEvent", {}).get("mutationErrors", [])
+                    raise Exception(f"Erreur createEvent: {errs}")
+                event_id = event["id"]
+
+                # Compléter avec notes par piano
+                api_client._execute_query(complete_mutation, {
+                    "eventId": event_id,
+                    "input": {"resultType": "COMPLETE", "serviceHistoryNotes": service_notes}
+                })
+
+                # Remettre pianos INACTIVE
+                for pid in activated:
+                    try:
+                        api_client._execute_query(
+                            'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status}}}',
+                            {"id": pid, "input": {"status": "INACTIVE"}}
+                        )
+                    except Exception as e:
+                        logging.warning(f"Desactivation {pid}: {e}")
+
+                # Marquer les fiches de CE jour comme pushed
+                for record in group:
+                    sb.table(TABLE).update({
+                        "status": "pushed",
+                        "pushed_at": now_iso,
+                        "gazelle_event_id": event_id,
+                        "updated_at": now_iso,
+                    }).eq("id", record["id"]).execute()
+
+                pushed_total += len(group)
+                pushed_piano_ids.update(group_piano_ids)
+                created_events.append({
+                    "event_id": event_id, "event_date": event_date, "day": day,
+                    "pianos": len(group_piano_ids), "fiches": len(group),
+                })
+                logging.info(f"Evenement cree {event_id} (jour {day}, date {event_date}, {len(group)} fiche(s))")
+
+            except Exception as ge:
+                # Erreur sur CE jour : marquer seulement ce groupe en erreur,
+                # continuer avec les autres jours (les jours déjà poussés restent poussés).
+                msg = str(ge)
+                for record in group:
+                    sb.table(TABLE).update({
+                        "status": "error",
+                        "push_error": msg,
+                        "updated_at": now_iso,
+                    }).eq("id", record["id"]).execute()
+                errors.append({"day": day, "error": msg})
+                logging.error(f"Erreur push jour {day} ({institution}): {ge}")
+
+        # Nettoyer les overlays legacy des pianos effectivement poussés
+        # NOTE: a_faire n'est PAS vidé — Nicolas le vide manuellement.
         try:
             from core.supabase_storage import SupabaseStorage
             storage = SupabaseStorage(silent=True)
-            for pid in piano_ids:
+            for pid in pushed_piano_ids:
                 storage.update_piano(pid, {
                     "travail": "",
                     "service_status": None,
                     "is_work_completed": False,
                 }, institution_slug=institution)
-            logging.info(f"🧹 Overlays nettoyés pour {len(piano_ids)} piano(s) après push")
         except Exception as e:
-            logging.warning(f"⚠️ Nettoyage overlays après push: {e}")
+            logging.warning(f"Nettoyage overlays apres push: {e}")
 
-        logging.info(f"✅ Push lot terminé: {len(records)} fiches, event {event_id}")
+        # Si rien n'est passé et il y a des erreurs -> échec dur
+        if pushed_total == 0 and errors:
+            raise HTTPException(status_code=500, detail=f"Erreur push: {errors}")
+
+        msg = f"{pushed_total} fiche(s) poussee(s) dans {len(created_events)} evenement(s) (1 par jour)"
+        if errors:
+            msg += f" — {len(errors)} jour(s) en erreur"
+        logging.info(f"Push lot termine: {msg}")
 
         return {
             "success": True,
-            "pushed_count": len(records),
-            "pianos_count": len(piano_ids),
-            "gazelle_event_id": event_id,
-            "event_date": event_date,
-            "message": f"{len(records)} fiche(s) poussée(s) → événement {event_id}"
+            "pushed_count": pushed_total,
+            "events": created_events,
+            "errors": errors,
+            "gazelle_event_id": created_events[0]["event_id"] if created_events else None,
+            "message": msg,
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        # Marquer les fiches en erreur
         error_msg = str(e)
-        for record in records:
-            sb.table(TABLE).update({
-                "status": "error",
-                "push_error": error_msg,
-                "updated_at": now_iso,
-            }).eq("id", record["id"]).execute()
-
-        logging.error(f"❌ Erreur push lot {institution}: {e}")
+        logging.error(f"Erreur push lot {institution}: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erreur push: {error_msg}")
