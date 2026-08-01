@@ -22,15 +22,27 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Si hideNickView est true, forcer la vue technicien et empêcher le changement
-  const [currentView, setCurrentView] = useState(hideNickView ? 'technicien' : initialView);
-  
+  // Si hideNickView est true, forcer la vue technicien et empêcher le changement.
+  // Sinon, restaurer le dernier sous-onglet utilisé (persisté par institution),
+  // pour qu'un rafraîchissement revienne pile sur « À valider », etc.
+  const _viewKey = `dashView:${institution}`;
+  const [currentView, setCurrentView] = useState(() => {
+    if (hideNickView) return 'technicien';
+    try { return localStorage.getItem(_viewKey) || initialView; } catch { return initialView; }
+  });
+
   // Si hideNickView est true, empêcher le changement de vue
   useEffect(() => {
     if (hideNickView && currentView !== 'technicien') {
       setCurrentView('technicien');
     }
   }, [hideNickView, currentView]);
+
+  // Mémoriser le sous-onglet courant (sauf en mode technicien forcé).
+  useEffect(() => {
+    if (hideNickView) return;
+    try { localStorage.setItem(_viewKey, currentView); } catch {}
+  }, [currentView, hideNickView, _viewKey]);
   const [showOnlySelected, setShowOnlySelected] = useState(false); // Nick : filtrer sur pianos sélectionnés
   const [showOnlyProposed, setShowOnlyProposed] = useState(false); // Technicien : filtrer sur pianos à faire uniquement
   const [searchLocal, setSearchLocal] = useState(''); // Technicien : recherche par local

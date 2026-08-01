@@ -24,12 +24,27 @@ import VDIInventoryWrapper from './components/VDIInventoryWrapper'
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentView, setCurrentView] = useState('chat') // DÉFAUT: Ma Journée pour tous
+  // Vue courante persistée : un rafraîchissement revient à la section où on était
+  // (défaut 'chat' = Ma Journée si rien de sauvegardé).
+  const [currentView, setCurrentView] = useState(() => {
+    try { return localStorage.getItem('currentView') || 'chat' } catch { return 'chat' }
+  })
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions
   const [institutions, setInstitutions] = useState([]) // Liste dynamique des institutions
-  const [selectedLocation, setSelectedLocation] = useState('vincent-dindy') // Institution sélectionnée (défaut: vincent-dindy)
+  // Institution sélectionnée, persistée aussi (défaut vincent-dindy).
+  const [selectedLocation, setSelectedLocation] = useState(() => {
+    try { return localStorage.getItem('selectedLocation') || 'vincent-dindy' } catch { return 'vincent-dindy' }
+  })
+
+  // Mémoriser la section et l'institution courantes pour survivre à un rafraîchissement.
+  useEffect(() => {
+    try { localStorage.setItem('currentView', currentView) } catch {}
+  }, [currentView])
+  useEffect(() => {
+    try { localStorage.setItem('selectedLocation', selectedLocation) } catch {}
+  }, [selectedLocation])
 
   // Charger les institutions depuis l'API
   useEffect(() => {
