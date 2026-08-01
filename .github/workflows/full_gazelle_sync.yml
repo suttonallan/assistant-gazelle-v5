@@ -73,6 +73,19 @@ jobs:
 
         echo "✅ Rapport Timeline généré"
 
+    - name: 📧 Alerte email en cas d'échec
+      if: failure()
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        EMAIL_FROM: asutton@piano-tek.com
+        EMAIL_FROM_NAME: Alertes Sync Gazelle
+        GH_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        echo "❌ Une étape a échoué — envoi de l'alerte email à Allan"
+        python3 -c "import os; from core.email_notifier import get_email_notifier; url=os.environ.get('GH_RUN_URL',''); ok=get_email_notifier().send_email(to_emails=['asutton@piano-tek.com'], subject='❌ Sync Gazelle nightly a ÉCHOUÉ', html_content='<h2>La synchronisation nocturne Gazelle a ÉCHOUÉ</h2><p>Une étape du job a échoué (sync Gazelle ou rapport Timeline Google Sheets).</p><p>Run : '+url+'</p>'); print('Alerte email envoyée:', ok)"
+
     - name: Report results
       if: always()
       run: |
