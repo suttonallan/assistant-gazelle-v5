@@ -128,6 +128,7 @@ async def get_piano_active_record(
         .eq("piano_id", piano_id)
         .eq("institution_slug", institution)
         .in_("status", ["draft", "completed", "validated"])
+        .is_("closed_at", "null")  # uniquement la fiche active (non figée)
         .order("created_at", desc=True)
         .limit(1)
         .execute()
@@ -176,13 +177,15 @@ async def upsert_service_notes(
     sb = _get_supabase()
     now = datetime.utcnow().isoformat()
 
-    # Chercher une fiche active existante (draft ou completed, pas validated/pushed)
+    # Chercher une fiche active existante (draft ou completed, pas validated/pushed).
+    # closed_at IS NULL → on ne touche jamais une fiche figée (« Nouveau service »).
     existing = (
         sb.table(TABLE)
         .select("id,status")
         .eq("piano_id", piano_id)
         .eq("institution_slug", institution)
         .in_("status", ["draft", "completed"])
+        .is_("closed_at", "null")
         .limit(1)
         .execute()
     )
@@ -257,13 +260,14 @@ async def complete_service_record(
     sb = _get_supabase()
     now = datetime.utcnow().isoformat()
 
-    # Trouver la fiche active
+    # Trouver la fiche active (non figée)
     existing = (
         sb.table(TABLE)
         .select("id,status")
         .eq("piano_id", piano_id)
         .eq("institution_slug", institution)
         .in_("status", ["draft", "completed"])
+        .is_("closed_at", "null")
         .limit(1)
         .execute()
     )
@@ -294,6 +298,65 @@ async def complete_service_record(
     }).eq("id", record_id).execute()
 
     return {"success": True, "record_id": record_id, "status": "completed", "action": "completed"}
+
+
+@router.post("/{institution}/piano/{piano_id}/close-and-new")
+async def close_and_start_new(
+    institution: str = PathParam(...),
+    piano_id: str = PathParam(...),
+    body: ServiceRecordComplete = ServiceRecordComplete()
+):
+    """
+    Fige la fiche active du piano et libère la place pour une NOUVELLE fiche.
+
+    Permet de consigner plusieurs services distincts le même jour sans devoir
+    passer par la validation de Nicolas entre les deux.
+
+    La fiche courante passe à 'completed' + closed_at = maintenant : elle suit
+    le cycle normal (validation → push) mais sort du périmètre d'unicité, donc
+    la prochaine sauvegarde de notes crée automatiquement une fiche vierge.
+    """
+    sb = _get_supabase()
+    now = datetime.utcnow().isoformat()
+
+    # Fiche active éditable (non figée)
+    existing = (
+        sb.table(TABLE)
+        .select("id,status,travail,completed_at")
+        .eq("piano_id", piano_id)
+        .eq("institution_slug", institution)
+        .in_("status", ["draft", "completed"])
+        .is_("closed_at", "null")
+        .limit(1)
+        .execute()
+    )
+
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Aucune fiche active pour ce piano")
+
+    record = existing.data[0]
+    record_id = record["id"]
+
+    # Refuser de figer une fiche vide (rien à consigner)
+    if not (record.get("travail") or "").strip():
+        raise HTTPException(status_code=400, detail="Fiche vide — rien à figer")
+
+    sb.table(TABLE).update({
+        "status": "completed",
+        "completed_at": record.get("completed_at") or now,
+        "completed_by": body.completed_by or "",
+        "closed_at": now,
+        "updated_at": now,
+    }).eq("id", record_id).execute()
+
+    logging.info(f"Fiche {record_id} figée (close-and-new) — piano {piano_id} / {institution}")
+
+    return {
+        "success": True,
+        "closed_record_id": record_id,
+        "action": "closed",
+        "message": "Service figé — nouvelle fiche disponible"
+    }
 
 
 @router.post("/{institution}/validate")
