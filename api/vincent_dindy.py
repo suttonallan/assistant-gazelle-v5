@@ -1997,7 +1997,7 @@ _timeline_cache = {}  # { client_id: { "entries": [...], "fetched_at": datetime 
 _TIMELINE_CACHE_TTL = 300  # 5 minutes
 
 @router.get("/pianos/{piano_id}/timeline", response_model=Dict[str, Any])
-async def get_piano_timeline(piano_id: str, limit: int = 50):
+async def get_piano_timeline(piano_id: str, limit: int = 50, institution: str = "vincent-dindy"):
     """
     Récupère l'historique complet d'entretien d'un piano.
 
@@ -2016,7 +2016,7 @@ async def get_piano_timeline(piano_id: str, limit: int = 50):
         if api_client:
             # Charger le clientId de l'institution
             from api.institutions import get_institution_config
-            config = get_institution_config("vincent-dindy")
+            config = get_institution_config(institution)
             client_id = config.get('gazelle_client_id')
 
             # NOTE: Le filtre pianoId de allTimelineEntries ne fonctionne pas (bug Gazelle).

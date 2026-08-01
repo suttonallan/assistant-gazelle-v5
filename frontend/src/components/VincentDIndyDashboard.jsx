@@ -773,7 +773,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     setGazelleHistoryLoading(true);
     try {
       console.log('[À valider] Chargement historique pour piano:', idToFetch);
-      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
+      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200&institution=${institution}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       console.log('[À valider] Données brutes:', data.entries?.slice(0, 2));
@@ -908,7 +908,7 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     const idToFetch = gazelleId || pianoId;
     if (!idToFetch || gazelleHistoryData[idToFetch]) return;
     try {
-      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200`);
+      const r = await fetch(`${API_URL}/api/vincent-dindy/pianos/${idToFetch}/timeline?limit=200&institution=${institution}`);
       if (!r.ok) return;
       const data = await r.json();
       const entries = (data.entries || []).map(e => ({
