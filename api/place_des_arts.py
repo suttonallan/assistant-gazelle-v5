@@ -1654,6 +1654,45 @@ async def verify_technician_in_gazelle(
         )
 
 
+@router.post("/validate-gazelle-rv")
+async def validate_gazelle_rv(payload: Dict[str, Any]):
+    """
+    Vérifie qu'un RV Gazelle est bien lié à une demande avant de la marquer
+    « Créé Gazelle ». Retourne {"found": bool, "appointment_id": ...}.
+
+    Le frontend avertit (et permet de forcer) si found=False. Le signal fiable
+    est la présence d'un appointment_id : il n'est posé sur la demande que
+    lorsqu'un RV Gazelle lui est lié.
+    """
+    try:
+        storage = get_storage()
+        request_id = payload.get('request_id')
+        if not request_id:
+            return {"found": False, "error": "request_id requis"}
+
+        request = storage.get_data(
+            "place_des_arts_requests",
+            filters={"id": request_id},
+            limit=1
+        )
+        if not request:
+            return {"found": False, "error": "Demande non trouvée"}
+
+        appointment_id = (request[0] or {}).get('appointment_id')
+        found = bool(appointment_id)
+        return {
+            "found": found,
+            "appointment_id": appointment_id,
+            "reason": None if found else "Aucun RV Gazelle lié à cette demande",
+        }
+    except Exception as e:
+        logging.error(f"Erreur validate_gazelle_rv: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de la validation: {str(e)}"
+        )
+
+
 @router.post("/check-completed")
 async def check_completed_requests():
     """
