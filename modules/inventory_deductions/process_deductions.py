@@ -62,8 +62,11 @@ class InventoryDeductionProcessor:
         print(f"📅 Depuis: {cutoff_date.isoformat()}")
 
         try:
-            # Récupérer toutes les factures et filtrer par date
-            all_invoices = self.api_client.get_invoices(limit=None)
+            # Récupérer les factures RÉCENTES seulement (get_invoices renvoie du
+            # plus récent au plus ancien). Inutile de paginer les 6000+ factures
+            # depuis 2016 pour ne garder que les 7 derniers jours : 500 = plusieurs
+            # mois de marge, ~1-2 s au lieu de ~15 s (évitait la sync qui « tourne »).
+            all_invoices = self.api_client.get_invoices(limit=500)
 
             # Filtrer les factures récentes
             recent_invoices = []
