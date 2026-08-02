@@ -16,6 +16,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [stats, setStats] = useState({ imported: 0, to_bill: 0, this_month: 0 })
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [editMode, setEditMode] = useState(false)
+  const [editingCell, setEditingCell] = useState(null) // {id, field} — clic-pour-éditer une seule cellule à la fois
   const [creating, setCreating] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [createForm, setCreateForm] = useState({
@@ -693,6 +694,44 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       console.error('Erreur push vers Gazelle:', err)
       throw err
     }
+  }
+
+  // Clic-pour-éditer : une valeur s'affiche normalement ; en mode édition,
+  // cliquer dessus la transforme en champ confortable (sauvegarde au blur /
+  // Entrée, Échap annule). Une seule cellule éditée à la fois.
+  const renderEditableCell = (it, field, opts = {}) => {
+    const { type = 'text', display } = opts
+    const shown = display !== undefined ? display : (it[field] ?? '—')
+    const isEditing = editingCell && editingCell.id === it.id && editingCell.field === field
+    if (editMode && isEditing) {
+      const initial = type === 'date'
+        ? (it[field] ? String(it[field]).slice(0, 10) : '')
+        : (it[field] ?? '')
+      return (
+        <input
+          type={type}
+          step={type === 'number' ? '0.01' : undefined}
+          autoFocus
+          defaultValue={initial}
+          onBlur={(e) => { handleCellUpdate(it.id, field, e.target.value); setEditingCell(null) }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            else if (e.key === 'Escape') setEditingCell(null)
+          }}
+          className="w-full min-w-[160px] border border-blue-400 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+        />
+      )
+    }
+    if (editMode) {
+      return (
+        <div
+          onClick={() => setEditingCell({ id: it.id, field })}
+          title="Cliquer pour modifier"
+          className="cursor-pointer rounded px-1 py-1 min-h-[28px] whitespace-pre-wrap hover:bg-blue-50 hover:ring-1 hover:ring-blue-200"
+        >{shown === '' ? '—' : shown}</div>
+      )
+    }
+    return shown
   }
 
   const handleCellUpdate = async (id, field, value) => {
@@ -1726,43 +1765,17 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     />
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="date"
-                        value={it.request_date ? it.request_date.slice(0, 10) : ''}
-                        onChange={(e) => handleCellUpdate(it.id, 'request_date', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.request_date ? it.request_date.slice(0, 10) : '—')}
+                    {renderEditableCell(it, 'request_date', { type: 'date', display: it.request_date ? it.request_date.slice(0, 10) : '—' })}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="date"
-                        value={it.appointment_date ? it.appointment_date.slice(0, 10) : ''}
-                        onChange={(e) => handleCellUpdate(it.id, 'appointment_date', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.appointment_date ? it.appointment_date.slice(0, 10) : '—')}
+                    {renderEditableCell(it, 'appointment_date', { type: 'date', display: it.appointment_date ? it.appointment_date.slice(0, 10) : '—' })}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        value={it.room || ''}
-                        onChange={(e) => handleCellUpdate(it.id, 'room', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.room || '—')}
+                    {renderEditableCell(it, 'room')}
                   </td>
                   <td className="px-3 py-2 text-gray-800 relative">
                     {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.for_who || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'for_who', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
+                      renderEditableCell(it, 'for_who')
                     ) : (
                       <div className="relative flex items-center gap-1">
                         <span>{it.for_who || '—'}</span>
@@ -1803,44 +1816,16 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.diapason || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'diapason', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.diapason || '—')}
+                    {renderEditableCell(it, 'diapason')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.requester || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'requester', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.requester || '—')}
+                    {renderEditableCell(it, 'requester')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.piano || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'piano', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.piano || '—')}
+                    {renderEditableCell(it, 'piano')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.time || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'time', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.time || '—')}
+                    {renderEditableCell(it, 'time')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     <div className="flex items-center gap-1">
@@ -1895,35 +1880,13 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                     </div>
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.notes || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'notes', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.notes || '—')}
+                    {renderEditableCell(it, 'notes')}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        defaultValue={it.billing_amount ?? ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'billing_amount', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.billing_amount ?? '—')}
+                    {renderEditableCell(it, 'billing_amount', { type: 'number', display: it.billing_amount ?? '—' })}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
-                    {editMode ? (
-                      <input
-                        type="text"
-                        defaultValue={it.parking || ''}
-                        onBlur={(e) => handleCellUpdate(it.id, 'parking', e.target.value)}
-                        className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
-                      />
-                    ) : (it.parking || '—')}
+                    {renderEditableCell(it, 'parking')}
                   </td>
                   <td className="px-3 py-2">
                     <select
