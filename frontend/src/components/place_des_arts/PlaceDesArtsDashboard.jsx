@@ -350,19 +350,18 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       return
     }
 
-    // Si on passe à "Créé Gazelle", valider que le RV existe dans Gazelle
+    // Si on passe à "Créé Gazelle" : vérification Gazelle INFORMATIVE et NON
+    // bloquante. Elle avertit si un RV n'est pas trouvé, mais l'action manuelle
+    // s'applique toujours (le manuel prime).
     if (newStatus === 'CREATED_IN_GAZELLE') {
-      try {
-        setError(null)
-        setInfoMessage('🔍 Validation en cours...')
+      setError(null)
+      setInfoMessage('🔍 Vérification en cours...')
 
-        // Vérifier chaque demande sélectionnée
-        const warnings = []
-        for (const id of ids) {
-          const item = items.find(it => it.id === id)
-          if (!item) continue
-
-          // Appeler l'API de validation
+      const warnings = []
+      for (const id of ids) {
+        const item = items.find(it => it.id === id)
+        if (!item) continue
+        try {
           const resp = await fetch(`${API_URL}/api/place-des-arts/validate-gazelle-rv`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -372,49 +371,37 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               room: item.room
             })
           })
-
-          if (!resp.ok) {
-            throw new Error(`Erreur validation: ${resp.status}`)
+          if (resp.ok) {
+            const data = await resp.json()
+            if (!data.found) {
+              warnings.push({
+                date: item.appointment_date,
+                room: item.room,
+                for_who: item.for_who || '(sans nom)'
+              })
+            }
           }
-
-          const data = await resp.json()
-          if (!data.found) {
-            warnings.push({
-              date: item.appointment_date,
-              room: item.room,
-              for_who: item.for_who || '(sans nom)'
-            })
-          }
+          // resp non-ok : vérif indisponible → on n'empêche PAS l'action
+        } catch (e) {
+          console.warn('Vérification Gazelle indisponible (non bloquant):', e)
         }
+      }
 
-        // Si des RV ne sont pas trouvés, afficher l'alerte en rouge
-        if (warnings.length > 0) {
-          const warningList = warnings.map(w =>
-            `${w.date} - ${w.room} - ${w.for_who}`
-          ).join('\n')
-
-          setError(`❌ ALERTE: ${warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nVoulez-vous quand même marquer comme "Créé Gazelle"?`)
-
-          // Demander confirmation
-          if (!window.confirm(`❌ ALERTE: ${warnings.length} RV non trouvé(s) dans Gazelle:\n\n${warningList}\n\nVoulez-vous quand même marquer comme "Créé Gazelle"?`)) {
-            setError(null)
-            setInfoMessage(null)
-            return // Annulé
-          }
-        }
-
-        // Procéder avec le changement de statut
+      // Toujours appliquer le changement de statut
+      try {
         await callAction(`${API_URL}/api/place-des-arts/requests/update-status-batch`, {
           request_ids: ids,
           status: newStatus
         })
-
-        if (warnings.length === 0) {
+        if (warnings.length > 0) {
+          const warningList = warnings.map(w => `${w.date} - ${w.room} - ${w.for_who}`).join('\n')
+          setInfoMessage(`✅ ${ids.length} demande(s) marquée(s) "Créé Gazelle".\n⚠️ ${warnings.length} RV non trouvé(s) dans Gazelle (à vérifier) :\n${warningList}`)
+        } else {
           setInfoMessage(`✅ ${ids.length} demande(s) marquée(s) "Créé Gazelle" (RV validés)`)
         }
-
+        setSelectedIds([])
       } catch (err) {
-        setError(err.message || 'Erreur lors de la validation')
+        setError(err.message || 'Erreur lors du changement de statut')
       }
       return
     }
@@ -759,8 +746,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               if (verifyResp.ok) {
                 const verifyData = await verifyResp.json()
                 if (!verifyData.confirmed) {
-                  setError(`⚠️ Le RV dans Gazelle n'a pas encore ce technicien. Vérifiez dans Gazelle d'abord.`)
-                  return
+                  // Vérification INFORMATIVE, non bloquante : on avertit et on applique quand même.
+                  setInfoMessage(`⚠️ Note : le RV Gazelle n'a pas (encore) ce technicien. Assignation appliquée quand même — à confirmer côté Gazelle si besoin.`)
                 }
               }
             } catch (err) {

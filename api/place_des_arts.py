@@ -1605,18 +1605,17 @@ async def verify_technician_in_gazelle(
         if not technician_id:
             return {"confirmed": False, "error": "technician_id requis"}
         
-        # Récupérer la demande
-        request = storage.get_data(
-            "place_des_arts_requests",
-            filters={"id": request_id},
-            limit=1
-        )
-        
-        if not request:
+        # Récupérer la demande (accès table direct : get_data n'accepte pas limit=)
+        _resp = storage.client.table('place_des_arts_requests') \
+            .select('appointment_id') \
+            .eq('id', request_id) \
+            .limit(1) \
+            .execute()
+        _rows = _resp.data or []
+        if not _rows:
             return {"confirmed": False, "error": "Demande non trouvée"}
-        
-        request = request[0]
-        appointment_id = request.get('appointment_id')
+
+        appointment_id = (_rows[0] or {}).get('appointment_id')
         
         if not appointment_id:
             return {"confirmed": False, "error": "Pas de RV lié à cette demande"}
@@ -1670,15 +1669,16 @@ async def validate_gazelle_rv(payload: Dict[str, Any]):
         if not request_id:
             return {"found": False, "error": "request_id requis"}
 
-        request = storage.get_data(
-            "place_des_arts_requests",
-            filters={"id": request_id},
-            limit=1
-        )
-        if not request:
+        resp = storage.client.table('place_des_arts_requests') \
+            .select('appointment_id') \
+            .eq('id', request_id) \
+            .limit(1) \
+            .execute()
+        rows = resp.data or []
+        if not rows:
             return {"found": False, "error": "Demande non trouvée"}
 
-        appointment_id = (request[0] or {}).get('appointment_id')
+        appointment_id = (rows[0] or {}).get('appointment_id')
         found = bool(appointment_id)
         return {
             "found": found,
