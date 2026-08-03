@@ -191,7 +191,7 @@ export default function VDI_TechnicianView({
 
         <input
           type="text"
-          placeholder="Rechercher par local (ex: 301)"
+          placeholder="Rechercher par local ou n° de série"
           value={searchLocal}
           onChange={(e) => setSearchLocal(e.target.value)}
           className="w-full px-3 py-2 border rounded text-sm"
@@ -226,9 +226,14 @@ export default function VDI_TechnicianView({
                   onClick={() => toggleExpand(piano)}
                   className="p-3 flex justify-between items-center cursor-pointer active:bg-gray-100"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold text-gray-700">{piano.local}</span>
-                    <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold text-gray-700">{piano.local}</span>
+                      <span className="text-gray-600">{piano.piano}{piano.modele ? ` ${piano.modele}` : ''}</span>
+                    </div>
+                    {piano.serie && (
+                      <span className="text-xs text-gray-400 tabular-nums">N° série : {piano.serie}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {piano.frozen_service_count > 0 && (

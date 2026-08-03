@@ -296,10 +296,12 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
         result = result.filter(p => p.status === 'proposed' || p.status === 'top' || p.status === 'work_in_progress');
       }
 
-      // Filtre de recherche par local (vue technicien)
+      // Filtre de recherche par local OU numéro de série (vue technicien)
       if (searchLocal.trim()) {
+        const q = searchLocal.toLowerCase();
         result = result.filter(p =>
-          p.local.toLowerCase().includes(searchLocal.toLowerCase())
+          (p.local || '').toLowerCase().includes(q) ||
+          (p.serie || '').toLowerCase().includes(q)
         );
       }
     }
