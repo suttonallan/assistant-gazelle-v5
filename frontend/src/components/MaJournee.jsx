@@ -3,6 +3,7 @@ import { API_URL } from '../utils/apiConfig'
 import BriefingCard from './BriefingCard'
 import ClientAccessPanel from './ClientAccessPanel'
 import FeedbackReviewPanel from './FeedbackReviewPanel'
+import { hasPermission } from '../config/roles'
 
 /**
  * MaJournee - Briefings Intelligents pour Techniciens
@@ -129,8 +130,10 @@ export default function MaJournee({ currentUser }) {
         </p>
       </div>
 
-      {/* Assistant Gazelle — Louise et Allan */}
-      {(isLouise || isAllan) && (
+      {/* Assistant Gazelle — tous ceux qui ont la permission use_assistant
+          (Allan, Louise, Nick, JP, Margot). Résolu par EMAIL pour éviter le
+          piège du rôle de login "assistant" (Margot était exclue). */}
+      {(isLouise || isAllan || hasPermission(currentUser?.email, 'use_assistant')) && (
         <ClientAccessPanel currentUser={currentUser} />
       )}
 
