@@ -1926,44 +1926,24 @@ class GazelleAPIClient:
 
     def _generate_new_token(self) -> None:
         """
-        Génère un nouveau token OAuth2 en utilisant les credentials client.
+        Aucun token Gazelle valide trouvé (ni Supabase system_settings, ni token.json local).
 
-        Cette méthode est appelée quand aucun token valide n'est trouvé
-        (ni dans Supabase, ni dans token.json local).
+        NOTE (2026-08-09) : Gazelle NE supporte PAS le grant `client_credentials`
+        (réponse 400 `unsupported_grant_type`). Un token ne peut donc PAS être généré
+        ici — il doit être minté via le callback OAuth (`authorization_code`) puis
+        stocké dans Supabase `system_settings.gazelle_oauth_token`.
+
+        Cause la plus fréquente de cet échec : `SUPABASE_SERVICE_ROLE_KEY` invalide
+        (clé révoquée / mauvais format) → lecture de `system_settings` en 401. On lève
+        donc une erreur explicite au lieu de tenter un grant voué à un 400 trompeur.
         """
-        print(f"🔑 Génération token avec client_id: {self.client_id[:20]}...")
-
-        try:
-            response = requests.post(
-                OAUTH_TOKEN_URL,
-                data={
-                    'grant_type': 'client_credentials',
-                    'client_id': self.client_id,
-                    'client_secret': self.client_secret
-                }
-            )
-
-            if response.status_code == 200:
-                token_data = response.json()
-                token_data['created_at'] = int(time.time())
-                self._save_token(token_data)
-
-                # Sauvegarder aussi dans Supabase pour persistance
-                try:
-                    from core.supabase_storage import SupabaseStorage
-                    storage = SupabaseStorage()
-                    storage.set_system_setting("gazelle_oauth_token", token_data)
-                    print("✅ Token généré et sauvegardé dans Supabase")
-                except Exception as e:
-                    print(f"⚠️ Token généré mais pas sauvegardé dans Supabase: {e}")
-                    print("✅ Token généré et sauvegardé localement")
-            else:
-                print(f"❌ Erreur génération token: {response.status_code}")
-                print(f"Response: {response.text}")
-                raise ConnectionError(f"Impossible de générer un token: {response.status_code}")
-
-        except requests.exceptions.RequestException as e:
-            raise ConnectionError(f"Erreur réseau lors de la génération du token: {e}")
+        raise ConnectionError(
+            "Aucun token Gazelle valide (system_settings + token.json local vides). "
+            "Causes probables : (1) SUPABASE_SERVICE_ROLE_KEY invalide → system_settings "
+            "illisible (401) ; (2) pas d'entrée `gazelle_oauth_token` dans system_settings. "
+            "Gazelle ne supporte pas client_credentials : re-minter le token via le callback "
+            "OAuth puis le stocker dans system_settings. Voir docs/OAUTH_SETUP_GUIDE.md."
+        )
 
 
 if __name__ == '__main__':
