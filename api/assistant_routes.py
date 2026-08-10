@@ -1240,8 +1240,12 @@ async def duplicate_estimate_endpoint(req: AssistantRequest):
     if not number:
         return {"success": False,
                 "error": "Je n'ai pas trouvé de numéro de soumission (ex : « copie la soumission 11919 »)."}
+    # « à jour / prix / tarif / actualise » => recréer aux prix courants du catalogue.
+    msg = (req.message or "").lower()
+    reprice = any(k in msg for k in (
+        "à jour", "a jour", "prix", "tarif", "actualis", "réactiv", "reactiv"))
     try:
-        return duplicate_estimate(number)
+        return duplicate_estimate(number, reprice=reprice)
     except Exception as exc:
         import traceback
         traceback.print_exc()

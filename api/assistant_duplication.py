@@ -186,7 +186,7 @@ query($s: String!) {
           name sequenceNumber
           allEstimateTierItems {
             name sequenceNumber amount quantity description isTaxable
-            type isTuning masterServiceItem { id }
+            type isTuning duration educationDescription masterServiceItem { id }
           }
         }
         allUngroupedEstimateTierItems {
@@ -219,28 +219,56 @@ def _fetch_msl_prices(gz) -> Dict[str, Any]:
     return {it["id"]: it.get("amount") for it in items if it.get("id")}
 
 
+# Taxes Québec. Validé empiriquement sur #11983 (2026-08-10) : OMETTRE le champ
+# `taxes` laisse Gazelle à 0 $ de taxe. Il FAUT envoyer TPS+TVQ explicitement,
+# et la création doit passer par createEstimate minimal PUIS updateEstimate
+# (envoyer les tiers dans createEstimate ne déclenche pas le calcul des taxes).
+_TPS_TAX_ID, _TPS_RATE = "tax_JeCfY4wfbXtN6J28", 5000   # 5,000 %
+_TVQ_TAX_ID, _TVQ_RATE = "tax_xe9FEApq94zI7kXD", 9975   # 9,975 %
+
+
+def _build_taxes(amount_cents, is_taxable) -> List[Dict[str, Any]]:
+    """Bloc TPS+TVQ pour un item taxable (montant > 0) ; [] sinon."""
+    if not is_taxable or not amount_cents:
+        return []
+    return [
+        {"taxId": _TPS_TAX_ID, "rate": _TPS_RATE, "total": round(amount_cents * _TPS_RATE / 100000)},
+        {"taxId": _TVQ_TAX_ID, "rate": _TVQ_RATE, "total": round(amount_cents * _TVQ_RATE / 100000)},
+    ]
+
+
 def _estimate_item_input(it: Dict[str, Any],
                          catalog: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Construit l'input d'un item. Si `catalog` est fourni (mode reprice), le
     montant est remplacé par le prix courant du MasterServiceItem lié ; les
     lignes sans MSL (custom) gardent leur montant d'origine."""
+    amount = it.get("amount")
+    msi = it.get("masterServiceItem") or {}
+    msi_id = msi.get("id")
+    # Reprice AVANT le calcul des taxes (les taxes portent sur le montant final).
+    if msi_id and catalog is not None:
+        current = catalog.get(msi_id)
+        if current is not None:
+            amount = current
+    is_taxable = it.get("isTaxable", True)
     r = {
         "name": it.get("name"),
-        "description": it.get("description"),
         "quantity": it.get("quantity"),
-        "amount": it.get("amount"),
+        "amount": amount,
+        "duration": it.get("duration") or 0,
         "type": it.get("type") or "LABOR_FIXED_RATE",
-        "isTaxable": it.get("isTaxable", True),
+        "isTaxable": is_taxable,
         "isTuning": it.get("isTuning", False),
         "sequenceNumber": it.get("sequenceNumber", 0),
+        "photos": [],
+        "taxes": _build_taxes(amount, is_taxable),
     }
-    msi = it.get("masterServiceItem") or {}
-    if msi.get("id"):
-        r["masterServiceItemId"] = msi["id"]
-        if catalog is not None:
-            current = catalog.get(msi["id"])
-            if current is not None:
-                r["amount"] = current
+    if it.get("description") is not None:
+        r["description"] = it["description"]
+    if it.get("educationDescription") is not None:
+        r["educationDescription"] = it["educationDescription"]
+    if msi_id:
+        r["masterServiceItemId"] = msi_id
     return r
 
 
@@ -305,27 +333,36 @@ def duplicate_estimate(number: int, dry_run: bool = False,
         })
 
     today = date.today()
-    inp = {
+    # Étape 1 : createEstimate MINIMAL — jamais les tiers ici (ne déclenche pas
+    # le calcul des taxes ; l'ancienne note "crash Ruby" pointe la même règle).
+    create_input = {
         "clientId": client.get("id"),
         "pianoId": piano.get("id"),
-        "notes": src.get("notes"),
         "locale": src.get("locale") or "fr",
         "estimatedOn": today.isoformat(),
         "expiresOn": (today + timedelta(days=30)).isoformat(),
-        "estimateTiers": tiers,
     }
+    if src.get("notes"):
+        create_input["notes"] = src.get("notes")
     if archived:
-        inp["isArchived"] = True
+        create_input["isArchived"] = True
+
     if dry_run:
-        return {"success": True, "dry_run": True, "input": inp,
+        return {"success": True, "dry_run": True,
+                "create_input": create_input,
+                "update_input": {"estimateTiers": tiers},
                 "reprice": reprice, "reprice_changes": changes}
 
-    res = gz._execute_query(_CREATE_ESTIMATE, {"input": inp})
+    res = gz._execute_query(_CREATE_ESTIMATE, {"input": create_input})
     payload = ((res or {}).get("data") or {}).get("createEstimate") or {}
     est = payload.get("estimate")
     if not est:
         return {"success": False,
                 "error": f"Gazelle a refusé la création ({_mutation_error_detail(payload)})."}
+
+    # Étape 2 : updateEstimate avec les tiers complets + taxes explicites.
+    gz.update_estimate(est["id"], {"estimateTiers": tiers})
+
     dc = client.get("defaultContact") or {}
     client_name = (client.get("companyName") or "").strip() or \
         " ".join(x for x in [dc.get("firstName"), dc.get("lastName")] if x).strip()

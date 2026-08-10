@@ -37,16 +37,29 @@ entre le 2026-04-08 et le 2026-04-11. Ces pièges ont coûté des heures de debu
 
 ### Taxes Québec
 
-Pour les items taxables (`isTaxable: true`, montant > 0) : **NE PAS envoyer
-le champ `taxes`** du tout. Gazelle applique automatiquement TPS+TVQ depuis
-la config du compte, et les checkboxes apparaissent cochées dans l'UI.
+⚠️ **CORRECTION 2026-08-10 (vérifiée empiriquement sur #11983).** L'ancien
+conseil ci-dessous (« omettre `taxes` → Gazelle applique auto ») donne en fait
+**0 $ de taxe** quand on crée via `createEstimate` + `updateEstimate`. Testé
+dans les deux sens sur #11983 :
+- `taxes` **omis** sur items taxables → `taxTotal = 0` (aucune taxe).
+- `taxes` **explicites** (TPS+TVQ) via `updateEstimate` → taxes correctes.
 
-Envoyer un bloc `taxes: [{taxId, rate, total}]` explicite crée un **override
-manuel** qui désactive les checkboxes auto dans l'UI — Nicolas doit alors les
-recocher à la main. Découvert sur #11915 et #11916 le 2026-04-12.
+**Règle qui MARCHE (create/update par API) :** envoyer les taxes explicitement
+sur chaque item taxable, calculées ainsi, ET créer en 2 étapes (createEstimate
+minimal → updateEstimate avec les tiers) :
+```python
+TPS: taxId="tax_JeCfY4wfbXtN6J28", rate=5000  -> total = round(amount*5000/100000)
+TVQ: taxId="tax_xe9FEApq94zI7kXD", rate=9975  -> total = round(amount*9975/100000)
+```
+Items NON taxables ou à 0 $ → `taxes: []`. Implémenté dans
+`api/assistant_duplication.py` (`_build_taxes` + `duplicate_estimate`).
 
-Pour les items NON taxables (`isTaxable: false`) ou à 0 $ → envoyer `taxes: []`
-explicitement pour empêcher Gazelle de taxer.
+---
+_Ancienne note (2026-04-12, gardée pour trace — peut valoir pour le chemin v6
+`build_item_input`, mais PAS pour createEstimate+updateEstimate) :_ pour les
+items taxables, ne pas envoyer `taxes` (Gazelle auto-applique, checkboxes
+cochées) ; un bloc explicite créait un override désactivant les checkboxes auto
+(#11915/#11916).
 
 IDs de référence (si besoin de calcul côté Python) :
 ```python
