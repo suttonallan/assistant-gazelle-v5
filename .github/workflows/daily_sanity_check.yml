@@ -35,9 +35,11 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: python modules/data_quality/daily_sanity_check.py
 
-      # NOTE : le canari de sante n'est PLUS ici. Il tournait en mode complet a
-      # 13h UTC sur une instance Render endormie -> cold start > timeout 30s ->
-      # fausse alarme "app en panne" ; et comme ce workflow n'avait pas le webhook
-      # Slack ni EMAIL_FROM, l'alerte ne partait pas -> exit 1 -> echec quotidien.
-      # Le canari vit maintenant dans son propre workflow `health_canary.yml`
-      # (mode leger, toutes les 15 min en journee, Slack + courriel).
+      # NOTE : le canari de sante n'est PLUS ici. Cause de l'echec quotidien :
+      # ce step n'avait NI webhook Slack NI EMAIL_FROM, donc aucune alerte ne
+      # pouvait etre livree -> des que le canari signalait la moindre anomalie
+      # (endpoint au-dessus de son seuil de latence, blip transitoire, etc.) il
+      # sortait en exit 1 -> echec. La vraie anomalie matinale n'a pas ete
+      # confirmee (logs Actions en 403). Le canari vit maintenant dans son propre
+      # workflow `health_canary.yml` (mode leger, /15 min en journee, Slack +
+      # courriel), qui LUI peut livrer l'alerte au lieu de rougir en silence.
