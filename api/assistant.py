@@ -350,7 +350,9 @@ async def get_client_details(client_id: str):
                 }
 
             from collections import Counter
-            from datetime import datetime
+            # datetime est déjà importé au niveau module (ligne 13). Un ré-import
+            # local ici rendait `datetime` local à toute la fonction -> UnboundLocalError
+            # sur datetime.now() plus haut (ligne 333). Ne pas le réintroduire.
 
             def safe_date(d):
                 try:
