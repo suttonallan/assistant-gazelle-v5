@@ -95,10 +95,10 @@ export default function ClientAccessPanel({ currentUser }) {
   const [loadingBriefing, setLoadingBriefing] = useState(false)
   const [briefingError, setBriefingError] = useState(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
-  // États pour le mode "action assistant"
-  const [assistantResult, setAssistantResult] = useState(null)
-  const [loadingAssistant, setLoadingAssistant] = useState(false)
-  const [assistantError, setAssistantError] = useState(null)
+  // États pour le mode "assistant conversationnel" (fil + mémoire)
+  const [conversation, setConversation] = useState([])   // [{role:'user'|'assistant', content}]
+  const [convInput, setConvInput] = useState('')          // champ de réponse dans le fil
+  const [convLoading, setConvLoading] = useState(false)
 
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
@@ -151,52 +151,46 @@ export default function ClientAccessPanel({ currentUser }) {
     }, 300)
   }
 
-  // Soumission via Entrée — déclenche l'assistant si c'est une requête d'action
-  const handleSubmit = async (e) => {
-    if (e) e.preventDefault()
-    const text = searchTerm.trim()
-    if (!text) return
-    const actionType = detectActionType(text)
-    if (!actionType) return  // sinon on laisse l'autocomplete gérer
-
-    setLoadingAssistant(true)
-    setAssistantResult(null)
-    setAssistantError(null)
-    setShowSuggestions(false)
-
-    // Router vers le bon endpoint selon le type d'action
-    let endpoint
-    if (actionType === 'duplicate_invoice') endpoint = '/api/assistant/duplicate-invoice'
-    else if (actionType === 'duplicate_estimate') endpoint = '/api/assistant/duplicate-estimate'
-    else if (actionType === 'review_estimate') endpoint = '/api/assistant/review-estimate'
-    else if (actionType === 'search_keyword') endpoint = '/api/assistant/search-keyword'
-    else endpoint = '/api/assistant/joint-appointment'
-
+  // Envoie un message dans le fil conversationnel (mémoire d'historique côté /converse)
+  const sendConversation = async (text) => {
+    const history = [...conversation, { role: 'user', content: text }]
+    setConversation(history)
+    setConvLoading(true)
     try {
-      const resp = await fetch(`${API_URL}${endpoint}`, {
+      const resp = await fetch(`${API_URL}/api/assistant/converse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: text,
+          messages: history.map(m => ({ role: m.role, content: m.content })),
           current_user_first_name: currentUser?.firstName || currentUser?.name?.split(' ')[0] || null,
         }),
       })
       const data = await resp.json()
-      if (!resp.ok) {
-        setAssistantError(data.detail || `Erreur ${resp.status}`)
-      } else {
-        setAssistantResult({ ...data, _action_type: actionType })
-      }
+      const reply = resp.ok
+        ? (data.reply || "Désolé, je n'ai pas pu répondre.")
+        : (data.detail || `Erreur ${resp.status}`)
+      setConversation(prev => [...prev, { role: 'assistant', content: reply }])
     } catch (err) {
-      setAssistantError(err.message || 'Erreur réseau')
+      setConversation(prev => [...prev, { role: 'assistant', content: `⚠️ Erreur réseau : ${err.message}` }])
     } finally {
-      setLoadingAssistant(false)
+      setConvLoading(false)
     }
   }
 
+  // Soumission via Entrée dans la barre de recherche — démarre le fil si c'est une action
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault()
+    const text = searchTerm.trim()
+    if (!text) return
+    if (!detectActionType(text)) return  // sinon on laisse l'autocomplete gérer la recherche client
+    setShowSuggestions(false)
+    setSearchTerm('')
+    sendConversation(text)
+  }
+
   const clearAssistant = () => {
-    setAssistantResult(null)
-    setAssistantError(null)
+    setConversation([])
+    setConvInput('')
     setSearchTerm('')
   }
 
@@ -256,7 +250,7 @@ export default function ClientAccessPanel({ currentUser }) {
                 placeholder="Nom du client OU demande d'action..."
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
               />
-              {(loadingSuggestions || loadingAssistant) && (
+              {(loadingSuggestions || convLoading) && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   <div className="animate-spin h-4 w-4 border-2 border-teal-500 border-t-transparent rounded-full"></div>
                 </div>
@@ -265,14 +259,14 @@ export default function ClientAccessPanel({ currentUser }) {
             {isActionRequest(searchTerm) && (
               <button
                 type="submit"
-                disabled={loadingAssistant}
+                disabled={convLoading}
                 className="px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                title="Exécuter la demande"
+                title="Envoyer à l'assistant"
               >
                 ➤
               </button>
             )}
-            {(selectedClient || assistantResult || assistantError) && (
+            {(selectedClient || conversation.length > 0) && (
               <button
                 type="button"
                 onClick={() => { clearSelection(); clearAssistant(); }}
@@ -313,181 +307,70 @@ export default function ClientAccessPanel({ currentUser }) {
         </form>
       </div>
 
-      {/* Réponse de l'assistant (mode action) */}
-      {(assistantResult || assistantError) && (
+      {/* Fil conversationnel avec l'assistant (mémoire + champ de réponse toujours visible) */}
+      {conversation.length > 0 && (
         <div className="mt-4">
-          <div className="text-xs font-semibold text-teal-700 uppercase tracking-wider mb-2">
-            🤖 Assistant
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold text-teal-700 uppercase tracking-wider">
+              🤖 Assistant
+            </div>
+            <button
+              type="button"
+              onClick={clearAssistant}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              title="Effacer le fil"
+            >
+              Effacer le fil ✕
+            </button>
           </div>
 
-          {assistantError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
-              ⚠️ {assistantError}
-            </div>
-          )}
-
-          {assistantResult && assistantResult.success && assistantResult._action_type === 'joint_rv' && (
-            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">✅ RV conjoint créé</div>
-              <div className="text-xs space-y-0.5">
-                <div>
-                  <strong>{assistantResult.companion_tech}</strong> a été ajouté(e) comme accompagnateur(trice) au RV de <strong>{assistantResult.source_tech}</strong> chez <strong>{assistantResult.client_name}</strong> le {assistantResult.date}.
+          <div className="space-y-2">
+            {conversation.map((m, idx) => (
+              <div key={idx} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                <div
+                  className={`px-3 py-2 rounded-2xl text-sm max-w-[85%] whitespace-pre-wrap ${
+                    m.role === 'user'
+                      ? 'bg-teal-600 text-white rounded-br-sm'
+                      : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm'
+                  }`}
+                >
+                  {m.content}
                 </div>
-                <div className="text-gray-600 mt-1">
-                  Event original : <code className="text-xs">{assistantResult.source_event_id}</code>
-                </div>
-                <div className="text-gray-600">
-                  Event clone (PERSONAL, pas de notif client) : <code className="text-xs">{assistantResult.clone_event_id}</code>
-                </div>
-                {assistantResult.annotation_warning && (
-                  <div className="text-yellow-700 mt-1">⚠️ {assistantResult.annotation_warning}</div>
-                )}
               </div>
-            </div>
-          )}
-
-          {assistantResult && assistantResult.success && assistantResult._action_type === 'duplicate_invoice' && (
-            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">✅ Facture dupliquée en brouillon</div>
-              <div className="text-xs space-y-0.5">
-                <div>
-                  Facture <strong>#{assistantResult.invoice_number}</strong>{assistantResult.client_name ? <> — <strong>{assistantResult.client_name}</strong></> : null}, copiée de #{assistantResult.source_number}.
+            ))}
+            {convLoading && (
+              <div className="flex justify-start">
+                <div className="px-3 py-2 rounded-2xl bg-white border border-gray-200">
+                  <div className="animate-spin h-4 w-4 border-2 border-teal-500 border-t-transparent rounded-full"></div>
                 </div>
-                <div>Échéance : <strong>{assistantResult.due_on}</strong> · Total : <strong>{assistantResult.total?.toFixed(2)} $</strong></div>
-                <div className="text-yellow-700 mt-1">📝 Statut <strong>{assistantResult.status}</strong> — à réviser et envoyer dans Gazelle (rien n'est envoyé automatiquement).</div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {assistantResult && assistantResult.success && assistantResult._action_type === 'duplicate_estimate' && (
-            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">✅ Soumission copiée</div>
-              <div className="text-xs space-y-0.5">
-                <div>
-                  Nouvelle soumission <strong>#{assistantResult.estimate_number}</strong>{assistantResult.client_name ? <> — <strong>{assistantResult.client_name}</strong></> : null}, inspirée de #{assistantResult.source_number}.
-                </div>
-                <div className="text-yellow-700 mt-1">📝 Brouillon — à réviser et envoyer dans Gazelle (rien n'est envoyé automatiquement).</div>
-              </div>
-            </div>
-          )}
-
-          {assistantResult && assistantResult.success && assistantResult._action_type === 'search_keyword' && (
-            <div className="bg-purple-50 border border-purple-200 text-purple-900 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">
-                🔍 Recherche : « {assistantResult.keyword} »
-                {assistantResult.tech_filter && (
-                  <span className="ml-2 text-xs font-normal text-purple-700">
-                    (filtre : {assistantResult.tech_filter})
-                  </span>
-                )}
-              </div>
-              <div className="text-xs text-gray-700 mb-2">
-                {assistantResult.results_count} résultat(s) sur {assistantResult.total_events_scanned} événements scannés
-                ({assistantResult.months_scanned} derniers mois)
-              </div>
-              {assistantResult.results_count === 0 ? (
-                <div className="text-xs italic text-gray-600">
-                  Aucun rendez-vous ne mentionne « {assistantResult.keyword} » dans la fenêtre scannée.
-                  Essaie un autre mot-clé ou élargis la recherche.
-                </div>
-              ) : (
-                <div className="space-y-2 mt-2">
-                  {assistantResult.results.map((hit, idx) => (
-                    <div key={hit.event_id || idx} className="border border-purple-200 rounded-lg px-3 py-2 bg-white">
-                      <div className="flex items-baseline gap-2 text-xs">
-                        <span className="font-mono text-gray-500">{hit.date}</span>
-                        <span className="font-semibold">{hit.tech_first_name} {hit.tech_last_name}</span>
-                        <span className="text-gray-700">→ {hit.client_name || '(client inconnu)'}</span>
-                        {hit.piano && <span className="text-gray-500">· {hit.piano}</span>}
-                      </div>
-                      {hit.excerpt && (
-                        <div className="text-xs mt-1 text-gray-600 italic">
-                          {hit.excerpt}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {assistantResult && assistantResult.success && assistantResult._action_type === 'review_estimate' && (
-            <div className="bg-blue-50 border border-blue-200 text-blue-900 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">📋 Analyse de la soumission</div>
-              <div className="text-xs text-gray-700 mb-2">{assistantResult.summary}</div>
-              {assistantResult.issues_count === 0 ? (
-                <div className="text-xs text-green-700 font-medium">
-                  ✨ Aucun problème détecté — cette soumission respecte les conventions PTM.
-                </div>
-              ) : (
-                <div className="space-y-2 mt-2">
-                  <div className="text-xs font-semibold">
-                    {assistantResult.issues_count} suggestion(s) :
-                  </div>
-                  {assistantResult.issues.map((issue, idx) => {
-                    const sevColors = {
-                      critical: 'bg-red-100 text-red-800 border-red-300',
-                      high: 'bg-orange-100 text-orange-800 border-orange-300',
-                      medium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-                      low: 'bg-gray-100 text-gray-700 border-gray-300',
-                    }
-                    const sevLabels = {
-                      critical: 'critique',
-                      high: 'important',
-                      medium: 'moyen',
-                      low: 'mineur',
-                    }
-                    return (
-                      <div key={idx} className={`border rounded-lg px-3 py-2 ${sevColors[issue.severity] || sevColors.low}`}>
-                        <div className="flex items-start gap-2">
-                          <span className="text-xs font-bold uppercase tracking-wide">
-                            [{sevLabels[issue.severity] || issue.severity}]
-                          </span>
-                          <span className="text-xs font-semibold flex-1">{issue.title}</span>
-                        </div>
-                        <div className="text-xs mt-1 opacity-90">{issue.description}</div>
-                        {issue.items && issue.items.length > 0 && (
-                          <ul className="text-xs mt-1 ml-3 list-disc">
-                            {issue.items.map((it, i) => (
-                              <li key={i}>{it.name} ({it.group})</li>
-                            ))}
-                          </ul>
-                        )}
-                        {issue.missing_items && issue.missing_items.length > 0 && (
-                          <div className="text-xs mt-1">
-                            Items manquants dans Tier 2 : {issue.missing_items.join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-              <div className="text-xs text-gray-500 mt-2 italic">
-                Mode lecture seule — applique les corrections manuellement dans Gazelle.
-              </div>
-            </div>
-          )}
-
-          {assistantResult && !assistantResult.success && (
-            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl text-sm">
-              <div className="font-semibold mb-1">⚠️ Demande non exécutée</div>
-              <div className="text-xs">{assistantResult.error || assistantResult.message}</div>
-              {assistantResult.candidates && assistantResult.candidates.length > 0 && (
-                <div className="mt-2">
-                  <div className="font-semibold text-xs">RV candidats :</div>
-                  <ul className="text-xs mt-1 space-y-0.5">
-                    {assistantResult.candidates.map(c => (
-                      <li key={c.id}>
-                        • {c.start?.slice(0,16)} — {c.client || c.title}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Champ de réponse — toujours visible pour continuer la conversation */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const t = convInput.trim()
+              if (t && !convLoading) { setConvInput(''); sendConversation(t) }
+            }}
+            className="mt-3 flex gap-2"
+          >
+            <input
+              type="text"
+              value={convInput}
+              onChange={(e) => setConvInput(e.target.value)}
+              placeholder="Répondre à l'assistant… (ex: « oui, réactive-la avec le prix à jour »)"
+              className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
+            />
+            <button
+              type="submit"
+              disabled={convLoading || !convInput.trim()}
+              className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+              Envoyer
+            </button>
+          </form>
         </div>
       )}
 

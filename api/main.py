@@ -46,6 +46,7 @@ from api.scheduler_logs_routes import router as scheduler_logs_router
 from api.humidity_alerts_routes import router as humidity_alerts_router
 from api.briefing_routes import router as briefing_router  # 🧠 Briefings Intelligents "Ma Journée"
 from api.assistant_routes import router as assistant_router  # 🤖 Assistant conversationnel actions (RV conjoint, etc.)
+from api.assistant_converse import router as assistant_converse_router  # 💬 Assistant conversationnel (fil + mémoire + outils)
 from api.chat_stats_routes import router as chat_stats_router  # 📊 Stats Chat Public
 from api.service_records import router as service_records_router  # 🎹 Fiches de service (refonte push unique)
 from core.gazelle_api_client import GazelleAPIClient, OAUTH_TOKEN_URL, CONFIG_DIR
@@ -231,6 +232,7 @@ app.include_router(assistant_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
+app.include_router(assistant_converse_router, prefix="/api/assistant")  # 💬 /api/assistant/converse
 app.include_router(chat_router, prefix="/api")
 app.include_router(chat_action_router, prefix="/api")  # 🤖 Actions chat (création/amélioration soumissions)
 app.include_router(conversation_router, prefix="/api")  # Assistant conversationnel intelligent
