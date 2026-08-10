@@ -37,6 +37,13 @@ ENDPOINTS = [
     ("/api/system/status", "Statut systeme", 5, 30),
 ]
 
+# Mode leger (CANARY_LIGHT=1) : ne garder que les endpoints rapides qui TOUCHENT
+# Supabase, pour un check frequent (toutes les 15 min) sans marteler le briefing
+# ni la liste PDA. Suffit a detecter une panne comme la cle Supabase revoquee.
+if os.getenv("CANARY_LIGHT", "").lower() in ("1", "true", "yes"):
+    _LIGHT_PATHS = ("/health", "/api/institutions/list", "/api/system/status")
+    ENDPOINTS = [e for e in ENDPOINTS if e[0] in _LIGHT_PATHS]
+
 # Age max tolere pour la derniere sync avant de crier "perime" (heures).
 # La sync complete tourne chaque nuit + incrementale a l'heure : 30h laisse une
 # marge pour une nuit ratee sans fausse alerte.
@@ -137,6 +144,26 @@ def build_email(problems: list):
     return subject, "".join(html), "\n".join(plain)
 
 
+def send_slack(subject: str, plain: str) -> bool:
+    """Alerte Slack — canal PRIMAIRE, volontairement INDEPENDANT de Supabase :
+    un simple POST HTTP vers le webhook. Il fonctionne meme quand Supabase ou
+    Render sont morts (contrairement au courriel, qui peut dependre de la meme
+    infra en panne). C'est ce qui garantit qu'Allan est averti d'une coupure."""
+    webhook = os.getenv("BRIEFING_SLACK_WEBHOOK_ALLAN", "").strip()
+    if not webhook:
+        print("(pas de webhook Slack configure — alerte Slack sautee)")
+        return False
+    text = f"*[ALERTE PTM] {subject}*\n{plain}"
+    try:
+        r = requests.post(webhook, json={"text": text}, timeout=15)
+        ok = 200 <= r.status_code < 300
+        print("Alerte Slack envoyee." if ok else f"Echec Slack HTTP {r.status_code}")
+        return ok
+    except Exception as e:
+        print(f"Echec Slack: {str(e)[:200]}")
+        return False
+
+
 def main() -> int:
     dry_run = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
     print(f"Canari de sante — {API_BASE}")
@@ -148,20 +175,31 @@ def main() -> int:
         print(f"  [{p['severity']}] {p['title']} :: {p['detail']}")
 
     if not problems:
-        print("Tout va bien — aucun courriel envoye.")
+        print("Tout va bien — aucune alerte envoyee.")
         return 0
 
     subject, html, plain = build_email(problems)
     if dry_run:
-        print("\n--- DRY RUN (aucun courriel) ---")
+        print("\n--- DRY RUN (aucune alerte) ---")
+        print(f"[Slack] [ALERTE PTM] {subject}")
         print(plain)
         return 0
 
-    from core.email_notifier import get_email_notifier
-    ok = get_email_notifier().send_email(
-        to_emails=[RECIPIENT], subject=subject, html_content=html, plain_content=plain)
-    print("Courriel envoye." if ok else "Echec envoi courriel.")
-    return 0 if ok else 1
+    # Canal PRIMAIRE : Slack (independant de Supabase — marche meme si tout est mort).
+    slack_ok = send_slack(subject, plain)
+
+    # Canal SECONDAIRE : courriel (best-effort ; ne doit pas bloquer si son infra est en panne).
+    email_ok = False
+    try:
+        from core.email_notifier import get_email_notifier
+        email_ok = get_email_notifier().send_email(
+            to_emails=[RECIPIENT], subject=subject, html_content=html, plain_content=plain)
+        print("Courriel envoye." if email_ok else "Echec envoi courriel.")
+    except Exception as e:
+        print(f"Echec courriel (non bloquant): {str(e)[:200]}")
+
+    # Succes si AU MOINS un canal a livre l'alerte.
+    return 0 if (slack_ok or email_ok) else 1
 
 
 if __name__ == "__main__":

@@ -1,0 +1,58 @@
+name: Canari de sante (7h-21h, /15 min)
+
+on:
+  schedule:
+    # Toutes les 15 min dans la fenetre UTC couvrant 7h-21h Montreal (EST + EDT).
+    # 7h EST = 12h UTC ; 21h EDT = 1h UTC. On couvre large (11h-2h UTC) et le
+    # script/gate interne restreint a 7h-21h Montreal pour ne pas alerter la nuit.
+    - cron: '*/15 11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Ignorer la fenetre horaire (test immediat)"
+        required: false
+        default: 'true'
+      simulate_outage:
+        description: "Simuler une panne -> envoie une VRAIE alerte Slack de test"
+        required: false
+        default: 'false'
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run health canary (light) — alerte Slack + courriel si probleme
+        env:
+          # simulate_outage=true -> base bidon -> les endpoints repondent 404 ->
+          # vraie alerte Slack de test. Sinon: la vraie API Render.
+          CANARY_API_BASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.simulate_outage == 'true') && 'https://assistant-gazelle-v5-api.onrender.com/panne-simulee-test' || 'https://assistant-gazelle-v5-api.onrender.com' }}
+          CANARY_LIGHT: '1'
+          BRIEFING_SLACK_WEBHOOK_ALLAN: ${{ secrets.BRIEFING_SLACK_WEBHOOK_ALLAN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force || '' }}
+        run: |
+          set -e
+          if [ "${FORCE_RUN}" != "1" ] && [ "${FORCE_RUN}" != "true" ]; then
+            IN_WINDOW=$(python3 -c "from datetime import datetime; import pytz; h=datetime.now(pytz.timezone('America/Montreal')).hour; print(1 if 7<=h<21 else 0)")
+            if [ "${IN_WINDOW}" != "1" ]; then
+              echo "Hors plage 7h-21h Montreal — canari saute."
+              exit 0
+            fi
+          fi
+          python modules/data_quality/daily_health_canary.py
