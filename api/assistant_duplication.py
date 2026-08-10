@@ -219,21 +219,26 @@ def _fetch_msl_prices(gz) -> Dict[str, Any]:
     return {it["id"]: it.get("amount") for it in items if it.get("id")}
 
 
-# Taxes Québec. Validé empiriquement sur #11983 (2026-08-10) : OMETTRE le champ
-# `taxes` laisse Gazelle à 0 $ de taxe. Il FAUT envoyer TPS+TVQ explicitement,
-# et la création doit passer par createEstimate minimal PUIS updateEstimate
-# (envoyer les tiers dans createEstimate ne déclenche pas le calcul des taxes).
-_TPS_TAX_ID, _TPS_RATE = "tax_JeCfY4wfbXtN6J28", 5000   # 5,000 %
-_TVQ_TAX_ID, _TVQ_RATE = "tax_xe9FEApq94zI7kXD", 9975   # 9,975 %
+# Taxes Québec. Validé empiriquement sur #11983 (2026-08-10) :
+#  - OMETTRE `taxes` -> 0 $ de taxe.
+#  - Envoyer `taxes` SANS le champ `name` -> Gazelle jette les lignes par item :
+#    le total se calcule mais les cases TPS/TVQ restent DÉCOCHÉES dans l'UI.
+#  - Il faut envoyer chaque taxe avec `name` ("tps"/"tvq") comme dans une
+#    soumission native (#11766), et créer en 2 étapes (createEstimate minimal
+#    puis updateEstimate) — sinon le calcul des taxes ne se déclenche pas.
+_TPS_TAX_ID, _TPS_NAME, _TPS_RATE = "tax_JeCfY4wfbXtN6J28", "tps", 5000   # 5,000 %
+_TVQ_TAX_ID, _TVQ_NAME, _TVQ_RATE = "tax_xe9FEApq94zI7kXD", "tvq", 9975   # 9,975 %
 
 
 def _build_taxes(amount_cents, is_taxable) -> List[Dict[str, Any]]:
-    """Bloc TPS+TVQ pour un item taxable (montant > 0) ; [] sinon."""
+    """Bloc TPS+TVQ (avec `name`, requis pour cocher les cases) ; [] sinon."""
     if not is_taxable or not amount_cents:
         return []
     return [
-        {"taxId": _TPS_TAX_ID, "rate": _TPS_RATE, "total": round(amount_cents * _TPS_RATE / 100000)},
-        {"taxId": _TVQ_TAX_ID, "rate": _TVQ_RATE, "total": round(amount_cents * _TVQ_RATE / 100000)},
+        {"taxId": _TPS_TAX_ID, "name": _TPS_NAME, "rate": _TPS_RATE,
+         "total": round(amount_cents * _TPS_RATE / 100000)},
+        {"taxId": _TVQ_TAX_ID, "name": _TVQ_NAME, "rate": _TVQ_RATE,
+         "total": round(amount_cents * _TVQ_RATE / 100000)},
     ]
 
 

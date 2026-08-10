@@ -45,14 +45,18 @@ dans les deux sens sur #11983 :
 - `taxes` **explicites** (TPS+TVQ) via `updateEstimate` → taxes correctes.
 
 **Règle qui MARCHE (create/update par API) :** envoyer les taxes explicitement
-sur chaque item taxable, calculées ainsi, ET créer en 2 étapes (createEstimate
-minimal → updateEstimate avec les tiers) :
+sur chaque item taxable, **avec le champ `name`**, ET créer en 2 étapes
+(createEstimate minimal → updateEstimate avec les tiers) :
 ```python
-TPS: taxId="tax_JeCfY4wfbXtN6J28", rate=5000  -> total = round(amount*5000/100000)
-TVQ: taxId="tax_xe9FEApq94zI7kXD", rate=9975  -> total = round(amount*9975/100000)
+TPS: taxId="tax_JeCfY4wfbXtN6J28", name="tps", rate=5000 -> total=round(amount*5000/100000)
+TVQ: taxId="tax_xe9FEApq94zI7kXD", name="tvq", rate=9975 -> total=round(amount*9975/100000)
 ```
-Items NON taxables ou à 0 $ → `taxes: []`. Implémenté dans
-`api/assistant_duplication.py` (`_build_taxes` + `duplicate_estimate`).
+⚠️ **Le `name` ("tps"/"tvq") est OBLIGATOIRE.** Sans lui, Gazelle jette les
+lignes de taxe par item : le total se calcule mais les **cases TPS/TVQ restent
+DÉCOCHÉES** dans l'UI (constaté sur #11983, 2026-08-10). Vérifier via le champ
+`taxes { name rate total }` de chaque item — il doit être rempli comme sur une
+soumission native (#11766). Items NON taxables ou à 0 $ → `taxes: []`.
+Implémenté dans `api/assistant_duplication.py` (`_build_taxes`).
 
 ---
 _Ancienne note (2026-04-12, gardée pour trace — peut valoir pour le chemin v6
