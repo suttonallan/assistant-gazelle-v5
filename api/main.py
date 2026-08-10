@@ -33,7 +33,7 @@ from api.tableau_de_bord_routes import router_alertes, router_pianos, router_sys
 from api.inventaire import router as inventaire_router
 from api.catalogue_routes import router as catalogue_router
 from api.tournees import router as tournees_router
-from api.assistant import router as assistant_router
+from api.assistant import router as assistant_core_router  # 💬 Assistant chat + fiche client (routes /assistant/chat, /client/{id}, /smart-recipes, /health)
 from api.admin import router as admin_router
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
@@ -200,7 +200,7 @@ app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
 app.include_router(catalogue_router)
 app.include_router(tournees_router)
-app.include_router(assistant_router)
+app.include_router(assistant_core_router)  # 💬 Assistant chat + fiche client
 app.include_router(admin_router)
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
@@ -211,7 +211,7 @@ app.include_router(scheduler_router)
 app.include_router(sync_logs_router)
 app.include_router(scheduler_logs_router)
 app.include_router(briefing_router)  # 🧠 Briefings Intelligents "Ma Journée"
-app.include_router(assistant_router)  # 🤖 Assistant actions (RV conjoint)
+app.include_router(assistant_router)  # 🤖 Assistant actions (RV conjoint, review-estimate, etc.)
 app.include_router(chat_stats_router)  # 📊 Stats Chat Public
 app.include_router(service_records_router)  # 🎹 Fiches de service (refonte push unique)
 app.include_router(vdi_guest_router)  # 🎹 VDI Guest/Admin
@@ -228,7 +228,7 @@ app.include_router(alertes_rv_router, prefix="/api")
 app.include_router(inventaire_router, prefix="/api")
 app.include_router(catalogue_router, prefix="/api")
 app.include_router(tournees_router, prefix="/api")
-app.include_router(assistant_router, prefix="/api")
+app.include_router(assistant_core_router, prefix="/api")  # 💬 /api/assistant/chat, /api/assistant/client/{id}
 app.include_router(admin_router, prefix="/api")
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
@@ -240,7 +240,7 @@ app.include_router(scheduler_router, prefix="/api")
 app.include_router(sync_logs_router, prefix="/api")
 app.include_router(scheduler_logs_router, prefix="/api")
 app.include_router(briefing_router, prefix="/api")  # 🧠 Briefings Intelligents "Ma Journée"
-app.include_router(assistant_router, prefix="/api")  # 🤖 Assistant actions (RV conjoint)
+app.include_router(assistant_router, prefix="/api")  # 🤖 Assistant actions (RV conjoint, review-estimate, etc.)
 app.include_router(chat_stats_router, prefix="/api")  # 📊 Stats Chat Public
 app.include_router(service_records_router, prefix="/api")  # 🎹 Fiches de service (refonte push unique)
 app.include_router(vdi_guest_router, prefix="/api")  # 🎹 VDI Guest/Admin
