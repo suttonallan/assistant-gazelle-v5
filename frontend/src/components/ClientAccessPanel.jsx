@@ -48,6 +48,17 @@ function detectActionType(text) {
   if (dupVerb && hasNumber && lower.includes('facture')) return 'duplicate_invoice'
   if (dupVerb && hasNumber && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate'))) return 'duplicate_estimate'
 
+  // 0b. Création / réactivation d'une soumission à partir d'un numéro existant.
+  //     On part d'une COPIE (brouillon) de la soumission source, que l'utilisateur
+  //     ajuste ensuite (ex. remettre les prix à jour).
+  //     Ex : « fais une nouvelle soumission pour réactiver #11766 avec le prix à jour ».
+  //     DOIT passer AVANT la révision : sinon le simple mot « soumission » aiguille la
+  //     demande vers review_estimate, qui REFUSE toute création (« pas une révision »).
+  const createVerb = /(nouvelle|nouveau|cree|crée|creer|créer|reactiv|réactiv|refais|refait|refaire|repart|prepare|prépare|monte|monter|genere|génère|generer|générer)/.test(lower)
+  if (createVerb && hasNumber && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate'))) {
+    return 'duplicate_estimate'
+  }
+
   // 1. Révision de soumission : doit contenir 'soumission/devis/estimate' OU un verbe d'amélioration + un # ou nom
   const hasReviewVerb = REVIEW_ESTIMATE_KEYWORDS.some(kw => lower.includes(kw))
   if (hasReviewVerb && (lower.includes('soumission') || lower.includes('devis') || lower.includes('estimate') || hasNumber)) {
