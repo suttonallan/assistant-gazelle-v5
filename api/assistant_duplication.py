@@ -208,8 +208,22 @@ mutation($input: PrivateCreateEstimateInput!) {
 }
 """
 
+# Catalogue Gazelle : source de vérité du prix courant de chaque service.
+_MSL_PRICE_QUERY = "query { allMasterServiceItems { id amount } }"
 
-def _estimate_item_input(it: Dict[str, Any]) -> Dict[str, Any]:
+
+def _fetch_msl_prices(gz) -> Dict[str, Any]:
+    """Retourne {masterServiceItemId: prix_courant_cents} depuis le catalogue."""
+    data = gz._execute_query(_MSL_PRICE_QUERY)
+    items = (((data or {}).get("data") or {}).get("allMasterServiceItems") or [])
+    return {it["id"]: it.get("amount") for it in items if it.get("id")}
+
+
+def _estimate_item_input(it: Dict[str, Any],
+                         catalog: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Construit l'input d'un item. Si `catalog` est fourni (mode reprice), le
+    montant est remplacé par le prix courant du MasterServiceItem lié ; les
+    lignes sans MSL (custom) gardent leur montant d'origine."""
     r = {
         "name": it.get("name"),
         "description": it.get("description"),
@@ -223,15 +237,37 @@ def _estimate_item_input(it: Dict[str, Any]) -> Dict[str, Any]:
     msi = it.get("masterServiceItem") or {}
     if msi.get("id"):
         r["masterServiceItemId"] = msi["id"]
+        if catalog is not None:
+            current = catalog.get(msi["id"])
+            if current is not None:
+                r["amount"] = current
     return r
 
 
+def _reprice_changes(src: Dict[str, Any], catalog: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Liste les lignes dont le prix change au tarif courant (pour le rapport)."""
+    changes = []
+    for t in (src.get("allEstimateTiers") or []):
+        grouped = [i for grp in (t.get("allEstimateTierGroups") or [])
+                   for i in (grp.get("allEstimateTierItems") or [])]
+        for i in grouped + (t.get("allUngroupedEstimateTierItems") or []):
+            msi = (i.get("masterServiceItem") or {}).get("id")
+            old = i.get("amount") or 0
+            new = catalog.get(msi) if msi else None
+            if new is not None and new != old:
+                changes.append({"name": i.get("name"), "old_cents": old, "new_cents": new})
+    return changes
+
+
 def duplicate_estimate(number: int, dry_run: bool = False,
-                       archived: bool = False) -> Dict[str, Any]:
+                       archived: bool = False, reprice: bool = False) -> Dict[str, Any]:
     """Copie une soumission (tiers/groupes/items) en une nouvelle soumission.
 
     Date d'émission = aujourd'hui, expiration = +30 jours. Rien n'est envoyé.
     `archived=True` crée la copie archivée (utile pour un test).
+    `reprice=True` remplace chaque montant par le prix courant du catalogue
+    (MasterServiceItem) — pour « réactiver avec le prix à jour ». Les lignes
+    custom (sans MSL) gardent leur montant d'origine.
     """
     gz = _gz()
     data = gz._execute_query(_ESTIMATE_FETCH, {"s": str(number)})
@@ -246,6 +282,9 @@ def duplicate_estimate(number: int, dry_run: bool = False,
         return {"success": False,
                 "error": f"Soumission #{number} sans piano associé — copie impossible (pianoId requis)."}
 
+    catalog = _fetch_msl_prices(gz) if reprice else None
+    changes = _reprice_changes(src, catalog) if reprice else []
+
     tiers: List[Dict[str, Any]] = []
     for t in (src.get("allEstimateTiers") or []):
         groups = []
@@ -253,7 +292,7 @@ def duplicate_estimate(number: int, dry_run: bool = False,
             groups.append({
                 "name": grp.get("name"),
                 "sequenceNumber": grp.get("sequenceNumber", 0),
-                "estimateTierItems": [_estimate_item_input(i)
+                "estimateTierItems": [_estimate_item_input(i, catalog)
                                       for i in (grp.get("allEstimateTierItems") or [])],
             })
         tiers.append({
@@ -261,7 +300,7 @@ def duplicate_estimate(number: int, dry_run: bool = False,
             "isPrimary": t.get("isPrimary", False),
             "notes": t.get("notes"),
             "estimateTierGroups": groups,
-            "ungroupedEstimateTierItems": [_estimate_item_input(i)
+            "ungroupedEstimateTierItems": [_estimate_item_input(i, catalog)
                                            for i in (t.get("allUngroupedEstimateTierItems") or [])],
         })
 
@@ -278,7 +317,8 @@ def duplicate_estimate(number: int, dry_run: bool = False,
     if archived:
         inp["isArchived"] = True
     if dry_run:
-        return {"success": True, "dry_run": True, "input": inp}
+        return {"success": True, "dry_run": True, "input": inp,
+                "reprice": reprice, "reprice_changes": changes}
 
     res = gz._execute_query(_CREATE_ESTIMATE, {"input": inp})
     payload = ((res or {}).get("data") or {}).get("createEstimate") or {}
@@ -296,4 +336,6 @@ def duplicate_estimate(number: int, dry_run: bool = False,
         "estimate_number": est.get("number"),
         "estimate_id": est.get("id"),
         "client_name": client_name,
+        "reprice": reprice,
+        "reprice_changes": changes,
     }
