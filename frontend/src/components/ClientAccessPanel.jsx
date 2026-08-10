@@ -119,8 +119,9 @@ export default function ClientAccessPanel({ currentUser }) {
     setSearchTerm(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
-    // Si l'input ressemble à une requête d'action, on n'autocomplète pas
-    if (isActionRequest(value)) {
+    // Requête d'action OU phrase longue (>3 mots) → c'est une demande à l'assistant,
+    // pas un nom de client : on n'autocomplète pas (évite le faux « aucun client »).
+    if (isActionRequest(value) || value.trim().split(/\s+/).length > 3) {
       setSuggestions([])
       setShowSuggestions(false)
       return

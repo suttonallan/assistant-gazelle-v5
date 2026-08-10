@@ -119,7 +119,10 @@ async def converse(req: ConverseRequest):
         "- create_joint_appointment : créer un RV conjoint.\n\n"
         "Sers-toi de l'HISTORIQUE : si l'utilisateur confirme (« oui », « vas-y ») une "
         "action que tu viens de proposer, exécute-la avec l'outil. Si une demande est "
-        "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner. "
+        "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner.\n"
+        "IMPORTANT : si AUCUN outil ne correspond à la demande (ex. déplacer / replanifier "
+        "un rendez-vous, changer son lieu, modifier un client), DIS-LE clairement et "
+        "explique ce que tu peux faire — n'utilise JAMAIS un outil qui ne convient pas. "
         "Les créations de soumission sont toujours des brouillons : rien n'est envoyé au client."
         + user_ctx
     )
@@ -130,7 +133,7 @@ async def converse(req: ConverseRequest):
     # Boucle outil : Claude peut enchaîner quelques appels avant de répondre en texte.
     for _ in range(5):
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-5",
             max_tokens=1500,
             system=system_prompt,
             tools=TOOLS,
