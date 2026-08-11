@@ -240,6 +240,18 @@ class PDAEmailProcessor:
             "created_by": "gmail_scanner",
         }
 
+        # Garde anti-doublon (le chemin auto n'en avait AUCUNE) : une réponse dans
+        # le fil (« ok pour le … ») vient de @placedesarts.com, cite l'email
+        # original -> re-parsé -> doublon. On dédup sur date + salle + heure +
+        # pour_qui : deux VRAIES demandes le même jour, même salle, mais à des
+        # heures (ou pour qui) différentes restent bien distinctes.
+        if self._exists_duplicate(row):
+            logger.info(
+                f"Doublon PDA ignoré (déjà présent): {appointment_date} | "
+                f"{row['room']} | {row['time']} | {row['for_who']}"
+            )
+            return None
+
         # Auto-détection stationnement
         try:
             from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
@@ -262,6 +274,39 @@ class PDAEmailProcessor:
             f"{appointment_date} | {row['room']} | {row['for_who']}"
         )
         return req_id
+
+    def _exists_duplicate(self, row: Dict[str, Any]) -> bool:
+        """Vrai si une demande IDENTIQUE existe déjà.
+
+        Clé volontairement stricte — date + salle + heure + pour_qui — pour NE
+        PAS fusionner deux vraies demandes le même jour, même salle, à des
+        heures (ou pour qui) différentes. Sert à bloquer les re-parses d'un même
+        original cité dans une réponse (« ok pour le … »).
+        """
+        try:
+            import requests as req
+            appt = row.get('appointment_date')
+            if not appt:
+                return False
+            params = {
+                'appointment_date': f"eq.{appt}",
+                'room': f"eq.{row.get('room') or ''}",
+                'for_who': f"eq.{row.get('for_who') or ''}",
+                'time': f"eq.{row.get('time') or ''}",
+                'select': 'id',
+                'limit': 1,
+            }
+            resp = req.get(
+                f"{self.storage.api_url}/place_des_arts_requests",
+                headers=self.storage._get_headers(),
+                params=params,
+            )
+            if resp.status_code == 200:
+                return bool(resp.json())
+            return False
+        except Exception as e:
+            logger.warning(f"Erreur vérification doublon PDA: {e}")
+            return False
 
     def _send_confirmation_email(
         self,
