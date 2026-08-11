@@ -1,0 +1,32 @@
+name: PDA — reconnaitre les services completes
+
+# CAUSE RACINE des services non reconnus comme completes : une demande PdA ne
+# passe a COMPLETED que si la sync /check-completed tourne et voit son RV Gazelle
+# COMPLETE. Cette sync n'etait jamais planifiee -> un service d'il y a quelques
+# jours restait bloque a CREATED_IN_GAZELLE. Ce job la fait tourner chaque jour.
+#
+# L'endpoint est NON-destructif : il lit Gazelle et met a jour uniquement les
+# statuts PdA (COMPLETED + lien + stationnement). Aucun courriel, aucune ecriture
+# Gazelle. Sa fenetre ne couvre que les RV recents -> ne touche pas l'historique.
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # ~8h America/Montreal, chaque jour
+  workflow_dispatch:
+
+jobs:
+  check-completed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Declencher /check-completed
+        run: |
+          set -e
+          echo "POST /api/place-des-arts/check-completed ..."
+          code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
+            "https://assistant-gazelle-v5-api.onrender.com/api/place-des-arts/check-completed" \
+            -H "Content-Type: application/json")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo ""
+          test "$code" = "200"
