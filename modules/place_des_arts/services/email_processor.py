@@ -422,18 +422,13 @@ class PDAEmailProcessor:
             return False
 
     def _should_create_plane_task(self, email_data: Dict[str, Any]) -> bool:
-        """Vérifie si l'email doit générer une tâche Plane.
+        """Création de tâches Plane DÉSACTIVÉE : PTM n'utilise pas Plane.
 
-        Conditions: expéditeur @placedesarts.com OU sujet contient 'Place des Arts'.
+        Ça générait des avis inopportuns à Nicolas (assigné par défaut) à chaque
+        email PDA. Laisser return False. (Remettre la logique d'origine si un jour
+        Plane est réellement adopté.)
         """
-        if not PLANE_API_KEY:
-            logger.debug("PLANE_API_KEY non configurée, skip création tâche Plane")
-            return False
-
-        sender = (email_data.get('sender_email') or '').lower()
-        subject = (email_data.get('subject') or '').lower()
-
-        return 'placedesarts.com' in sender or 'place des arts' in subject
+        return False
 
     def _create_plane_task(self, email_data: Dict[str, Any]) -> Optional[str]:
         """Crée une tâche dans Plane pour un email PDA.
