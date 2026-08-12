@@ -19,12 +19,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Declencher /check-completed
+      - name: Declencher /requests/sync-completed-live (statut Gazelle EN DIRECT)
         run: |
           set -e
-          echo "POST /api/place-des-arts/check-completed ..."
+          echo "POST /api/place-des-arts/requests/sync-completed-live ..."
           code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
-            "https://assistant-gazelle-v5-api.onrender.com/api/place-des-arts/check-completed" \
+            "https://assistant-gazelle-v5-api.onrender.com/api/place-des-arts/requests/sync-completed-live" \
             -H "Content-Type: application/json")
           echo "HTTP $code"
           cat /tmp/out.json || true

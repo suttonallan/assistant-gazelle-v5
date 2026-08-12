@@ -1693,6 +1693,65 @@ async def validate_gazelle_rv(payload: Dict[str, Any]):
         )
 
 
+@router.post("/requests/sync-completed-live")
+async def sync_completed_live(days: int = 45):
+    """Marque COMPLETED les demandes RÉCENTES dont le RV est COMPLETE dans Gazelle,
+    en interrogeant Gazelle EN DIRECT (pas la copie locale, qui peut être en retard).
+
+    Scope : appointment_date dans les `days` derniers jours (défaut 45), statut
+    non COMPLETED/BILLED, avec un appointment_id. Ne touche pas l'historique ancien
+    (donc pas de correction rétroactive d'avant cette fenêtre).
+    """
+    from datetime import datetime, timezone, timedelta
+    from core.gazelle_api_client import GazelleAPIClient
+    from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+
+    storage = get_storage()
+    sync_service = GazelleSyncService(storage)
+    gz = GazelleAPIClient()
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime('%Y-%m-%d')
+    params = [
+        "select=id,appointment_date,room,for_who,appointment_id,status",
+        f"appointment_date=gte.{cutoff}",
+        "status=not.in.(COMPLETED,BILLED)",
+        "appointment_id=not.is.null",
+        "limit=300",
+    ]
+    url = f"{storage.api_url}/place_des_arts_requests?{'&'.join(params)}"
+    resp = requests.get(url, headers=storage._get_headers())
+    rows = resp.json() if resp.status_code == 200 else []
+
+    q = "query($id:String!){ event(eventId:$id){ status } }"
+    completed = []
+    for r in rows:
+        aid = r.get('appointment_id')
+        if not aid:
+            continue
+        try:
+            ev = ((gz._execute_query(q, {"id": aid}) or {}).get("data") or {}).get("event") or {}
+        except Exception as e:
+            logging.warning(f"sync-completed-live: erreur Gazelle pour {aid}: {e}")
+            continue
+        if (ev.get("status") or "").upper() in ("COMPLETE", "COMPLETED"):
+            if sync_service._update_request_status(r["id"], "COMPLETED"):
+                completed.append({
+                    "appointment_date": (r.get("appointment_date") or "")[:10],
+                    "room": r.get("room"),
+                    "for_who": r.get("for_who"),
+                    "was": r.get("status"),
+                })
+
+    return {
+        "success": True,
+        "window_days": days,
+        "since": cutoff,
+        "checked": len(rows),
+        "completed": len(completed),
+        "details": completed,
+    }
+
+
 @router.post("/check-completed")
 async def check_completed_requests():
     """
