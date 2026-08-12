@@ -154,42 +154,27 @@ class PDAEmailProcessor:
 
         logger.info(f"Détecté {len(parsed_requests)} demande(s) dans l'email")
 
-        # 2. Créer les demandes dans Supabase
-        created_ids = []
-        for i, req in enumerate(parsed_requests):
-            try:
-                req_id = self._create_request(req, email_data, index=i)
-                if req_id:
-                    created_ids.append(req_id)
-            except Exception as e:
-                logger.error(f"Erreur création demande {i+1}: {e}")
+        # 2. ON N'ÉCRIT PLUS AUTOMATIQUEMENT dans l'assistant.
+        # Décision (Allan, 2026-08) : l'import PdA demande une supervision serrée
+        # de toute façon ; l'écriture auto ne faisait qu'ajouter des doublons et
+        # des faux positifs (accusés de réception, réponses citant l'original…)
+        # qu'un humain devait nettoyer. Le scanner DÉTECTE et envoie un résumé
+        # « à réviser » ; Louise importe ce qui est réel via l'outil manuel.
+        review_sent = self._send_review_email(email_data, parsed_requests)
 
-        # 3. Envoyer l'email de confirmation (groupé)
-        confirmation_sent = False
-        if created_ids:
-            confirmation_sent = self._send_confirmation_email(
-                email_data, parsed_requests, created_ids
-            )
-
-        # 4. Créer une tâche Plane si applicable
-        plane_issue_id = None
-        if self._should_create_plane_task(email_data):
-            plane_issue_id = self._create_plane_task(email_data)
-
-        # 5. Enregistrer comme traité
+        # 3. Enregistrer comme traité (aucune demande créée)
         self._record_processed_email(
             email_data,
-            status='processed',
-            requests_created=len(created_ids),
-            request_ids=created_ids,
-            confirmation_sent=confirmation_sent
+            status='detected',
+            requests_created=0,
+            request_ids=[],
+            confirmation_sent=review_sent,
         )
 
         return {
-            'requests_created': len(created_ids),
-            'confirmation_sent': confirmation_sent,
-            'request_ids': created_ids,
-            'plane_issue_id': plane_issue_id,
+            'requests_created': 0,
+            'requests_detected': len(parsed_requests),
+            'confirmation_sent': review_sent,
         }
 
     def _create_request(
@@ -308,16 +293,14 @@ class PDAEmailProcessor:
             logger.warning(f"Erreur vérification doublon PDA: {e}")
             return False
 
-    def _send_confirmation_email(
+    def _send_review_email(
         self,
         email_data: Dict,
         parsed_requests: List[Dict],
-        created_ids: List[str]
     ) -> bool:
         """
-        Envoie un email récapitulatif de confirmation à info@.
-
-        Format: Un seul email groupé avec toutes les demandes de l'email source.
+        Envoie à info@ un résumé des demandes DÉTECTÉES dans un email, à RÉVISER
+        et importer manuellement. Rien n'est créé automatiquement dans l'assistant.
         """
         try:
             from core.email_notifier import EmailNotifier
@@ -336,7 +319,7 @@ class PDAEmailProcessor:
                     else:
                         date_str = str(req['date'])
 
-                status_badge = '🟢' if i < len(created_ids) else '🔴'
+                status_badge = '🔎'
                 rows_html += f"""
                 <tr>
                     <td style="padding: 8px; border: 1px solid #ddd;">{status_badge}</td>
@@ -365,12 +348,14 @@ class PDAEmailProcessor:
             </head>
             <body>
                 <div class="header">
-                    <h2 style="margin:0;">Nouvelles demandes PDA enregistrées</h2>
+                    <h2 style="margin:0;">Demandes PDA détectées — à réviser</h2>
                 </div>
                 <div class="content">
                     <p><strong>Email source:</strong> {subject}</p>
                     <p><strong>De:</strong> {sender}</p>
-                    <p><strong>{len(created_ids)} demande(s)</strong> ont été automatiquement créées dans l'assistant:</p>
+                    <p><strong>{len(parsed_requests)} demande(s)</strong> détectée(s) dans cet email.
+                    <strong>Rien n'a été créé automatiquement</strong> — à vérifier et importer
+                    manuellement dans l'assistant :</p>
 
                     <table>
                         <thead>
@@ -391,8 +376,8 @@ class PDAEmailProcessor:
                     </table>
 
                     <p style="color: #2563eb;">
-                        Ces demandes ont le statut <strong>PENDING</strong> et doivent être
-                        synchronisées avec Gazelle.
+                        À <strong>réviser</strong> puis <strong>importer manuellement</strong>
+                        dans l'assistant (rien n'est créé ni synchronisé automatiquement).
                     </p>
                 </div>
                 <div class="footer">
@@ -402,7 +387,7 @@ class PDAEmailProcessor:
             </html>
             """
 
-            email_subject = f"[PDA Auto] {len(created_ids)} demande(s) importée(s) - {sender}"
+            email_subject = f"[PDA — à réviser] {len(parsed_requests)} demande(s) détectée(s) - {sender}"
 
             success = notifier.send_email(
                 to_emails=[INFO_EMAIL],
