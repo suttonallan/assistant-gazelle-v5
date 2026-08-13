@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(env_path)
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, Optional
 import requests
@@ -251,15 +251,73 @@ app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{
 # Webhook Zoom pour SMS
 # ============================================================
 
+def _transferer_sms_par_email(sender: str, recipient: str, timestamp: str, content: str) -> None:
+    """
+    Transfere par courriel un SMS recu via Zoom.
+
+    Executee en tache de fond : Zoom exige une reponse du webhook en moins de
+    3 secondes, sinon il comptabilise un echec et finit par desactiver
+    l'abonnement (incident « endpoint not responsive » de juillet 2026).
+    L'envoi du courriel peut depasser ce delai ; il ne doit donc jamais se
+    trouver sur le chemin de la reponse a Zoom.
+    """
+    try:
+        from core.email_notifier import EmailNotifier
+        email_notifier = EmailNotifier()
+
+        # `method` vaut 'gmail', 'resend' ou None. Ne pas tester `.client`,
+        # attribut de l'ancienne implementation SendGrid : l'AttributeError
+        # etait avalee et aucun courriel ne partait (panne silencieuse).
+        if not email_notifier.method:
+            print("⚠️ Aucune méthode d'envoi disponible (ni Gmail API ni Resend) - email non envoyé")
+            return
+
+        recipient_email = os.getenv('EMAIL_SMS_FORWARD', 'info@piano-tek.com')
+
+        html_content = f"""
+        <h2>📩 SMS Reçu via Zoom</h2>
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>De:</strong> {sender}</p>
+            <p><strong>À:</strong> {recipient}</p>
+            <p><strong>Date:</strong> {timestamp}</p>
+        </div>
+        <div style="background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>Message:</strong></p>
+            <p style="white-space: pre-wrap;">{content}</p>
+        </div>
+        <hr>
+        <p style="color: #666; font-size: 12px;">Reçu via Zoom Webhook - Assistant Gazelle V5</p>
+        """
+
+        plain_content = f"SMS Reçu de {sender} → {recipient}\nDate: {timestamp}\n\nMessage:\n{content}"
+
+        success = email_notifier.send_email(
+            to_emails=[recipient_email],
+            subject=f"📩 SMS Reçu de {sender}",
+            html_content=html_content,
+            plain_content=plain_content
+        )
+
+        if success:
+            print(f"✅ Email envoyé avec succès à {recipient_email}")
+        else:
+            print(f"⚠️ Échec de l'envoi d'email à {recipient_email} (méthode: {email_notifier.method})")
+
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi d'email: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 @app.post("/api/zoom/webhook")
-async def zoom_webhook(request: Request):
+async def zoom_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Webhook Zoom pour recevoir des SMS et déclencher des actions (emails, notifications).
-    
+
     Gère:
     - Validation de l'URL par Zoom (endpoint.url_validation) - OBLIGATOIRE
     - Réception des SMS
-    - Envoi d'emails via SendGrid
+    - Transfert par courriel, en tâche de fond (contrainte des 3 s de Zoom)
     """
     try:
         data = await request.json()
@@ -394,53 +452,12 @@ async def zoom_webhook(request: Request):
             
             print(f"\n📩 SMS Reçu de {sender} → {recipient}: {content}")
             
-            # Envoyer un email via SendGrid
-            try:
-                from core.email_notifier import EmailNotifier
-                email_notifier = EmailNotifier()
-                
-                # `method` vaut 'gmail', 'resend' ou None. Ne pas tester `.client`,
-                # attribut de l'ancienne implementation SendGrid : l'AttributeError
-                # etait avalee plus bas et aucun email ne partait (panne silencieuse).
-                if email_notifier.method:
-                    recipient_email = os.getenv('EMAIL_SMS_FORWARD', 'info@piano-tek.com')
-                    
-                    html_content = f"""
-                    <h2>📩 SMS Reçu via Zoom</h2>
-                    <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                        <p><strong>De:</strong> {sender}</p>
-                        <p><strong>À:</strong> {recipient}</p>
-                        <p><strong>Date:</strong> {timestamp}</p>
-                    </div>
-                    <div style="background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
-                        <p><strong>Message:</strong></p>
-                        <p style="white-space: pre-wrap;">{content}</p>
-                    </div>
-                    <hr>
-                    <p style="color: #666; font-size: 12px;">Reçu via Zoom Webhook - Assistant Gazelle V5</p>
-                    """
-                    
-                    plain_content = f"SMS Reçu de {sender} → {recipient}\nDate: {timestamp}\n\nMessage:\n{content}"
-                    
-                    success = email_notifier.send_email(
-                        to_emails=[recipient_email],
-                        subject=f"📩 SMS Reçu de {sender}",
-                        html_content=html_content,
-                        plain_content=plain_content
-                    )
-                    
-                    if success:
-                        print(f"✅ Email envoyé avec succès à {recipient_email}")
-                    else:
-                        print(f"⚠️ Échec de l'envoi d'email à {recipient_email}")
-                else:
-                    print("⚠️ Aucune méthode d'envoi disponible (ni Gmail API ni Resend) - email non envoyé")
-                    
-            except Exception as e:
-                print(f"❌ Erreur lors de l'envoi d'email: {e}")
-                import traceback
-                traceback.print_exc()
-            
+            # Le courriel part APRES la reponse a Zoom : on tient les 3 s exigees
+            # meme si Gmail est lent. Voir _transferer_sms_par_email.
+            background_tasks.add_task(
+                _transferer_sms_par_email, sender, recipient, timestamp, content
+            )
+
             return {"status": "received", "message": "SMS traité avec succès"}
 
         # Autres événements non gérés
