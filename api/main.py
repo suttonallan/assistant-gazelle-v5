@@ -321,43 +321,69 @@ async def zoom_webhook(request: Request):
                 ''
             )
             
-            # Extraire l'expéditeur (plusieurs chemins possibles selon structure Zoom)
-            sender = (
+            # Structure reelle du payload Zoom, relevee dans les logs Render (2026-08-12) :
+            #   object = {sender: {phone_number}, owner: {...}, to_members: [{phone_number}],
+            #             message, date_time, message_id, message_type, ...}
+            # Les numeros arrivent donc imbriques dans des objets, pas en texte brut.
+            def _numero(valeur):
+                """Rend lisible un champ numero Zoom (dict, liste de dicts, ou chaine)."""
+                if isinstance(valeur, dict):
+                    valeur = valeur.get('phone_number') or valeur.get('number') or ''
+                elif isinstance(valeur, list):
+                    numeros = [_numero(v) for v in valeur]
+                    return ', '.join(n for n in numeros if n)
+                valeur = str(valeur or '').strip()
+                if not valeur:
+                    return ''
+                chiffres = ''.join(c for c in valeur if c.isdigit())
+                if len(chiffres) == 11 and chiffres.startswith('1'):
+                    chiffres = chiffres[1:]
+                if len(chiffres) == 10:
+                    return f"+1 {chiffres[0:3]} {chiffres[3:6]}-{chiffres[6:]}"
+                return valeur
+
+            # Extraire l'expéditeur
+            sender = _numero(
+                sms_object.get('sender') or
                 sms_object.get('sender_number') or
                 sms_object.get('from_number') or
-                sms_object.get('from') or
-                sms_object.get('sender') or
-                payload.get('sender_number') or
-                payload.get('from_number') or
-                payload.get('from') or
-                payload.get('sender') or
-                'Inconnu'
-            )
+                sms_object.get('from')
+            ) or 'Inconnu'
             
-            # Extraire le destinataire (plusieurs chemins possibles)
-            recipient = (
+            # Extraire le destinataire : Zoom le met dans `to_members` (liste),
+            # avec `owner` comme repli (proprietaire de la ligne qui recoit).
+            recipient = _numero(
+                sms_object.get('to_members') or
+                sms_object.get('owner') or
                 sms_object.get('recipient_number') or
-                sms_object.get('receiver_number') or
                 sms_object.get('to_number') or
-                sms_object.get('to') or
-                sms_object.get('recipient') or
-                payload.get('recipient_number') or
-                payload.get('receiver_number') or
-                payload.get('to_number') or
-                payload.get('to') or
-                payload.get('recipient') or
-                'Inconnu'
-            )
+                sms_object.get('to')
+            ) or 'Inconnu'
             
-            # Extraire le timestamp
-            timestamp = (
+            # Extraire l'horodatage. Zoom fournit `date_time` (ISO UTC) dans l'objet ;
+            # `event_ts` (epoch en millisecondes) sert de repli. Toujours afficher en
+            # heure de Montreal, jamais l'epoch brut.
+            def _horodatage(brut):
+                """Formate un horodatage Zoom en heure de Montreal."""
+                if brut in (None, ''):
+                    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                try:
+                    from datetime import timezone as _tz
+                    from zoneinfo import ZoneInfo
+                    if isinstance(brut, (int, float)) or str(brut).isdigit():
+                        dt = datetime.fromtimestamp(int(brut) / 1000, tz=_tz.utc)
+                    else:
+                        dt = datetime.fromisoformat(str(brut).replace('Z', '+00:00'))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=_tz.utc)
+                    return dt.astimezone(ZoneInfo('America/Montreal')).strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    return str(brut)
+
+            timestamp = _horodatage(
+                sms_object.get('date_time') or
                 sms_object.get('timestamp') or
-                sms_object.get('time') or
-                sms_object.get('created_at') or
-                payload.get('timestamp') or
-                payload.get('time') or
-                data.get('event_ts') or
-                datetime.now().isoformat()
+                data.get('event_ts')
             )
             
             print(f"\n📩 SMS EXTRACTION:")
@@ -373,7 +399,10 @@ async def zoom_webhook(request: Request):
                 from core.email_notifier import EmailNotifier
                 email_notifier = EmailNotifier()
                 
-                if email_notifier.client:
+                # `method` vaut 'gmail', 'resend' ou None. Ne pas tester `.client`,
+                # attribut de l'ancienne implementation SendGrid : l'AttributeError
+                # etait avalee plus bas et aucun email ne partait (panne silencieuse).
+                if email_notifier.method:
                     recipient_email = os.getenv('EMAIL_SMS_FORWARD', 'info@piano-tek.com')
                     
                     html_content = f"""
@@ -405,7 +434,7 @@ async def zoom_webhook(request: Request):
                     else:
                         print(f"⚠️ Échec de l'envoi d'email à {recipient_email}")
                 else:
-                    print("⚠️ SendGrid non configuré - email non envoyé")
+                    print("⚠️ Aucune méthode d'envoi disponible (ni Gmail API ni Resend) - email non envoyé")
                     
             except Exception as e:
                 print(f"❌ Erreur lors de l'envoi d'email: {e}")
