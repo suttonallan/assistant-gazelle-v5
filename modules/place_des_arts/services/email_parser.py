@@ -14,6 +14,100 @@ from typing import List, Dict, Optional, Any
 
 
 # ------------------------------------------------------------
+# Garde-fous (ajoutes le 2026-08-14)
+#
+# Contexte : un fil « Plan d'entretien des pianos pda » etait signale en
+# boucle comme une demande de service. Le parser lit les colonnes par
+# POSITION sans verifier leur contenu : un montant (« 1 025 $ ») se
+# retrouvait dans le champ « pour qui », et confidence valait 1.0 en dur.
+# Deux causes traitees ici : le texte cite des reponses est reparse a
+# chaque « RE: », et rien ne distingue un tableau de prix d'une demande.
+# ------------------------------------------------------------
+
+# Marqueurs de debut de citation (Outlook/Gmail, FR et EN).
+_MARQUEURS_CITATION = [
+    r'^\s*-{2,}\s*Original Message\s*-{2,}',
+    r'^\s*_{10,}\s*$',
+    r'^\s*On .{0,120}\bwrote\s*:\s*$',
+    r'^\s*Le .{0,120}\ba \s*écrit\s*:\s*$',
+    r'^\s*Le .{0,120}\ba écrit\s*:\s*$',
+    r'^\s*(De|From)\s*:\s*.+$',
+    r'^\s*-{3,}\s*(original message|message d\'origine)\s*-{3,}',
+]
+_RE_CITATION = re.compile('|'.join(_MARQUEURS_CITATION), re.IGNORECASE)
+
+
+def strip_quoted_text(email_text: str) -> str:
+    """
+    Ne garde que le texte NEUF d'un courriel, en coupant la partie citee.
+
+    Sans ca, chaque reponse dans un fil rejoue le tableau d'origine et
+    redeclenche un avis « a reviser » pour des demandes deja signalees.
+    """
+    if not email_text:
+        return ''
+    lignes_neuves = []
+    for ligne in email_text.split('\n'):
+        if _RE_CITATION.match(ligne):
+            break
+        if ligne.lstrip().startswith('>'):
+            continue
+        lignes_neuves.append(ligne)
+    resultat = '\n'.join(lignes_neuves).strip()
+    # Si la coupe ne laisse presque rien, le marqueur etait probablement un
+    # faux positif (ex. courriel qui commence par « De : »). On garde l'original.
+    return resultat if len(resultat) >= 20 else email_text
+
+
+def champ_est_montant(valeur: Any) -> bool:
+    """Vrai si la valeur ressemble a un prix (« 1 025 $ », « 1025,00 $ »)."""
+    texte = str(valeur or '').strip()
+    if not texte:
+        return False
+    if '$' in texte:
+        return True
+    # Purement numerique avec separateurs de milliers/decimales, et assez grand
+    # pour ne pas confondre avec un diapason (440, 442) ou une heure.
+    if re.fullmatch(r'\d[\d\s .,]*', texte):
+        chiffres = re.sub(r'\D', '', texte)
+        return len(chiffres) >= 4
+    return False
+
+
+def valider_demandes(demandes: List[Dict]) -> List[Dict]:
+    """
+    Filtre les lignes qui ne peuvent pas etre de vraies demandes et remplace
+    la confiance codee en dur par une valeur calculee.
+
+    Rejette : les lignes sans date, et celles dont « pour qui » contient un
+    montant (signature d'un tableau de prix, donc d'un plan d'entretien).
+    """
+    retenues = []
+    for demande in demandes or []:
+        avertissements = list(demande.get('warnings') or [])
+
+        if champ_est_montant(demande.get('for_who')):
+            continue  # tableau de prix, pas une demande de service
+        if champ_est_montant(demande.get('room')):
+            continue
+
+        if not demande.get('request_date') and not demande.get('date'):
+            continue  # sans date, rien d'exploitable
+
+        if not demande.get('piano'):
+            avertissements.append("Piano non identifié")
+        if not demande.get('room'):
+            avertissements.append("Salle non identifiée")
+        if not demande.get('time') and not demande.get('heure'):
+            avertissements.append("Heure non identifiée")
+
+        demande['warnings'] = avertissements
+        demande['confidence'] = round(max(0.1, 1.0 - 0.25 * len(avertissements)), 2)
+        retenues.append(demande)
+    return retenues
+
+
+# ------------------------------------------------------------
 # Helpers date/heure (version locale, sans app.date_utils)
 # ------------------------------------------------------------
 
@@ -1013,6 +1107,17 @@ def parse_email_block(block_text: str, current_date: datetime) -> Dict:
 
 
 def parse_email_text(email_text: str) -> List[Dict]:
+    """
+    Point d'entree du parsing.
+
+    Ne lit que le texte NEUF (les reponses citees sont ecartees), puis valide
+    les demandes obtenues. Les deux chemins de parsing (tabulaire et bloc)
+    passent par la meme validation.
+    """
+    return valider_demandes(_parse_email_text_brut(strip_quoted_text(email_text)))
+
+
+def _parse_email_text_brut(email_text: str) -> List[Dict]:
     """
     Parse un texte email complet contenant plusieurs demandes.
     Retourne une liste de dicts structurés (date, room, piano, etc.).

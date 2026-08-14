@@ -28,6 +28,51 @@ PLANE_WORKSPACE = 'ptm'
 PLANE_PROJECT_ID = '1693adca-e78e-44dd-b1c0-9050e608dac8'
 PLANE_ASSIGNEE_NICOLAS = 'bf1a3c47-390f-4fe2-9bff-0ef198da3e16'
 
+# Cle Supabase (system_settings) ou sont memorisees les demandes deja signalees.
+CLE_SIGNATURES = 'pda_demandes_signalees'
+# Au-dela, on oublie les plus anciennes : une demande passee ne peut plus revenir.
+MAX_SIGNATURES = 400
+
+# Sujets qui ne portent jamais de demande de service. Un « plan d'entretien »
+# est un document de planification (dates, salles, pianos ET prix) : le parser
+# y voyait des demandes, avec un montant atterrissant dans « pour qui ».
+_SUJETS_HORS_PERIMETRE = (
+    "plan d'entretien",
+    "plan d entretien",
+    "plan quinquennal",
+    "réponse automatique",
+    "reponse automatique",
+    "out of office",
+)
+
+
+def _sujet_hors_perimetre(subject: str) -> bool:
+    """Vrai si le sujet indique un courriel qui n'est pas une demande."""
+    sujet = (subject or '').lower()
+    return any(motif in sujet for motif in _SUJETS_HORS_PERIMETRE)
+
+
+def _signature_demande(demande: Dict[str, Any]) -> str:
+    """
+    Identifie une demande par son CONTENU, pas par le message qui la porte.
+
+    Deux courriels differents (l'original puis un « RE: » qui le cite)
+    produisent la meme signature, donc un seul avis.
+    """
+    def champ(*noms):
+        for nom in noms:
+            valeur = demande.get(nom)
+            if valeur:
+                return str(valeur).strip().lower()
+        return ''
+
+    return '|'.join([
+        champ('request_date', 'date'),
+        champ('room', 'salle'),
+        champ('piano'),
+        champ('time', 'heure'),
+    ])
+
 
 class PDAEmailProcessor:
     """Processeur automatique des emails PDA."""
@@ -143,6 +188,15 @@ class PDAEmailProcessor:
             self._record_processed_email(email_data, status='skipped', error_message='Corps vide')
             return {'requests_created': 0, 'confirmation_sent': False}
 
+        # 0. Sujets qui ne sont jamais des demandes de service.
+        # Un « plan d'entretien » est un document de planification : dates,
+        # salles, pianos ET prix. Le parser y voyait des demandes et les
+        # signalait en boucle (fil « Steinway D de WP », aout 2026).
+        if _sujet_hors_perimetre(subject):
+            logger.info(f"Sujet hors périmètre, aucune demande attendue : {subject}")
+            self._record_processed_email(email_data, status='out_of_scope')
+            return {'requests_created': 0, 'confirmation_sent': False}
+
         # 1. Parser l'email
         from modules.place_des_arts.services.email_parser import parse_email_text
         parsed_requests = parse_email_text(body_text)
@@ -154,6 +208,20 @@ class PDAEmailProcessor:
 
         logger.info(f"Détecté {len(parsed_requests)} demande(s) dans l'email")
 
+        # 1b. Ne garder que les demandes jamais signalees. La deduplication par
+        # identifiant de message ne suffit pas : chaque « RE: » dans un fil est
+        # un message neuf qui cite les memes demandes.
+        deja_signalees = self._signatures_deja_signalees()
+        nouvelles = [r for r in parsed_requests
+                     if _signature_demande(r) not in deja_signalees]
+
+        if not nouvelles:
+            logger.info(f"Toutes les demandes de '{subject}' ont déjà été signalées")
+            self._record_processed_email(email_data, status='already_reported')
+            return {'requests_created': 0, 'confirmation_sent': False}
+
+        parsed_requests = nouvelles
+
         # 2. ON N'ÉCRIT PLUS AUTOMATIQUEMENT dans l'assistant.
         # Décision (Allan, 2026-08) : l'import PdA demande une supervision serrée
         # de toute façon ; l'écriture auto ne faisait qu'ajouter des doublons et
@@ -162,14 +230,27 @@ class PDAEmailProcessor:
         # « à réviser » ; Louise importe ce qui est réel via l'outil manuel.
         review_sent = self._send_review_email(email_data, parsed_requests)
 
+        # Memoriser les demandes signalees pour ne jamais les rejouer.
+        if review_sent:
+            self._memoriser_signatures(
+                [_signature_demande(r) for r in parsed_requests]
+            )
+
         # 3. Enregistrer comme traité (aucune demande créée)
-        self._record_processed_email(
+        enregistre = self._record_processed_email(
             email_data,
             status='detected',
             requests_created=0,
             request_ids=[],
             confirmation_sent=review_sent,
         )
+        if not enregistre:
+            # Un email non enregistre sera retraite au prochain scan : c'est
+            # exactement ce qui produisait les avis en boucle. On le dit fort.
+            logger.error(
+                f"ALERTE BOUCLE : '{subject}' ({gmail_id}) n'a pas pu être marqué "
+                f"comme traité. Il sera re-signalé au prochain scan."
+            )
 
         return {
             'requests_created': 0,
@@ -495,6 +576,33 @@ class PDAEmailProcessor:
             logger.warning(f"Erreur lecture processed_emails: {e}")
         return set()
 
+    def _signatures_deja_signalees(self) -> set:
+        """Demandes deja envoyees en « a reviser », memorisees dans Supabase."""
+        try:
+            brut = self.storage.get_system_setting(CLE_SIGNATURES)
+            if not brut:
+                return set()
+            if isinstance(brut, str):
+                brut = json.loads(brut)
+            return set(brut or [])
+        except Exception as e:
+            logger.warning(f"Erreur lecture {CLE_SIGNATURES}: {e}")
+            return set()
+
+    def _memoriser_signatures(self, signatures: List[str]) -> None:
+        """Ajoute des demandes a la memoire des avis deja envoyes."""
+        signatures = [s for s in signatures if s and s.strip('|')]
+        if not signatures:
+            return
+        try:
+            connues = list(self._signatures_deja_signalees())
+            connues.extend(s for s in signatures if s not in connues)
+            # Fenetre glissante : on garde les plus recentes.
+            connues = connues[-MAX_SIGNATURES:]
+            self.storage.save_system_setting(CLE_SIGNATURES, json.dumps(connues))
+        except Exception as e:
+            logger.error(f"Erreur ecriture {CLE_SIGNATURES}: {e}")
+
     def _record_processed_email(
         self,
         email_data: Dict,
@@ -503,8 +611,14 @@ class PDAEmailProcessor:
         request_ids: Optional[List[str]] = None,
         confirmation_sent: bool = False,
         error_message: Optional[str] = None,
-    ):
-        """Enregistre un email traité dans processed_emails."""
+    ) -> bool:
+        """
+        Enregistre un email traité dans processed_emails.
+
+        Retourne True si l'enregistrement a réussi. Un échec doit être traité
+        par l'appelant : un email non enregistré est retraité au prochain scan,
+        ce qui produit des avis en boucle.
+        """
         try:
             import requests as req
 
@@ -539,11 +653,16 @@ class PDAEmailProcessor:
                 json=row
             )
 
-            if resp.status_code not in (200, 201):
-                logger.warning(f"Erreur enregistrement processed_email: {resp.status_code} {resp.text}")
+            if resp.status_code not in (200, 201, 204):
+                logger.error(
+                    f"Erreur enregistrement processed_email: {resp.status_code} {resp.text}"
+                )
+                return False
+            return True
 
         except Exception as e:
             logger.error(f"Erreur enregistrement processed_email: {e}")
+        return False
 
     def get_scan_history(self, limit: int = 20) -> List[Dict]:
         """Retourne l'historique des scans récents."""
