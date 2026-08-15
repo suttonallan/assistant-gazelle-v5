@@ -188,18 +188,33 @@ class PDAEmailProcessor:
             self._record_processed_email(email_data, status='skipped', error_message='Corps vide')
             return {'requests_created': 0, 'confirmation_sent': False}
 
-        # 0. Sujets qui ne sont jamais des demandes de service.
-        # Un « plan d'entretien » est un document de planification : dates,
-        # salles, pianos ET prix. Le parser y voyait des demandes et les
-        # signalait en boucle (fil « Steinway D de WP », aout 2026).
-        if _sujet_hors_perimetre(subject):
-            logger.info(f"Sujet hors périmètre, aucune demande attendue : {subject}")
-            self._record_processed_email(email_data, status='out_of_scope')
-            return {'requests_created': 0, 'confirmation_sent': False}
-
-        # 1. Parser l'email
+        # 1. Parser l'email.
+        # Claude LIT le courriel et juge s'il contient une vraie demande de
+        # service. C'est le seul niveau capable de distinguer un plan
+        # d'entretien, un accuse de reception ou une facture d'une demande
+        # reelle sans qu'on ait a anticiper chaque cas dans une liste de
+        # mots-cles — un filtre par sujet ne couvre que ce qu'on a deja vu.
+        #
+        # Contrat de parse_email_llm (voir son docstring) :
+        #   None -> LLM indisponible (cle absente, erreur API) : repli regex
+        #   []   -> le LLM a lu le courriel et conclut : aucune demande
+        #   [..] -> demandes extraites
         from modules.place_des_arts.services.email_parser import parse_email_text
-        parsed_requests = parse_email_text(body_text)
+        from modules.place_des_arts.services.email_parser_llm import parse_email_llm
+
+        parsed_requests = parse_email_llm(subject, body_text)
+
+        if parsed_requests is None:
+            logger.warning(
+                f"Parseur LLM indisponible, repli sur le parser regex : {subject}"
+            )
+            # Le filtre par sujet ne sert que dans cette branche : c'est un
+            # pansement sur les cas connus, la ou le LLM juge sur le fond.
+            if _sujet_hors_perimetre(subject):
+                logger.info(f"Sujet hors périmètre, aucune demande attendue : {subject}")
+                self._record_processed_email(email_data, status='out_of_scope')
+                return {'requests_created': 0, 'confirmation_sent': False}
+            parsed_requests = parse_email_text(body_text)
 
         if not parsed_requests:
             logger.info(f"Aucune demande détectée dans l'email: {subject}")
