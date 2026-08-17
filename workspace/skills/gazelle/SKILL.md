@@ -13,6 +13,16 @@ description: |
 Tu es l'agent qui pilote les opérations Gazelle pour Piano Tek Musique. Ce skill
 couvre TOUTES les interactions avec l'API GraphQL privée `https://gazelleapp.io/graphql/private/`.
 
+> ⚠️ **Ce skill existe en DEUX copies qui doivent rester identiques :**
+> `C:\PTM\.claude\skills\gazelle\` (Claude Code) et
+> `C:\PTMssistant-gazelle-v5\workspace\skills\gazelle\` (l'assistant).
+> Elles ont divergé **dans les deux sens** entre avril et août 2026 : la copie
+> assistant disait encore d'omettre les taxes (→ soumissions à 0 $ de taxe) tandis
+> que la copie Claude Code ignorait que le champ `name` (`"tps"`/`"tvq"`) est
+> obligatoire ; à l'inverse, la copie assistant n'avait ni la confirmation de
+> `updateEvent` ni la section `location`. Réalignées à l'octet le 2026-08-17.
+> **Toute correction va dans les deux, puis `diff -rq` pour vérifier.**
+
 ## Architecture et code existant
 
 ### Module v6 (source de vérité pour les builders)
@@ -73,7 +83,7 @@ validés en prod et coûtent du temps si réappris. Résumé critique :
 1. **JAMAIS `estimateTiers` dans `createEstimate`** → crash Ruby. Toujours create minimal puis update.
 2. **`type` OBLIGATOIRE** sur chaque item (défaut `LABOR_FIXED_RATE`).
 3. **`photos: []`** obligatoire, **`duration: 0`** explicite, **jamais `externalUrl: null`**.
-4. **Taxes** : items taxables → **OMETTRE le champ `taxes`** (Gazelle auto-applique). Items non taxables ou 0 $ → `taxes: []`. Ne PAS envoyer de bloc taxes explicite sur les items taxables — ça désactive les checkboxes auto dans l'UI (#11915/#11916).
+4. **Taxes** : items taxables → **ENVOYER les blocs TPS+TVQ explicites, AVEC le champ `name` (`"tps"` / `"tvq"`)**. Omettre `taxes` donne `taxTotal=0` — soumission sans taxes (vérifié #11962 le 2026-06-14, reconfirmé #11983 le 2026-08-10). Sans le `name`, les totaux se calculent mais les cases TPS/TVQ restent **décochées** dans l'UI (#11983). Items non taxables ou 0 $ → `taxes: []`.
 5. **Montants en cents**, quantités en centièmes.
 6. **`mutationErrors` à vérifier** même si HTTP 200.
 7. **Filtre `number`** n'existe pas → utiliser `search` puis filtrer côté Python.
@@ -92,6 +102,13 @@ Lis `reference/bundles.md` pour comprendre la philosophie. Points clés :
 
 ### Soumissions
 Lis `workflows/create_estimate.md` pour le flow complet.
+
+### Nouveau client + rendez-vous (appel téléphonique)
+Lis `workflows/create_client_and_appointment.md`. **Déclencheurs** : « fais une fiche dans
+Gazelle », « place-moi un RV avec cette personne », collage d'une transcription d'appel
+Zoom Phone. Couvre la recherche de doublon, `createClient` (contacts/phones/locations
+imbriqués), le format natif des events (durée en minutes, conversion America/Montreal → UTC),
+le memo de rappel, et la règle **ne jamais inventer une donnée manquante**.
 
 ### RV conjoints (apprenti)
 Lis `workflows/clone_appointment_joint.md` pour le flow.

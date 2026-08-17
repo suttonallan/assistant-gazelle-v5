@@ -90,12 +90,15 @@ new_notes = (
     f"(event: {clone_event_id})"
 )
 
-# Update via updateEvent mutation (à tester la première fois)
+# Update via updateEvent mutation
 update_event(source['id'], {"title": new_title, "notes": new_notes})
 ```
 
-Mutation `updateEvent` à confirmer lors du premier usage réel — pas
-encore testée dans ce skill.
+Mutation `updateEvent(id: String!, input: PrivateEventInput!)` — CONFIRMÉE en
+prod (2026-08-03). ⚠️ L'input REMPLACE l'event : toujours re-passer
+`title/start/duration/type/userId/notes` (et tout autre champ à conserver),
+sinon ils sont écrasés. Pour ajouter un lieu, inclure `location` avec un
+`locationType` valide (voir `reference/schema_gotchas.md` § Champ location).
 
 ## Valeurs EventType connues
 

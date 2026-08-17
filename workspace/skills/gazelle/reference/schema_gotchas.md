@@ -110,9 +110,58 @@ puis filtrer côté Python sur `node.number == 11914`.
 - **1 event = 1 technicien** : `PrivateEvent.user` = singulier `PrivateUser`
 - `PrivateEventInput.userId` = singulier `String`
 - Query : `allEventsBatched(first, after, filters: PrivateAllEventsFilter)`
-- Mutation : `createEvent(input: PrivateEventInput!)`
-- Pas de `PrivateUpdateEventInput` — pour modifier, probablement même mutation avec l'id
+- Mutation création : `createEvent(input: PrivateEventInput!)`
+- Mutation modification : **`updateEvent(id: String!, input: PrivateEventInput!)`** — CONFIRMÉ en prod
+  le 2026-08-03 (déplacement d'un RV 9h→8h30). Il n'y a PAS de `PrivateUpdateEventInput` :
+  on réutilise `PrivateEventInput`. ⚠️ L'input REMPLACE l'event : re-passer explicitement
+  `title/start/duration/type/userId/notes` (et tout champ à garder), sinon ils sont écrasés/nullés.
 - Pas de `duplicateEvent` natif — cloner manuellement
+
+### Champ `location` (lieu d'un event)
+
+Input : `PrivateEventLocationInput` (via `PrivateEventInput.location`). Champs utiles :
+`locationType` (enum), `street1`, `street2`, `municipality`, `region`, `postalCode`,
+`countryCode`, `singleLineAddress`, `latitude`, `longitude`, `what3words`.
+
+- **`locationType` est OBLIGATOIRE** dès qu'on envoie un `location`, sinon
+  mutationError `{ fieldName: "eventLocation", messages: ["Location type is not a valid type"] }`.
+  Enum `EventLocationType` = `ADDRESS | COORDINATES | WHAT3WORDS | SINGLE_LINE_ADDRESS`.
+  Pour une adresse civique postale → `ADDRESS`.
+- **Output** (`PrivateEventLocation`) : les champs sont `street1/street2/municipality/region/postalCode`
+  — PAS `name/street/city` (erreurs `undefinedField` si on les demande).
+- Gazelle géocode et applique une casse d'affichage (title-case) à l'adresse retournée ;
+  les données envoyées restent correctes.
+- L'UTF-8 passe : envoyer les accents (`Montréal`, `entrées`), ne pas les retirer.
+
+### Durées et format natif PTM (relevé 2026-08-17, ~25 RV d'août)
+
+`duration` est en **minutes** (pas en secondes). Valeurs réellement utilisées :
+`120` accord résidentiel · `80` Place des Arts · `180` gros entretien · `420` journée.
+`travelMode: DRIVING` est présent sur tous les RV. Le `title` est **le nom du client**,
+sans préfixe de service.
+
+**PTM ne met PAS de `location` sur les events** : le champ ressort `null` sur tous les RV
+natifs — l'adresse vient de la fiche client. N'en envoyer un que si le lieu diffère de
+l'adresse du client.
+
+`start` est en **UTC avec `Z`**. Convertir depuis `America/Montreal` : EDT = UTC−4
+(mars→nov), EST = UTC−5. Ex. 10h00 le 2026-08-28 → `"2026-08-28T14:00:00Z"`.
+
+### Events de type MEMO
+
+Un `createEvent` avec `type: MEMO` **ne conserve pas `clientId`** : le retour donne
+`client: null` même avec un `clientId` valide en entrée (vérifié 2026-08-17 sur
+`evt_NxMHlPZmSU0kYhnP`). Mettre tout le contexte dans `notes`.
+
+### Blocs PERSONAL longs = faux « créneau libre »
+
+Chercher les conflits d'agenda sans regarder les `PERSONAL` fait manquer des blocs de
+plusieurs jours : un « Admin » à `duration: 2880` (48 h) couvrait le créneau visé le
+2026-08-28. Interroger `allEventsBatched` **sans filtre `type`** pour la journée visée.
+
+### PrivateUser
+
+Pas de champ `name` → demander `firstName` / `lastName` (erreur `undefinedField` sinon).
 
 ### RV conjoint apprenti
 
@@ -127,3 +176,17 @@ reçoive 2 avis de rendez-vous. Voir `workflows/clone_appointment_joint.md`.
 - Langue client : `defaultClientLocalization { locale }` (fr_CA / en_US)
 - Pianos d'institutions : attention à ne pas mélanger les lieux d'un même client
   (ex: Maison Symphonique vs Espace OSM sous le même client OSM)
+
+### Recherche de client : `search` matche aussi les IDs
+
+`allClients(filters: {search: "Dee"})` remonte `cli_K57R47uDEe38yN0W` et cinq autres
+clients sans rapport, parce que le terme apparaît dans l'**ID**. Sur une chaîne courte,
+toujours inspecter le contenu des nœuds — jamais conclure sur le nombre de résultats.
+Pour une recherche de doublon, lancer sur le nom **et** sur la rue.
+
+### createClient : la validation protège des demi-fiches
+
+Une sélection de retour invalide (`name`, `contacts`, `firstName` sur `PrivateClient`)
+fait échouer la requête **avant** exécution — rien n'est créé. Passer par
+`defaultContact { firstName lastName defaultPhone { phoneNumber type } defaultLocation {...} }`.
+Recette complète : `workflows/create_client_and_appointment.md`.
