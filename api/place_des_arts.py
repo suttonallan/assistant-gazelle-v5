@@ -16,12 +16,15 @@ import json
 from datetime import datetime, timedelta, timezone
 import time
 
-# Verrou anti-empilement : empêche plusieurs pulls Gazelle complets (1150+ RV,
-# 60-90s) de tourner en même temps quand plusieurs onglets/appels déclenchent
-# sync-manual. Si un pull est déjà en cours, les autres sautent le pull live.
+# Verrou anti-empilement : empêche plusieurs pulls Gazelle complets de tourner en
+# même temps quand plusieurs onglets/appels déclenchent sync-manual. Si un pull est
+# déjà en cours, les autres sautent le pull live.
+# ⚠️ Mesuré le 2026-08-18 : ce pull prend 200-330 s (le cron horaire fait le même
+# travail). L'ancien commentaire annonçait 60-90 s — ce n'est plus vrai depuis
+# longtemps. C'est pourquoi il ne s'exécute plus dans le chemin d'une requête HTTP.
 _pda_live_sync_lock = threading.Lock()
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Response, BackgroundTasks
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -1518,8 +1521,34 @@ def _mark_live_sync_now(storage) -> None:
         logging.warning(f"Écriture anti-rebond sync live échouée: {e}")
 
 
+def _pull_live_appointments(storage) -> None:
+    """Pull live des RV Gazelle — tourne EN ARRIERE-PLAN, jamais dans la reponse HTTP.
+
+    Ce travail prend 200-330 s (mesure le 2026-08-18 sur le cron horaire, qui fait
+    exactement la meme chose). Tant qu'il s'executait dans `sync-manual`, le bouton
+    « Synchroniser tout avec Gazelle » ne pouvait pas aboutir : aucune requete HTTP
+    ne survit a 5 minutes -- un appel direct rendait HTTP 000 apres 180 s.
+
+    Le verrou non bloquant evite d'empiler les pulls : si un autre tourne deja, on
+    abandonne celui-ci plutot que d'attendre.
+    """
+    if not _pda_live_sync_lock.acquire(blocking=False):
+        logging.info("Pull live Gazelle déjà en cours — celui-ci est abandonné.")
+        return
+    try:
+        from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
+        syncer = GazelleToSupabaseSync(incremental_mode=True, storage=storage)
+        count = syncer.sync_appointments()
+        _mark_live_sync_now(storage)
+        logging.info(f"Pull live Gazelle terminé en arrière-plan: {count} RV.")
+    except Exception as sync_exc:
+        logging.warning(f"Pull live des appointments échoué en arrière-plan: {sync_exc}")
+    finally:
+        _pda_live_sync_lock.release()
+
+
 @router.post("/sync-manual")
-def sync_manual(payload: SyncManualRequest):  # sync volontaire: pull live Gazelle bloquant -> threadpool
+def sync_manual(payload: SyncManualRequest, background_tasks: BackgroundTasks):
     """
     Synchronisation manuelle: Met à jour le statut 'Créé Gazelle' pour les demandes
     qui ont un RV correspondant dans Gazelle.
@@ -1529,39 +1558,27 @@ def sync_manual(payload: SyncManualRequest):  # sync volontaire: pull live Gazel
     """
     try:
         from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
-        from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
 
         storage = get_storage()
 
-        # ÉTAPE 1: Pull frais des appointments depuis Gazelle en direct
-        # Sinon on travaille avec les données de la dernière sync horaire et
-        # les assignations récentes (dans Gazelle mais pas encore en Supabase)
-        # sont invisibles.
-        # Anti-rebond : en mode auto, on saute le pull live s'il vient d'être fait.
+        # ÉTAPE 1: Planifier le pull frais des appointments Gazelle EN ARRIÈRE-PLAN.
+        # Il ne bloque plus la réponse : le pull dure 200-330 s et faisait échouer
+        # tous les clics sur « Synchroniser tout avec Gazelle ». Le rafraîchissement
+        # arrive donc quelques minutes plus tard, visible au prochain chargement —
+        # entre-temps on réconcilie avec les données déjà présentes (le cron horaire
+        # les tient à jour de toute façon).
         appointments_synced = 0
         skipped_live_pull = False
         if payload and payload.auto:
             elapsed = _seconds_since_last_live_sync(storage)
             if elapsed is not None and elapsed < _LIVE_SYNC_DEBOUNCE_SECONDS:
                 skipped_live_pull = True
-        if not skipped_live_pull:
-            # Un seul pull live à la fois. Si un autre est déjà en cours, on
-            # ne l'empile pas : on saute et on réconcilie avec les données déjà
-            # présentes (évite d'empiler des pulls de 1150+ RV et de saturer).
-            if _pda_live_sync_lock.acquire(blocking=False):
-                try:
-                    syncer = GazelleToSupabaseSync(incremental_mode=True, storage=storage)
-                    appointments_synced = syncer.sync_appointments()
-                    _mark_live_sync_now(storage)
-                except Exception as sync_exc:
-                    logging.warning(f"Sync live des appointments échouée (continue avec cache): {sync_exc}")
-                finally:
-                    _pda_live_sync_lock.release()
-            else:
-                skipped_live_pull = True
-                logging.info("Pull live Gazelle déjà en cours — sauté pour cet appel.")
+        live_pull_scheduled = not skipped_live_pull
+        if live_pull_scheduled:
+            background_tasks.add_task(_pull_live_appointments, storage)
 
-        # ÉTAPE 2: Lier les demandes PDA aux RV Gazelle (maintenant à jour)
+        # ÉTAPE 2: Lier les demandes PDA aux RV Gazelle — c'est CE travail qui
+        # produit la réponse, et il prend ~6 s.
         sync_service = GazelleSyncService(storage)
         result = sync_service.sync_requests_with_gazelle(
             request_ids=payload.request_ids if payload else None,
@@ -1574,8 +1591,9 @@ def sync_manual(payload: SyncManualRequest):  # sync volontaire: pull live Gazel
             "updated": result.get("updated", 0),
             "checked": result.get("checked", 0),
             "matched": result.get("matched", 0),
-            "appointments_refreshed": appointments_synced,
+            "appointments_refreshed": appointments_synced,  # toujours 0 : le pull est asynchrone
             "live_pull_skipped": skipped_live_pull,
+            "live_pull_scheduled": live_pull_scheduled,
             "details": result.get("details", []),
             "warnings": result.get("warnings", []),
             "has_warnings": len(result.get("warnings", [])) > 0

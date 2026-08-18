@@ -126,9 +126,10 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   useEffect(() => {
     // Ouverture RAPIDE : on lit directement Supabase (déjà synchronisé chaque
     // heure côté serveur). On NE déclenche PLUS un pull Gazelle complet
-    // (~1150 RV, 60-90s) à chaque ouverture ni toutes les 4 min — c'était la
-    // cause de la lenteur et de la saturation. Le bouton « Synchroniser tout »
-    // reste disponible pour un rafraîchissement Gazelle à la demande.
+    // (~1150 RV, mesuré à 200-330s le 2026-08-18) à chaque ouverture ni toutes
+    // les 4 min — c'était la cause de la lenteur et de la saturation. Le bouton
+    // « Synchroniser tout » reste disponible : il répond maintenant en quelques
+    // secondes et laisse le pull Gazelle se faire en arrière-plan côté serveur.
     fetchData()
     fetchStats()
   }, [fetchData, fetchStats])
