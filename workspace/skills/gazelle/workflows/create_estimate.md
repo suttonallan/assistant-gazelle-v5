@@ -92,13 +92,74 @@ Jamais plus d'update direct avec un ID hardcodé.
 - Comparer le `recommendedTierTotal` retourné avec le calcul attendu
 - Marquer les notes `[TEST — ne pas envoyer au client]` si c'est un test
 
+## Authentification — le pont v5 → v6 qui marche (2026-08-18)
+
+`SKILL.md` dit d'utiliser le client v5 pour les mutations parce que le sandbox v6 n'a
+que la clé anon. Mieux : **`GazelleClient` accepte un jeton explicite**, donc on peut
+utiliser TOUTE la chaîne v6 — builders, lint, `create_estimate`, `update_estimate_safe`
+et sa garde d'identité — en lui injectant le jeton lu par le client v5 :
+
+```python
+import sys
+sys.path.insert(0, r"C:\PTMssistant-gazelle-v5")
+sys.path.insert(0, r"C:\PTMssistant-v6\sandbox")
+
+from core.supabase_storage import SupabaseStorage
+from app.modules.gazelle.client import GazelleClient
+
+tok = SupabaseStorage().get_system_setting("gazelle_oauth_token")
+if isinstance(tok, dict):
+    tok = tok.get("access_token") or tok.get("api_key") or tok.get("token")
+gz = GazelleClient(token=str(tok))     # <- puis passer client=gz partout
+```
+
+⚠️ Piège corrigé le 2026-08-18 : le `.env` de v5 est **partagé** avec v6, et
+`pydantic-settings` y refusait toute clé non déclarée (`extra_forbidden`). Ajouter une
+clé sans rapport (`toggl_api_token`) suffisait à rendre tout le module gazelle v6
+inutilisable. Corrigé par `extra: "ignore"` dans `assistant-v6/sandbox/app/config.py`.
+Si `get_settings()` explose sur une clé inconnue, c'est ça.
+
+## LINT AVANT CRÉATION — obligatoire
+
+`lint_estimate(payload)` existe et **doit tourner avant `create_estimate`**, sinon une
+violation ne se découvre qu'une fois la soumission créée dans Gazelle.
+
+```python
+from app.modules.gazelle.estimates import lint_estimate
+
+violations = lint_estimate({"estimateTiers": [tier], "notes": notes})
+blocking = [v for v in violations if v.severity == "error"]
+if blocking:
+    raise SystemExit("Lint bloquant — rien créé.")
+```
+
+Règle qui mord en pratique : **`ZERO_DOLLAR_ITEM`**. Un item à 0 $ pour documenter une
+inclusion est refusé — replier la mention dans la `description` d'un item facturé et
+dans les notes. ⚠️ Des soumissions existantes violent cette règle (#11967 porte une
+ligne « Libération du clavier et nivelage fin » à 0 $) : **ne pas prendre une soumission
+existante comme preuve de conformité**, passer le lint.
+
+## Copier une soumission vers un autre client
+
+`clone_estimate(source_number, new_client_id, new_piano_id, ...)` fait le trajet complet :
+lecture du modèle → reconstruction des tiers (taxes régénérées avec leur `name`) → lint →
+create → `update_estimate_safe`. Il accepte `dry_run=True` pour prévisualiser sans rien créer.
+
+Il ne convient PAS quand il faut **modifier les montants ou les lignes** (ex. même cliente,
+autre produit) : dans ce cas, lire la source pour en calquer la structure, puis reconstruire
+les items à la main avec les builders. Exemple réel : **#11987** (Vario, 9 500 $) calquée sur
+**#11967** (Adsilent) pour la même cliente et le même piano.
+
 ## Exemples réels
 
 - **#11915** : reconstruction d'Isabelle Murray (#11914) — 2 tiers, 5 groupes, bundle cordes_basses
 - **#11916** : reconstruction de Francine Deraps (#11913) — 2 tiers, 3 bundles simultanés
+- **#11987** : Vario 9 500 $ pour Pascale Gasse — calquée sur #11967 (Adsilent), 1 seul tier,
+  ligne à 0 $ de la source repliée dans la description après refus du lint
 
 ## Notes techniques
 
-- Si v6 n'a pas le `SERVICE_ROLE_KEY`, utiliser le client v5 pour les mutations
-  mais les builders v6 pour le payload. Voir pattern d'import dans SKILL.md.
+- Si v6 n'a pas le `SERVICE_ROLE_KEY` : injecter le jeton dans `GazelleClient(token=...)`
+  et garder toute la chaîne v6 (voir § Authentification ci-dessus). Le vieux conseil
+  « builders v6 + mutations v5 » fonctionne aussi mais prive du lint et de la garde d'identité.
 - Toujours `PYTHONIOENCODING=utf-8` sur Windows.
