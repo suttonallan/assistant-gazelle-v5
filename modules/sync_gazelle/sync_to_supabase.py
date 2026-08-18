@@ -105,10 +105,30 @@ class GazelleToSupabaseSync:
             'timeline': {'synced': 0, 'errors': 0}
         }
 
+        # Detail des erreurs, pour que sync_logs porte autre chose qu'un compte.
+        self.error_details = []
+
         # Timestamp dernière sync (pour mode incrémental)
         self.last_sync_date = None
+        self.MAX_ERROR_DETAILS = 25
         if incremental_mode:
             self.last_sync_date = self._get_last_sync_date()
+
+
+    def _record_error(self, table, ident, detail):
+        """Compte une erreur ET retient son detail.
+
+        Sans ca, seul le NOMBRE d'erreurs atteint sync_logs : l'alerte du canari
+        arrive sans rien d'actionnable, et le detail n'est recuperable que dans le
+        log GitHub Actions -- qui exige les droits admin sur le depot. Constate le
+        2026-08-18 sur un run a 1 erreur sur 4135 items, impossible a diagnostiquer.
+        Borne a MAX_ERROR_DETAILS pour ne pas faire exploser la colonne.
+        """
+        self.stats[table]['errors'] += 1
+        if len(self.error_details) < self.MAX_ERROR_DETAILS:
+            self.error_details.append(f"{table}[{ident}] {str(detail)[:200]}")
+        elif len(self.error_details) == self.MAX_ERROR_DETAILS:
+            self.error_details.append("... (details suivants tronques)")
 
     def _get_last_sync_date(self) -> Optional[datetime]:
         """
@@ -415,7 +435,7 @@ class GazelleToSupabaseSync:
                     # Vérifier qu'on a au moins un identifiant
                     if not company_name and not first_name and not last_name:
                         print(f"⚠️  Client {external_id} ignoré (aucun nom disponible)")
-                        self.stats['clients']['errors'] += 1
+                        self._record_error('clients', external_id, 'aucun nom disponible')
                         continue
 
                     # Email, téléphone, ville/code postal du contact
@@ -484,11 +504,11 @@ class GazelleToSupabaseSync:
                     else:
                         print(f"❌ Erreur UPSERT client {external_id}: {response.status_code}")
                         print(f"   Response: {response.text[:300]}")
-                        self.stats['clients']['errors'] += 1
+                        self._record_error('clients', external_id, f"UPSERT {response.status_code} {response.text[:150]}")
 
                 except Exception as e:
                     print(f"❌ Erreur client {client_data.get('id', 'unknown')}: {e}")
-                    self.stats['clients']['errors'] += 1
+                    self._record_error('clients', client_data.get('id', 'unknown'), e)
                     continue
 
             print(f"✅ {self.stats['clients']['synced']} clients synchronisés")
@@ -579,11 +599,11 @@ class GazelleToSupabaseSync:
                         self.stats['contacts']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT contact {external_id}: {response.status_code}")
-                        self.stats['contacts']['errors'] += 1
+                        self._record_error('contacts', external_id, f"UPSERT {response.status_code} {response.text[:150]}")
 
                 except Exception as e:
                     print(f"❌ Erreur contact {contact_data.get('id', 'unknown')}: {e}")
-                    self.stats['contacts']['errors'] += 1
+                    self._record_error('contacts', contact_data.get('id', 'unknown'), e)
                     continue
 
             print(f"✅ {self.stats['contacts']['synced']} contacts synchronisés")
@@ -670,11 +690,11 @@ class GazelleToSupabaseSync:
                         self.stats['pianos']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT piano {external_id}: {response.status_code}")
-                        self.stats['pianos']['errors'] += 1
+                        self._record_error('pianos', external_id, f"UPSERT {response.status_code} {response.text[:150]}")
 
                 except Exception as e:
                     print(f"❌ Erreur piano {piano_data.get('id', 'unknown')}: {e}")
-                    self.stats['pianos']['errors'] += 1
+                    self._record_error('pianos', piano_data.get('id', 'unknown'), e)
                     continue
 
             print(f"✅ {self.stats['pianos']['synced']} pianos synchronisés")
@@ -887,7 +907,7 @@ class GazelleToSupabaseSync:
                         self.stats['appointments']['synced'] += 1
                     else:
                         print(f"❌ Erreur UPSERT appointment {external_id}: {response.status_code} - {response.text[:200]}")
-                        self.stats['appointments']['errors'] += 1
+                        self._record_error('appointments', external_id, f"UPSERT {response.status_code} {response.text[:150]}")
                         continue  # Skip la détection de changement si l'UPSERT a échoué
 
                     # DÉTECTION DE CHANGEMENT DE TECHNICIEN pour alerte "Late Assignment"
@@ -1040,7 +1060,7 @@ class GazelleToSupabaseSync:
 
                 except Exception as e:
                     print(f"❌ Erreur appointment {appt_data.get('id', 'unknown')}: {e}")
-                    self.stats['appointments']['errors'] += 1
+                    self._record_error('appointments', appt_data.get('id', 'unknown'), e)
 
             print(f"✅ {self.stats['appointments']['synced']} rendez-vous synchronisés")
 
@@ -1321,11 +1341,11 @@ class GazelleToSupabaseSync:
                     else:
                         print(f"❌ Erreur UPSERT timeline {external_id}: {response.status_code}")
                         print(f"   Response: {response.text[:200]}")
-                        self.stats['timeline']['errors'] += 1
+                        self._record_error('timeline', external_id, f"UPSERT {response.status_code} {response.text[:150]}")
 
                 except Exception as e:
                     print(f"❌ Erreur timeline entry {entry_data.get('id', 'unknown')}: {e}")
-                    self.stats['timeline']['errors'] += 1
+                    self._record_error('timeline', entry_data.get('id', 'unknown'), e)
                     continue
 
             # Affichage final
@@ -1691,6 +1711,7 @@ class GazelleToSupabaseSync:
                 'error': None if post_ok else '; '.join(post_step_errors),
                 'duration_seconds': duration,
                 'stats': self.stats,
+                'error_details': list(self.error_details),
                 'post_step_errors': post_step_errors,
                 'timestamp': datetime.now().isoformat()
             }
@@ -1703,6 +1724,7 @@ class GazelleToSupabaseSync:
             return {
                 'success': False,
                 'error': str(e),
+                'error_details': list(getattr(self, 'error_details', [])),
                 'stats': self.stats,
                 'timestamp': datetime.now().isoformat()
             }
@@ -1833,11 +1855,27 @@ def main():
         else:
             status = 'error'
         
+        # Detail des erreurs — sans lui, sync_logs ne porte qu'un compte et
+        # l'alerte du canari arrive sans rien d'actionnable (constate 2026-08-18).
+        details = []
+        if result and result.get('error_details'):
+            details = result['error_details']
+        elif sync_manager is not None:
+            details = list(getattr(sync_manager, 'error_details', []))
+        error_details = ' | '.join(details)[:2000] or None
+
         error_msg = None
         if total_errors > 0:
             error_msg = f"{total_errors} erreurs"
+            if details:
+                error_msg = f"{total_errors} erreurs — {details[0][:150]}"
         if result and not result.get('success'):
             error_msg = result.get('error', 'Erreur inconnue')
+
+        if details:
+            print(f"\n🔎 Détail des {len(details)} erreur(s) retenue(s) :")
+            for d in details:
+                print(f"   - {d}")
         
         print(f"📊 Status: {status}")
         if error_msg:
@@ -1851,6 +1889,7 @@ def main():
             'status': status,
             'tables_updated': tables_updated,
             'error_message': error_msg,
+            'error_details': error_details,
             'execution_time_seconds': round(execution_time, 2)
         }
         
@@ -1872,6 +1911,7 @@ def main():
             status=status,
             tables_updated=tables_updated,
             error_message=error_msg,
+            error_details=error_details,
             execution_time_seconds=round(execution_time, 2)
         )
         

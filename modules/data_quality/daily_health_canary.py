@@ -98,8 +98,14 @@ def check_freshness() -> list:
         status = data.get("last_sync_status")
         last_date = data.get("last_sync_date")
         if status and status != "success":
+            # La sync distingue deja ses deux niveaux : 'warning' = N erreurs par
+            # enregistrement sur un run par ailleurs complet, 'error' = run rate.
+            # Refleter cette semantique au lieu de tout crier en critique : le
+            # 2026-08-18, 1 erreur sur 4135 items a leve une alerte CRITIQUE, et
+            # rien ne distinguait ce cas d'une sync qui ne tourne plus du tout.
+            severity = "avertissement" if status == "warning" else "critique"
             problems.append({
-                "severity": "critique",
+                "severity": severity,
                 "title": f"Derniere sync en echec ({status})",
                 "detail": f"Job: {data.get('last_sync_job')} — {data.get('last_sync_error') or 'sans detail'}",
             })
