@@ -113,14 +113,24 @@ class GazellePushService:
         piano_id = piano_data['piano_id']
         travail = piano_data.get('travail', '')
         observations = piano_data.get('observations', '')
-        a_faire = piano_data.get('a_faire', '')
+        # a_faire volontairement NON lu ici — voir la note ci-dessous : il ne part
+        # jamais dans Gazelle. Il reste dans l'app pour le prochain technicien.
         completed_at = piano_data.get('completed_at')  # Date de complétion (si disponible)
 
-        # Construire le message de service note
-        # Fusionner toutes les notes : a_faire (Nick) + travail + observations (technicien)
+        # Construire le message de service note.
+        #
+        # ⚠️ Le « à faire » N'EST JAMAIS POUSSÉ DANS GAZELLE (décision d'Allan,
+        # 2026-08-19). C'est une note de relais interne, laissée par Nicolas à
+        # l'intention du PROCHAIN technicien qui touchera le piano. Gazelle est
+        # l'historique du travail EFFECTUÉ, vu par le client : y recopier une
+        # liste de tâches à faire la fait passer pour un service rendu.
+        #
+        # Ce qu'un cas réel donnait — VD212 (Steinway D 338759), entrée du 19 août :
+        # 578 caractères, dont 511 de liste « à faire » et 33 de travail réel
+        # (« [NL] Accord 440Hz. Harmonisation. »). Et comme le « à faire » n'est
+        # jamais vidé, il était réémis à chaque poussée, en grossissant : présent
+        # sur ce piano depuis le 8 mai.
         note_parts = []
-        if a_faire:
-            note_parts.append(f"📋 Note de Nick: {a_faire}")
         if travail:
             note_parts.append(f"🔧 Travail effectué: {travail}")
         if observations:

@@ -583,9 +583,12 @@ async def push_validated_to_gazelle(
                 service_notes = []
                 for record in group:
                     pid = record["piano_id"]
+                    # ⚠️ Le « à faire » N'EST JAMAIS POUSSÉ DANS GAZELLE (décision
+                    # d'Allan, 2026-08-19). C'est une note de relais interne, laissée
+                    # à l'intention du PROCHAIN technicien. Gazelle est l'historique du
+                    # travail EFFECTUÉ, vu par le client. Voir le commentaire détaillé
+                    # dans core/gazelle_push_service.py (_build_service_note).
                     parts = []
-                    if record.get("a_faire"):
-                        parts.append(f"A faire: {record['a_faire']}")
                     if record.get("travail"):
                         parts.append(record["travail"])
                     if record.get("observations"):
