@@ -11,6 +11,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { isPushedRecently } from '../../utils/serviceRecord';
+import PianoTimelineModal, { ClockIcon } from './PianoTimelineModal';
 
 // Save status badge (same pattern as VDI_NotesView)
 function SaveBadge({ status }) {
@@ -66,6 +67,9 @@ export default function VDI_TechnicianView({
   // Auto-save state
   const [saveStatus, setSaveStatus] = useState({});
   const debounceTimers = useRef({});
+
+  // Historique d'entretien — meme composant que la vue gestion
+  const [timelinePiano, setTimelinePiano] = useState(null);
 
   const toggleExpand = (piano) => {
     if (expandedPianoId === piano.id) {
@@ -236,6 +240,14 @@ export default function VDI_TechnicianView({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Historique d'entretien — meme icone et meme modale que la vue gestion */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTimelinePiano(piano); }}
+                      className="text-gray-400 hover:text-blue-600 active:text-blue-700 p-1 -m-1"
+                      title="Voir l'historique d'entretien"
+                    >
+                      <ClockIcon className="w-5 h-5" />
+                    </button>
                     {piano.frozen_service_count > 0 && (
                       <span
                         className="text-emerald-700 bg-emerald-100 border border-emerald-300 text-xs font-semibold px-1.5 py-0.5 rounded-full"
@@ -384,6 +396,12 @@ export default function VDI_TechnicianView({
           })
         )}
       </div>
+
+      <PianoTimelineModal
+        piano={timelinePiano}
+        institution={selectedInstitution || 'vincent-dindy'}
+        onClose={() => setTimelinePiano(null)}
+      />
     </div>
   );
 }
