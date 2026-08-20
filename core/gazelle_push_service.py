@@ -138,30 +138,40 @@ class GazellePushService:
 
         service_note = "\n\n".join(note_parts) if note_parts else "Service effectué"
 
-        # Utiliser la date de complétion si disponible, sinon maintenant
+        # Date de l'événement — TOUJOURS ramenée en heure de Montréal.
+        #
+        # ⚠️ Ce bloc renvoyait auparavant `completed_at` / `updated_at` BRUTS, tels
+        # que stockés par Supabase, c'est-à-dire en UTC. Gazelle recevait donc un
+        # instant UTC et le travail se retrouvait daté du lendemain dès qu'il était
+        # fait après 20 h à Montréal. Pire : l'autre chemin de poussée
+        # (api/service_records.py) avait une chaîne de repli différente
+        # (completed_at → started_at → created_at contre completed_at → updated_at),
+        # donc deux services identiques ressortaient avec des décalages différents.
+        # Constaté le 2026-08-19 sur VD501 : 3 h d'écart d'un côté, 6 h de l'autre.
+        #
+        # Les deux chemins partagent maintenant la même règle : convertir en
+        # America/Montreal, et émettre un ISO qui porte son décalage (-04:00 /
+        # -05:00) pour que Gazelle n'ait rien à deviner. Convention CLAUDE.md.
         from datetime import datetime
-        from core.timezone_utils import MONTREAL_TZ
+        from core.timezone_utils import MONTREAL_TZ, utc_to_montreal
 
-        # Fonction helper pour obtenir la date actuelle en timezone Montréal
-        def now_montreal():
-            return datetime.now(MONTREAL_TZ).isoformat()
+        def _to_montreal_iso(value):
+            if not value:
+                return None
+            try:
+                if isinstance(value, str):
+                    return utc_to_montreal(value).isoformat()
+                if hasattr(value, "isoformat"):
+                    return utc_to_montreal(value).isoformat()
+            except Exception:
+                return None
+            return None
 
-        if completed_at:
-            # Si completed_at est une string ISO, la convertir
-            if isinstance(completed_at, str):
-                event_date = completed_at
-            else:
-                event_date = completed_at.isoformat() if hasattr(completed_at, 'isoformat') else now_montreal()
-        else:
-            # Fallback: utiliser updated_at si disponible, sinon maintenant
-            updated_at = piano_data.get('updated_at')
-            if updated_at:
-                if isinstance(updated_at, str):
-                    event_date = updated_at
-                else:
-                    event_date = updated_at.isoformat() if hasattr(updated_at, 'isoformat') else now_montreal()
-            else:
-                event_date = now_montreal()
+        event_date = (
+            _to_montreal_iso(completed_at)
+            or _to_montreal_iso(piano_data.get('updated_at'))
+            or datetime.now(MONTREAL_TZ).isoformat()
+        )
 
         if dry_run:
             return {

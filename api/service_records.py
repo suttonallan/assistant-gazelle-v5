@@ -433,7 +433,7 @@ async def push_validated_to_gazelle(
     Après push réussi : les fiches passent à 'pushed', les pianos sont
     immédiatement disponibles pour de nouvelles fiches.
     """
-    from core.timezone_utils import MONTREAL_TZ
+    from core.timezone_utils import MONTREAL_TZ, utc_to_montreal
     from collections import defaultdict
 
     sb = _get_supabase()
@@ -468,11 +468,30 @@ async def push_validated_to_gazelle(
     # Date de service d'une fiche : completed_at (moment « Terminé »), sinon
     # started_at, sinon created_at — jamais la date du push.
     def _service_dt(r):
-        return r.get("completed_at") or r.get("started_at") or r.get("created_at")
+        """Instant du service, ramené en heure de Montréal (datetime aware).
+
+        Les horodatages Supabase sont en UTC. Les manipuler en UTC pour dater un
+        service décale le travail du soir d'un jour entier — tout ce qui est fait
+        après 20 h à Montréal est déjà le lendemain en UTC.
+        """
+        raw = r.get("completed_at") or r.get("started_at") or r.get("created_at")
+        if not raw:
+            return None
+        try:
+            return utc_to_montreal(raw)
+        except Exception:
+            return None
 
     def _service_day(r):
+        """Jour CALENDAIRE MONTRÉALAIS du service.
+
+        ⚠️ Ne JAMAIS revenir à `raw[:10]` : ça tranche la date UTC. Cas réel
+        (2026-08-19) : un accord fait le 5 août à 14 h 01 est ressorti dans Gazelle
+        daté du 6 août à 00 h 02. Convention imposée par CLAUDE.md — toujours
+        convertir en America/Montreal avant comparaison ou affichage.
+        """
         d = _service_dt(r)
-        return d[:10] if d else None
+        return d.date().isoformat() if d else None
 
     # Regrouper les fiches par JOUR de service : UN événement par jour, daté de
     # son vrai jour. Les services du 31 juillet restent au 31 juillet même s'ils
@@ -558,8 +577,12 @@ async def push_validated_to_gazelle(
         # Un événement par jour : chaque groupe garde sa vraie date de service.
         for day, group in sorted(groups.items(), key=lambda kv: kv[0] or ""):
             group_piano_ids = list({r["piano_id"] for r in group})
-            group_dates = [d for r in group if (d := _service_dt(r))]
-            event_date = max(group_dates) if group_dates else datetime.now(MONTREAL_TZ).isoformat()
+            # _service_dt rend des datetimes AWARE en heure de Montréal : le max
+            # compare donc des instants réels, et l'ISO produit porte le décalage
+            # explicite (-04:00 / -05:00). Gazelle n'a plus à deviner le fuseau.
+            group_dts = [d for r in group if (d := _service_dt(r))]
+            event_dt = max(group_dts) if group_dts else datetime.now(MONTREAL_TZ)
+            event_date = event_dt.isoformat()
 
             try:
                 # Activer pianos INACTIVE -> ACTIVE
