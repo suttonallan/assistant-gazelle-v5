@@ -217,11 +217,14 @@ export default function VDI_TechnicianView({
 
             return (
               <div key={piano.id} className={`rounded-lg shadow overflow-hidden ${
-                isPushedRecently(piano) ? 'bg-green-100' :
+                // Un statut posé volontairement l'emporte sur le vert « poussé
+                // récemment » : c'est ce qui permet de re-flaguer un piano d'un clic.
+                // Possible depuis que la poussée remet `status` à 'normal'.
                 hasTravail && piano.status === 'top' ? 'bg-blue-50 border-l-4 border-orange-500' :
                 hasTravail && piano.status === 'proposed' ? 'bg-blue-50 border-l-4 border-yellow-400' :
                 piano.status === 'top' ? 'bg-orange-200 border-l-4 border-orange-500' :
                 piano.status === 'proposed' ? 'bg-yellow-100' :
+                isPushedRecently(piano) ? 'bg-green-100' :
                 hasTravail ? 'bg-blue-50' :
                 'bg-white'
               }`}>

@@ -687,6 +687,14 @@ async def push_validated_to_gazelle(
 
         # Nettoyer les overlays legacy des pianos effectivement poussés
         # NOTE: a_faire n'est PAS vidé — Nicolas le vide manuellement.
+        #
+        # `status` remis à 'normal' (2026-08-20) : le travail est fait et synchronisé,
+        # donc un drapeau « à faire » / « top » posé AVANT n'a plus lieu d'être. Sans
+        # ça, le drapeau survivait indéfiniment — c'est pourquoi le vert « poussé
+        # récemment » devait l'écraser dans l'affichage, ce qui empêchait de remettre
+        # volontairement un piano en jaune. Maintenant que la poussée nettoie, un
+        # 'proposed'/'top' ne peut être que DÉLIBÉRÉ, donc l'affichage peut lui
+        # laisser la priorité.
         try:
             from core.supabase_storage import SupabaseStorage
             storage = SupabaseStorage(silent=True)
@@ -695,6 +703,7 @@ async def push_validated_to_gazelle(
                     "travail": "",
                     "service_status": None,
                     "is_work_completed": False,
+                    "status": "normal",
                 }, institution_slug=institution)
         except Exception as e:
             logging.warning(f"Nettoyage overlays apres push: {e}")

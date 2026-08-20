@@ -683,10 +683,20 @@ const VincentDIndyDashboard = ({ currentUser, initialView = 'nicolas', hideNickV
     // Priorité 1: Sélection (mauve) — état temporaire UI
     if (selectedIds.has(piano.id)) return 'bg-purple-100';
 
-    // Priorité 2: Poussé récemment (vert clair) — le travail est terminé ET synchronisé
-    // Gazelle. Doit l'emporter sur piano.status legacy 'top'/'proposed' qui n'est pas
-    // effacé automatiquement après le push, sinon les pianos récemment faits restent
-    // orange/jaune éternellement.
+    // Priorité 2: statut posé VOLONTAIREMENT (jaune « à faire » / orange « top »).
+    // Il l'emporte maintenant sur le vert « poussé récemment » — c'est ce qui permet
+    // de re-flaguer un piano d'un clic pendant sa fenêtre verte de 21 jours.
+    //
+    // Ce n'était pas possible avant le 2026-08-20 : la poussée n'effaçait pas
+    // `piano.status`, donc un vieux drapeau survivait indéfiniment et les pianos
+    // fraîchement faits seraient restés orange/jaune éternellement — d'où la règle
+    // inverse. Maintenant que la poussée remet `status` à 'normal'
+    // (api/service_records.py), un 'proposed'/'top' ne peut être que délibéré.
+    if (piano.status === 'top' || piano.status === 'proposed') {
+      return piano.status === 'top' ? 'bg-orange-200' : 'bg-yellow-100';
+    }
+
+    // Priorité 3: Poussé récemment (vert clair) — travail terminé ET synchronisé.
     if (isPushedRecently(piano)) return 'bg-green-100';
 
     // Priorité 3: Fait par tech (vert foncé) — lecture sur la vraie source de vérité,
