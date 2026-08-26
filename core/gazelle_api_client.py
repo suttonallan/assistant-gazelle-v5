@@ -40,9 +40,19 @@ class GazelleAPIClient:
             token_path = os.path.join(CONFIG_DIR, 'token.json')
         self.token_path = token_path
 
-        # Force credentials from DEPLOY_NOW.md
-        self.client_id = os.getenv('GAZELLE_CLIENT_ID') or 'yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE'
-        self.client_secret = os.getenv('GAZELLE_CLIENT_SECRET') or 'CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc'
+        # ⚠️ JAMAIS de valeur de repli en dur ici.
+        #
+        # Ces deux lignes ont porté le client_id et le client_secret OAuth Gazelle
+        # EN CLAIR du 2025-12-19 au 2026-08-26, dans un dépôt PUBLIC — huit mois,
+        # lisibles sans compte GitHub. Retirer la valeur du code ne suffit pas :
+        # elle reste dans l'historique Git, donc la paire doit être RÉVOQUÉE et
+        # RÉGÉNÉRÉE côté Gazelle. Voir `securite-secrets-plan.md`.
+        #
+        # Sans ces variables, seul le chemin OAuth (refresh / génération de jeton)
+        # est indisponible : la production lit une clé API dans Supabase
+        # (`system_settings.gazelle_oauth_token`) et n'y touche pas.
+        self.client_id = os.getenv('GAZELLE_CLIENT_ID', '')
+        self.client_secret = os.getenv('GAZELLE_CLIENT_SECRET', '')
 
         # Try to load token, if fails create a new one
         try:
