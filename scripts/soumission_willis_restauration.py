@@ -66,6 +66,7 @@ CATALOGUE_LOCAL: Dict[str, Dict[str, Any]] = {
                              "amount": 7500},
     "mit_yKVZf3BoTem94l1O": {"name": "Remplacer les garnitures de mortaises", "amount": 85000},
     "mit_OF7DZlCG7wZGrdtr": {"name": "Recollage des touches blanches", "amount": 85000},
+    "mit_l6o2sjpCLZn9ZUHi": {"name": "Grand entretien piano droit", "amount": 104500},
 }
 
 
@@ -372,7 +373,7 @@ TIER_NOTES_COMPLET = (
 
 GROUPES_CIBLEE: List[Dict[str, Any]] = [
     {
-        "name": "Cordes",
+        "name": "Restauration: cordes",
         "items": [
             item(
                 "Cordes des basses — fourniture et installation",
@@ -409,7 +410,7 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "name": "Clavier",
+        "name": "Clavier: Touches, plateau, cadre",
         "items": [
             item(
                 "Remplacer les garnitures de mortaises",
@@ -430,21 +431,39 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
             ),
         ],
     },
+    {
+        "name": "Service étendu",
+        "items": [
+            item(
+                "Grand entretien piano droit",
+                ["mit_l6o2sjpCLZn9ZUHi"],
+                "La mise au point complète, une fois les pièces neuves posées :\n"
+                "• nettoyage en profondeur de la caisse, du cadre et de la mécanique\n"
+                "• réglage complet de la mécanique : enfoncement, échappement, attrape\n"
+                "• nivelage du clavier et égalisation de la course des touches\n"
+                "• réglage des étouffoirs et des pédales\n"
+                "• harmonisation des têtes de marteaux neuves\n"
+                "• accord final au diapason 440 Hz\n"
+                "Ce service comprend l'accord, l'harmonisation et le nivelage qui seraient "
+                "autrement facturés séparément.",
+            ),
+        ],
+    },
 ]
 
 TIER_NOTES_CIBLEE = (
-    "Les cinq postes convenus lors du rendez-vous : cordes des basses, marteaux, garnitures "
-    "de contre-attrape, garnitures de mortaises de clavier et réparation des ivoires "
-    "existants. Chaque poste comprend les réglages et l'accord nécessaires à sa propre mise "
-    "au point."
+    "Les postes convenus lors du rendez-vous : cordes des basses, têtes de marteaux, "
+    "garnitures de contre-attrapes, garnitures de mortaises et recollage des touches "
+    "d'origine — puis le grand entretien qui met l'ensemble au point, accord final compris."
 )
 
 NOTES_INTRO_CIBLEE = """Bonjour Éric,
 
 Merci pour l'accueil. Voici la soumission pour les travaux ciblés sur votre piano droit \
 Willis & Co., tels qu'on les a arrêtés ensemble : les cordes des basses, les marteaux, les \
-garnitures de contre-attrape, les garnitures de mortaises du clavier et la réparation des \
-placages d'ivoire d'origine.
+garnitures de contre-attrapes, les garnitures de mortaises du clavier et le recollage des \
+placages d'ivoire d'origine — puis le grand entretien qui met le tout au point, accord \
+final compris.
 
 C'est une remise en état des points qui limitent réellement l'instrument aujourd'hui — pas \
 une restauration complète. Vos ivoires sont conservés et réparés plutôt que remplacés, et \
@@ -472,10 +491,9 @@ AVERTISSEMENTS_CIBLEE = [
     "recordage est insuffisant, leur remplacement devient nécessaire (450 $), et il vous est "
     "soumis avant d'être engagé.",
 
-    "Ne sont pas compris ici, et peuvent être ajoutés si vous le souhaitez : l'accord "
-    "d'entretien qui suit la pose des cordes neuves (255 $), l'harmonisation des têtes de "
-    "marteaux neuves (149 $) et le nivelage du clavier après la pose des garnitures de "
-    "mortaises (178 $).",
+    "Le grand entretien couvre la mise au point de tout ce qui est posé : l'accord qui suit "
+    "le cordage, l'harmonisation des têtes neuves et le nivelage du clavier après les "
+    "garnitures de mortaises y sont compris, plutôt que facturés à la pièce.",
 
     "Travaux à domicile. Si vous préférez que la mécanique et le clavier partent à l'atelier "
     "pour ces travaux, le transport aller-retour est chiffré séparément.",
