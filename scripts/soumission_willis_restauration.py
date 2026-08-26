@@ -1003,7 +1003,7 @@ def main() -> int:
     est = create_in_gazelle(client_id, piano_id, tiers, notes,
                             estimated_on, expires_on,
                             client_name, args.piano_make)
-    print(f"✅ Soumission #{est['number']} créée ({est['id']})")
+    print(f"Soumission #{est['number']} créée ({est['id']})")
     for tier in tiers:
         t = tier_totals(tier)
         print(f"   {tier_titre(tier, len(tiers))} : {money(t['total'])} (taxes incluses)")
