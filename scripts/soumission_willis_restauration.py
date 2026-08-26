@@ -11,10 +11,14 @@ Usage
     # Aperçu chiffré, rien n'est envoyé
     python3 scripts/soumission_willis_restauration.py --dry-run
 
+    # Résolution du client et du piano par nom, puis création
+    python3 scripts/soumission_willis_restauration.py --client-search "Éric Le Reste"
+    python3 scripts/soumission_willis_restauration.py --client-search "Éric Le Reste" --yes
+
     # Création réelle dans Gazelle (2 étapes : create minimal puis update)
     python3 scripts/soumission_willis_restauration.py \
         --client-id cli_XXXX --piano-id ins_XXXX \
-        --client-name "Nom du client" --piano-make Willis
+        --client-name "Éric Le Reste" --piano-make Willis
 
 Règles Gazelle respectées (voir workspace/skills/gazelle/) :
   1. JAMAIS `estimateTiers` dans `createEstimate` → create minimal puis update.
@@ -376,7 +380,7 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Garnitures de mortaises de clavier",
-                780.00,
+                850.00,
                 "Guidage des touches remis à neuf :\n"
                 "• garnitures de mortaises de balancier et d'avant remplacées, 88 touches\n"
                 "• pointes de guidage polies et redressées\n"
@@ -705,8 +709,106 @@ def create_in_gazelle(client_id: str, piano_id: str, tiers: List[Dict[str, Any]]
     return est
 
 
+# --------------------------------------------------------------------------
+# Résolution client / piano par nom — évite d'avoir à retrouver les IDs
+# --------------------------------------------------------------------------
+
+CLIENT_SEARCH_QUERY = """
+query($s: String!) {
+  allClients(first: 25, filters: {search: $s}) {
+    nodes { id companyName defaultContact { firstName lastName } }
+  }
+}
+"""
+
+CLIENT_SCAN_QUERY = """
+query {
+  allClients {
+    nodes { id companyName defaultContact { firstName lastName } }
+  }
+}
+"""
+
+CLIENT_PIANOS_QUERY = """
+query($cid: String!) {
+  allPianos(first: 50, filters: {clientId: $cid}) {
+    nodes { id make model year type serialNumber }
+  }
+}
+"""
+
+PIANOS_SCAN_QUERY = """
+query {
+  allPianos {
+    nodes { id client { id } make model year type serialNumber }
+  }
+}
+"""
+
+
+class ResolutionAmbigue(RuntimeError):
+    """Zéro ou plusieurs correspondances — on ne devine jamais."""
+
+
+def _client_label(node: Dict[str, Any]) -> str:
+    contact = node.get("defaultContact") or {}
+    return (node.get("companyName") or "").strip() or \
+        " ".join(x for x in [contact.get("firstName"), contact.get("lastName")] if x).strip()
+
+
+def _nodes(result: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+    return (((result or {}).get("data") or {}).get(key) or {}).get("nodes") or []
+
+
+def resolve_client(gz, search: str) -> Dict[str, Any]:
+    """Cherche le client par nom. Bascule sur un scan complet si le filtre
+    `search` n'est pas accepté par le schéma."""
+    try:
+        nodes = _nodes(gz._execute_query(CLIENT_SEARCH_QUERY, {"s": search}), "allClients")
+    except Exception:
+        nodes = []
+    if not nodes:
+        needle = search.lower()
+        nodes = [n for n in _nodes(gz._execute_query(CLIENT_SCAN_QUERY), "allClients")
+                 if needle in _client_label(n).lower()]
+    if not nodes:
+        raise ResolutionAmbigue(f"Aucun client ne correspond à « {search} ».")
+    if len(nodes) > 1:
+        listing = "\n".join(f"  - {_client_label(n)} ({n['id']})" for n in nodes[:15])
+        raise ResolutionAmbigue(
+            f"{len(nodes)} clients correspondent à « {search} » :\n{listing}\n"
+            "Relance avec --client-id.")
+    return nodes[0]
+
+
+def resolve_piano(gz, client_id: str, make: str) -> Dict[str, Any]:
+    """Cherche, parmi les pianos du client, celui de la marque demandée."""
+    try:
+        pianos = _nodes(gz._execute_query(CLIENT_PIANOS_QUERY, {"cid": client_id}), "allPianos")
+    except Exception:
+        pianos = []
+    if not pianos:
+        pianos = [p for p in _nodes(gz._execute_query(PIANOS_SCAN_QUERY), "allPianos")
+                  if (p.get("client") or {}).get("id") == client_id]
+    if not pianos:
+        raise ResolutionAmbigue(f"Ce client n'a aucun piano dans Gazelle ({client_id}).")
+    matches = [p for p in pianos if make.lower() in (p.get("make") or "").lower()]
+    if not matches:
+        listing = "\n".join(f"  - {p.get('make')} {p.get('model') or ''} ({p['id']})"
+                             for p in pianos)
+        raise ResolutionAmbigue(
+            f"Aucun piano « {make} » chez ce client. Pianos au dossier :\n{listing}")
+    if len(matches) > 1:
+        listing = "\n".join(f"  - {p.get('make')} {p.get('model') or ''} "
+                            f"{p.get('year') or ''} ({p['id']})" for p in matches)
+        raise ResolutionAmbigue(
+            f"{len(matches)} pianos « {make} » chez ce client :\n{listing}\n"
+            "Relance avec --piano-id.")
+    return matches[0]
+
+
 TITRES = {
-    "ciblee": "Travaux ciblés, piano droit Willis & Co. — client Éric",
+    "ciblee": "Travaux ciblés, piano droit Willis & Co. — Éric Le Reste",
     "complete": "Restauration piano droit Willis & Co. (Montréal)",
 }
 
@@ -716,6 +818,11 @@ def main() -> int:
     parser.add_argument("--scope", choices=("ciblee", "complete"), default="ciblee",
                         help="ciblee = 5 postes convenus avec Éric (défaut) ; "
                              "complete = restauration complète en 2 options")
+    parser.add_argument("--client-search",
+                        help="Nom du client à résoudre dans Gazelle (ex. \"Éric Le Reste\") — "
+                             "évite d'avoir à retrouver les IDs")
+    parser.add_argument("--yes", action="store_true",
+                        help="Confirme la création après une résolution par nom")
     parser.add_argument("--client-id", help="ID Gazelle du client (cli_xxx)")
     parser.add_argument("--piano-id", help="ID Gazelle du piano (ins_xxx)")
     parser.add_argument("--client-name", help="Nom attendu — garde d'identité")
@@ -745,16 +852,34 @@ def main() -> int:
                 print(f"  - {m}", file=sys.stderr)
             return 1
 
-    if args.dry_run or not (args.client_id and args.piano_id):
+    client_id, piano_id = args.client_id, args.piano_id
+    client_name = args.client_name
+
+    if args.client_search and not (client_id and piano_id):
+        from core.gazelle_api_client import GazelleAPIClient
+        gz = GazelleAPIClient()
+        client = resolve_client(gz, args.client_search)
+        piano = resolve_piano(gz, client["id"], args.piano_make)
+        client_id, piano_id = client["id"], piano["id"]
+        client_name = client_name or _client_label(client)
+        print(f"Client : {_client_label(client)} ({client_id})")
+        print(f"Piano  : {piano.get('make')} {piano.get('model') or ''} "
+              f"{piano.get('year') or ''} ({piano_id})".replace("  ", " "))
+        if not args.yes:
+            print("\nRelance avec --yes pour créer la soumission.")
+            print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
+            return 0
+
+    if args.dry_run or not (client_id and piano_id):
         print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
         if not args.dry_run:
-            print("\n[!] --client-id et --piano-id manquants : aperçu seulement, "
-                  "rien n'a été créé dans Gazelle.", file=sys.stderr)
+            print("\n[!] Identité du client manquante : aperçu seulement, rien n'a été créé. "
+                  "Utilise --client-search \"Nom\" ou --client-id/--piano-id.", file=sys.stderr)
         return 0
 
-    est = create_in_gazelle(args.client_id, args.piano_id, tiers, notes,
+    est = create_in_gazelle(client_id, piano_id, tiers, notes,
                             estimated_on, expires_on,
-                            args.client_name, args.piano_make)
+                            client_name, args.piano_make)
     print(f"✅ Soumission #{est['number']} créée ({est['id']})")
     for tier in tiers:
         t = tier_totals(tier)
