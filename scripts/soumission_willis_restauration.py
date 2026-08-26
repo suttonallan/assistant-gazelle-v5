@@ -325,6 +325,131 @@ TIER_NOTES_COMPLET = (
 
 
 # --------------------------------------------------------------------------
+# Portée « ciblée » — Éric : cordes de basse, contre-attrapes, marteaux,
+# mortaises de clavier, réparation des ivoires existants. Un seul tier.
+# --------------------------------------------------------------------------
+
+GROUPES_CIBLEE: List[Dict[str, Any]] = [
+    {
+        "name": "Cordes",
+        "items": [
+            item(
+                "Cordes des basses — jeu complet neuf",
+                2000.00,
+                "Remplacement de toutes les cordes filées du registre grave :\n"
+                "• relevé des mesures corde par corde (âme, filage, longueur parlante)\n"
+                "• cordes filées fabriquées sur mesure pour ce piano\n"
+                "• dépose des cordes d'origine et nettoyage du cadre et du chevalet des basses\n"
+                "• pose, mise en tension progressive et égalisation des pressions\n"
+                "• accord de mise en tension inclus à la fin de la pose",
+                master_service_item_id=MSL_CORDES_BASSES,
+            ),
+        ],
+    },
+    {
+        "name": "Mécanique",
+        "items": [
+            item(
+                "Remplacement des marteaux",
+                1250.00,
+                "Jeu de marteaux neufs choisi pour l'échelle de ce Willis :\n"
+                "• dépose des marteaux d'origine\n"
+                "• têtes neuves montées et alignées sur les manches\n"
+                "• perçage et angle de frappe repris corde par corde\n"
+                "• échappement et attrape réajustés après la pose\n"
+                "• harmonisation des marteaux neufs et accord de contrôle",
+                master_service_item_id=MSL_MARTEAUX_DROIT,
+            ),
+            item(
+                "Garnitures de contre-attrape",
+                585.00,
+                "Reprise de la retenue du marteau après la frappe :\n"
+                "• garnitures de contre-attrape usées remplacées sur les 88 notes\n"
+                "• surfaces des attrapes nettoyées et redressées\n"
+                "• hauteur et angle de prise réglés note par note\n"
+                "• contrôle de la répétition sur toute l'étendue",
+            ),
+        ],
+    },
+    {
+        "name": "Clavier",
+        "items": [
+            item(
+                "Garnitures de mortaises de clavier",
+                780.00,
+                "Guidage des touches remis à neuf :\n"
+                "• garnitures de mortaises de balancier et d'avant remplacées, 88 touches\n"
+                "• pointes de guidage polies et redressées\n"
+                "• jeu latéral calibré touche par touche\n"
+                "• nivelage et course des touches revalidés après la pose",
+            ),
+            item(
+                "Réparation des placages d'ivoire existants",
+                495.00,
+                "Les ivoires d'origine sont conservés et remis en état :\n"
+                "• recollage des placages soulevés ou décollés\n"
+                "• remplacement ponctuel des éclats à partir d'ivoires de récupération\n"
+                "• joints rebouchés, arêtes reprises\n"
+                "• ponçage fin et polissage de l'ensemble des touches\n"
+                "• fronts de touches nettoyés et refixés au besoin",
+            ),
+        ],
+    },
+]
+
+TIER_NOTES_CIBLEE = (
+    "Les cinq postes convenus lors du rendez-vous : cordes des basses, marteaux, garnitures "
+    "de contre-attrape, garnitures de mortaises de clavier et réparation des ivoires "
+    "existants. Chaque poste comprend les réglages et l'accord nécessaires à sa propre mise "
+    "au point."
+)
+
+NOTES_INTRO_CIBLEE = """Bonjour Éric,
+
+Merci pour l'accueil. Voici la soumission pour les travaux ciblés sur votre piano droit \
+Willis & Co., tels qu'on les a arrêtés ensemble : les cordes des basses, les marteaux, les \
+garnitures de contre-attrape, les garnitures de mortaises du clavier et la réparation des \
+placages d'ivoire d'origine.
+
+C'est une remise en état des points qui limitent réellement l'instrument aujourd'hui — pas \
+une restauration complète. Vos ivoires sont conservés et réparés plutôt que remplacés, et \
+le meuble n'est pas touché.
+
+Les travaux se font en deux visites à domicile, à une ou deux semaines d'intervalle, le \
+temps que les cordes neuves s'étirent avant la mise au point finale. Les prix affichés \
+excluent les taxes, détaillées au bas de la soumission."""
+
+AVERTISSEMENTS_CIBLEE = [
+    "Ivoires : les placages d'origine sont recollés, rebouchés et repolis. Les éclats "
+    "importants se remplacent avec des ivoires de récupération dont la teinte ne sera jamais "
+    "parfaitement identique — un ivoire jauni ne redevient pas neuf, aucun traitement ne le "
+    "fait sans détruire la surface.",
+
+    "Cordes des basses neuves : elles s'étirent pendant plusieurs mois. L'accord de pose est "
+    "compris; prévoyez deux accords d'entretien la première année pour stabiliser le "
+    "registre grave.",
+
+    "Équilibre sonore : des basses neuves sonnent nettement plus riches que des médiums "
+    "d'origine. L'harmonisation des marteaux neufs atténue l'écart, mais un léger "
+    "déséquilibre subsiste tant que le reste du plan de cordes n'est pas refait.",
+
+    "Chevilles : les chevilles du registre grave sont réutilisées. Si le couple mesuré au "
+    "recordage est insuffisant, il faut passer à des chevilles surdimensionnées — supplément "
+    "d'environ 240 $ pour la section des basses, jamais engagé sans votre accord.",
+
+    "Régulation : les réglages compris ici sont ceux qu'exigent les pièces remplacées. Une "
+    "régulation complète de la mécanique et du clavier n'est pas incluse; si le piano en a "
+    "besoin, elle se chiffre à 980 $ et se décide après la pose des marteaux.",
+
+    "Travaux à domicile. Si vous préférez que la mécanique et le clavier partent à l'atelier "
+    "pour ces travaux, le transport aller-retour est chiffré séparément.",
+
+    f"Cette soumission est valide {VALIDITE_JOURS} jours. Au-delà, les prix des cordes, "
+    "feutres et marteaux sont revalidés auprès des fournisseurs.",
+]
+
+
+# --------------------------------------------------------------------------
 # Construction du payload Gazelle
 # --------------------------------------------------------------------------
 
@@ -361,12 +486,13 @@ def build_item_input(it: Dict[str, Any], sequence: int) -> Dict[str, Any]:
     return payload
 
 
-def build_groups(include_extras: bool) -> List[Dict[str, Any]]:
+def build_groups(groupes: List[Dict[str, Any]],
+                 extras: Dict[str, List[Dict[str, Any]]] | None = None) -> List[Dict[str, Any]]:
     groups = []
-    for gi, groupe in enumerate(GROUPES_BASE):
+    for gi, groupe in enumerate(groupes):
         items = list(groupe["items"])
-        if include_extras:
-            items += AJOUTS_COMPLET.get(groupe["name"], [])
+        if extras:
+            items += extras.get(groupe["name"], [])
         groups.append({
             "name": groupe["name"],
             "sequenceNumber": gi,
@@ -376,20 +502,36 @@ def build_groups(include_extras: bool) -> List[Dict[str, Any]]:
 
 
 def build_tier(sequence: int, is_primary: bool, notes: str,
-               include_extras: bool) -> Dict[str, Any]:
+               groupes: List[Dict[str, Any]],
+               extras: Dict[str, List[Dict[str, Any]]] | None = None) -> Dict[str, Any]:
     return {
         "sequenceNumber": sequence,
         "isPrimary": is_primary,
         "notes": notes,
-        "estimateTierGroups": build_groups(include_extras),
+        "estimateTierGroups": build_groups(groupes, extras),
         "ungroupedEstimateTierItems": [],
     }
 
 
-def build_notes() -> str:
-    lines = [NOTES_INTRO, "", "À savoir avant de décider :", ""]
-    lines += [f"• {w}" for w in AVERTISSEMENTS]
+def build_notes(intro: str, avertissements: List[str]) -> str:
+    lines = [intro, "", "À savoir avant de décider :", ""]
+    lines += [f"• {w}" for w in avertissements]
     return "\n".join(lines)
+
+
+def build_scope(scope: str) -> Dict[str, Any]:
+    """Retourne les tiers et les notes de la portée demandée."""
+    if scope == "ciblee":
+        tier = build_tier(0, is_primary=True, notes=TIER_NOTES_CIBLEE,
+                          groupes=GROUPES_CIBLEE)
+        return {"tiers": [tier],
+                "notes": build_notes(NOTES_INTRO_CIBLEE, AVERTISSEMENTS_CIBLEE)}
+    base = build_tier(0, is_primary=False, notes=TIER_NOTES_BASE,
+                      groupes=GROUPES_BASE)
+    complet = build_tier(1, is_primary=True, notes=TIER_NOTES_COMPLET,
+                         groupes=GROUPES_BASE, extras=AJOUTS_COMPLET)
+    return {"tiers": [base, complet],
+            "notes": build_notes(NOTES_INTRO, AVERTISSEMENTS)}
 
 
 # --------------------------------------------------------------------------
@@ -449,17 +591,22 @@ def money(value: float) -> str:
     return f"{value:,.2f} $".replace(",", " ").replace(".", ",")
 
 
+def tier_titre(tier: Dict[str, Any], nb_tiers: int) -> str:
+    if nb_tiers == 1:
+        return "TRAVAUX CONVENUS"
+    return "OPTION 2 — RESTAURATION COMPLÈTE" if tier["sequenceNumber"] \
+        else "OPTION 1 — RESTAURATION ESSENTIELLE"
+
+
 def print_preview(tiers: List[Dict[str, Any]], notes: str,
-                  estimated_on: str, expires_on: str) -> None:
+                  estimated_on: str, expires_on: str, titre: str) -> None:
     print("=" * 78)
-    print("SOUMISSION — Restauration piano droit Willis & Co. (Montréal)")
+    print(f"SOUMISSION — {titre}")
     print(f"Émise le {estimated_on} · valide jusqu'au {expires_on}")
     print("=" * 78)
     for tier in tiers:
-        titre = "OPTION 2 — RESTAURATION COMPLÈTE" if tier["sequenceNumber"] \
-            else "OPTION 1 — RESTAURATION ESSENTIELLE"
-        flag = "  ★ recommandée" if tier["isPrimary"] else ""
-        print(f"\n{titre}{flag}")
+        flag = "  ★ recommandée" if tier["isPrimary"] and len(tiers) > 1 else ""
+        print(f"\n{tier_titre(tier, len(tiers))}{flag}")
         print("-" * 78)
         for group in tier["estimateTierGroups"]:
             print(f"\n  {group['name']}")
@@ -558,8 +705,17 @@ def create_in_gazelle(client_id: str, piano_id: str, tiers: List[Dict[str, Any]]
     return est
 
 
+TITRES = {
+    "ciblee": "Travaux ciblés, piano droit Willis & Co. — client Éric",
+    "complete": "Restauration piano droit Willis & Co. (Montréal)",
+}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scope", choices=("ciblee", "complete"), default="ciblee",
+                        help="ciblee = 5 postes convenus avec Éric (défaut) ; "
+                             "complete = restauration complète en 2 options")
     parser.add_argument("--client-id", help="ID Gazelle du client (cli_xxx)")
     parser.add_argument("--piano-id", help="ID Gazelle du piano (ins_xxx)")
     parser.add_argument("--client-name", help="Nom attendu — garde d'identité")
@@ -571,10 +727,8 @@ def main() -> int:
     estimated_on = today.isoformat()
     expires_on = (today + timedelta(days=VALIDITE_JOURS)).isoformat()
 
-    tier_base = build_tier(0, is_primary=False, notes=TIER_NOTES_BASE, include_extras=False)
-    tier_complet = build_tier(1, is_primary=True, notes=TIER_NOTES_COMPLET, include_extras=True)
-    tiers = [tier_base, tier_complet]
-    notes = build_notes()
+    scope = build_scope(args.scope)
+    tiers, notes = scope["tiers"], scope["notes"]
 
     violations = lint(tiers)
     if violations:
@@ -583,15 +737,16 @@ def main() -> int:
             print(f"  - {v}", file=sys.stderr)
         return 1
 
-    missing = validate_inclusion(tier_base, tier_complet)
-    if missing:
-        print("Tier 2 n'inclut pas Tier 1 — rien créé :", file=sys.stderr)
-        for m in missing:
-            print(f"  - {m}", file=sys.stderr)
-        return 1
+    if len(tiers) > 1:
+        missing = validate_inclusion(tiers[0], tiers[1])
+        if missing:
+            print("Tier 2 n'inclut pas Tier 1 — rien créé :", file=sys.stderr)
+            for m in missing:
+                print(f"  - {m}", file=sys.stderr)
+            return 1
 
     if args.dry_run or not (args.client_id and args.piano_id):
-        print_preview(tiers, notes, estimated_on, expires_on)
+        print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
         if not args.dry_run:
             print("\n[!] --client-id et --piano-id manquants : aperçu seulement, "
                   "rien n'a été créé dans Gazelle.", file=sys.stderr)
@@ -600,9 +755,10 @@ def main() -> int:
     est = create_in_gazelle(args.client_id, args.piano_id, tiers, notes,
                             estimated_on, expires_on,
                             args.client_name, args.piano_make)
-    t1, t2 = tier_totals(tier_base), tier_totals(tier_complet)
     print(f"✅ Soumission #{est['number']} créée ({est['id']})")
-    print(f"   Option 1 : {money(t1['total'])} · Option 2 : {money(t2['total'])} (taxes incluses)")
+    for tier in tiers:
+        t = tier_totals(tier)
+        print(f"   {tier_titre(tier, len(tiers))} : {money(t['total'])} (taxes incluses)")
     return 0
 
 
