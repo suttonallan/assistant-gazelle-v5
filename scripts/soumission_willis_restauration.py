@@ -55,15 +55,39 @@ MSL_MARTEAUX_DROIT = "mit_pDYrT2B8oxWAJ7ou"   # remplacement marteaux droit
 MSL_CORDES_BASSES = "mit_2HBYLndAxf1C993j"    # cordes des basses (matériel + pose)
 
 
-def item(name: str, amount: float, description: str,
-         master_service_item_id: str | None = None,
-         taxable: bool = True) -> Dict[str, Any]:
-    """Item de soumission. `amount` en dollars, converti en cents."""
+# Catalogue MSL — instantané local de docs/knowledge_estimate_review.md.
+# Sert d'aperçu hors ligne ; le prix réel est relu dans Gazelle avant création.
+CATALOGUE_LOCAL: Dict[str, Dict[str, Any]] = {
+    "mit_2HBYLndAxf1C993j": {"name": "Cordes des basses", "amount": 120000},
+    "mit_uiSzTQHCmcYYte4n": {"name": "Installer les cordes des basses", "amount": 80000},
+    "mit_pDYrT2B8oxWAJ7ou": {"name": "Remplacement des têtes de marteaux (piano droit)",
+                             "amount": 120000},
+    "mit_hTpsqYpJhXHlAdov": {"name": "Remplacer les garnitures de contre-attrapes",
+                             "amount": 7500},
+    "mit_yKVZf3BoTem94l1O": {"name": "Remplacer les garnitures de mortaises", "amount": 85000},
+    "mit_OF7DZlCG7wZGrdtr": {"name": "Recollage des touches blanches", "amount": 85000},
+}
+
+
+def item(name: str, msl_ids: List[str], description: str,
+         amount: float | None = None, taxable: bool = True) -> Dict[str, Any]:
+    """Item de soumission dont le prix vient du catalogue MSL.
+
+    `msl_ids` : un ou plusieurs MasterServiceItem. Quand il y en a plusieurs, le
+    montant est leur somme et la ligne reste unique (pattern de fusion
+    matériel + main-d'œuvre, ex. cordes des basses). Le premier id est celui
+    envoyé à Gazelle. `amount` (en dollars) ne sert que de repli si aucun id
+    n'est connu du catalogue.
+    """
+    cents = sum(CATALOGUE_LOCAL[m]["amount"] for m in msl_ids if m in CATALOGUE_LOCAL)
+    if not cents:
+        cents = int(round((amount or 0) * 100))
     return {
         "name": name,
-        "amount_cents": int(round(amount * 100)),
+        "amount_cents": cents,
         "description": description.strip(),
-        "master_service_item_id": master_service_item_id,
+        "msl_ids": list(msl_ids),
+        "master_service_item_id": msl_ids[0] if msl_ids else None,
         "is_taxable": taxable,
     }
 
@@ -78,22 +102,24 @@ GROUPES_BASE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Transport aller-retour à l'atelier",
-                795.00,
+                [],
                 "Enlèvement et retour à domicile (grand Montréal) :\n"
                 "• emballage et protection du meuble\n"
                 "• manutention par deux techniciens\n"
                 "• assurance transport pendant tout le séjour en atelier\n"
                 "Escaliers, monte-charge ou distance hors zone : supplément confirmé d'avance.",
+                amount=795.00,
             ),
             item(
                 "Démontage complet et diagnostic documenté",
-                650.00,
+                [],
                 "Une fois le piano à l'atelier :\n"
                 "• démontage de la mécanique, du clavier et des panneaux\n"
                 "• dépoussiérage complet de la caisse et du cadre\n"
                 "• mesure du couple des chevilles et relevé de la tenue d'accord\n"
                 "• inspection de la table d'harmonie, des chevalets et du sommier\n"
                 "• rapport photo avant travaux, remis avant la suite des opérations",
+                amount=650.00,
             ),
         ],
     },
@@ -102,7 +128,7 @@ GROUPES_BASE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Cordage complet neuf et chevilles surdimensionnées",
-                3850.00,
+                ["mit_2HBYLndAxf1C993j"],
                 "Remise à neuf de tout le plan de cordes :\n"
                 "• dépose des cordes d'origine et des chevilles usées\n"
                 "• cordes filées des basses fabriquées sur mesure pour ce piano\n"
@@ -110,16 +136,16 @@ GROUPES_BASE: List[Dict[str, Any]] = [
                 "• chevilles neuves surdimensionnées, couple ajusté au sommier\n"
                 "• nettoyage du cadre en fonte, retouches et protection du décalque\n"
                 "• pressions et alignements repris aux chevalets et au sillet",
-                master_service_item_id=MSL_CORDES_BASSES,
             ),
             item(
                 "Réparation de la table d'harmonie et des chevalets",
-                1450.00,
+                [],
                 "Travaux structuraux avec le cadre décordé :\n"
                 "• collage et flipots des fentes de la table\n"
                 "• recollage des barres de table décollées\n"
                 "• révision des chevalets : pointes redressées ou remplacées, fissures recollées\n"
                 "• vernis de la table nettoyé et raccordé",
+                amount=1450.00,
             ),
         ],
     },
@@ -128,40 +154,42 @@ GROUPES_BASE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Remplacement des marteaux",
-                1250.00,
+                ["mit_pDYrT2B8oxWAJ7ou"],
                 "Jeu de marteaux neufs choisi pour l'échelle de ce Willis :\n"
                 "• dépose des marteaux d'origine\n"
                 "• têtes neuves montées et alignées sur les manches\n"
                 "• perçage et angle de frappe repris corde par corde\n"
                 "• pré-harmonisation en atelier\n"
                 "• accord de contrôle après pose",
-                master_service_item_id=MSL_MARTEAUX_DROIT,
             ),
             item(
                 "Remplacement des étouffoirs",
-                695.00,
+                [],
                 "Étouffement remis à neuf :\n"
                 "• feutres d'étouffoirs neufs (cuillères, coins et basses)\n"
                 "• portée et synchronisme réglés note par note\n"
                 "• cuillères recintrées pour une levée uniforme",
+                amount=695.00,
             ),
             item(
                 "Recentrage complet et refeutrage de la mécanique",
-                1380.00,
+                [],
                 "Remise en jeu de toutes les pièces mobiles :\n"
                 "• recentrage des axes de marteaux, de bascules et de chevalets d'échappement\n"
                 "• bagues et feutres d'axes remplacés là où le jeu est hors tolérance\n"
                 "• casimirs, feutres de butée et de repos remplacés\n"
                 "• nettoyage et lubrification des points de friction",
+                amount=1380.00,
             ),
             item(
                 "Régulation complète mécanique et clavier",
-                980.00,
+                [],
                 "Réglage fin de l'ensemble, en atelier puis revalidé à domicile :\n"
                 "• enfoncement, échappement, attrape et levée d'étouffoir\n"
                 "• course des touches et profondeur de toucher uniformisées\n"
                 "• pilotes et bascules ajustés note par note\n"
                 "• contrôle de la répétition sur les 88 notes",
+                amount=980.00,
             ),
         ],
     },
@@ -170,21 +198,23 @@ GROUPES_BASE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Clavier : mortaises, rondelles et nivelage",
-                780.00,
+                [],
                 "Assise du clavier reprise au complet :\n"
                 "• mortaises de balancier et d'avant refeutrées\n"
                 "• rondelles de nivelage et de course renouvelées\n"
                 "• pointes de balancier polies et redressées\n"
                 "• nivelage fin des 88 touches, blanches et noires",
+                amount=780.00,
             ),
             item(
                 "Révision de la lyre et des pédales",
-                425.00,
+                [],
                 "Pédalier remis en état :\n"
                 "• tringlerie démontée, nettoyée et refeutrée\n"
                 "• articulations reprises, bruits parasites éliminés\n"
                 "• pédale douce et sourdine réglées à leur course d'origine\n"
                 "• fixation de la lyre consolidée",
+                amount=425.00,
             ),
         ],
     },
@@ -193,28 +223,31 @@ GROUPES_BASE: List[Dict[str, Any]] = [
         "items": [
             item(
                 "Harmonisation des marteaux neufs",
-                590.00,
+                [],
                 "Le timbre est travaillé en trois passes :\n"
                 "• piquage initial en atelier après la mise en tension\n"
                 "• égalisation du registre grave, médium et aigu\n"
                 "• passe finale à domicile, une fois le piano stabilisé dans sa pièce",
+                amount=590.00,
             ),
             item(
                 "Mise au diapason progressive — trois accords",
-                540.00,
+                [],
                 "Un jeu de cordes neuf s'étire : la montée au diapason se fait par étapes.\n"
                 "• deux accords de montée en atelier, à quelques jours d'intervalle\n"
                 "• accord de mise en service à domicile après la livraison\n"
                 "• contrôle de la tenue et de la stabilité du sommier à chaque passe",
+                amount=540.00,
             ),
             item(
                 "Nettoyage, retouches et polissage du meuble",
-                690.00,
+                [],
                 "Finition d'origine conservée :\n"
                 "• nettoyage en profondeur de l'ébénisterie et des placages\n"
                 "• retouches localisées des éraflures et des manques de vernis\n"
                 "• polissage et cirage final\n"
                 "• quincaillerie (charnières, serrures, chandeliers) nettoyée et refixée",
+                amount=690.00,
             ),
         ],
     },
@@ -225,42 +258,46 @@ AJOUTS_COMPLET: Dict[str, List[Dict[str, Any]]] = {
     "Clavier et pédalier": [
         item(
             "Replacage des touches et fronts neufs",
-            1150.00,
+            [],
             "Surface de jeu refaite à neuf :\n"
             "• dépose des placages d'origine fendus ou jaunis\n"
             "• placages d'ivoirine neufs, ajustés et polis touche par touche\n"
             "• fronts de touches neufs\n"
             "• touches noires nettoyées, poncées et repolies",
+            amount=1150.00,
         ),
     ],
     "Finition sonore et mise en service": [
         item(
             "Refinition complète du meuble",
-            3900.00,
+            [],
             "Ébénisterie reprise à nu (remplace le simple polissage, qui reste inclus) :\n"
             "• décapage complet des panneaux et du meuble\n"
             "• réparation des placages soulevés ou manquants\n"
             "• teinture raccordée à la couleur d'origine\n"
             "• laque satinée en plusieurs couches, égrenée entre chaque\n"
             "• quincaillerie déposée, nettoyée et remontée",
+            amount=3900.00,
         ),
         item(
             "Système de contrôle d'humidité Dampp-Chaser — piano droit",
-            975.00,
+            [],
             "Protection de tout le travail de restauration :\n"
             "• installation complète du système sous le clavier (piano droit)\n"
             "• barre chauffante, humidificateur et hygrostat\n"
             "• branchement électrique et mise en service\n"
             "• formation sur le remplissage et le traitement de l'eau\n"
             "L'accord de suivi trois semaines après l'installation est facturé séparément.",
+            amount=975.00,
         ),
         item(
             "Accord de rodage à domicile (3 à 4 mois)",
-            199.00,
+            [],
             "Un accord supplémentaire une fois le piano acclimaté à votre pièce :\n"
             "• reprise de la tenue après stabilisation des cordes neuves\n"
             "• contrôle de la régulation et retouches de réglage\n"
             "• vérification du système d'humidité s'il est installé",
+            amount=199.00,
         ),
     ],
 }
@@ -338,15 +375,14 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
         "name": "Cordes",
         "items": [
             item(
-                "Cordes des basses — jeu complet neuf",
-                2000.00,
+                "Cordes des basses — fourniture et installation",
+                ["mit_2HBYLndAxf1C993j", "mit_uiSzTQHCmcYYte4n"],
                 "Remplacement de toutes les cordes filées du registre grave :\n"
                 "• relevé des mesures corde par corde (âme, filage, longueur parlante)\n"
                 "• cordes filées fabriquées sur mesure pour ce piano\n"
-                "• dépose des cordes d'origine et nettoyage du cadre et du chevalet des basses\n"
+                "• dépose des cordes d'origine, nettoyage du cadre et du chevalet des basses\n"
                 "• pose, mise en tension progressive et égalisation des pressions\n"
-                "• accord de mise en tension inclus à la fin de la pose",
-                master_service_item_id=MSL_CORDES_BASSES,
+                "Fourniture et installation réunies en une seule ligne.",
             ),
         ],
     },
@@ -354,24 +390,21 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
         "name": "Mécanique",
         "items": [
             item(
-                "Remplacement des marteaux",
-                1250.00,
-                "Jeu de marteaux neufs choisi pour l'échelle de ce Willis :\n"
-                "• dépose des marteaux d'origine\n"
+                "Remplacement des têtes de marteaux (piano droit)",
+                ["mit_pDYrT2B8oxWAJ7ou"],
+                "Jeu de têtes neuves choisi pour l'échelle de ce Willis :\n"
+                "• dépose des têtes d'origine\n"
                 "• têtes neuves montées et alignées sur les manches\n"
                 "• perçage et angle de frappe repris corde par corde\n"
-                "• échappement et attrape réajustés après la pose\n"
-                "• harmonisation des marteaux neufs et accord de contrôle",
-                master_service_item_id=MSL_MARTEAUX_DROIT,
+                "• échappement et attrape réajustés après la pose",
             ),
             item(
-                "Garnitures de contre-attrape",
-                585.00,
+                "Remplacer les garnitures de contre-attrapes",
+                ["mit_hTpsqYpJhXHlAdov"],
                 "Reprise de la retenue du marteau après la frappe :\n"
-                "• garnitures de contre-attrape usées remplacées sur les 88 notes\n"
+                "• garnitures de contre-attrape usées remplacées\n"
                 "• surfaces des attrapes nettoyées et redressées\n"
-                "• hauteur et angle de prise réglés note par note\n"
-                "• contrôle de la répétition sur toute l'étendue",
+                "• hauteur et angle de prise réglés note par note",
             ),
         ],
     },
@@ -379,23 +412,21 @@ GROUPES_CIBLEE: List[Dict[str, Any]] = [
         "name": "Clavier",
         "items": [
             item(
-                "Garnitures de mortaises de clavier",
-                850.00,
+                "Remplacer les garnitures de mortaises",
+                ["mit_yKVZf3BoTem94l1O"],
                 "Guidage des touches remis à neuf :\n"
                 "• garnitures de mortaises de balancier et d'avant remplacées, 88 touches\n"
                 "• pointes de guidage polies et redressées\n"
-                "• jeu latéral calibré touche par touche\n"
-                "• nivelage et course des touches revalidés après la pose",
+                "• jeu latéral calibré touche par touche",
             ),
             item(
-                "Réparation des placages d'ivoire existants",
-                495.00,
-                "Les ivoires d'origine sont conservés et remis en état :\n"
+                "Recollage des touches blanches",
+                ["mit_OF7DZlCG7wZGrdtr"],
+                "Vos ivoires d'origine sont conservés et remis en état :\n"
                 "• recollage des placages soulevés ou décollés\n"
                 "• remplacement ponctuel des éclats à partir d'ivoires de récupération\n"
                 "• joints rebouchés, arêtes reprises\n"
-                "• ponçage fin et polissage de l'ensemble des touches\n"
-                "• fronts de touches nettoyés et refixés au besoin",
+                "• ponçage fin et polissage de l'ensemble des touches",
             ),
         ],
     },
@@ -438,12 +469,13 @@ AVERTISSEMENTS_CIBLEE = [
     "déséquilibre subsiste tant que le reste du plan de cordes n'est pas refait.",
 
     "Chevilles : les chevilles du registre grave sont réutilisées. Si le couple mesuré au "
-    "recordage est insuffisant, il faut passer à des chevilles surdimensionnées — supplément "
-    "d'environ 240 $ pour la section des basses, jamais engagé sans votre accord.",
+    "recordage est insuffisant, leur remplacement devient nécessaire (450 $), et il vous est "
+    "soumis avant d'être engagé.",
 
-    "Régulation : les réglages compris ici sont ceux qu'exigent les pièces remplacées. Une "
-    "régulation complète de la mécanique et du clavier n'est pas incluse; si le piano en a "
-    "besoin, elle se chiffre à 980 $ et se décide après la pose des marteaux.",
+    "Ne sont pas compris ici, et peuvent être ajoutés si vous le souhaitez : l'accord "
+    "d'entretien qui suit la pose des cordes neuves (255 $), l'harmonisation des têtes de "
+    "marteaux neuves (149 $) et le nivelage du clavier après la pose des garnitures de "
+    "mortaises (178 $).",
 
     "Travaux à domicile. Si vous préférez que la mécanique et le clavier partent à l'atelier "
     "pour ces travaux, le transport aller-retour est chiffré séparément.",
@@ -563,6 +595,18 @@ def lint(tiers: List[Dict[str, Any]]) -> List[str]:
                 if not it.get("description"):
                     errors.append(f"MISSING_DESCRIPTION — {label}")
     return errors
+
+
+def items_sans_msl(tiers: List[Dict[str, Any]],
+                   groupes: List[Dict[str, Any]]) -> List[str]:
+    """Lignes dont le prix ne vient pas du catalogue MSL. Bloquant à la création :
+    le catalogue Gazelle est la source de vérité des prix."""
+    sans = []
+    for groupe in groupes:
+        for it in groupe["items"]:
+            if not it.get("msl_ids"):
+                sans.append(f"{groupe['name']} / {it['name']}")
+    return sans
 
 
 def validate_inclusion(base: Dict[str, Any], extended: Dict[str, Any]) -> List[str]:
@@ -709,6 +753,39 @@ def create_in_gazelle(client_id: str, piano_id: str, tiers: List[Dict[str, Any]]
     return est
 
 
+MSL_CATALOGUE_QUERY = "query { allMasterServiceItems { id name amount } }"
+
+
+def fetch_catalogue(gz) -> Dict[str, Dict[str, Any]]:
+    """Catalogue MSL vivant : {id: {name, amount_cents}}."""
+    data = gz._execute_query(MSL_CATALOGUE_QUERY)
+    items = (((data or {}).get("data") or {}).get("allMasterServiceItems") or [])
+    return {it["id"]: {"name": it.get("name"), "amount": it.get("amount")}
+            for it in items if it.get("id")}
+
+
+def apply_catalogue(groupes: List[Dict[str, Any]],
+                    catalogue: Dict[str, Dict[str, Any]]) -> List[str]:
+    """Remplace chaque montant par la somme des prix courants de ses MSL.
+    Retourne la liste des écarts constatés avec l'instantané local."""
+    ecarts = []
+    for groupe in groupes:
+        for it in groupe["items"]:
+            ids = it.get("msl_ids") or []
+            inconnus = [m for m in ids if m not in catalogue]
+            if not ids or inconnus:
+                if inconnus:
+                    ecarts.append(f"{it['name']} : MSL absent du catalogue "
+                                  f"({', '.join(inconnus)}) — montant local conservé")
+                continue
+            courant = sum(catalogue[m]["amount"] or 0 for m in ids)
+            if courant != it["amount_cents"]:
+                ecarts.append(f"{it['name']} : {it['amount_cents']/100:.2f} $ → "
+                              f"{courant/100:.2f} $ (catalogue)")
+                it["amount_cents"] = courant
+    return ecarts
+
+
 # --------------------------------------------------------------------------
 # Résolution client / piano par nom — évite d'avoir à retrouver les IDs
 # --------------------------------------------------------------------------
@@ -828,11 +905,31 @@ def main() -> int:
     parser.add_argument("--client-name", help="Nom attendu — garde d'identité")
     parser.add_argument("--piano-make", default="Willis", help="Marque attendue — garde d'identité")
     parser.add_argument("--dry-run", action="store_true", help="Aperçu seulement, rien n'est créé")
+    parser.add_argument("--catalogue", action="store_true",
+                        help="Relit les prix dans le catalogue MSL de Gazelle et signale "
+                             "les écarts avec l'instantané local")
     args = parser.parse_args()
 
     today = date.today()
     estimated_on = today.isoformat()
     expires_on = (today + timedelta(days=VALIDITE_JOURS)).isoformat()
+
+    groupes_scope = GROUPES_CIBLEE if args.scope == "ciblee" else GROUPES_BASE
+
+    sans_msl = items_sans_msl([], groupes_scope)
+    besoin_gazelle = args.catalogue or (not args.dry_run and
+                                        (args.client_search or
+                                         (args.client_id and args.piano_id)))
+    if besoin_gazelle:
+        from core.gazelle_api_client import GazelleAPIClient
+        gz_catalogue = GazelleAPIClient()
+        ecarts = apply_catalogue(groupes_scope, fetch_catalogue(gz_catalogue))
+        if ecarts:
+            print("Prix relus dans le catalogue MSL :")
+            for e in ecarts:
+                print(f"  - {e}")
+        else:
+            print("Catalogue MSL : tous les prix concordent avec l'instantané local.")
 
     scope = build_scope(args.scope)
     tiers, notes = scope["tiers"], scope["notes"]
@@ -869,6 +966,14 @@ def main() -> int:
             print("\nRelance avec --yes pour créer la soumission.")
             print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
             return 0
+
+    if sans_msl:
+        print("Lignes sans MSL — le prix ne vient pas du catalogue Gazelle, "
+              "création refusée :", file=sys.stderr)
+        for label in sans_msl:
+            print(f"  - {label}", file=sys.stderr)
+        print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
+        return 0 if args.dry_run else 1
 
     if args.dry_run or not (client_id and piano_id):
         print_preview(tiers, notes, estimated_on, expires_on, TITRES[args.scope])
