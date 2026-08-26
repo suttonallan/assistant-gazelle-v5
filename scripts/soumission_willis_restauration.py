@@ -938,19 +938,44 @@ def main() -> int:
     groupes_scope = GROUPES_CIBLEE if args.scope == "ciblee" else GROUPES_BASE
 
     sans_msl = items_sans_msl([], groupes_scope)
-    besoin_gazelle = args.catalogue or (not args.dry_run and
-                                        (args.client_search or
-                                         (args.client_id and args.piano_id)))
-    if besoin_gazelle:
+
+    # Le catalogue Gazelle est TOUJOURS relu quand il est joignable — y compris en
+    # --dry-run. L'ancien comportement ne le relisait que sur demande (--catalogue)
+    # ou à la création : un aperçu pouvait donc afficher des prix périmés, qu'on
+    # cite ensuite au client de bonne foi.
+    #
+    # Ce n'est pas théorique : le 2026-08-26, l'instantané figé de ce script était
+    # faux sur 4 des 7 postes (mortaises 850 $ au lieu de 1 100 $), soit 335 $
+    # sous le prix réel sur la soumission d'Éric Le Reste.
+    #
+    # Si Gazelle est hors d'atteinte (session nuage sans jeton), on continue avec
+    # l'instantané local mais on le DIT fort : des prix invérifiés ne se citent pas
+    # à un client.
+    catalogue_verifie = False
+    try:
         from core.gazelle_api_client import GazelleAPIClient
         gz_catalogue = GazelleAPIClient()
         ecarts = apply_catalogue(groupes_scope, fetch_catalogue(gz_catalogue))
+        catalogue_verifie = True
         if ecarts:
             print("Prix relus dans le catalogue MSL :")
             for e in ecarts:
                 print(f"  - {e}")
         else:
             print("Catalogue MSL : tous les prix concordent avec l'instantané local.")
+    except Exception as exc:
+        print("", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        print("  ⚠  PRIX NON VÉRIFIÉS — catalogue Gazelle injoignable", file=sys.stderr)
+        print(f"     ({str(exc)[:60]})", file=sys.stderr)
+        print("     Les montants ci-dessous viennent d'un instantané FIGÉ dans ce", file=sys.stderr)
+        print("     fichier. Ils ont déjà été faux de 335 $. NE PAS les citer à un", file=sys.stderr)
+        print("     client ni créer la soumission avant de les avoir revalidés.", file=sys.stderr)
+        print("=" * 78, file=sys.stderr)
+        print("", file=sys.stderr)
+        if not args.dry_run:
+            print("Création refusée sans catalogue vérifié.", file=sys.stderr)
+            return 1
 
     scope = build_scope(args.scope)
     tiers, notes = scope["tiers"], scope["notes"]

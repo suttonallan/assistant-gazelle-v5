@@ -150,10 +150,43 @@ autre produit) : dans ce cas, lire la source pour en calquer la structure, puis 
 les items à la main avec les builders. Exemple réel : **#11987** (Vario, 9 500 $) calquée sur
 **#11967** (Adsilent) pour la même cliente et le même piano.
 
+## ⚠️ Ne JAMAIS tester un script de création contre la production
+
+Le 2026-08-26, en voulant simuler une session nuage sans jeton, j'ai lancé le script de
+soumission avec une variable d'environnement bidon — croyant qu'il échouerait. Le `.env`
+a repris le dessus, le script est allé au bout, et **une soumission en double (#11995) a
+été créée chez un vrai client**. Supprimée dans la minute via `deleteEstimate`, après
+avoir vérifié le nom et le piano.
+
+**La règle** : pour éprouver un chemin d'échec, ne pas bricoler l'environnement — isoler
+le code. Importer le module et remplacer la dépendance :
+
+```python
+import core.gazelle_api_client as gac
+def boom(*a, **k): raise ConnectionError('simulation')
+gac.GazelleAPIClient = boom          # puis appeler main() avec --dry-run
+```
+
+Et de toute façon : `--dry-run` d'abord, `--yes` seulement quand l'aperçu est le bon.
+
+## Prix : le catalogue Gazelle est la seule source de vérité
+
+Un instantané de prix figé dans un fichier **dérive en silence**. Celui du script Willis
+était faux sur **4 postes sur 7** (mortaises 850 $ au lieu de 1 100 $), soit 335 $ sous le
+prix réel. Depuis le 2026-08-26, le script relit le catalogue MSL **à chaque exécution, y
+compris en `--dry-run`**, et **refuse de créer** si Gazelle est injoignable.
+
+Toute nouvelle surface de soumission doit faire pareil : lire `get_products()` au moment
+de composer, jamais faire confiance à une copie. Les prix sont recopiés dans au moins
+quatre fichiers du dépôt (`reference/bundles.md`, `progress.md`, `projets-en-cours.md`,
+`service_bundles.py`) — **aucun n'est fiable**.
+
 ## Exemples réels
 
 - **#11915** : reconstruction d'Isabelle Murray (#11914) — 2 tiers, 5 groupes, bundle cordes_basses
 - **#11916** : reconstruction de Francine Deraps (#11913) — 2 tiers, 3 bundles simultanés
+- **#11994** : Willis & Co. 7 306,67 $ pour Éric Le Reste — script du nuage repris avec les
+  prix live (4 postes périmés corrigés) + clause de dépôt 50 % ajoutée
 - **#11987** : Vario 9 500 $ pour Pascale Gasse — calquée sur #11967 (Adsilent), 1 seul tier,
   ligne à 0 $ de la source repliée dans la description après refus du lint
 
