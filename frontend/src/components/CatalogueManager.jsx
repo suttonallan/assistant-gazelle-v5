@@ -15,6 +15,9 @@ const CatalogueManager = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedItem, setSelectedItem] = useState(null)
   const [showMaterialModal, setShowMaterialModal] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [editDraft, setEditDraft] = useState({})
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -64,6 +67,53 @@ const CatalogueManager = () => {
     } catch (err) {
       console.error('Erreur toggle:', err)
       alert('Erreur: ' + err.message)
+    }
+  }
+
+  // Édition en place (nom, unité, prix, description)
+  const startEdit = (item) => {
+    setEditingId(item.id)
+    setEditDraft({
+      nom: item.nom || '',
+      unite_mesure: item.unite_mesure || '',
+      prix_unitaire: item.prix_unitaire ?? '',
+      description: item.description || ''
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditDraft({})
+  }
+
+  const saveEdit = async (item) => {
+    try {
+      setSaving(true)
+      const payload = {
+        nom: editDraft.nom,
+        unite_mesure: editDraft.unite_mesure,
+        prix_unitaire: editDraft.prix_unitaire === '' ? null : parseFloat(editDraft.prix_unitaire),
+        description: editDraft.description
+      }
+
+      const response = await fetch(`${API_URL}/api/inventaire/catalogue/${encodeURIComponent(item.code_produit)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.detail || result.message || 'Échec de la mise à jour')
+      }
+
+      setItems(items.map(i => (i.id === item.id ? { ...i, ...payload } : i)))
+      setEditingId(null)
+      setEditDraft({})
+    } catch (err) {
+      console.error('Erreur édition:', err)
+      alert('Erreur: ' + err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -226,6 +276,7 @@ const CatalogueManager = () => {
               <th style={headerStyle}>Item</th>
               <th style={headerStyle}>Code</th>
               <th style={headerStyle}>Catégorie</th>
+              <th style={headerStyle}>Unité</th>
               <th style={headerStyle}>Prix</th>
               <th style={{ ...headerStyle, textAlign: 'center' }}>Actif</th>
               <th style={{ ...headerStyle, textAlign: 'center' }}>Commission</th>
@@ -234,14 +285,36 @@ const CatalogueManager = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredItems.map((item) => (
+            {filteredItems.map((item) => {
+              const isEditing = editingId === item.id
+              return (
               <tr key={item.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                 <td style={cellStyle}>
-                  <div style={{ fontWeight: '400', color: '#2c3e50' }}>{item.nom}</div>
-                  {item.gazelle_product_id && (
-                    <div style={{ fontSize: '10px', color: '#95a5a6', marginTop: '2px' }}>
-                      MSL: {item.gazelle_product_id}
-                    </div>
+                  {isEditing ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editDraft.nom}
+                        onChange={(e) => setEditDraft({ ...editDraft, nom: e.target.value })}
+                        style={editInputStyle}
+                      />
+                      <textarea
+                        value={editDraft.description}
+                        onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
+                        placeholder="Description (usage interne)"
+                        rows={2}
+                        style={{ ...editInputStyle, marginTop: '4px', resize: 'vertical' }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: '400', color: '#2c3e50' }}>{item.nom}</div>
+                      {item.gazelle_product_id && (
+                        <div style={{ fontSize: '10px', color: '#95a5a6', marginTop: '2px' }}>
+                          MSL: {item.gazelle_product_id}
+                        </div>
+                      )}
+                    </>
                   )}
                 </td>
                 <td style={cellStyle}>
@@ -260,9 +333,33 @@ const CatalogueManager = () => {
                   </span>
                 </td>
                 <td style={cellStyle}>
-                  <span style={{ fontSize: '12px', color: '#2c3e50' }}>
-                    {item.prix_unitaire ? `${item.prix_unitaire.toFixed(2)} $` : '-'}
-                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editDraft.unite_mesure}
+                      onChange={(e) => setEditDraft({ ...editDraft, unite_mesure: e.target.value })}
+                      style={editInputStyle}
+                    />
+                  ) : (
+                    <span style={{ fontSize: '12px', color: '#7f8c8d' }}>
+                      {item.unite_mesure || '-'}
+                    </span>
+                  )}
+                </td>
+                <td style={cellStyle}>
+                  {isEditing ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editDraft.prix_unitaire}
+                      onChange={(e) => setEditDraft({ ...editDraft, prix_unitaire: e.target.value })}
+                      style={{ ...editInputStyle, width: '80px' }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: '12px', color: '#2c3e50' }}>
+                      {item.prix_unitaire ? `${item.prix_unitaire.toFixed(2)} $` : '-'}
+                    </span>
+                  )}
                 </td>
 
                 {/* Checkbox Actif */}
@@ -297,28 +394,41 @@ const CatalogueManager = () => {
 
                 {/* Actions */}
                 <td style={cellStyle}>
-                  {item.is_inventory_item && (
-                    <button
-                      onClick={() => {
-                        setSelectedItem(item)
-                        setShowMaterialModal(true)
-                      }}
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        backgroundColor: '#9b59b6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      🔗 Matériaux
-                    </button>
-                  )}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {isEditing ? (
+                      <>
+                        <button
+                          onClick={() => saveEdit(item)}
+                          disabled={saving}
+                          style={actionButtonStyle('#27ae60')}
+                        >
+                          {saving ? '...' : '✓ Enregistrer'}
+                        </button>
+                        <button onClick={cancelEdit} style={actionButtonStyle('#95a5a6')}>
+                          Annuler
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => startEdit(item)} style={actionButtonStyle('#3498db')}>
+                        ✏️ Éditer
+                      </button>
+                    )}
+                    {item.is_inventory_item && (
+                      <button
+                        onClick={() => {
+                          setSelectedItem(item)
+                          setShowMaterialModal(true)
+                        }}
+                        style={actionButtonStyle('#9b59b6')}
+                      >
+                        🔗 Matériaux
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
 
@@ -421,5 +531,24 @@ const cellStyle = {
   color: '#2c3e50',
   verticalAlign: 'middle'
 }
+
+const editInputStyle = {
+  width: '100%',
+  padding: '4px 6px',
+  fontSize: '12px',
+  border: '1px solid #3498db',
+  borderRadius: '3px',
+  boxSizing: 'border-box'
+}
+
+const actionButtonStyle = (color) => ({
+  padding: '4px 8px',
+  fontSize: '11px',
+  backgroundColor: color,
+  color: 'white',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer'
+})
 
 export default CatalogueManager
