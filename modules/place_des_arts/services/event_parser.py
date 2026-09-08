@@ -151,7 +151,7 @@ class EventParser:
 
             # Montant par défaut si vide
             if not normalized_row.get("billing_amount"):
-                normalized_row["billing_amount"] = "175.00"
+                normalized_row["billing_amount"] = "185.00"
 
             # Map technicien texte -> id connu
             tech = (normalized_row.get("technician_id") or "").lower()

@@ -316,7 +316,7 @@ class PDAEmailProcessor:
             "technician_id": None,
             "status": "PENDING",
             "notes": f"Import auto depuis email: {email_data.get('subject', '')}",
-            "billing_amount": 175.0,
+            "billing_amount": 185.0,
             "parking": '',
             "created_by": "gmail_scanner",
         }

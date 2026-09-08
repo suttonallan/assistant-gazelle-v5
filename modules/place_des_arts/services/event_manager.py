@@ -134,7 +134,7 @@ class EventManager:
         # Montant par défaut si vide
         billing = _parse_decimal(row.get("billing_amount"))
         if billing is None:
-            billing = 175.0
+            billing = 185.0
 
         normalized = {
             "id": row.get("id"),
