@@ -334,32 +334,12 @@ def task_rv_item_enrichment():
         raise
 
 
-def task_scan_pda_emails():
-    """
-    Scan automatique des emails PDA/OSM.
-
-    Vérifie les emails de @placedesarts.com, @operademontreal.com, @osm.ca.
-    Parse et importe automatiquement les nouvelles demandes.
-    Notifie dans Front quand une demande est importée.
-
-    Contrôlé par feature flag 'pda_auto_scanner'.
-    """
-    from core.feature_flags import is_enabled
-    if not is_enabled('pda_auto_scanner'):
-        return
-
-    print("\n📧 SCAN PDA/OSM — Recherche de nouvelles demandes...")
-    try:
-        from modules.pda_auto_scanner import scan_and_watch
-        result = scan_and_watch()
-        print(f"✅ Scan terminé: {result['scanned']} vérifiés, {result['imported']} importés, {result['skipped']} déjà traités")
-        if result['errors']:
-            for err in result['errors']:
-                print(f"   ⚠️ {err}")
-    except Exception as e:
-        print(f"❌ Erreur scan PDA: {e}")
-        import traceback
-        traceback.print_exc()
+# NOTE (2026-08-14) : une seconde definition de task_scan_pda_emails() existait
+# ici et etait ecrasee par celle plus bas dans ce fichier (Python garde la
+# derniere). Elle appelait modules.pda_auto_scanner.scan_and_watch et portait le
+# feature flag 'pda_auto_scanner'. Consequence : le flag ne coupait plus rien et
+# pda_auto_scanner.py etait du code mort. Definition supprimee, flag reporte sur
+# la version active. Meme piege que les deux routers homonymes du 2026-08-10.
 
 
 def task_backup_database():
@@ -524,6 +504,27 @@ def task_pda_access_reminder():
         traceback.print_exc()
 
 
+def task_orford_pitch_reminder():
+    """
+    Rappel diapason Orford (440 vs 442) envoye SIX JOURS avant chaque accord a
+    Orford. En periode chaude les pianos derivent vers 442 ; on rappelle de
+    demander la preference de l'artiste avant le RV. Destinataires : info@ + le(s)
+    technicien(s) assigne(s). Desactivable via system_settings
+    'orford_pitch_reminder_enabled' = 'false'.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("TACHE : Rappel diapason Orford 440/442 (J-6)")
+        print("=" * 70)
+        from modules.briefing.orford_pitch_reminder import run_orford_pitch_reminder
+        result = run_orford_pitch_reminder()
+        print(f"Resultat : {result}")
+    except Exception as exc:
+        import traceback
+        print(f"Erreur orford_pitch_reminder : {exc}")
+        traceback.print_exc()
+
+
 def task_critical_estimate_digest():
     """
     Envoie le digest quotidien à Louise des RV à venir avec soumissions
@@ -681,7 +682,15 @@ def task_scan_pda_emails():
     automatiquement et envoie un récapitulatif par email.
 
     Exécuté toutes les heures (heures ouvrables).
+
+    Contrôlé par le feature flag 'pda_auto_scanner' (rebranché le 2026-08-14 :
+    il portait sur une définition homonyme qui n'était jamais exécutée).
     """
+    from core.feature_flags import is_enabled
+    if not is_enabled('pda_auto_scanner'):
+        print("⏸️ Scan PDA désactivé (feature flag 'pda_auto_scanner')")
+        return
+
     try:
         print("\n" + "=" * 70)
         print("📬 SCAN GMAIL - DEMANDES PDA")
@@ -706,6 +715,46 @@ def task_scan_pda_emails():
 
     except Exception as e:
         print(f"\n❌ Erreur scan PDA emails: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+# ============================================================
+# RACHAT DE SPAM — vrais messages clients classés à tort (info@)
+# ============================================================
+
+def task_scan_spam():
+    """
+    Scanne le dossier Spam de info@piano-tek.com et alerte Louise par
+    courriel si un message ressemble à une vraie demande client (cf. le
+    cas Jade Bruneau, 2026-09-07). Ne déplace rien automatiquement —
+    l'accès Gmail est en lecture seule ; Louise sort elle-même le
+    message du spam si l'alerte est fondée.
+
+    Contrôlé par le feature flag 'spam_rescue' (activé par défaut).
+    """
+    from core.feature_flags import is_enabled
+    if not is_enabled('spam_rescue', default=True):
+        print("⏸️ Scan Spam désactivé (feature flag 'spam_rescue')")
+        return
+
+    try:
+        print("\n" + "=" * 70)
+        print("📬 SCAN SPAM - RACHAT DE VRAIS MESSAGES CLIENTS")
+        print("=" * 70)
+
+        from modules.alerts.spam_rescue import scan_spam_for_real_clients
+
+        stats = scan_spam_for_real_clients()
+        print(f"   Messages scannés: {stats.get('scanned', 0)}")
+        print(f"   Candidats client: {stats.get('candidates', 0)}")
+        print(f"   Alerte envoyée: {stats.get('notified', False)}")
+        print("=" * 70 + "\n")
+        return stats
+
+    except Exception as e:
+        print(f"\n❌ Erreur scan Spam: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -873,6 +922,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   17:30 - Rappel acces Place des Arts (TM/JD) configure")
 
+    # 07:15 - Rappel diapason Orford (440/442) six jours avant chaque accord
+    scheduler.add_job(
+        task_orford_pitch_reminder,
+        trigger=CronTrigger(hour=7, minute=15, timezone='America/Montreal'),
+        id='orford_pitch_reminder',
+        name='Rappel diapason Orford 440/442 (J-6, 07:15)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   07:15 - Rappel diapason Orford (440/442, J-6) configure")
+
     # 17:00 - Digest fiches d'accord a valider (tous les jours)
     # Couvre aussi les tournées weekend (VDI samedi-dimanche → digest dim soir
     # rappelle de valider avant le lundi)
@@ -949,6 +1009,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Toutes les heures (8h30-18h30) - Scan Gmail PDA configurée")
+
+    # Toutes les 2 heures (8h-18h) - Scan Spam pour vrais messages clients
+    scheduler.add_job(
+        task_scan_spam,
+        trigger=CronTrigger(hour='8-18/2', minute=45, timezone='America/Montreal'),
+        id='scan_spam_hourly',
+        name='Scan Spam - rachat vrais messages clients (8h45-18h45, aux 2h)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Toutes les 2 heures (8h45-18h45) - Scan Spam configurée")
 
     # 17:00 - Rappel validation fiches de service
     scheduler.add_job(

@@ -414,6 +414,77 @@ class GmailScanner:
 
         return ''
 
+    def scan_spam_messages(
+        self,
+        max_results: int = 30,
+        processed_ids: Optional[set] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Liste le contenu des messages actuellement dans le dossier Spam,
+        sans filtre de domaine (contrairement à scan_new_emails, qui est
+        spécifique aux demandes PDA). Sert au rachat de vrais messages
+        clients classés à tort comme spam.
+        """
+        if not self._initialized:
+            if not self.initialize():
+                return []
+
+        try:
+            results = self.service.users().messages().list(
+                userId='me', labelIds=['SPAM'], maxResults=max_results
+            ).execute()
+
+            messages = results.get('messages', [])
+            if processed_ids:
+                messages = [m for m in messages if m['id'] not in processed_ids]
+
+            emails = []
+            for msg_info in messages:
+                email_data = self._get_spam_email_content(msg_info['id'])
+                if email_data:
+                    emails.append(email_data)
+            return emails
+
+        except Exception as e:
+            logger.error(f"Erreur scan Spam: {e}", exc_info=True)
+            return []
+
+    def _get_spam_email_content(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Comme _get_email_content, mais sans le filtre de domaine PDA."""
+        try:
+            msg = self.service.users().messages().get(
+                userId='me', id=message_id, format='full'
+            ).execute()
+
+            headers = {h['name'].lower(): h['value'] for h in msg['payload']['headers']}
+            from_header = headers.get('from', '')
+            sender_name, sender_email = self._parse_from_header(from_header)
+
+            received_at = None
+            date_header = headers.get('date', '')
+            if date_header:
+                try:
+                    received_at = parsedate_to_datetime(date_header)
+                except Exception:
+                    received_at = datetime.now(timezone.utc)
+            else:
+                internal_date = int(msg.get('internalDate', 0))
+                if internal_date:
+                    received_at = datetime.fromtimestamp(internal_date / 1000, tz=timezone.utc)
+
+            return {
+                'gmail_message_id': message_id,
+                'gmail_thread_id': msg.get('threadId', ''),
+                'sender_email': sender_email,
+                'sender_name': sender_name,
+                'subject': headers.get('subject', '(sans objet)'),
+                'received_at': received_at,
+                'body_text': self._extract_body_text(msg['payload'])[:3000],
+            }
+        except Exception as e:
+            logger.error(f"Erreur lecture email spam {message_id}: {e}")
+            return None
+
     def _html_to_text(self, html: str) -> str:
         """Conversion basique HTML → texte."""
         import re
