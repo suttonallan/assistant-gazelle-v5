@@ -230,7 +230,7 @@ def _ai_confirm_match(request, gazelle_apt):
         client = Anthropic(api_key=api_key)
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=10, temperature=0,
+            max_tokens=10,
             system=_AI_PROMPT,
             messages=[{"role": "user", "content":
                 f"DEMANDE PDA: {_format_request(request)}\nRV GAZELLE: {_format_apt(gazelle_apt)}\nEst-ce le même service ?"}],
@@ -251,7 +251,7 @@ def _ai_find_match(request, same_day_apts):
         apts_str = "\n".join(f"[{i}] {_format_apt(a)}" for i, a in enumerate(same_day_apts))
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=20, temperature=0,
+            max_tokens=20,
             system=_AI_PROMPT + "\nS'il y a plusieurs RV, réponds le NUMÉRO [0], [1], etc. Réponds AUCUN si aucun.",
             messages=[{"role": "user", "content":
                 f"DEMANDE PDA: {_format_request(request)}\n\nRV GAZELLE:\n{apts_str}\n\nLequel correspond ?"}],

@@ -214,7 +214,6 @@ Réponds UNIQUEMENT avec un JSON valide (pas de markdown, pas de texte avant/apr
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=200,
-                temperature=0.1,
                 messages=[{"role": "user", "content": prompt}]
             )
 

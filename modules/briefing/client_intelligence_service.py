@@ -715,7 +715,6 @@ class NarrativeBriefingService:
             response = self.anthropic.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=500,
-                temperature=0.2,
                 system="Tu retournes UNIQUEMENT du JSON valide sans markdown. Sois concis et utile.",
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -739,16 +738,6 @@ class NarrativeBriefingService:
             if any(k in msg for k in ('credit balance', 'too low', 'billing',
                                       'quota', 'insufficient', 'payment')):
                 self._maybe_alert_ai_credit_issue(str(e))
-            # DIAGNOSTIC TEMPORAIRE (2026-09-07) — capture l'erreur brute pour
-            # comprendre pourquoi ça échoue en prod alors que ça marche en local.
-            # À retirer une fois la cause trouvée.
-            try:
-                self.storage.save_system_setting(
-                    'debug_last_narrative_ai_error',
-                    f"{type(e).__name__}: {e}"
-                )
-            except Exception:
-                pass
             # Degradation claire : c'est une PANNE IA, pas « rien a signaler ».
             return "Résumé IA temporairement indisponible.", []
 

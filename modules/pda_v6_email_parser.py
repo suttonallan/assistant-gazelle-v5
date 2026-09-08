@@ -132,7 +132,6 @@ def _parse_with_ai(text: str) -> list[dict]:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1000,
-            temperature=0,
             system=f"""Tu parses des emails de demande d'accord de piano pour Place des Arts (Montréal).
 Date du jour : {today}.
 

@@ -571,7 +571,6 @@ Prochain RDV:
         response = self.anthropic.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=2000,
-            temperature=0.3,
             system="Tu es un assistant pour techniciens de piano. Génère des résumés CONCIS et STRUCTURÉS.",
             messages=[
                 {"role": "user", "content": prompt}
