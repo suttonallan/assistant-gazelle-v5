@@ -76,6 +76,10 @@ class GazelleSyncService:
     PDA_RELATED_CLIENT_IDS = [
         "cli_HbEwl9rN11pSuDEU",  # Place des Arts
         "cli_gO9PL7gIVSQnQC4T",  # Orchestre Symphonique de Montréal (OSM)
+        # 2026-09-11: client Gazelle distinct nommé "PDA" (ex: "PDA ODM (avant 9h)").
+        # Absent d'ici, ses RV étaient invisibles au matcher -> demandes mal liées
+        # au premier RV "Place des Arts" du même jour trouvé par le repli IA.
+        "cli_wUgiRqV88tUBTr66",  # PDA
     ]
     
     def __init__(self, storage: Optional[SupabaseStorage] = None):
@@ -219,6 +223,7 @@ class GazelleSyncService:
             # ET synchroniser les techniciens depuis Gazelle (source de vérité)
             completed_count = 0
             tech_sync_count = 0
+            relinked_count = 0
 
             if not request_ids:  # Seulement en mode "sync all"
                 linked_requests = self._get_linked_not_completed_requests()
@@ -237,6 +242,36 @@ class GazelleSyncService:
                         appointment_date = request.get('appointment_date', '')[:10] if request.get('appointment_date') else ''
                         room = request.get('room', '')
                         current_tech = request.get('technician_id')
+
+                        # Re-valider le lien existant : un lien créé avant que le
+                        # « bon » RV Gazelle n'existe encore (ex: matché par IA sur
+                        # un seul candidat disponible ce jour-là) reste faux pour
+                        # toujours si on ne fait que relire le technicien du RV lié
+                        # — on hérite alors de n'importe quel technicien assigné à
+                        # CET AUTRE RV, sans rapport avec la vraie demande PDA.
+                        # On ne fait confiance qu'au matching déterministe (pas au
+                        # repli IA) pour changer un lien déjà établi, afin de ne
+                        # pas faire osciller un lien correct sur une supposition
+                        # IA à faible confiance.
+                        from core.feature_flags import is_enabled as _is_enabled
+                        if _is_enabled('pda_v6_matcher'):
+                            from modules.pda_v6_matcher import find_best_match as _find_best_match
+                            best = _find_best_match(request, gazelle_appointments)
+                            if (best and best.get('_matched_by') != 'ai'
+                                    and best.get('external_id') != apt_id):
+                                new_apt_id = best.get('external_id')
+                                new_tech = best.get('technicien')
+                                print(f"🔁 Lien corrigé: {appointment_date} - Salle {room}")
+                                print(f"   Ancien RV: {apt_id} ({gazelle_by_id.get(apt_id, {}).get('title', '?')})")
+                                print(f"   Nouveau RV: {new_apt_id} ({best.get('title', '?')})")
+                                if not dry_run:
+                                    if self._link_request_to_appointment(request_id, new_apt_id, new_tech):
+                                        relinked_count += 1
+                                        apt_id = new_apt_id
+                                    else:
+                                        warnings.append(f"Erreur re-liaison demande {request_id}")
+                                else:
+                                    apt_id = new_apt_id
 
                         # Trouver le RV Gazelle correspondant
                         gazelle_apt = gazelle_by_id.get(apt_id)
@@ -285,7 +320,9 @@ class GazelleSyncService:
                                         warnings.append(f"Erreur mise à jour statut demande {request_id}")
                                 print()
 
-                    if completed_count > 0 or tech_sync_count > 0 or dry_run:
+                    if completed_count > 0 or tech_sync_count > 0 or relinked_count > 0 or dry_run:
+                        if relinked_count > 0:
+                            print(f"   {relinked_count} lien(s) corrigé(s) (mauvais RV Gazelle re-matché)")
                         if tech_sync_count > 0:
                             print(f"   {tech_sync_count} technicien(s) synchronisé(s) depuis Gazelle")
                         if completed_count > 0:
@@ -299,6 +336,7 @@ class GazelleSyncService:
             print(f"   Correspondances trouvées: {matched_count}")
             if not dry_run:
                 print(f"   Demandes mises à jour: {updated_count}")
+                print(f"   Liens corrigés: {relinked_count}")
                 print(f"   Demandes complétées: {completed_count}")
             print(f"{'='*70}\n")
 
@@ -307,8 +345,9 @@ class GazelleSyncService:
                 "checked": len(requests),
                 "matched": matched_count,
                 "updated": updated_count if not dry_run else 0,
+                "relinked": relinked_count if not dry_run else 0,
                 "completed": completed_count if not dry_run else 0,
-                "message": f"{matched_count}/{len(requests)} correspondances, {completed_count} complétées",
+                "message": f"{matched_count}/{len(requests)} correspondances, {relinked_count} liens corrigés, {completed_count} complétées",
                 "details": details,
                 "warnings": warnings,
                 "dry_run": dry_run
