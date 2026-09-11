@@ -674,22 +674,20 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                             request["technician_mismatch"] = True
                             request["gazelle_technician_id"] = tech_from_gazelle
                             logging.warning(f"Incohérence détectée pour demande {request.get('id')}: PDA={current_tech}, Gazelle={tech_from_gazelle}")
-                    
-                    # Gazelle est la source de vérité : toujours mettre à jour le technicien depuis Gazelle
-                    if tech_from_gazelle:
-                        # Si le technicien dans Gazelle est différent de PDA, mettre à jour
-                        if current_tech != tech_from_gazelle:
-                            request["technician_id"] = tech_from_gazelle
-                            request["technician_from_gazelle"] = True
-                            if current_tech:
-                                # Il y avait une incohérence, on l'a corrigée
-                                request["technician_mismatch"] = False
-                                logging.info(f"Corrigé technicien pour demande {request.get('id')}: {current_tech} → {tech_from_gazelle} (depuis Gazelle)")
-                            else:
-                                logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
-                        else:
-                            # Déjà synchronisé, pas besoin de mettre à jour
-                            request["technician_from_gazelle"] = True
+
+                    # Remplir depuis Gazelle SEULEMENT si rien n'a encore été choisi côté
+                    # PDA (vide ou "À attribuer") : sinon on écrase silencieusement un
+                    # technicien choisi à la main à chaque rechargement de la page, et
+                    # la modification manuelle "ne tient jamais" (signalé par Allan,
+                    # 2026-09-11). Un vrai écart avec Gazelle reste un "mismatch" à
+                    # confirmer par un humain (bouton dans le dashboard), pas une
+                    # correction automatique.
+                    if tech_from_gazelle and current_tech in (None, "", A_ATTRIBUER_ID):
+                        request["technician_id"] = tech_from_gazelle
+                        request["technician_from_gazelle"] = True
+                        logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
+                    elif tech_from_gazelle and current_tech == tech_from_gazelle:
+                        request["technician_from_gazelle"] = True
 
                     # NOTE: Le stationnement est extrait uniquement depuis les notes
                     # de service (timeline entries), pas depuis description/notes du RV.

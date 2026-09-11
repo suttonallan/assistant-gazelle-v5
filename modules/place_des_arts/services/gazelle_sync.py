@@ -260,7 +260,11 @@ class GazelleSyncService:
                             if (best and best.get('_matched_by') != 'ai'
                                     and best.get('external_id') != apt_id):
                                 new_apt_id = best.get('external_id')
-                                new_tech = best.get('technicien')
+                                # Ne pas écraser un technicien déjà choisi à la main
+                                # (vide/"À attribuer" seulement) — même principe que
+                                # la synchro technicien plus bas.
+                                A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
+                                new_tech = best.get('technicien') if current_tech in (None, '', A_ATTRIBUER_ID) else None
                                 print(f"🔁 Lien corrigé: {appointment_date} - Salle {room}")
                                 print(f"   Ancien RV: {apt_id} ({gazelle_by_id.get(apt_id, {}).get('title', '?')})")
                                 print(f"   Nouveau RV: {new_apt_id} ({best.get('title', '?')})")
@@ -279,8 +283,14 @@ class GazelleSyncService:
                             gazelle_status = gazelle_apt.get('status', '').upper()
                             gazelle_tech = gazelle_apt.get('technicien')
                             
-                            # Synchroniser le technicien depuis Gazelle (source de vérité)
-                            if gazelle_tech and current_tech != gazelle_tech:
+                            # Remplir depuis Gazelle SEULEMENT si rien n'a encore été
+                            # choisi côté PDA (vide ou "À attribuer"). Écraser un
+                            # technicien déjà défini ici annule silencieusement toute
+                            # modification manuelle faite dans le dashboard au sync
+                            # suivant (signalé par Allan, 2026-09-11) — un vrai écart
+                            # reste un "mismatch" affiché, pas une correction auto.
+                            A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
+                            if gazelle_tech and current_tech != gazelle_tech and current_tech in (None, '', A_ATTRIBUER_ID):
                                 if not dry_run:
                                     try:
                                         self.storage.client.table('place_des_arts_requests')\
