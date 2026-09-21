@@ -182,11 +182,10 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
         
         const result = await response.json()
         console.log('✅ Stock mis à jour:', result)
-        
-        // IMPORTANT: Recharger l'inventaire après chaque modification réussie
-        // pour s'assurer que l'UI reflète l'état réel de la DB
-        // Cela évite les problèmes de race condition si l'utilisateur fait plusieurs modifications rapides
-        await loadInventory()
+        // Pas de rechargement ici : la mise à jour optimiste (ligne ~138) reflète
+        // déjà la valeur enregistrée. Recharger toute la table à chaque case
+        // modifiée faisait perdre la position de défilement en plein inventaire
+        // (signalé par Nicolas, 2026-09-21) — fastidieux sur une longue liste.
       } catch (err) {
         console.error('Erreur sauvegarde:', err)
         // Recharger en cas d'erreur pour restaurer l'état correct
@@ -243,6 +242,16 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
 
   return (
     <div>
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={loadInventory}
+          className="text-xs px-3 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+          title="Recharger l'inventaire depuis le serveur"
+        >
+          🔄 Actualiser
+        </button>
+      </div>
+
       {/* Zone commentaire rapide */}
       {allowComment && (
         <div className={`mb-4 bg-blue-50 border border-blue-200 rounded-lg ${isMobile ? 'p-3' : 'p-4'}`}>
