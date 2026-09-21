@@ -453,8 +453,13 @@ const InventaireDashboard = ({ currentUser }) => {
 
       if (!response.ok) throw new Error('Erreur sauvegarde')
 
+      const result = await response.json()
+      if (!result.success) {
+        throw new Error(result.errors?.join(', ') || 'Échec de la sauvegarde (aucun produit mis à jour)')
+      }
+
       setHasChanges(false)
-      alert(`Ordre sauvegardé pour ${catalogueAdmin.length} produits`)
+      alert(`Ordre sauvegardé pour ${result.updated_count} produit(s)`)
 
       // Recharger l'inventaire après un court délai pour éviter AbortError
       setTimeout(() => {
@@ -1685,10 +1690,18 @@ const InventaireDashboard = ({ currentUser }) => {
                           <button
                             onClick={() => {
                               if (index === 0) return
-                              const updated = [...catalogueAdmin]
-                              const temp = updated[index - 1].display_order
-                              updated[index - 1].display_order = updated[index].display_order
-                              updated[index].display_order = temp
+                              // Échanger avec le voisin VISIBLE (sortedProducts), pas un index
+                              // dans catalogueAdmin (liste complète non triée, non filtrée —
+                              // les deux ordres ne correspondent quasi jamais dès qu'un produit
+                              // inactif existe). Signalé par Allan, 2026-09-21 : l'ordre "ne tenait pas".
+                              const neighbor = sortedProducts[index - 1]
+                              const currentOrder = product.display_order || 0
+                              const neighborOrder = neighbor.display_order || 0
+                              const updated = catalogueAdmin.map(p => {
+                                if (p.code_produit === product.code_produit) return { ...p, display_order: neighborOrder }
+                                if (p.code_produit === neighbor.code_produit) return { ...p, display_order: currentOrder }
+                                return p
+                              })
                               setCatalogueAdmin(updated)
                               setHasChanges(true)
                             }}
@@ -1699,15 +1712,19 @@ const InventaireDashboard = ({ currentUser }) => {
                           </button>
                           <button
                             onClick={() => {
-                              if (index === filteredProducts.length - 1) return
-                              const updated = [...catalogueAdmin]
-                              const temp = updated[index + 1].display_order
-                              updated[index + 1].display_order = updated[index].display_order
-                              updated[index].display_order = temp
+                              if (index === sortedProducts.length - 1) return
+                              const neighbor = sortedProducts[index + 1]
+                              const currentOrder = product.display_order || 0
+                              const neighborOrder = neighbor.display_order || 0
+                              const updated = catalogueAdmin.map(p => {
+                                if (p.code_produit === product.code_produit) return { ...p, display_order: neighborOrder }
+                                if (p.code_produit === neighbor.code_produit) return { ...p, display_order: currentOrder }
+                                return p
+                              })
                               setCatalogueAdmin(updated)
                               setHasChanges(true)
                             }}
-                            disabled={index === filteredProducts.length - 1}
+                            disabled={index === sortedProducts.length - 1}
                             className="text-gray-600 hover:text-blue-600 disabled:text-gray-300 text-xs"
                           >
                             ▼

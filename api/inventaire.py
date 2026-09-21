@@ -567,7 +567,7 @@ async def update_batch_order(batch: BatchOrderUpdate):
                 errors.append(f"{code_produit}: {str(e)}")
 
         return {
-            "success": True,
+            "success": updated_count > 0 or not batch.products,
             "updated_count": updated_count,
             "total": len(batch.products),
             "errors": errors if errors else None
