@@ -99,6 +99,18 @@ def _parse_tabular(text: str) -> list[dict]:
         piano = parts[6] if len(parts) > 6 else ""
         time_str = parts[7] if len(parts) > 7 else ""
 
+        confidence = 1.0
+        warnings = []
+        # Détecte un décalage de colonnes Piano/Heure : le tableur source n'a pas
+        # toujours cet ordre exact, et rien d'autre ne le vérifiait — un lot entier
+        # glissait en silence avec confidence=1.0, donc jamais signalé pour relecture
+        # (cas réel 2026-09 : "La Dame aux Camélias", heure dans Piano, nom complet
+        # de la demandeuse dans Heure, sur 10 lignes d'un coup).
+        if _looks_like_time(piano) and not _looks_like_time(time_str):
+            piano, time_str = time_str, piano
+            confidence = 0.6
+            warnings.append("Colonnes Piano/Heure potentiellement inversées dans le texte source — vérifier.")
+
         results.append({
             "appointment_date": appointment_date,
             "request_date": request_date,
@@ -108,9 +120,9 @@ def _parse_tabular(text: str) -> list[dict]:
             "requester": requester,
             "piano": piano,
             "time": time_str,
-            "confidence": 1.0,
+            "confidence": confidence,
             "method": "tabular",
-            "warnings": [],
+            "warnings": warnings,
         })
 
     return results
@@ -170,6 +182,12 @@ Si un champ n'est pas mentionné, mettre une chaîne vide.""",
             # Normaliser
             item["room"] = _normalize_room(item.get("room", ""))
             item["requester"] = _normalize_requester(item.get("requester", ""))
+            # Même garde-fou que le parseur tabulaire : une heure dans "piano" est
+            # un signe fiable d'inversion, peu importe la méthode de parsing.
+            if _looks_like_time(item.get("piano", "")) and not _looks_like_time(item.get("time", "")):
+                item["piano"], item["time"] = item.get("time", ""), item.get("piano", "")
+                item["confidence"] = 0.6
+                item["warnings"].append("Colonnes Piano/Heure potentiellement inversées — vérifier.")
             results.append(item)
 
         logger.info(f"AI parsed {len(results)} request(s) from email")
@@ -241,6 +259,13 @@ def _parse_compact_fallback(text: str) -> list[dict]:
 
 
 # ── Helpers ──
+
+
+def _looks_like_time(value: str) -> bool:
+    """Détecte une valeur qui ressemble à une exigence horaire (16h00, avant 9h, entre 8h et 10h)."""
+    if not value:
+        return False
+    return bool(re.search(r"\d{1,2}\s*h\s*\d{0,2}", value, re.IGNORECASE))
 
 
 def _parse_date(date_str: str, now: datetime) -> Optional[str]:
