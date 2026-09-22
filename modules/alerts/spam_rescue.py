@@ -34,12 +34,21 @@ Signes d'un VRAI message client :
 - Ton personnel, direct, référence à un rendez-vous, un piano, un service, un paiement
 - Signature avec un vrai nom et des coordonnées cohérentes
 - Question ou demande concrète adressée à l'entreprise
+- Une adresse personnelle (gmail/hotmail/outlook) est NORMALE pour un client, pas un
+  signe de spam — la plupart des vrais clients écrivent d'une adresse personnelle.
 
 Signes de VRAI spam/pourriel :
 - Promotion, marketing de masse, offre non sollicitée (SEO, prêts, crypto, etc.)
 - Expéditeur générique ou non lié au piano/musique
 - Liens suspects, urgence artificielle, demande d'argent/gift cards inhabituelle
 - Newsletter, sondage, relance commerciale d'un fournisseur inconnu
+
+IMPORTANT — fils de discussion : le corps contient souvent, sous la nouvelle réponse, un
+message CITÉ précédent (marqué par une ligne du genre « Le [date] à [heure], [Nom]
+<[email]> a écrit : » ou « On [date], [Nom] wrote: »), généralement une réponse de
+Piano Tek Musique elle-même à ce client. Ce n'est PAS un signe d'usurpation ni de
+double expéditeur suspect — c'est le fonctionnement normal d'un fil de courriel. Juge
+la légitimité sur le nouveau texte au-dessus de la citation, pas sur le contenu cité.
 
 Message à évaluer :
 De: {sender_name} <{sender_email}>
@@ -77,12 +86,32 @@ def _get_anthropic_client():
     return Anthropic(api_key=api_key)
 
 
+# Repère le début d'un message cité dans une réponse (FR/EN), pour ne garder que le
+# nouveau texte écrit par l'expéditeur — sinon le classificateur peut confondre le nom
+# de l'entreprise cité dans l'historique avec une usurpation (cas réel : Claire Therrien,
+# 2026-09-21, classée à tort comme spam à cause du "Piano Technique Montréal a écrit :"
+# cité sous sa réponse).
+QUOTE_MARKERS = [
+    r'^Le .{3,60}? a écrit\s*:',       # "Le 21 sept. 2026 à 09:32, X <...> a écrit :"
+    r'^On .{3,60}? wrote\s*:',          # "On Sep 21, 2026, X <...> wrote:"
+    r'^-{2,}\s*Original Message\s*-{2,}',
+    r'^From:\s',
+]
+_QUOTE_RE = re.compile('|'.join(QUOTE_MARKERS), re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_quoted_reply(body: str) -> str:
+    match = _QUOTE_RE.search(body)
+    return body[:match.start()].strip() if match else body.strip()
+
+
 def _classify(anthropic_client, email: Dict[str, Any]) -> Dict[str, Any]:
+    new_text = _strip_quoted_reply(email.get('body_text') or '')
     prompt = CLASSIFY_PROMPT.format(
         sender_name=email.get('sender_name') or '(inconnu)',
         sender_email=email.get('sender_email') or '(inconnu)',
         subject=email.get('subject') or '(sans objet)',
-        body=(email.get('body_text') or '')[:1500],
+        body=new_text[:1500],
     )
     try:
         response = anthropic_client.messages.create(
