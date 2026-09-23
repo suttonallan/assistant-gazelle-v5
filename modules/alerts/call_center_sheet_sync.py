@@ -8,6 +8,12 @@ Gazelle log un appel comme une timeline entry SYSTEM_MESSAGE titrée
 "Le statut du client a été changé à inactive..." avec la note du technicien
 en description. Ce module lit les nouvelles entrées depuis le dernier sync
 et les ajoute au Sheet.
+
+Portée volontairement stricte (Allan, 2026-09-23) : uniquement les résultats
+qui viennent PROUVABLEMENT d'un appel du Call Center. Un "RV créé" (rendez-vous
+créé pour un prospect) a été essayé puis retiré car Gazelle n'attache aucun
+auteur à cet événement -- vérifié qu'au moins un cas réel était en fait une
+réservation en ligne du client, sans lien avec un appel.
 """
 import re
 from datetime import datetime, timezone
@@ -43,32 +49,20 @@ def sync_call_center_to_sheet() -> dict:
         from datetime import timedelta
         since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
 
-    # Deux types de resultat suivis. Deux requetes separees plutot qu'un .or_()
-    # combine : PostgREST interprete mal les parentheses litterales ("(était...)")
-    # a l'interieur d'un filtre or_(), ce qui faisait silencieusement disparaitre
-    # la moitie des conditions (verifie en direct le 2026-09-23).
-    #
-    # - "Client désactivé" : transition VERS inactive faite par une vraie personne
-    #   (user_id present) -- signature fiable d'un appel qui n'a pas abouti.
-    deactivations = storage.client.table('gazelle_timeline_entries').select(
+    # UNIQUEMENT les désactivations faites par une vraie personne (user_id
+    # present) : c'est le seul signal prouvable comme venant d'un vrai appel du
+    # Call Center (note "Autre -- ..." de Margot/Louise après avoir joint ou pas
+    # le client). Un "RV créé" (prospect -> new) a été essayé puis retiré
+    # (2026-09-23, sur demande d'Allan) : Gazelle n'attache jamais d'auteur à cet
+    # événement, et vérifié en direct qu'au moins un cas réel venait d'un client
+    # qui avait réservé lui-même en ligne (source: client_schedule) -- aucun
+    # moyen fiable de distinguer un vrai résultat d'appel d'une autre prise de
+    # contact. Mieux vaut ne rien afficher que d'afficher un faux positif.
+    rows = storage.client.table('gazelle_timeline_entries').select(
         'title,description,occurred_at,client_id,user_id'
     ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
         'title', '%statut du client a été%inactive (était%'
-    ).not_.is_('user_id', 'null').gt('occurred_at', since).execute().data or []
-
-    # - "RV créé" : un prospect devient "new" parce qu'un rendez-vous vient d'etre
-    #   cree pour lui. Ce message est TOUJOURS automatique cote Gazelle (pas de
-    #   user_id), donc on ne peut pas prouver que CE rendez-vous vient d'un appel
-    #   du Call Center precisement -- ca peut aussi venir d'une prise de contact
-    #   par un autre canal. Affiche quand meme (demande par Allan) avec le
-    #   technicien marque "(automatique)" pour rester honnete sur cette limite.
-    new_appointments = storage.client.table('gazelle_timeline_entries').select(
-        'title,description,occurred_at,client_id,user_id'
-    ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
-        'title', '%statut du client a été changé à new (était prospect)%'
-    ).gt('occurred_at', since).execute().data or []
-
-    rows = sorted(deactivations + new_appointments, key=lambda r: r.get('occurred_at') or '')
+    ).not_.is_('user_id', 'null').gt('occurred_at', since).order('occurred_at').execute().data or []
 
     if not rows:
         return {"success": True, "added": 0, "message": "Aucun nouvel appel depuis le dernier sync"}
@@ -94,11 +88,9 @@ def sync_call_center_to_sheet() -> dict:
     for r in rows:
         occurred = r.get('occurred_at') or ''
         date_str, time_str = (occurred[:10], occurred[11:16]) if len(occurred) >= 16 else (occurred[:10], '')
-        title = r.get('title') or ''
-        is_deactivation = 'inactive (était' in title
-        result_type = 'Client désactivé' if is_deactivation else 'RV créé'
+        result_type = 'Client désactivé'
         uid = r.get('user_id')
-        tech = TECH_DISPLAY_NAMES.get(uid, uid) if uid else '(automatique)'
+        tech = TECH_DISPLAY_NAMES.get(uid, uid)
         cid = r.get('client_id')
         client_name = clients_map.get(cid) or contacts_map.get(cid) or '(client inconnu)'
         outcome = r.get('description') or ''
