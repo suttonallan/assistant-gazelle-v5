@@ -43,16 +43,32 @@ def sync_call_center_to_sheet() -> dict:
         from datetime import timedelta
         since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
 
-    # "inactive (était" capture les transitions VERS inactive (peu importe l'etat
-    # d'origine : active/prospect/new), et exclut les reactivations ("... en active
-    # (etait inactive)") qui ne contiennent pas cette sous-chaine. Les entrees sans
-    # user_id sont des changements automatiques du systeme (ex: RV cree/complete),
-    # pas de vrais appels.
-    rows = storage.client.table('gazelle_timeline_entries').select(
+    # Deux types de resultat suivis. Deux requetes separees plutot qu'un .or_()
+    # combine : PostgREST interprete mal les parentheses litterales ("(était...)")
+    # a l'interieur d'un filtre or_(), ce qui faisait silencieusement disparaitre
+    # la moitie des conditions (verifie en direct le 2026-09-23).
+    #
+    # - "Client désactivé" : transition VERS inactive faite par une vraie personne
+    #   (user_id present) -- signature fiable d'un appel qui n'a pas abouti.
+    deactivations = storage.client.table('gazelle_timeline_entries').select(
         'title,description,occurred_at,client_id,user_id'
     ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
-        'title', '%inactive (était%'
-    ).not_.is_('user_id', 'null').gt('occurred_at', since).order('occurred_at').execute().data or []
+        'title', '%statut du client a été%inactive (était%'
+    ).not_.is_('user_id', 'null').gt('occurred_at', since).execute().data or []
+
+    # - "RV créé" : un prospect devient "new" parce qu'un rendez-vous vient d'etre
+    #   cree pour lui. Ce message est TOUJOURS automatique cote Gazelle (pas de
+    #   user_id), donc on ne peut pas prouver que CE rendez-vous vient d'un appel
+    #   du Call Center precisement -- ca peut aussi venir d'une prise de contact
+    #   par un autre canal. Affiche quand meme (demande par Allan) avec le
+    #   technicien marque "(automatique)" pour rester honnete sur cette limite.
+    new_appointments = storage.client.table('gazelle_timeline_entries').select(
+        'title,description,occurred_at,client_id,user_id'
+    ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
+        'title', '%statut du client a été changé à new (était prospect)%'
+    ).gt('occurred_at', since).execute().data or []
+
+    rows = sorted(deactivations + new_appointments, key=lambda r: r.get('occurred_at') or '')
 
     if not rows:
         return {"success": True, "added": 0, "message": "Aucun nouvel appel depuis le dernier sync"}
@@ -78,16 +94,20 @@ def sync_call_center_to_sheet() -> dict:
     for r in rows:
         occurred = r.get('occurred_at') or ''
         date_str, time_str = (occurred[:10], occurred[11:16]) if len(occurred) >= 16 else (occurred[:10], '')
-        tech = TECH_DISPLAY_NAMES.get(r.get('user_id'), r.get('user_id') or '?')
+        title = r.get('title') or ''
+        is_deactivation = 'inactive (était' in title
+        result_type = 'Client désactivé' if is_deactivation else 'RV créé'
+        uid = r.get('user_id')
+        tech = TECH_DISPLAY_NAMES.get(uid, uid) if uid else '(automatique)'
         cid = r.get('client_id')
         client_name = clients_map.get(cid) or contacts_map.get(cid) or '(client inconnu)'
         outcome = r.get('description') or ''
-        sheet_rows.append([date_str, time_str, tech, client_name, outcome])
+        sheet_rows.append([date_str, time_str, tech, client_name, result_type, outcome])
         if occurred > latest_occurred_at:
             latest_occurred_at = occurred
 
     svc = gsheet_client()
-    append_rows(svc, SHEET_ID, f"{TAB_NAME}!A:E", sheet_rows)
+    append_rows(svc, SHEET_ID, f"{TAB_NAME}!A:F", sheet_rows)
 
     storage.save_system_setting(LAST_SYNC_SETTING_KEY, latest_occurred_at)
 
