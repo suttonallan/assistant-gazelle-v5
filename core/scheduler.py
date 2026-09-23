@@ -761,6 +761,39 @@ def task_scan_spam():
 
 
 # ============================================================
+# SYNC CALL CENTER -> GOOGLE SHEET
+# ============================================================
+
+def task_sync_call_center_sheet():
+    """
+    Compile les nouveaux appels du Call Center Gazelle (relances client par
+    téléphone : Louise, Margot, etc.) dans le Google Sheet "Appels du Call
+    Center", pour que l'équipe puisse le consulter sans repasser par Gazelle.
+
+    Demandé par Allan (2026-09-23), suite au constat que l'ancien suivi Drive
+    était abandonné depuis 2019 — le suivi s'était déplacé dans Gazelle sans
+    jamais être recompilé ailleurs.
+    """
+    try:
+        print("\n" + "=" * 70)
+        print("📞 SYNC CALL CENTER -> GOOGLE SHEET")
+        print("=" * 70)
+
+        from modules.alerts.call_center_sheet_sync import sync_call_center_to_sheet
+
+        stats = sync_call_center_to_sheet()
+        print(f"   Appels ajoutés: {stats.get('added', 0)}")
+        print("=" * 70 + "\n")
+        return stats
+
+    except Exception as e:
+        print(f"\n❌ Erreur sync Call Center: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+# ============================================================
 # RAPPEL VALIDATION FICHES DE SERVICE (17h)
 # ============================================================
 
@@ -1020,6 +1053,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Toutes les 2 heures (8h45-18h45) - Scan Spam configurée")
+
+    # 19:00 - Sync Call Center vers Google Sheet
+    scheduler.add_job(
+        task_sync_call_center_sheet,
+        trigger=CronTrigger(hour=19, minute=0, timezone='America/Montreal'),
+        id='sync_call_center_sheet',
+        name='Sync Call Center -> Google Sheet (19h00)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 19:00 - Sync Call Center -> Google Sheet configurée")
 
     # 17:00 - Rappel validation fiches de service
     scheduler.add_job(
