@@ -20,8 +20,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.assistant_routes import (
-    REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL, JOINT_APPOINTMENT_TOOL,
-    execute_review_estimate, execute_search_keyword, execute_joint_appointment,
+    REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL, JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL,
+    execute_review_estimate, execute_search_keyword, execute_joint_appointment, execute_list_calls,
 )
 from api.assistant_duplication import duplicate_estimate
 
@@ -50,7 +50,7 @@ REACTIVATE_ESTIMATE_TOOL = {
     },
 }
 
-TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL, JOINT_APPOINTMENT_TOOL]
+TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL, JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL]
 
 
 def _run_tool(name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -74,6 +74,11 @@ def _run_tool(name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
             )
         if name == "create_joint_appointment":
             return execute_joint_appointment(**tool_input)
+        if name == "list_recent_calls":
+            return execute_list_calls(
+                technician_first_name=tool_input.get("technician_first_name"),
+                hours_back=tool_input.get("hours_back"),
+            )
         return {"success": False, "error": f"Outil inconnu : {name}"}
     except Exception as exc:  # noqa: BLE001
         import traceback
@@ -116,7 +121,10 @@ async def converse(req: ConverseRequest):
         "d'un numéro. reprice=true pour « réactiver / à jour / nouveaux prix ».\n"
         "- review_estimate : analyser/réviser une soumission existante.\n"
         "- search_events_by_keyword : retrouver des rendez-vous par mot-clé.\n"
-        "- create_joint_appointment : créer un RV conjoint.\n\n"
+        "- create_joint_appointment : créer un RV conjoint.\n"
+        "- list_recent_calls : liste des appels du Call Center Gazelle faits par un "
+        "technicien (relances client, avec résultat noté). Si l'utilisateur dit "
+        "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n\n"
         "Sers-toi de l'HISTORIQUE : si l'utilisateur confirme (« oui », « vas-y ») une "
         "action que tu viens de proposer, exécute-la avec l'outil. Si une demande est "
         "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner.\n"

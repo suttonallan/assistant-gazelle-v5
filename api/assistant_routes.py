@@ -1107,6 +1107,102 @@ def execute_search_keyword(
     }
 
 
+LIST_CALLS_TOOL = {
+    "name": "list_recent_calls",
+    "description": (
+        "Retourne la liste des appels du Call Center Gazelle faits par un technicien "
+        "récemment (clients relancés par téléphone, avec le résultat noté : laissé un "
+        "message, numéro invalide, client joint, etc.). Utilise cet outil quand "
+        "l'utilisateur demande un résumé de sa session d'appels, ex : 'sors-moi la "
+        "liste des clients que j'ai appelés', 'qu'est-ce que j'ai noté pendant ma "
+        "session d'appels', 'mes appels d'aujourd'hui'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "technician_first_name": {
+                "type": "string",
+                "description": (
+                    "Le technicien dont on veut les appels. Si l'utilisateur dit "
+                    "'moi'/'mes appels' sans préciser, utilise le prénom de "
+                    "l'utilisateur courant indiqué dans le contexte de la conversation."
+                ),
+            },
+            "hours_back": {
+                "type": "integer",
+                "description": (
+                    "Nombre d'heures en arrière à couvrir. Défaut 8 (une session/journée "
+                    "de travail). Maximum 336 (14 jours)."
+                ),
+            },
+        },
+        "required": ["technician_first_name"],
+    },
+}
+
+
+def execute_list_calls(technician_first_name: str, hours_back: Optional[int] = None) -> Dict[str, Any]:
+    """Liste les appels du Call Center Gazelle (changements de statut client avec
+    note) faits par un technicien dans la fenêtre demandée.
+
+    Le Call Center Gazelle liste les clients sans rappel depuis longtemps ; un
+    technicien les appelle et log le résultat, généralement via un changement de
+    statut à 'inactive' avec une note ('laissé un msg', 'numéro inexistant', etc.).
+    Ces notes sont synchronisées comme timeline entries de type SYSTEM_MESSAGE.
+    """
+    from core.supabase_storage import SupabaseStorage
+    from datetime import datetime, timedelta, timezone
+
+    tech_id = resolve_tech(technician_first_name)
+    if not tech_id:
+        return {"success": False, "error": f"Technicien inconnu : '{technician_first_name}'."}
+
+    hours = max(1, min(hours_back or 8, 24 * 14))
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+    storage = SupabaseStorage(silent=True)
+    rows = storage.client.table('gazelle_timeline_entries').select(
+        'title,description,occurred_at,client_id'
+    ).eq('user_id', tech_id).gte('occurred_at', since).ilike(
+        'title', '%statut du client%'
+    ).order('occurred_at', desc=True).execute().data or []
+
+    client_ids = list({r['client_id'] for r in rows if r.get('client_id')})
+    clients_map: Dict[str, str] = {}
+    contacts_map: Dict[str, str] = {}
+    if client_ids:
+        cr = storage.client.table('gazelle_clients').select(
+            'external_id,company_name'
+        ).in_('external_id', client_ids).execute().data or []
+        clients_map = {c['external_id']: c.get('company_name') for c in cr if c.get('company_name')}
+
+        ctr = storage.client.table('gazelle_contacts').select(
+            'client_external_id,first_name,last_name'
+        ).in_('client_external_id', client_ids).eq('is_default', True).execute().data or []
+        contacts_map = {
+            c['client_external_id']: f"{c.get('first_name', '')} {c.get('last_name', '')}".strip()
+            for c in ctr
+        }
+
+    calls = []
+    for r in rows:
+        cid = r.get('client_id')
+        name = clients_map.get(cid) or contacts_map.get(cid) or "(client inconnu)"
+        calls.append({
+            "client_name": name,
+            "outcome": r.get('description'),
+            "occurred_at": r.get('occurred_at'),
+        })
+
+    return {
+        "success": True,
+        "technician": TECH_DISPLAY_NAMES.get(tech_id, technician_first_name),
+        "hours_scanned": hours,
+        "calls_count": len(calls),
+        "calls": calls,
+    }
+
+
 @router.post("/search-keyword", response_model=Dict[str, Any])
 async def search_keyword(req: AssistantRequest):
     """Parse une demande de recherche par mot-clé et retourne les events matchants.
