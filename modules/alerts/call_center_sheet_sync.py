@@ -9,20 +9,32 @@ Gazelle log un appel comme une timeline entry SYSTEM_MESSAGE titrée
 en description. Ce module lit les nouvelles entrées depuis le dernier sync
 et les ajoute au Sheet.
 
-Portée volontairement stricte (Allan, 2026-09-23) : uniquement les résultats
-qui viennent PROUVABLEMENT d'un appel du Call Center. Un "RV créé" (rendez-vous
-créé pour un prospect) a été essayé puis retiré car Gazelle n'attache aucun
-auteur à cet événement -- vérifié qu'au moins un cas réel était en fait une
-réservation en ligne du client, sans lien avec un appel.
+Deux types de résultat :
+- "Client désactivé" : signal direct et prouvable (un humain a désactivé le
+  client, avec une note "Autre -- ...").
+- "RV créé (pendant l'appel)" : le client a accepté un rendez-vous plutôt que
+  d'être désactivé. Gazelle n'attache aucune preuve directe reliant un
+  "Rendez-vous créé" à un appel précis (un "RV créé" isolé a été essayé et
+  retiré le 2026-09-23 pour cette raison -- un cas réel testé était une
+  réservation en ligne du client, sans rapport avec un appel). La méthode
+  retenue : ne compter un "RV créé" que s'il tombe dans une FENÊTRE DE SESSION
+  du même technicien -- un intervalle de temps ancré par au moins une vraie
+  désactivation ce jour-là, avec un écart max de 15 min entre deux actions
+  consécutives pour rester dans la même session. Un "RV créé" isolé, loin de
+  tout appel logué, n'est jamais inclus.
 """
-import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from core.supabase_storage import SupabaseStorage
 
 SHEET_ID = "1d6kCDmDWaPlvUFNZq8C7crTfShv_qPMWGBPsiHx4lc4"
 TAB_NAME = "Appels"
 LAST_SYNC_SETTING_KEY = "call_center_sheet_last_sync"
+
+# Ecart max entre deux actions consecutives pour rester dans la meme session
+# d'appels, et marge ajoutee de part et d'autre de la fenetre resultante.
+SESSION_GAP = timedelta(minutes=15)
+SESSION_BUFFER = timedelta(minutes=5)
 
 TECH_DISPLAY_NAMES = {
     "usr_ofYggsCDt2JAVeNP": "Allan",
@@ -31,6 +43,44 @@ TECH_DISPLAY_NAMES = {
     "usr_bbt59aCUqUaDWA8n": "Margot",
     "usr_tndhXmnT0iakT4HF": "Louise",
 }
+
+
+def _parse(occurred_at: str) -> datetime:
+    return datetime.fromisoformat(occurred_at.replace('Z', '+00:00'))
+
+
+def _build_session_windows(deactivations: list) -> dict:
+    """Regroupe les désactivations par technicien en fenêtres de session
+    (clusters d'actions rapprochées dans le temps), avec une marge de part
+    et d'autre. Retourne {user_id: [(start, end), ...]}."""
+    by_tech = {}
+    for r in deactivations:
+        uid = r.get('user_id')
+        if not uid:
+            continue
+        by_tech.setdefault(uid, []).append(_parse(r['occurred_at']))
+
+    windows = {}
+    for uid, times in by_tech.items():
+        times.sort()
+        sessions = []
+        session_start = session_end = times[0]
+        for t in times[1:]:
+            if t - session_end <= SESSION_GAP:
+                session_end = t
+            else:
+                sessions.append((session_start, session_end))
+                session_start = session_end = t
+        sessions.append((session_start, session_end))
+        windows[uid] = [(s - SESSION_BUFFER, e + SESSION_BUFFER) for s, e in sessions]
+    return windows
+
+
+def _falls_in_session(uid: str, when: datetime, windows: dict) -> bool:
+    for start, end in windows.get(uid, []):
+        if start <= when <= end:
+            return True
+    return False
 
 
 def sync_call_center_to_sheet() -> dict:
@@ -46,26 +96,30 @@ def sync_call_center_to_sheet() -> dict:
     since = storage.get_system_setting(LAST_SYNC_SETTING_KEY)
     if not since:
         # Premier sync : couvre les 90 derniers jours (pas tout l'historique).
-        from datetime import timedelta
         since = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
 
-    # UNIQUEMENT les désactivations faites par une vraie personne (user_id
-    # present) : c'est le seul signal prouvable comme venant d'un vrai appel du
-    # Call Center (note "Autre -- ..." de Margot/Louise après avoir joint ou pas
-    # le client). Un "RV créé" (prospect -> new) a été essayé puis retiré
-    # (2026-09-23, sur demande d'Allan) : Gazelle n'attache jamais d'auteur à cet
-    # événement, et vérifié en direct qu'au moins un cas réel venait d'un client
-    # qui avait réservé lui-même en ligne (source: client_schedule) -- aucun
-    # moyen fiable de distinguer un vrai résultat d'appel d'une autre prise de
-    # contact. Mieux vaut ne rien afficher que d'afficher un faux positif.
-    rows = storage.client.table('gazelle_timeline_entries').select(
+    deactivations = storage.client.table('gazelle_timeline_entries').select(
         'title,description,occurred_at,client_id,user_id'
     ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
         'title', '%statut du client a été%inactive (était%'
-    ).not_.is_('user_id', 'null').gt('occurred_at', since).order('occurred_at').execute().data or []
+    ).not_.is_('user_id', 'null').gt('occurred_at', since).execute().data or []
 
+    appointments_created = storage.client.table('gazelle_timeline_entries').select(
+        'title,description,occurred_at,client_id,user_id'
+    ).eq('entry_type', 'SYSTEM_MESSAGE').ilike(
+        'title', '%Rendez-vous%créé%'
+    ).not_.is_('user_id', 'null').gt('occurred_at', since).execute().data or []
+
+    session_windows = _build_session_windows(deactivations)
+    matched_appointments = [
+        r for r in appointments_created
+        if _falls_in_session(r.get('user_id'), _parse(r['occurred_at']), session_windows)
+    ]
+
+    rows = deactivations + matched_appointments
     if not rows:
         return {"success": True, "added": 0, "message": "Aucun nouvel appel depuis le dernier sync"}
+    rows.sort(key=lambda r: r['occurred_at'])
 
     client_ids = list({r['client_id'] for r in rows if r.get('client_id')})
     clients_map, contacts_map = {}, {}
@@ -88,12 +142,13 @@ def sync_call_center_to_sheet() -> dict:
     for r in rows:
         occurred = r.get('occurred_at') or ''
         date_str, time_str = (occurred[:10], occurred[11:16]) if len(occurred) >= 16 else (occurred[:10], '')
-        result_type = 'Client désactivé'
+        is_deactivation = 'inactive (était' in (r.get('title') or '')
+        result_type = 'Client désactivé' if is_deactivation else 'RV créé (pendant l\'appel)'
         uid = r.get('user_id')
         tech = TECH_DISPLAY_NAMES.get(uid, uid)
         cid = r.get('client_id')
         client_name = clients_map.get(cid) or contacts_map.get(cid) or '(client inconnu)'
-        outcome = r.get('description') or ''
+        outcome = r.get('description') or r.get('title') or ''
         sheet_rows.append([date_str, time_str, tech, client_name, result_type, outcome])
         if occurred > latest_occurred_at:
             latest_occurred_at = occurred
@@ -103,7 +158,13 @@ def sync_call_center_to_sheet() -> dict:
 
     storage.save_system_setting(LAST_SYNC_SETTING_KEY, latest_occurred_at)
 
-    return {"success": True, "added": len(sheet_rows), "up_to": latest_occurred_at}
+    return {
+        "success": True,
+        "added": len(sheet_rows),
+        "deactivations": len(deactivations),
+        "appointments_matched": len(matched_appointments),
+        "up_to": latest_occurred_at,
+    }
 
 
 if __name__ == "__main__":
