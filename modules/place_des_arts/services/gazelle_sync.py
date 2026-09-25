@@ -729,13 +729,20 @@ class GazelleSyncService:
             return None
 
         try:
+            from zoneinfo import ZoneInfo
             date_str = apt_date[:10] if isinstance(apt_date, str) else str(apt_date)[:10]
+            # La journée du RV est une journée MONTRÉAL. occurred_at est en UTC :
+            # une note saisie le soir (après 20 h HAE) tombe au lendemain en UTC et
+            # était ignorée par l'ancienne fenêtre 00:00–23:59 UTC.
+            day_start = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=ZoneInfo("America/Montreal"))
+            day_end = day_start + timedelta(days=1)
+            utc = ZoneInfo("UTC")
             query = self.storage.client.table('gazelle_timeline_entries')\
                 .select('title, description')\
                 .eq('piano_id', piano_id)\
                 .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
-                .gte('occurred_at', f"{date_str}T00:00:00")\
-                .lte('occurred_at', f"{date_str}T23:59:59")
+                .gte('occurred_at', day_start.astimezone(utc).isoformat())\
+                .lt('occurred_at', day_end.astimezone(utc).isoformat())
 
             # Chaque tech ne voit que ses propres notes (le stat de Nicolas ne va pas
             # sur un RV d'Allan).
