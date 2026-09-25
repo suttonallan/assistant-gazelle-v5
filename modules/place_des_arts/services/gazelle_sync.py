@@ -52,8 +52,21 @@ def extract_parking_amount(text: str) -> Optional[str]:
     # Chercher: keyword + séparateurs optionnels + montant
     pattern = rf'{keyword}\s*[:=\-]?\s*{amount}'
 
-    match = re.search(pattern, text, re.IGNORECASE)
-    if match:
+    # Variantes tolérées, qui EXIGENT un « $ » explicite pour éviter les faux positifs
+    # (températures, humidité, numéros de salle) :
+    # - quelques mots entre le mot-clé et le montant : "Stationnement payé 20$"
+    # - montant AVANT le mot-clé : "20$ de stationnement", "15,50 $ stat"
+    amount_dollar = r'(\d+(?:[.,]\d{1,2})?)\s*\$'
+    patterns = [
+        pattern,
+        rf'{keyword}\s*[:=\-]?\s*(?:[^\W\d]+\s+){{1,2}}{amount_dollar}',
+        rf'{amount_dollar}\s*(?:(?:de|du|pour|en)\s+(?:le\s+|la\s+)?)?{keyword}',
+    ]
+
+    for p in patterns:
+        match = re.search(p, text, re.IGNORECASE)
+        if not match:
+            continue
         value_str = match.group(1).replace(',', '.')
         try:
             value = float(value_str)
