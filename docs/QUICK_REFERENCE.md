@@ -298,8 +298,8 @@ curl http://localhost:8000/nouvelle-ecole/pianos | python3 -m json.tool
 ## 📚 Documentation Complète
 
 - **Architecture complète :** `/docs/ARCHITECTURE_GUIDE.md` ← Tout est là !
-- **Rapport Timeline :** `/v6/RAPPORT_TIMELINE_V5_RECETTE.md`
-- **Post-mortem incidents :** `/v6/INCIDENT_*.md`
+- **Rapport Timeline :** `/docs/historique/RAPPORT_TIMELINE_V5_RECETTE.md`
+- **Post-mortem incidents :** `/docs/historique/INCIDENT_*.md`
 - **Setup Google :** `/docs/SETUP_GOOGLE_CREDENTIALS.md`
 
 ---

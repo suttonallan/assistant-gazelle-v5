@@ -131,7 +131,7 @@ class ServiceReports:
         else:
             # Sinon, utiliser IdentityManager (v6) avec fallback v5
             try:
-                from v6_foundation.identity_manager import IdentityManager
+                from core.identity_manager import IdentityManager
                 identity_manager = IdentityManager(storage=self.storage)
                 self.credentials_path = identity_manager.get_google_credentials_path()
                 # Garder une référence pour le nettoyage si nécessaire

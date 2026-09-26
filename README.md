@@ -14,8 +14,8 @@
 **Aide-mémoire pour opérations quotidiennes** - Démarrage, tests, requêtes SQL, scripts, debugging, fixes rapides
 
 ### 📖 Autres Guides
-- [**Rapport Timeline**](v6/RAPPORT_TIMELINE_V5_RECETTE.md) - Génération du rapport Google Sheet
-- [**Post-mortem Tags perdus**](v6/INCIDENT_2026-01-19_TAGS_PERDUS.md) - Incident tags institutionnels
+- [**Rapport Timeline**](docs/historique/RAPPORT_TIMELINE_V5_RECETTE.md) - Génération du rapport Google Sheet
+- [**Post-mortem Tags perdus**](docs/historique/INCIDENT_2026-01-19_TAGS_PERDUS.md) - Incident tags institutionnels
 - [**Setup Google Sheets**](docs/SETUP_GOOGLE_CREDENTIALS.md) - Configuration credentials Google
 - [**Alertes Humidité**](docs/INTEGRATION_ALERTES_HUMIDITE_COMPLETE.md) - Système de détection automatique
 
@@ -87,7 +87,7 @@ assistant-gazelle-v5/
 ├── docs/                    # Documentation
 │   ├── ARCHITECTURE_GUIDE.md     # 📖 Guide complet
 │   └── QUICK_REFERENCE.md        # ⚡ Aide-mémoire
-└── v6/                      # Documentation projets/incidents
+└── docs/historique/          # Leçons apprises, incidents, recettes
 ```
 
 ---
@@ -179,7 +179,7 @@ Voir [**Quick Reference**](docs/QUICK_REFERENCE.md) section "Fixes Rapides"
 
 **Token expiré :** [Guide Tokens](docs/ARCHITECTURE_GUIDE.md#authentification--tokens)  
 **Badge PLS disparu :** `python3 scripts/detect_dampp_chaser_installations.py --write`  
-**Tags perdus :** [Post-mortem incident](v6/INCIDENT_2026-01-19_TAGS_PERDUS.md)
+**Tags perdus :** [Post-mortem incident](docs/historique/INCIDENT_2026-01-19_TAGS_PERDUS.md)
 
 ---
 

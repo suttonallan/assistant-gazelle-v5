@@ -501,7 +501,7 @@ Le client n'a pas de `default_location_municipality`.
 ## 📞 Support
 
 Questions? Voir:
-- [STRATEGIE_V6.md](../../v6/docs/STRATEGIE_V6.md) - Architecture V6
+- [Leçons apprises](../../docs/historique/V6_LECONS_APPRISES.md) - Leçons apprises (ex-V6)
 - [CHAT_INTELLIGENT_SQL.md](../../docs/CHAT_INTELLIGENT_SQL.md) - SQL queries
 
 ---

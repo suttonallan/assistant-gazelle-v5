@@ -456,7 +456,7 @@ generate_reports()
 
 **Feuille Google :** [Lien vers la feuille](https://docs.google.com/spreadsheets/)
 
-**Documentation complète :** `/v6/RAPPORT_TIMELINE_V5_RECETTE.md`
+**Documentation complète :** `/docs/historique/RAPPORT_TIMELINE_V5_RECETTE.md`
 
 ### Tokens
 
@@ -722,8 +722,8 @@ python3 -c "from core.supabase_storage import SupabaseStorage; s=SupabaseStorage
 ## 📚 Documents Complémentaires
 
 - **Setup Google :** `/docs/SETUP_GOOGLE_CREDENTIALS.md`
-- **Rapport Timeline :** `/v6/RAPPORT_TIMELINE_V5_RECETTE.md`
-- **Post-mortem Tags perdus :** `/v6/INCIDENT_2026-01-19_TAGS_PERDUS.md`
+- **Rapport Timeline :** `/docs/historique/RAPPORT_TIMELINE_V5_RECETTE.md`
+- **Post-mortem Tags perdus :** `/docs/historique/INCIDENT_2026-01-19_TAGS_PERDUS.md`
 - **Alertes Humidité :** `/docs/INTEGRATION_ALERTES_HUMIDITE_COMPLETE.md`
 
 ---
