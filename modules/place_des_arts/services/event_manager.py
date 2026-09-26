@@ -7,6 +7,7 @@ Implémentation minimale pour importer un CSV dans Supabase.
 from __future__ import annotations
 
 from datetime import datetime, date, timezone
+from core.timezone_utils import aujourdhui_montreal
 from typing import List, Dict, Any, Tuple
 import requests
 
@@ -47,7 +48,7 @@ def _parse_french_date(value: str) -> str | None:
     month = MONTHS_FR.get(month_name)
     if not month:
         return None
-    today = date.today()
+    today = aujourdhui_montreal()
     year = today.year
     candidate = date(year, month, day)
     if candidate < today:

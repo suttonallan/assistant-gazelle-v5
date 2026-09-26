@@ -14,6 +14,7 @@ import re
 import json
 import logging
 from datetime import datetime
+from core.timezone_utils import aujourdhui_montreal
 from typing import Optional
 
 logger = logging.getLogger("ptm.pda.email_parser")
@@ -139,7 +140,7 @@ def _parse_with_ai(text: str) -> list[dict]:
         from anthropic import Anthropic
         client = Anthropic(api_key=api_key)
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = aujourdhui_montreal().isoformat()
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",

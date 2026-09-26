@@ -14,6 +14,7 @@ Les créations de soumission restent des BROUILLONS (rien n'est envoyé au clien
 import json
 import os
 from datetime import date
+from core.timezone_utils import aujourdhui_montreal
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -107,7 +108,7 @@ async def converse(req: ConverseRequest):
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
 
-    today_iso = date.today().isoformat()
+    today_iso = aujourdhui_montreal().isoformat()
     user_ctx = ""
     if req.current_user_first_name:
         user_ctx = f"\nL'utilisateur courant est {req.current_user_first_name}."

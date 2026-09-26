@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
+from core.timezone_utils import aujourdhui_montreal
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ _TOOL = {
 
 
 def _system_prompt() -> str:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = aujourdhui_montreal().isoformat()
     return (
         f"Tu extrais les demandes de service de piano pour Place des Arts / Opéra "
         f"de Montréal, envoyées à Piano Tek Musique. Aujourd'hui : {today}.\n\n"

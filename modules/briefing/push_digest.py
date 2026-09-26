@@ -21,6 +21,7 @@ Parametres :
 
 import os
 from datetime import datetime, timedelta, timezone
+from core.timezone_utils import aujourdhui_montreal
 from typing import Dict, List, Optional
 from collections import defaultdict
 from urllib.parse import quote
@@ -305,7 +306,7 @@ async def run_push_digest() -> Dict:
     escalations_count = sum(1 for r in records if r.get("escalate"))
     has_escalation = escalations_count > 0
 
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = aujourdhui_montreal().isoformat()
     html = _build_html(grouped, total, has_escalation, today_str)
     plain = _build_plain(grouped, total)
 

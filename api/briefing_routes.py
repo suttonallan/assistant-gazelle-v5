@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.timezone_utils import aujourdhui_montreal, bornes_journee_utc
 
 from modules.briefing.client_intelligence_service import (
     NarrativeBriefingService,
@@ -103,7 +104,7 @@ async def get_daily_briefings(
     V4: Chaque briefing contient un paragraphe narratif généré par IA
     + des flags computés en Python (PLS, langue, piano).
     """
-    target_date = date or datetime.now().strftime('%Y-%m-%d')
+    target_date = date or aujourdhui_montreal().isoformat()
 
     try:
         briefings = None
@@ -1192,11 +1193,12 @@ async def search_timeline(
         if q:
             query = query.ilike('description', f'*{q}*')
         if date:
-            query = query.gte('occurred_at', f'{date}T00:00:00').lt('occurred_at', f'{date}T23:59:59')
+            debut, fin = bornes_journee_utc(date)
+            query = query.gte('occurred_at', debut).lt('occurred_at', fin)
         if date_from:
-            query = query.gte('occurred_at', f'{date_from}T00:00:00')
+            query = query.gte('occurred_at', bornes_journee_utc(date_from)[0])
         if date_to:
-            query = query.lt('occurred_at', f'{date_to}T23:59:59')
+            query = query.lt('occurred_at', bornes_journee_utc(date_to)[1])
         if client_id:
             query = query.eq('client_id', client_id)
 

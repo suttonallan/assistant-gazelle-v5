@@ -18,6 +18,7 @@ import re
 import json
 import unicodedata
 from datetime import datetime
+from core.timezone_utils import aujourdhui_montreal
 from typing import Dict, List, Optional, Any, Tuple
 
 import requests
@@ -347,7 +348,7 @@ IMPORTANT:
 - Utilise les noms de colonnes exacts du schéma
 - Pour chercher du texte, utilise ilike avec des wildcards (*terme*)
 - Pour les dates, utilise gte/lte avec le format YYYY-MM-DD
-- La date d'aujourd'hui est {datetime.now().strftime('%Y-%m-%d')}
+- La date d'aujourd'hui est {aujourdhui_montreal().isoformat()}
 - Réponds UNIQUEMENT avec un JSON valide, sans commentaires
 - Si la question nécessite de croiser plusieurs tables, fais plusieurs étapes (steps)
 - Chaque step doit avoir: table, select, filters (dict PostgREST), order, limit

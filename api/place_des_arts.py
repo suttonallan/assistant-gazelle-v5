@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 # Ajouter le parent au path pour les imports locaux
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.timezone_utils import aujourdhui_montreal, bornes_journee_utc
 
 from core.supabase_storage import SupabaseStorage  # noqa: E402
 from core.gazelle_api_client import GazelleAPIClient  # noqa: E402
@@ -2254,7 +2255,7 @@ async def get_today_appointments():
             )
         
         supabase = create_client(supabase_url, supabase_key)
-        today = date.today().isoformat()
+        today = aujourdhui_montreal().isoformat()
         
         # ID client Place des Arts
         pda_client_id = "cli_HbEwl9rN11pSuDEU"
@@ -2266,8 +2267,8 @@ async def get_today_appointments():
         try:
             response = supabase.table('gazelle_appointments')\
                 .select('*')\
-                .gte('start_datetime', f'{today}T00:00:00')\
-                .lt('start_datetime', f'{today}T23:59:59')\
+                .gte('start_datetime', bornes_journee_utc(today)[0])\
+                .lt('start_datetime', bornes_journee_utc(today)[1])\
                 .order('start_datetime')\
                 .execute()
         except Exception as table_error:

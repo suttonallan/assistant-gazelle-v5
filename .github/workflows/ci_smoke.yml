@@ -33,3 +33,15 @@ jobs:
 
       - name: Compile-check (syntaxe de tout le code)
         run: python -m compileall -q api core modules scripts
+
+      - name: Garde-fou fuseau horaire (serveurs en UTC, journée = Montréal)
+        # Leçon n° 1 (docs/historique/V6_LECONS_APPRISES.md) : sur Render/GitHub,
+        # date.today() et un découpage f"{jour}T00:00:00" basculent au lendemain
+        # dès 20 h à Montréal. Utiliser core.timezone_utils.aujourdhui_montreal()
+        # et bornes_journee_utc().
+        run: |
+          if grep -rnE "(^|[^.[:alnum:]_])date\.today\(\)|datetime\.now\(\)\.date\(\)|datetime\.now\(\)\.strftime\(['\"]%Y-%m-%d['\"]\)|\('(occurred_at|start_datetime)', f['\"]\{[a-z_]+\}T(00:00:00|23:59:59)" api core modules --include=*.py | grep -v "core/timezone_utils.py"; then
+            echo "::error::Calcul de date en UTC détecté (voir lignes ci-dessus). Utiliser aujourdhui_montreal() / bornes_journee_utc()."
+            exit 1
+          fi
+          echo "OK : aucun calcul de journée en UTC"

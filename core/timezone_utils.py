@@ -21,6 +21,31 @@ MONTREAL_TZ = ZoneInfo("America/Montreal")
 UTC_TZ = ZoneInfo("UTC")
 
 
+def aujourdhui_montreal() -> date:
+    """Date du jour À MONTRÉAL.
+
+    Les serveurs (Render, GitHub Actions) tournent en UTC : date.today() et
+    datetime.now() y basculent au lendemain dès 20 h (HAE) / 19 h (HNE).
+    Toujours utiliser cette fonction pour « aujourd'hui », « demain », etc.
+    """
+    return datetime.now(MONTREAL_TZ).date()
+
+
+def bornes_journee_utc(jour: Union[date, str]) -> tuple[str, str]:
+    """Bornes UTC [début, fin) d'une journée MONTRÉAL, pour filtrer une colonne
+    timestamptz (occurred_at, start_datetime...).
+
+    Remplace le motif fautif f"{jour}T00:00:00" / f"{jour}T23:59:59", qui
+    découpe la journée en UTC et rate tout ce qui se passe après 20 h.
+    """
+    from datetime import timedelta
+    if isinstance(jour, str):
+        jour = date.fromisoformat(jour[:10])
+    debut = datetime.combine(jour, time.min, tzinfo=MONTREAL_TZ)
+    fin = debut + timedelta(days=1)
+    return debut.astimezone(UTC_TZ).isoformat(), fin.astimezone(UTC_TZ).isoformat()
+
+
 def montreal_to_utc(dt: Union[datetime, str]) -> datetime:
     """
     Convertit un datetime ou string en America/Montreal vers UTC.

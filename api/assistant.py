@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+from core.timezone_utils import aujourdhui_montreal
 from zoneinfo import ZoneInfo
 from modules.assistant.services.parser import get_parser, QueryType
 from modules.assistant.services.queries import get_queries
@@ -330,7 +331,7 @@ async def get_client_details(client_id: str):
                     kept_entries.append(e)
 
             # Exclure les entrées d'aujourd'hui et futures (pas encore de l'historique)
-            today_str = datetime.now().strftime('%Y-%m-%d')
+            today_str = aujourdhui_montreal().isoformat()
             entries = [
                 e for e in kept_entries
                 if not (e.get("entry_date") or "")[:10] or (e.get("entry_date") or "")[:10] < today_str
@@ -572,7 +573,7 @@ async def get_client_details(client_id: str):
             # Prochains rendez-vous
             try:
                 from datetime import date
-                today = date.today()
+                today = aujourdhui_montreal()
                 appointments = queries.get_appointments(date=today, technicien=None)
                 upcoming = []
                 for appt in appointments:

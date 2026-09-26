@@ -12,6 +12,7 @@ tax rate ×1000. Voir mémoire reference-gazelle-invoice-api.
 
 import re
 from datetime import date, timedelta
+from core.timezone_utils import aujourdhui_montreal
 from typing import Any, Dict, List, Optional
 
 
@@ -59,7 +60,7 @@ def parse_due_date(text: str, today: Optional[date] = None) -> Optional[str]:
     m = re.search(r'(\d{1,2})\s+(' + mois_alt + r')(?:\s+(\d{4}))?', t)
     if not m:
         return None
-    today = today or date.today()
+    today = today or aujourdhui_montreal()
     day = int(m.group(1))
     month = _MOIS[m.group(2)]
     year = int(m.group(3)) if m.group(3) else today.year
@@ -337,7 +338,7 @@ def duplicate_estimate(number: int, dry_run: bool = False,
                                            for i in (t.get("allUngroupedEstimateTierItems") or [])],
         })
 
-    today = date.today()
+    today = aujourdhui_montreal()
     # Étape 1 : createEstimate MINIMAL — jamais les tiers ici (ne déclenche pas
     # le calcul des taxes ; l'ancienne note "crash Ruby" pointe la même règle).
     create_input = {

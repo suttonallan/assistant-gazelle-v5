@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.supabase_storage import SupabaseStorage
+from core.timezone_utils import bornes_journee_utc
 from core.gazelle_api_client import GazelleAPIClient
 from config.techniciens_config import GAZELLE_IDS
 
@@ -108,8 +109,8 @@ class AppointmentChecker:
             appointments_raw = (
                 self.storage.client.table('gazelle_appointments')
                 .select('*')
-                .gte('start_datetime', f'{date_str}T00:00:00')
-                .lt('start_datetime', f'{date_str}T23:59:59')
+                .gte('start_datetime', bornes_journee_utc(date_str)[0])
+                .lt('start_datetime', bornes_journee_utc(date_str)[1])
                 .eq('status', 'ACTIVE')  # Seulement les RV actifs
                 .execute()
             )

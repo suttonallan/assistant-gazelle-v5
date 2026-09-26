@@ -6,6 +6,7 @@ Gère l'authentification OAuth2, le refresh des tokens, et les requêtes GraphQL
 """
 
 import json
+from core.timezone_utils import aujourdhui_montreal
 import os
 import time
 import requests
@@ -1025,7 +1026,7 @@ class GazelleAPIClient:
         from datetime import datetime
 
         if not last_tuned_date:
-            last_tuned_date = datetime.now().date().isoformat()
+            last_tuned_date = aujourdhui_montreal().isoformat()
 
         # Correct mutation syntax per Gazelle schema:
         # updatePiano(id: String!, input: PrivatePianoInput!)
@@ -1465,7 +1466,7 @@ class GazelleAPIClient:
         from datetime import date
 
         if not taken_on:
-            taken_on = date.today().isoformat()
+            taken_on = aujourdhui_montreal().isoformat()
 
         mutation = """
         mutation CreatePianoMeasurement($input: PrivatePianoMeasurementInput!) {

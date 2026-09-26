@@ -35,6 +35,7 @@ Items toujours préservés :
 import json
 import logging
 from datetime import date, datetime, timedelta
+from core.timezone_utils import aujourdhui_montreal
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -363,7 +364,7 @@ def run_for_date(target_date: date, dry_run: bool = True) -> Dict:
 
 def run_tomorrow(dry_run: bool = False) -> Dict:
     """Entry point du scheduler : traite les RV de demain."""
-    target = date.today() + timedelta(days=1)
+    target = aujourdhui_montreal() + timedelta(days=1)
     return run_for_date(target, dry_run=dry_run)
 
 
@@ -377,7 +378,7 @@ if __name__ == '__main__':
     if args.date:
         target = date.fromisoformat(args.date)
     else:
-        target = date.today() + timedelta(days=1)
+        target = aujourdhui_montreal() + timedelta(days=1)
 
     result = run_for_date(target, dry_run=args.dry_run)
     print(json.dumps(result, indent=2, ensure_ascii=False))

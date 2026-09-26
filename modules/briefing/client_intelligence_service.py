@@ -23,6 +23,7 @@ from urllib.parse import quote
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from core.timezone_utils import aujourdhui_montreal
 
 from core.supabase_storage import SupabaseStorage
 from modules.briefing.ai_extraction_engine import (
@@ -177,7 +178,7 @@ class NarrativeBriefingService:
         Generate narrative briefings for all appointments on a given date.
         Uses batch data fetching + parallel AI generation.
         """
-        target_date = target_date or datetime.now().strftime('%Y-%m-%d')
+        target_date = target_date or aujourdhui_montreal().isoformat()
 
         # Rappel d'accès PdA (travaux 1400) : évalué une seule fois par jour.
         try:
@@ -746,7 +747,7 @@ class NarrativeBriefingService:
         Filet de securite meme si l'auto-reload est actif (ex. carte expiree)."""
         try:
             from datetime import date
-            today = date.today().isoformat()
+            today = aujourdhui_montreal().isoformat()
             # Dedup en memoire : evite le burst quand N briefings echouent en parallele.
             if getattr(self, '_credit_alert_date', None) == today:
                 return

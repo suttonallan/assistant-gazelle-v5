@@ -7,6 +7,7 @@ Phase 1: Core handlers (client_search, client_summary, my_appointments, piano_se
 
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+from core.timezone_utils import aujourdhui_montreal
 import os
 import json
 import re
@@ -279,7 +280,7 @@ Pour les dates relatives:
                 .select('*, piano:gazelle_pianos(make, model)')\
                 .in_('piano_id', piano_ids)\
                 .eq('status', 'ACTIVE')\
-                .gte('appointment_date', datetime.now().strftime('%Y-%m-%d'))\
+                .gte('appointment_date', aujourdhui_montreal().isoformat())\
                 .order('appointment_date')\
                 .limit(1)\
                 .execute()
@@ -319,7 +320,7 @@ Pour les dates relatives:
 
         if not date_range:
             # Par défaut: aujourd'hui
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = aujourdhui_montreal().isoformat()
             date_range = {"start": today, "end": today}
 
         start_date = date_range.get('start')

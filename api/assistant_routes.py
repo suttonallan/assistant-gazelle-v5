@@ -24,6 +24,7 @@ import os
 import re
 import sys
 from datetime import date, datetime, timedelta
+from core.timezone_utils import aujourdhui_montreal
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -92,7 +93,7 @@ def resolve_relative_date(date_str: str) -> Optional[str]:
     if not date_str:
         return None
     s = date_str.strip().lower()
-    today = date.today()
+    today = aujourdhui_montreal()
 
     if s in ("aujourd'hui", "aujourd hui", "ajd", "today"):
         return today.isoformat()
@@ -456,7 +457,7 @@ async def joint_appointment(req: AssistantRequest):
 
     client = Anthropic(api_key=api_key)
 
-    today_iso = date.today().isoformat()
+    today_iso = aujourdhui_montreal().isoformat()
     user_context = ""
     if req.current_user_first_name:
         user_context = (
@@ -1013,7 +1014,7 @@ def execute_search_keyword(
 
     gz = GazelleAPIClient()
 
-    today = date.today()
+    today = aujourdhui_montreal()
     windows = []
     win_end = today
     # Fenêtres de 90 jours pour rester sous le cap de pagination de Gazelle
@@ -1220,7 +1221,7 @@ async def search_keyword(req: AssistantRequest):
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
 
-    today_iso = date.today().isoformat()
+    today_iso = aujourdhui_montreal().isoformat()
     system_prompt = (
         f"Tu es l'assistant Gazelle de Piano Tek Musique. Aujourd'hui c'est {today_iso}. "
         "Ton rôle est de parser une demande de recherche libre dans les notes/titres "

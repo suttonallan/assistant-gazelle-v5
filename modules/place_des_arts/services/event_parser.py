@@ -11,6 +11,7 @@ import csv
 from io import StringIO
 from typing import List, Dict, Any, Optional
 from datetime import datetime, date
+from core.timezone_utils import aujourdhui_montreal
 
 
 class EventParser:
@@ -92,7 +93,7 @@ class EventParser:
         month = self.MONTHS_FR.get(month_name)
         if not month:
             return None
-        today = date.today()
+        today = aujourdhui_montreal()
         year = today.year
         candidate = date(year, month, day)
         if candidate < today:
