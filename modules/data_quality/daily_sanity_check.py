@@ -42,6 +42,39 @@ def _norm_amount(val):
 # CHECK 1 — Stationnement PdA mal attribué / doublé
 # ════════════════════════════════════════════════════════════════════
 
+def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
+    """Explique POURQUOI le montant attendu diffère : quelles notes mentionnant
+    le stationnement existent ce jour-là (journée Montréal), sur quel piano, par
+    quel technicien et avec quel type d'entrée. Rend l'alerte vérifiable sans
+    ouvrir la base de données."""
+    try:
+        from core.timezone_utils import bornes_journee_utc
+        debut, fin = bornes_journee_utc(jour)
+        # params en liste de tuples : requests encode le « + » du fuseau (+00:00)
+        rows = http.get(
+            f"{api}/gazelle_timeline_entries",
+            params=[("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
+                    ("or", "(title.ilike.*stat*,description.ilike.*stat*,description.ilike.*parking*)"),
+                    ("select", "piano_id,user_id,entry_type,title,description,occurred_at"),
+                    ("limit", "20")],
+            headers=H, timeout=20).json()
+        rows = [r for r in rows if isinstance(r, dict)]
+        rv = (f"RV : piano {apt.get('piano_external_id') or 'AUCUN'}, "
+              f"tech {apt.get('technicien') or 'AUCUN'}") if apt else "RV introuvable dans gazelle_appointments"
+        if not rows:
+            return f"{rv}. Aucune note mentionnant « stat » ce jour-là."
+        notes = []
+        for r in rows:
+            texte = (r.get('description') or r.get('title') or '').replace('\n', ' ')
+            idx = max(texte.lower().find('stat'), 0)
+            extrait = texte[max(idx - 25, 0): idx + 35].strip()
+            notes.append(f"piano {r.get('piano_id') or 'AUCUN'} / tech {r.get('user_id') or '?'} / "
+                         f"{r.get('entry_type')} / {(r.get('occurred_at') or '')[:16]} : « {extrait} »")
+        return f"{rv}. Notes du jour : " + " | ".join(notes)
+    except Exception as e:  # le diagnostic ne doit jamais faire échouer le check
+        return f"(diagnostic indisponible : {e})"
+
+
 def check_pda_parking(storage) -> list:
     """Pour chaque demande PdA récente AVEC stationnement, on revalide via la logique
     corrigée (note « stat » sur LE piano du RV). Si le montant stocké ne correspond
@@ -84,7 +117,8 @@ def check_pda_parking(storage) -> list:
                 "title": f"Stationnement à vérifier — {r.get('appointment_date', '')[:10]} {r.get('room', '')}",
                 "detail": (f"{r.get('for_who', '')} : {stored} $ rapporté, mais la note « stat » du "
                            f"piano de ce RV justifie {expected or 'aucun montant'}. "
-                           f"Possible double comptage ou mauvaise attribution."),
+                           f"Possible double comptage ou mauvaise attribution. "
+                           f"DIAGNOSTIC — {_diagnostic_stat(api, H, http, apt, (r.get('appointment_date') or '')[:10])}"),
             })
     return anomalies
 
