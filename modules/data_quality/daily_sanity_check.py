@@ -73,11 +73,23 @@ def check_pda_parking(storage) -> list:
     from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
     svc = GazelleSyncService(storage)
 
+    flagged_apts = set()  # un RV = une seule alerte parking
     for r in reqs:
+        aid = r.get("appointment_id")
+        apt = appts.get(aid)
+        # On ne PEUT revalider que si le RV a un piano attaché : l'extraction lit la
+        # note « stat » du piano de CE RV. Sans RV lié, ou RV sans piano (ex. un seul
+        # RV couvrant 2 pianos d'un concert), la revalidation renvoie toujours « rien »
+        # → flagger serait un faux positif garanti. On saute (non vérifiable).
+        if not apt or not apt.get("piano_external_id"):
+            continue
+        # Ne pas ré-émettre pour plusieurs demandes pointant sur le même RV.
+        if aid in flagged_apts:
+            continue
         stored = _norm_amount(r.get("parking"))
-        apt = appts.get(r.get("appointment_id"))
-        expected = _norm_amount(svc._extract_parking_from_appointment(apt)) if apt else ""
+        expected = _norm_amount(svc._extract_parking_from_appointment(apt))
         if expected != stored:
+            flagged_apts.add(aid)
             anomalies.append({
                 "check": "pda_parking",
                 "severity": "warning",
@@ -199,22 +211,36 @@ def check_pda_coherence(storage) -> list:
                 "detail": f"Même date/salle/pour-qui/heure. À trancher (2 pianos ? erreur ?) : {det}",
             })
 
-    # b) Un même RV Gazelle lié à plusieurs demandes (double-lien)
+    # b) Un même RV Gazelle lié à plusieurs demandes (double-lien).
+    #    Légitime et fréquent : un seul RV couvre un même concert servi en plusieurs
+    #    fois — accord le matin PUIS retouche après la répétition, ou 2 pianos sur
+    #    scène (même salle + même « pour qui »). On NE signale PAS ce cas.
+    #    On signale seulement les liens vraiment suspects :
+    #      - salles DIFFÉRENTES  → error (un RV ne peut pas être dans 2 salles)
+    #      - même salle mais « pour qui » DIFFÉRENTS → info (à confirmer)
     by_apt = defaultdict(list)
     for r in reqs:
         if r.get("appointment_id"):
             by_apt[r["appointment_id"]].append(r)
     for aid, rs in by_apt.items():
-        if len(rs) > 1:
-            rooms = {(x.get("room") or "").strip().lower() for x in rs}
-            sev = "error" if len(rooms) > 1 else "warning"
-            note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""
-            det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}" for x in rs)
+        if len(rs) <= 1:
+            continue
+        rooms = {(x.get("room") or "").strip().lower() for x in rs}
+        whos = {_norm(x.get("for_who")) for x in rs}
+        det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}/{x.get('time') or '?'}" for x in rs)
+        if len(rooms) > 1:
             anomalies.append({
-                "check": "pda_double_lien", "severity": sev,
-                "title": f"RV lié à {len(rs)} demandes — {aid}{note}",
+                "check": "pda_double_lien", "severity": "error",
+                "title": f"RV lié à {len(rs)} demandes — {aid} (salles DIFFÉRENTES → au moins une est mal liée)",
                 "detail": f"Demandes : {det}",
             })
+        elif len(whos) > 1:
+            anomalies.append({
+                "check": "pda_double_lien", "severity": "info",
+                "title": f"RV lié à {len(rs)} demandes — {aid} (même salle, « pour qui » différents)",
+                "detail": f"À confirmer (concerts distincts sur un même RV ?) : {det}",
+            })
+        # sinon : même salle + même concert = accord matin + retouche, ou 2 pianos → légitime, on se tait.
 
     # c) Intégrité des liens (RV manquant / annulé / date dérivée / tech discordant)
     for r in reqs:

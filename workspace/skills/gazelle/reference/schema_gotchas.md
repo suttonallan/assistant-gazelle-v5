@@ -102,6 +102,22 @@ même si HTTP 200. Utiliser `_raise_if_mutation_errors()` côté v6.
 `PrivateAllEstimatesFilter` n'a PAS de champ `number`. Utiliser `search: "11914"`
 puis filtrer côté Python sur `node.number == 11914`.
 
+## Formes de requête qui piègent (relevé 2026-08-23, soumission #11990)
+
+Cinq erreurs commises d'affilée en écrivant une lecture toute simple. Toutes
+renvoient un `GraphQL errors` sec sans indiquer la forme attendue.
+
+| Ce qu'on écrit d'instinct | Ce qu'il faut |
+|---|---|
+| `gz.execute(q, vars)` | **`gz.execute_query(q, vars)`** — il n'y a pas de `.execute()` |
+| `allPianos { id make ... }` | `allPianos` est une **Connection** → `allPianos { edges { node { id make ... } } }` |
+| `allEstimates { ... status ... }` | **pas de champ `status`** sur `PrivateEstimate` |
+| `allMasterServiceItems(filters:{search:...}, first:N) { edges { node {...} } }` | **liste nue** : `{ allMasterServiceItems { id name amount type } }` — ni `filters`, ni `first`, ni `edges`. Filtrer côté Python (147 items au total). |
+| `item["name"].lower()` | `MasterServiceItem.name` est un **objet localisé** (dict `fr_CA` / `en_US`), pas une string |
+
+`execute_query` renvoie tantôt `{"data": {...}}`, tantôt les données nues :
+`d = r.get("data") if isinstance(r, dict) and "data" in r else r`.
+
 ## Rendez-vous (Events)
 
 ### Modèle de données
