@@ -4,3 +4,4 @@
 ALTER TABLE public.gazelle_appointments ADD COLUMN IF NOT EXISTS confirmed_by_client boolean;
 ALTER TABLE public.gazelle_appointments ADD COLUMN IF NOT EXISTS piano_ids text[];
 NOTIFY pgrst, 'reload schema'
+-- Appliquée à la main dans Supabase le 2026-09-27 ; ce workflow la ré-applique sans effet (IF NOT EXISTS).
