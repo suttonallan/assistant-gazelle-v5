@@ -35,6 +35,7 @@ from api.catalogue_routes import router as catalogue_router
 from api.tournees import router as tournees_router
 from api.assistant import router as assistant_core_router  # 💬 Assistant chat + fiche client (routes /assistant/chat, /client/{id}, /smart-recipes, /health)
 from api.admin import router as admin_router
+from api.front_routes import router as front_router  # 📬 Lecture Front (conversations + commentaires équipe)
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
 from api.chat_routes import router as chat_router
@@ -202,6 +203,7 @@ app.include_router(catalogue_router)
 app.include_router(tournees_router)
 app.include_router(assistant_core_router)  # 💬 Assistant chat + fiche client
 app.include_router(admin_router)
+app.include_router(front_router)  # 📬 Front API
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
@@ -230,6 +232,7 @@ app.include_router(catalogue_router, prefix="/api")
 app.include_router(tournees_router, prefix="/api")
 app.include_router(assistant_core_router, prefix="/api")  # 💬 /api/assistant/chat, /api/assistant/client/{id}
 app.include_router(admin_router, prefix="/api")
+app.include_router(front_router, prefix="/api")  # 📬 Front API
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(assistant_converse_router, prefix="/api/assistant")  # 💬 /api/assistant/converse
