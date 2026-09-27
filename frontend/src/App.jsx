@@ -17,6 +17,7 @@ import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
 import ChatStats from './components/ChatStats'
 import ErrorBoundary from './components/ErrorBoundary'
+import TachesDashboard from './components/TachesDashboard' // ✅ Tâches + campagnes
 import { getUserRole, ROLES } from './config/roles'
 
 // V7 Imports - Master Template Vincent d'Indy (527 lignes)
@@ -201,6 +202,14 @@ function App() {
 
   // Rendu conditionnel selon le rôle
   const renderDashboard = () => {
+    // ✅ Tâches : même vue pour toute l'équipe
+    if (currentView === 'taches' && ['admin', 'nick', 'louise', 'margot', 'jeanphilippe'].includes(effectiveRole)) {
+      return (
+        <ErrorBoundary componentName="Tâches">
+          <TachesDashboard currentUser={effectiveUser} role={effectiveRole} />
+        </ErrorBoundary>
+      )
+    }
     switch (effectiveRole) {
       case 'nick':
         // Nick: Navigation par currentView (comme admin)
@@ -466,6 +475,17 @@ function App() {
                   <>
                     {/* Inventaire - Nick */}
                     <button
+                      onClick={() => setCurrentView('taches')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'taches'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      ✅ Tâches
+                    </button>
+
+                    <button
                       onClick={() => setCurrentView('inventaire')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                         currentView === 'inventaire'
@@ -556,6 +576,17 @@ function App() {
                   <>
                     {/* Inventaire - Jean-Philippe */}
                     <button
+                      onClick={() => setCurrentView('taches')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'taches'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      ✅ Tâches
+                    </button>
+
+                    <button
                       onClick={() => setCurrentView('inventaire')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                         currentView === 'inventaire'
@@ -633,6 +664,17 @@ function App() {
                     )}
 
                     {/* Inventaire - accessible à tous (hors Nick déjà géré) */}
+                    <button
+                      onClick={() => setCurrentView('taches')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'taches'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      ✅ Tâches
+                    </button>
+
                     <button
                       onClick={() => setCurrentView('inventaire')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
