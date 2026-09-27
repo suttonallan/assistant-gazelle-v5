@@ -29,6 +29,15 @@ from modules.briefing.client_intelligence_service import (
 router = APIRouter(prefix="/briefing", tags=["briefing"])
 
 
+def _admin_autorise(secret) -> bool:
+    """Accès aux routes /admin : secret comparé à la variable d'environnement
+    ADMIN_SECRET (Render). Si elle n'est pas définie, les routes sont fermées."""
+    import hmac
+    import os
+    attendu = os.getenv("ADMIN_SECRET", "")
+    return bool(attendu) and bool(secret) and hmac.compare_digest(str(secret), attendu)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # MODÈLES
 # ═══════════════════════════════════════════════════════════════════════
@@ -506,201 +515,16 @@ async def delete_feedback(feedback_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/admin/migrate", response_model=Dict[str, Any])
-async def run_migration(request: Dict[str, Any]):
-    """
-    Exécute une migration SQL via la connexion directe PostgreSQL de Supabase.
-    Temporaire — à retirer après usage.
-    """
-    secret = request.get("secret", "")
-    sql = request.get("sql", "")
-
-    if secret != "ptm-migrate-2026":
-        raise HTTPException(status_code=403, detail="Accès refusé")
-    if not sql.strip():
-        raise HTTPException(status_code=400, detail="SQL vide")
-
-    try:
-        import os
-        supabase_url = os.getenv('SUPABASE_URL', '')
-        service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
-
-        if not service_key:
-            raise HTTPException(status_code=500, detail="SERVICE_ROLE_KEY non disponible")
-
-        from supabase import create_client
-        client = create_client(supabase_url, service_key)
-
-        # Execute each statement via Supabase's rpc
-        statements = [s.strip() for s in sql.split(';') if s.strip() and not s.strip().startswith('--')]
-        results = []
-
-        for stmt in statements:
-            try:
-                res = client.rpc('exec_sql', {'sql_query': stmt}).execute()
-                results.append({"sql": stmt[:100], "status": "ok"})
-            except Exception as e:
-                results.append({"sql": stmt[:100], "error": str(e)})
-
-        return {"results": results, "note": "Si exec_sql n'existe pas, exécutez d'abord le bootstrap"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/admin/bootstrap-sql", response_model=Dict[str, Any])
-async def bootstrap_sql_runner(request: Dict[str, Any]):
-    """
-    Crée la fonction exec_sql dans PostgreSQL via le endpoint Supabase pg-meta.
-    """
-    secret = request.get("secret", "")
-    if secret != "ptm-migrate-2026":
-        raise HTTPException(status_code=403, detail="Accès refusé")
-
-    try:
-        import os, requests as http_requests
-
-        supabase_url = os.getenv('SUPABASE_URL', '')
-        service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
-
-        if not service_key:
-            raise HTTPException(status_code=500, detail="SERVICE_ROLE_KEY non disponible")
-
-        # Supabase exposes a /pg endpoint for direct SQL (with service_role_key)
-        headers = {
-            "apikey": service_key,
-            "Authorization": f"Bearer {service_key}",
-            "Content-Type": "application/json",
-            "x-connection-encrypted": "true",
-        }
-
-        create_fn_sql = """
-        CREATE OR REPLACE FUNCTION exec_sql(sql_query text)
-        RETURNS void
-        LANGUAGE plpgsql
-        SECURITY DEFINER
-        AS $$
-        BEGIN
-            EXECUTE sql_query;
-        END;
-        $$;
-        """
-
-        # Try multiple Supabase SQL execution endpoints
-        endpoints = [
-            f"{supabase_url}/pg/query",
-            f"{supabase_url}/rest/v1/rpc/exec_sql",
-        ]
-
-        for endpoint in endpoints:
-            try:
-                if 'rpc' in endpoint:
-                    continue
-                resp = http_requests.post(endpoint, headers=headers, json={"query": create_fn_sql})
-                if resp.status_code in (200, 201, 204):
-                    return {"success": True, "message": "Function exec_sql created", "endpoint": endpoint}
-            except Exception:
-                continue
-
-        return {
-            "success": False,
-            "message": "Aucun endpoint SQL direct disponible. Allan doit exécuter ce SQL dans le dashboard Supabase",
-            "sql_to_run": create_fn_sql.strip()
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/introspect/{type_name}", response_model=Dict[str, Any])
-async def introspect_gazelle_type(type_name: str):
-    """
-    Introspection temporaire — montre tous les champs disponibles sur un type Gazelle.
-    Ex: /briefing/introspect/PrivateClient
-    """
-    try:
-        from core.gazelle_api_client import GazelleAPIClient
-        client = GazelleAPIClient()
-
-        query = """
-        query IntrospectType($typeName: String!) {
-          __type(name: $typeName) {
-            name
-            kind
-            description
-            fields(includeDeprecated: true) {
-              name
-              description
-              isDeprecated
-              type {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                  ofType { kind, name, ofType { kind, name } }
-                }
-              }
-            }
-          }
-        }
-        """
-
-        result = client._execute_query(query, variables={"typeName": type_name})
-        type_info = result.get("data", {}).get("__type")
-
-        if not type_info:
-            raise HTTPException(status_code=404, detail=f"Type '{type_name}' non trouvé dans le schéma Gazelle")
-
-        def format_type(t):
-            if not t:
-                return "?"
-            kind = t.get("kind", "")
-            name = t.get("name", "")
-            of = t.get("ofType")
-            if kind == "NON_NULL":
-                return f"{format_type(of)}!"
-            if kind == "LIST":
-                return f"[{format_type(of)}]"
-            return name or "?"
-
-        fields = []
-        for f in (type_info.get("fields") or []):
-            fields.append({
-                "name": f["name"],
-                "type": format_type(f.get("type")),
-                "description": f.get("description") or "",
-                "deprecated": f.get("isDeprecated", False),
-            })
-
-        return {
-            "type": type_info["name"],
-            "kind": type_info.get("kind"),
-            "description": type_info.get("description") or "",
-            "field_count": len(fields),
-            "fields": fields,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+# /admin/migrate et /admin/bootstrap-sql retirés (2026-09-27) : ils exécutaient du
+# SQL arbitraire derrière un mot de passe publié dans ce dépôt public. Les
+# migrations passent désormais par le workflow GitHub « Migrations SQL »
+# (secrets GitHub, jamais exposés).
 
 
 @router.get("/admin/pda-compare", response_model=Dict[str, Any])
 async def pda_compare(secret: str = Query("")):
     """Compare le matching PDA v5 (actuel) vs v6 (nouveau) sur toutes les demandes."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
 
     try:
@@ -823,7 +647,7 @@ async def backfill_all(request: Dict[str, Any]):
     Tourne en arrière-plan, retourne immédiatement.
     """
     secret = request.get("secret", "")
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
 
     import threading
@@ -929,7 +753,7 @@ async def backfill_all(request: Dict[str, Any]):
 @router.post("/admin/flag", response_model=Dict[str, Any])
 async def set_feature_flag(request: Dict[str, Any]):
     """Active ou désactive un feature flag."""
-    if request.get("secret") != "ptm-migrate-2026":
+    if not _admin_autorise(request.get("secret")):
         raise HTTPException(status_code=403, detail="Accès refusé")
 
     flag = request.get("flag", "")
@@ -966,7 +790,7 @@ async def set_feature_flag(request: Dict[str, Any]):
 @router.post("/admin/pda-scan", response_model=Dict[str, Any])
 async def pda_scan_now(request: Dict[str, Any]):
     """Lance un scan PDA/OSM immédiat (test)."""
-    if request.get("secret") != "ptm-migrate-2026":
+    if not _admin_autorise(request.get("secret")):
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         from modules.pda_auto_scanner import scan_and_watch
@@ -980,7 +804,7 @@ async def pda_scan_now(request: Dict[str, Any]):
 @router.post("/admin/backfill-invoices", response_model=Dict[str, Any])
 async def backfill_invoices(request: Dict[str, Any]):
     """Backfill complet des factures depuis Gazelle. Tâche de fond."""
-    if request.get("secret") != "ptm-migrate-2026":
+    if not _admin_autorise(request.get("secret")):
         raise HTTPException(status_code=403, detail="Accès refusé")
 
     import threading
@@ -1085,7 +909,7 @@ async def backfill_invoices(request: Dict[str, Any]):
 @router.get("/admin/test-invoices", response_model=Dict[str, Any])
 async def test_invoices(secret: str = Query("")):
     """Test: combien de factures dans Gazelle vs Supabase."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         from core.supabase_storage import SupabaseStorage
@@ -1128,7 +952,7 @@ async def search_invoices(
     limit: int = Query(20),
 ):
     """Recherche dans les factures et lignes de facture."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         from core.supabase_storage import SupabaseStorage
@@ -1179,7 +1003,7 @@ async def search_timeline(
     limit: int = Query(50),
 ):
     """Recherche dans la timeline. Supporte texte, date exacte, plage de dates, client."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
     if not q and not date and not date_from and not client_id:
         raise HTTPException(status_code=400, detail="Au moins un filtre requis (q, date, date_from, client_id)")
@@ -1222,7 +1046,7 @@ async def search_timeline(
 @router.get("/admin/pda-stats", response_model=Dict[str, Any])
 async def pda_appointment_stats(secret: str = Query(""), since: str = Query("2025-08-01")):
     """Statistiques des RV Place des Arts par jour/heure depuis une date."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         from core.supabase_storage import SupabaseStorage
@@ -1293,7 +1117,7 @@ async def pda_appointment_stats(secret: str = Query(""), since: str = Query("202
 @router.get("/admin/timeline-stats", response_model=Dict[str, Any])
 async def timeline_stats(secret: str = Query("")):
     """Nombre d'entrées timeline par année dans Supabase."""
-    if secret != "ptm-migrate-2026":
+    if not _admin_autorise(secret):
         raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         from core.supabase_storage import SupabaseStorage
