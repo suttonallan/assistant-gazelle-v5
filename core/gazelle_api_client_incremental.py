@@ -28,6 +28,23 @@ def _ensure_tz_aware(dt: Optional[datetime]) -> Optional[datetime]:
         return dt.astimezone(ZoneInfo('UTC'))
     return dt
 
+def _modifie_depuis(node: dict, depuis) -> bool:
+    """True si le noeud Gazelle a ete cree OU modifie depuis `depuis` (marge d'un
+    jour pour absorber un sync rate ou un decalage d'horloge)."""
+    limite = _ensure_tz_aware(depuis) - timedelta(days=1)
+    for champ in ('updatedAt', 'createdAt'):
+        v = node.get(champ)
+        if not v:
+            continue
+        try:
+            d = datetime.fromisoformat(v.replace('Z', '+00:00'))
+            if _ensure_tz_aware(d) >= limite:
+                return True
+        except Exception:
+            return True  # date illisible : on synchronise plutot que de perdre
+    return False
+
+
 
 class GazelleAPIClientIncremental(GazelleAPIClient):
     """Extension du client API avec mode incrémental optimisé."""
@@ -101,6 +118,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
         """
 
         all_clients = []
+        self._derniers_clients_complets = []
         cursor = None
         page_count = 0
         early_exit = False
@@ -125,45 +143,13 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 if not node:
                     continue
 
-                # Early exit: Si createdAt < last_sync_date, on arrête
-                # (les clients sont triés par CREATED_AT_DESC)
-                if last_sync_date and node.get('createdAt'):
-                    try:
-                        # Parser createdAt et s'assurer qu'il est timezone-aware
-                        created_at_str = node['createdAt']
-                        if not created_at_str:
-                            continue
-                        
-                        # Normaliser le format (Z → +00:00 pour fromisoformat)
-                        if created_at_str.endswith('Z'):
-                            created_at_str = created_at_str.replace('Z', '+00:00')
-                        elif '+' not in created_at_str and '-' not in created_at_str[-6:]:
-                            # Pas de timezone dans le string, ajouter UTC
-                            created_at_str = created_at_str + '+00:00'
-                        
-                        created_at = datetime.fromisoformat(created_at_str)
-                        # S'assurer que created_at est aware (UTC)
-                        created_at = _ensure_tz_aware(created_at)
-                        last_sync_aware = _ensure_tz_aware(last_sync_date)
-                        
-                        if created_at and last_sync_aware:
-                            # Vérifier que les deux sont aware avant comparaison
-                            if created_at.tzinfo is None or last_sync_aware.tzinfo is None:
-                                print(f"⚠️ Datetime naive détecté: created_at.tzinfo={created_at.tzinfo}, last_sync_aware.tzinfo={last_sync_aware.tzinfo}")
-                                # Forcer à être aware
-                                if created_at.tzinfo is None:
-                                    created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
-                                if last_sync_aware.tzinfo is None:
-                                    last_sync_aware = last_sync_aware.replace(tzinfo=ZoneInfo('UTC'))
-                            
-                            if created_at < last_sync_aware:
-                                print(f"⏩ Early exit: Client {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
-                                early_exit = True
-                                break
-                    except Exception as e:
-                        print(f"⚠️ Erreur parsing createdAt: {e}")
-                        import traceback
-                        traceback.print_exc()
+                # Gazelle ne sait pas trier par date de MODIFICATION : on parcourt
+                # tout (pagine) et on ne garde que ce qui a change depuis le
+                # dernier sync. Avant : tri par creation + arret anticipe, donc
+                # les modifications des clients existants n arrivaient jamais.
+                self._derniers_clients_complets.append(node)
+                if last_sync_date and not _modifie_depuis(node, last_sync_date):
+                    continue
 
                 all_clients.append(node)
 
@@ -187,7 +173,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
 
             cursor = page_info.get('endCursor')
 
-        print(f"✅ {len(all_clients)} clients modifiés récupérés (mode incrémental)")
+        print(f"✅ {len(all_clients)} clients modifiés sur {len(self._derniers_clients_complets)} parcourus")
         return all_clients
 
     def get_pianos_incremental(
@@ -239,6 +225,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
         """
 
         all_pianos = []
+        self._derniers_pianos_complets = []
         cursor = None
         page_count = 0
         early_exit = False
@@ -263,45 +250,13 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                 if not node:
                     continue
 
-                # Early exit: Si createdAt < last_sync_date, on arrête
-                # (les pianos sont triés par CREATED_AT_DESC)
-                if last_sync_date and node.get('createdAt'):
-                    try:
-                        # Parser createdAt et s'assurer qu'il est timezone-aware
-                        created_at_str = node['createdAt']
-                        if not created_at_str:
-                            continue
-                        
-                        # Normaliser le format (Z → +00:00 pour fromisoformat)
-                        if created_at_str.endswith('Z'):
-                            created_at_str = created_at_str.replace('Z', '+00:00')
-                        elif '+' not in created_at_str and '-' not in created_at_str[-6:]:
-                            # Pas de timezone dans le string, ajouter UTC
-                            created_at_str = created_at_str + '+00:00'
-                        
-                        created_at = datetime.fromisoformat(created_at_str)
-                        # S'assurer que created_at est aware (UTC)
-                        created_at = _ensure_tz_aware(created_at)
-                        last_sync_aware = _ensure_tz_aware(last_sync_date)
-                        
-                        if created_at and last_sync_aware:
-                            # Vérifier que les deux sont aware avant comparaison
-                            if created_at.tzinfo is None or last_sync_aware.tzinfo is None:
-                                print(f"⚠️ Datetime naive détecté: created_at.tzinfo={created_at.tzinfo}, last_sync_aware.tzinfo={last_sync_aware.tzinfo}")
-                                # Forcer à être aware
-                                if created_at.tzinfo is None:
-                                    created_at = created_at.replace(tzinfo=ZoneInfo('UTC'))
-                                if last_sync_aware.tzinfo is None:
-                                    last_sync_aware = last_sync_aware.replace(tzinfo=ZoneInfo('UTC'))
-                            
-                            if created_at < last_sync_aware:
-                                print(f"⏩ Early exit: Piano {node['id']} plus vieux que last_sync ({created_at} < {last_sync_aware})")
-                                early_exit = True
-                                break
-                    except Exception as e:
-                        print(f"⚠️ Erreur parsing createdAt: {e}")
-                        import traceback
-                        traceback.print_exc()
+                # Gazelle ne sait pas trier par date de MODIFICATION : on parcourt
+                # tout (pagine) et on ne garde que ce qui a change depuis le
+                # dernier sync. Avant : tri par creation + arret anticipe, donc
+                # les modifications des pianos existants n arrivaient jamais.
+                self._derniers_pianos_complets.append(node)
+                if last_sync_date and not _modifie_depuis(node, last_sync_date):
+                    continue
 
                 all_pianos.append(node)
 

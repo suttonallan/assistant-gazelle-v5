@@ -9,7 +9,7 @@ on:
 jobs:
   sync-all-gazelle-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # Timeout de 30 minutes pour la sync complète
+    timeout-minutes: 60  # 60 min : couvre le rattrapage unique de toutes les fiches (sept. 2026)
 
     steps:
     - name: Checkout repository

@@ -130,6 +130,22 @@ class GazelleToSupabaseSync:
         elif len(self.error_details) == self.MAX_ERROR_DETAILS:
             self.error_details.append("... (details suivants tronques)")
 
+    RATTRAPAGE_FICHES_KEY = "rattrapage_modifs_fiches_2026_09"
+
+    def _depuis_pour_fiches(self) -> Optional[datetime]:
+        """Date « modifié depuis » pour clients et pianos. Une seule fois, relit
+        TOUT : jusqu'en septembre 2026 les modifications des fiches existantes
+        n'étaient jamais synchronisées (tri par date de création). Le marqueur
+        est posé à la fin d'un sync réussi."""
+        try:
+            if not self.storage.get_system_setting(self.RATTRAPAGE_FICHES_KEY):
+                self._rattrapage_en_cours = True
+                print("   🔁 Rattrapage unique : relecture de toutes les fiches clients/pianos")
+                return None
+        except Exception as e:
+            print(f"⚠️ Marqueur de rattrapage illisible ({e}) : mode incrémental normal")
+        return self.last_sync_date
+
     def _get_last_sync_date(self) -> Optional[datetime]:
         """
         Récupère la date de dernière sync depuis Supabase (table system_settings).
@@ -393,9 +409,9 @@ class GazelleToSupabaseSync:
             # Mode incrémental ou complet
             if self.incremental_mode and hasattr(self.api_client, 'get_clients_incremental'):
                 print("🚀 Mode incrémental activé (early exit sur updatedAt)")
-                api_clients = self.api_client.get_clients_incremental(
-                    last_sync_date=self.last_sync_date,
-                    limit=5000  # Sécurité
+                api_clients = self._clients_modifies = self.api_client.get_clients_incremental(
+                    last_sync_date=self._depuis_pour_fiches(),
+                    limit=20000  # Sécurité (≈4 000 clients, rattrapage complet possible)
                 )
             else:
                 # Mode complet (legacy)
@@ -518,6 +534,21 @@ class GazelleToSupabaseSync:
             print(f"❌ Erreur lors de la synchronisation des clients: {e}")
             raise
 
+    @staticmethod
+    def _contacts_depuis_clients(clients: list) -> list:
+        """Extrait le defaultContact de chaque client (même forme que
+        GazelleAPIClient.get_contacts)."""
+        contacts = []
+        for c in clients or []:
+            dc = dict(c.get('defaultContact') or {})
+            if not dc.get('id'):
+                continue
+            dc['client'] = {'id': c.get('id'), 'companyName': c.get('companyName')}
+            dc.setdefault('createdAt', c.get('createdAt'))
+            dc.setdefault('updatedAt', c.get('updatedAt'))
+            contacts.append(dc)
+        return contacts
+
     def sync_contacts(self) -> int:
         """
         Synchronise les contacts depuis l'API vers Supabase.
@@ -531,8 +562,15 @@ class GazelleToSupabaseSync:
         print("\n👥 Synchronisation des contacts...")
 
         try:
-            # Récupérer contacts depuis API Gazelle
-            api_contacts = self.api_client.get_contacts(limit=2000)
+            # Contacts = defaultContact de chaque client. On réutilise les clients
+            # déjà lus par sync_clients (aucun 2e appel Gazelle) : seulement ceux
+            # modifiés depuis le dernier sync. Avant : relecture complète NON
+            # paginée (tronquée) de tous les clients chaque nuit.
+            clients_lus = getattr(self, '_clients_modifies', None)
+            if clients_lus is not None:
+                api_contacts = self._contacts_depuis_clients(clients_lus)
+            else:
+                api_contacts = self.api_client.get_contacts(limit=5000)
             print(f"📥 {len(api_contacts)} contacts récupérés depuis l'API")
 
             # Initialiser stats
@@ -629,8 +667,8 @@ class GazelleToSupabaseSync:
             if self.incremental_mode and hasattr(self.api_client, 'get_pianos_incremental'):
                 print("🚀 Mode incrémental activé (early exit sur updatedAt)")
                 api_pianos = self.api_client.get_pianos_incremental(
-                    last_sync_date=self.last_sync_date,
-                    limit=5000  # Sécurité
+                    last_sync_date=self._depuis_pour_fiches(),
+                    limit=20000  # Sécurité (≈4 000 clients, rattrapage complet possible)
                 )
             else:
                 # Mode complet (legacy)
@@ -670,11 +708,18 @@ class GazelleToSupabaseSync:
                         'year': year,
                         'location': location,
                         'notes': notes,
-                        'dampp_chaser_installed': dampp_chaser_installed,
-                        'dampp_chaser_humidistat_model': dampp_chaser_humidistat_model,
-                        'dampp_chaser_mfg_date': dampp_chaser_mfg_date,
                         'updated_at': datetime.now().isoformat()
                     }
+
+                    # Règle CLAUDE.md : dampp_chaser_* vient du scan de détection PLS, pas
+                    # du sync. Ne jamais écraser par un False/None de Gazelle ; on n'écrit
+                    # que ce que Gazelle affirme positivement.
+                    if dampp_chaser_installed:
+                        piano_record['dampp_chaser_installed'] = True
+                    if dampp_chaser_humidistat_model:
+                        piano_record['dampp_chaser_humidistat_model'] = dampp_chaser_humidistat_model
+                    if dampp_chaser_mfg_date:
+                        piano_record['dampp_chaser_mfg_date'] = dampp_chaser_mfg_date
 
                     # UPSERT avec on_conflict
                     url = f"{self.storage.api_url}/gazelle_pianos?on_conflict=external_id"
@@ -1697,6 +1742,12 @@ class GazelleToSupabaseSync:
             # Sauvegarder timestamp de fin de sync (mode incrémental)
             if self.incremental_mode:
                 self._save_last_sync_date(datetime.now())
+                if getattr(self, '_rattrapage_en_cours', False) and not self.stats.get('clients', {}).get('errors') and not self.stats.get('pianos', {}).get('errors'):
+                    try:
+                        self.storage.save_system_setting(self.RATTRAPAGE_FICHES_KEY, datetime.now().isoformat())
+                        print("   ✅ Rattrapage des fiches terminé (marqueur posé)")
+                    except Exception as e:
+                        print(f"⚠️ Marqueur de rattrapage non enregistré : {e}")
 
             # Étapes post-sync : une exception ici ne doit PLUS être avalée en
             # silence puis rapportée "success". On la collecte pour marquer le
