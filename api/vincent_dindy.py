@@ -90,6 +90,23 @@ def get_csv_path() -> str:
     return possible_paths[0]
 
 
+# Mémoire courte des pianos Gazelle (Gazelle reste la source de vérité, cf.
+# « Architecture V7 ») : évite un appel Gazelle à chaque ouverture du tableau de
+# bord. Vidée dès qu'on écrit dans Gazelle (fin de tournée, push de service).
+_pianos_gazelle_cache = {}  # { client_id: { "nodes": [...], "fetched_at": datetime } }
+_PIANOS_CACHE_TTL = 300  # 5 minutes
+
+
+def _vider_caches_gazelle():
+    """À appeler après toute écriture dans Gazelle : la prochaine lecture repart
+    de Gazelle (dernier accord, statut, historique à jour immédiatement)."""
+    _pianos_gazelle_cache.clear()
+    try:
+        _timeline_cache.clear()
+    except NameError:
+        pass
+
+
 @router.get("/pianos", response_model=Dict[str, Any])
 async def get_pianos(include_inactive: bool = False):
     """
@@ -143,10 +160,16 @@ async def get_pianos(include_inactive: bool = False):
         """
 
         variables = {"clientId": client_id}
-        result = api_client._execute_query(query, variables)
-        gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
-
-        logging.info(f"📋 {len(gazelle_pianos)} pianos chargés depuis Gazelle")
+        cached = _pianos_gazelle_cache.get(client_id)
+        if cached and (datetime.utcnow() - cached["fetched_at"]).total_seconds() < _PIANOS_CACHE_TTL:
+            gazelle_pianos = cached["nodes"]
+            logging.info(f"📋 {len(gazelle_pianos)} pianos (mémoire < 5 min)")
+        else:
+            result = api_client._execute_query(query, variables)
+            gazelle_pianos = result.get("data", {}).get("allPianos", {}).get("nodes", [])
+            if gazelle_pianos:
+                _pianos_gazelle_cache[client_id] = {"nodes": gazelle_pianos, "fetched_at": datetime.utcnow()}
+            logging.info(f"📋 {len(gazelle_pianos)} pianos chargés depuis Gazelle")
 
         # 2. Charger les modifications depuis Supabase (flags + overlays) filtrées par vincent-dindy
         storage = get_supabase_storage()
@@ -1862,6 +1885,7 @@ async def push_tournee(body: ServiceHistoryPushRequest):
             "serviceHistoryNotes": service_notes,
         }
         api_client._execute_query(complete_mutation, {"eventId": event_id, "input": complete_input})
+        _vider_caches_gazelle()
         logging.info(f"   ✅ Événement complété avec {len(service_notes)} notes d'historique")
 
         # 6. Remettre les pianos en INACTIVE
@@ -2593,6 +2617,7 @@ async def vdi_bundle_push(body: VdiBundlePushRequest):
         "serviceHistoryNotes": service_notes,
     }
     api_client._execute_query(complete_mutation, {"eventId": event_id, "input": complete_input})
+    _vider_caches_gazelle()
     logging.info(f"   ✅ Événement complété avec {len(service_notes)} notes d'historique")
 
     # 7. Remettre les pianos en INACTIVE
