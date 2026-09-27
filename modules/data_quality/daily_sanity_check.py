@@ -98,9 +98,11 @@ def check_pda_parking(storage) -> list:
     appts = {}
     if apt_ids:
         ids_csv = ",".join(apt_ids)
-        rows = http.get(f"{api}/gazelle_appointments?external_id=in.({ids_csv})"
-                        f"&select=external_id,piano_external_id,technicien,appointment_date",
-                        headers=H, timeout=20).json()
+        base = f"{api}/gazelle_appointments?external_id=in.({ids_csv})&select=external_id,piano_external_id,technicien,appointment_date"
+        resp = http.get(base + ",piano_ids", headers=H, timeout=20)
+        if resp.status_code != 200:  # colonne piano_ids pas encore créée
+            resp = http.get(base, headers=H, timeout=20)
+        rows = resp.json()
         appts = {a["external_id"]: a for a in rows if isinstance(a, dict)}
 
     from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
@@ -109,7 +111,7 @@ def check_pda_parking(storage) -> list:
     for r in reqs:
         stored = _norm_amount(r.get("parking"))
         apt = appts.get(r.get("appointment_id"))
-        expected = _norm_amount(svc._extract_parking_from_appointment(apt)) if apt else ""
+        expected = _norm_amount(svc._extract_parking_from_appointment(apt, request_id=r.get('id'))) if apt else ""
         if expected != stored:
             anomalies.append({
                 "check": "pda_parking",
@@ -200,10 +202,12 @@ def check_pda_coherence(storage) -> list:
     appts = {}
     for i in range(0, len(apt_ids), 150):
         ids_csv = ",".join(apt_ids[i:i + 150])
-        rows = http.get(
-            f"{api}/gazelle_appointments?external_id=in.({ids_csv})"
-            f"&select=external_id,appointment_date,technicien,status",
-            headers=H, timeout=30).json()
+        base = (f"{api}/gazelle_appointments?external_id=in.({ids_csv})"
+                f"&select=external_id,appointment_date,technicien,status")
+        resp = http.get(base + ",piano_ids", headers=H, timeout=30)
+        if resp.status_code != 200:  # colonne piano_ids pas encore créée
+            resp = http.get(base, headers=H, timeout=30)
+        rows = resp.json()
         for a in (rows if isinstance(rows, list) else []):
             appts[a["external_id"]] = a
 
@@ -241,6 +245,10 @@ def check_pda_coherence(storage) -> list:
     for aid, rs in by_apt.items():
         if len(rs) > 1:
             rooms = {(x.get("room") or "").strip().lower() for x in rs}
+            nb_pianos = len([p for p in ((appts.get(aid) or {}).get("piano_ids") or []) if p])
+            if len(rooms) > 1 and nb_pianos >= len(rs):
+                # RV multi-salles légitime : autant de pianos au RV que de demandes liées
+                continue
             sev = "error" if len(rooms) > 1 else "warning"
             note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""
             det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}" for x in rs)

@@ -29,3 +29,20 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: python scripts/appliquer_migrations.py
+      - name: Re-synchroniser 35 jours de RV (remplit piano_ids / confirmed_by_client)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+          GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          python3 -c "
+          import sys; sys.path.insert(0, '.')
+          from datetime import datetime, timedelta
+          from core.timezone_utils import aujourdhui_montreal
+          from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
+          debut = (aujourdhui_montreal() - timedelta(days=35)).isoformat()
+          n = GazelleToSupabaseSync(incremental_mode=True).sync_appointments(start_date_override=debut)
+          print(f'RV re-synchronisés depuis {debut} : {n}')
+          "

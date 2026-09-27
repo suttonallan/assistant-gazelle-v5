@@ -44,14 +44,17 @@ def main() -> int:
     existe = exec_sql(SERVICE, "SELECT 1")
     if existe.status_code not in (200, 204):
         rapport.append(f"exec_sql indisponible ({existe.status_code}) : {existe.text[:200]}")
-        rapport.append("Aucune migration appliquée. À exécuter à la main dans Supabase > SQL Editor :")
+        rapport.append("Aucune migration appliquée. Coller UNE fois dans Supabase > SQL Editor > Run :")
         for f in sorted((RACINE / "sql" / "auto").glob("*.sql")):
-            rapport.append(f"\n-- {f.name}\n{f.read_text()}")
+            corps = f.read_text().rstrip().rstrip(";")
+            rapport.append(f"\n-- {f.name}\n{corps};")
         ok_global = False
     else:
         avant = anon_peut_executer()
         rapport.append(f"Sécurité AVANT : clé publique peut exécuter du SQL = {'OUI (faille)' if avant else 'non'}")
         for f in sorted((RACINE / "sql" / "auto").glob("*.sql")):
+            if f.name.startswith("000_"):
+                continue  # création d'exec_sql : faite une fois à la main, déjà en place
             texte = "\n".join(l for l in f.read_text().splitlines() if not l.strip().startswith("--"))
             for stmt in [s.strip() for s in texte.split(";") if s.strip()]:
                 r = exec_sql(SERVICE, stmt)

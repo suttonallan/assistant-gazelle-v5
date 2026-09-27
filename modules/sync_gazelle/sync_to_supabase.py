@@ -704,6 +704,20 @@ class GazelleToSupabaseSync:
             print(f"❌ Erreur lors de la synchronisation des pianos: {e}")
             raise
 
+    def _colonnes_rv_etendues(self) -> bool:
+        """True si gazelle_appointments a confirmed_by_client et piano_ids
+        (migration sql/auto/001 appliquée). Vérifié une fois par exécution."""
+        if not hasattr(self, '_cache_colonnes_rv'):
+            try:
+                r = requests.get(
+                    f"{self.storage.api_url}/gazelle_appointments?select=confirmed_by_client,piano_ids&limit=1",
+                    headers=self.storage._get_headers(), timeout=15)
+                self._cache_colonnes_rv = r.status_code == 200
+            except Exception:
+                self._cache_colonnes_rv = False
+            print(f"   Colonnes confirmed_by_client/piano_ids : {'présentes' if self._cache_colonnes_rv else 'absentes (migration 001 en attente)'}")
+        return self._cache_colonnes_rv
+
     def sync_appointments(self, start_date_override: Optional[str] = None, force_historical: bool = False) -> int:
         """
         Synchronise les rendez-vous depuis Gazelle vers Supabase.
@@ -847,10 +861,11 @@ class GazelleToSupabaseSync:
                     # Piano (extraction V4 - ligne 264)
                     piano_id = None
                     piano_nodes = (appt_data.get('allEventPianos') or {}).get('nodes', [])
-                    if piano_nodes and len(piano_nodes) > 0:
-                        first_piano_node = piano_nodes[0]
-                        if first_piano_node and first_piano_node.get('piano'):
-                            piano_id = first_piano_node['piano'].get('id')
+                    # TOUS les pianos du RV (un RV peut couvrir plusieurs salles à PdA)
+                    tous_pianos = [n['piano']['id'] for n in piano_nodes
+                                   if n and n.get('piano') and n['piano'].get('id')]
+                    if tous_pianos:
+                        piano_id = tous_pianos[0]
 
                     appointment_record = {
                         'external_id': external_id,
@@ -875,6 +890,11 @@ class GazelleToSupabaseSync:
                         # Inclure created_at avec start_time causait des faux positifs dans la détection Late Assignment
                         'updated_at': format_for_supabase(datetime.now())
                     }
+                    # Colonnes ajoutées par sql/auto/001 : écrites seulement si elles
+                    # existent déjà (sinon l'upsert échouerait sur une colonne inconnue).
+                    if self._colonnes_rv_etendues():
+                        appointment_record['confirmed_by_client'] = bool(confirmed_by_client)
+                        appointment_record['piano_ids'] = tous_pianos
 
                     # Détecter changement AVANT l'UPSERT
                     # Récupérer l'ancien record pour comparer

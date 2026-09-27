@@ -498,7 +498,8 @@ class GazelleAPIClient:
         print(f"✅ {len(all_pianos)} pianos récupérés depuis l'API")
         return all_pianos
 
-    def get_appointments(self, limit: Optional[int] = None, start_date_override: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_appointments(self, limit: Optional[int] = None, start_date_override: Optional[str] = None,
+                         end_date_override: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Récupère tous les rendez-vous depuis l'API Gazelle (allEventsBatched).
 
@@ -522,7 +523,8 @@ class GazelleAPIClient:
             # Période : 60 jours dans le passé → 90 jours dans le futur (config V4)
             start_date = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
 
-        end_date = (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
+        # end_date_override : borne de fin explicite (ex. vérifier seulement demain)
+        end_date = end_date_override or (datetime.now() + timedelta(days=90)).strftime('%Y-%m-%d')
 
         # Requête GraphQL (copié de V4 - ligne 258)
         query = """

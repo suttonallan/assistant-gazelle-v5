@@ -103,6 +103,11 @@ class AppointmentChecker:
             #           technician_external_id, client_external_id
 
             date_str = target_date.isoformat()
+            # Le cache Gazelle ne couvre que la journée vérifiée : le vider si on change de jour
+            if getattr(self, '_jour_verifie', None) != target_date:
+                self._jour_verifie = target_date
+                if hasattr(self, '_gazelle_appointments_cache'):
+                    del self._gazelle_appointments_cache
 
             # Utiliser le client Supabase Python au lieu de requêtes HTTP manuelles
             # La colonne 'confirmed' n'existe PAS - on filtre par status = 'ACTIVE'
@@ -244,8 +249,17 @@ class AppointmentChecker:
         """
         if not hasattr(self, '_gazelle_appointments_cache'):
             try:
-                # Un seul appel API, SANS limite, pour avoir tous les RV
-                all_appointments = self.gazelle_client.get_appointments()
+                # Uniquement la journée vérifiée (avant : 150 jours téléchargés
+                # pour contrôler les RV de demain). Vérification en direct pour
+                # tenir compte d'une confirmation reçue dans la dernière heure.
+                jour = getattr(self, '_jour_verifie', None)
+                if jour:
+                    from datetime import timedelta as _td
+                    all_appointments = self.gazelle_client.get_appointments(
+                        start_date_override=jour.isoformat(),
+                        end_date_override=(jour + _td(days=1)).isoformat())
+                else:
+                    all_appointments = self.gazelle_client.get_appointments()
                 self._gazelle_appointments_cache = {
                     apt.get('id'): apt for apt in all_appointments if apt.get('id')
                 }

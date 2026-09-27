@@ -702,6 +702,21 @@ class GazelleSyncService:
             logger.error(f"Erreur lien demande {request_id}: {e}")
             return False
 
+    def _est_demande_principale(self, apt_ext_id: Optional[str], request_id: str) -> bool:
+        """Parmi les demandes PdA liées à un même RV, la « principale » est celle
+        au plus petit id (choix stable). En cas d'erreur : True (comportement
+        d'avant, jamais de stationnement perdu)."""
+        if not apt_ext_id:
+            return True
+        try:
+            rows = self.storage.client.table('place_des_arts_requests')\
+                .select('id').eq('appointment_id', apt_ext_id).execute().data or []
+            ids = sorted(str(r['id']) for r in rows if r.get('id'))
+            return not ids or ids[0] == str(request_id)
+        except Exception as e:
+            logger.warning(f"Demande principale indéterminée (RV {apt_ext_id}): {e}")
+            return True
+
     def _extract_parking_from_appointment(self, gazelle_apt: Dict,
                                           request_id: Optional[str] = None) -> Optional[str]:
         """
@@ -724,8 +739,16 @@ class GazelleSyncService:
         apt_ext_id = gazelle_apt.get('external_id')
         apt_tech = gazelle_apt.get('technicien')
         piano_id = gazelle_apt.get('piano_external_id')
-        if not apt_date or not piano_id:
+        # Tous les pianos du RV (colonne piano_ids, migration sql/auto/001) : un
+        # même RV peut couvrir plusieurs salles (ex. PN + WP le 2026-09-18) et le
+        # « stat » n'est écrit qu'une fois, sur l'un d'eux.
+        pianos = [p for p in (gazelle_apt.get('piano_ids') or []) if p] or ([piano_id] if piano_id else [])
+        if not apt_date or not pianos:
             # Sans piano, on ne peut pas rattacher le stationnement au bon RV.
+            return None
+        if len(pianos) > 1 and request_id and not self._est_demande_principale(apt_ext_id, request_id):
+            # Écrit une fois = rapporté une fois : sur un RV multi-salles, le
+            # stationnement va à UNE seule demande (la première liée au RV).
             return None
 
         try:
@@ -739,7 +762,7 @@ class GazelleSyncService:
             utc = ZoneInfo("UTC")
             query = self.storage.client.table('gazelle_timeline_entries')\
                 .select('title, description')\
-                .eq('piano_id', piano_id)\
+                .in_('piano_id', pianos)\
                 .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', day_start.astimezone(utc).isoformat())\
                 .lt('occurred_at', day_end.astimezone(utc).isoformat())
@@ -756,7 +779,7 @@ class GazelleSyncService:
                     for field in ('title', 'description'):
                         amount = extract_parking_amount(entry.get(field) or '')
                         if amount:
-                            logger.info(f"Stationnement {amount}$ sur piano {piano_id} (RV {apt_ext_id}, tech {apt_tech})")
+                            logger.info(f"Stationnement {amount}$ sur piano(s) {pianos} (RV {apt_ext_id}, tech {apt_tech})")
                             return amount
         except Exception as e:
             logger.warning(f"Erreur lecture timeline entries pour parking (RV {apt_ext_id}): {e}")
