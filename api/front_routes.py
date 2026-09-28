@@ -121,3 +121,23 @@ def creer_brouillon(conversation_id: str, b: BrouillonIn):
                                subject=b.sujet, to=b.a, cc=b.cc)
     return _handle(get_front_client().create_draft_reply, conversation_id, b.texte,
                    _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet)
+
+
+
+class NouveauCourrielIn(BaseModel):
+    a: List[str]
+    sujet: str = Field(..., min_length=1, max_length=300)
+    texte: str = Field(..., min_length=1, max_length=20000)
+    cc: Optional[List[str]] = None
+    auteur: str = "allan"
+
+
+@router.post("/brouillon-nouveau")
+def creer_brouillon_nouveau(b: NouveauCourrielIn):
+    """Brouillon d'un nouveau courriel dans Front, à relire et envoyer depuis Front (jamais envoyé ici)."""
+    client = get_front_client()
+    email = _email_auteur(b.auteur)
+    canal = _handle(client.channel_pour, email)
+    if not canal:
+        raise HTTPException(502, "Aucune boîte d'envoi trouvée dans Front")
+    return _handle(client.create_draft_new, canal, b.texte, email, b.a, b.sujet, b.cc)

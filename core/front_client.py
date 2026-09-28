@@ -144,6 +144,26 @@ class FrontClient:
             payload["subject"] = subject
         return self._post(f"/conversations/{conversation_id}/drafts", payload)
 
+    def channel_pour(self, email: str) -> Optional[str]:
+        """Canal d'envoi (boîte) correspondant à une adresse ; sinon le premier canal courriel."""
+        chans = self._get("/channels").get("_results", [])
+        for ch in chans:
+            if (ch.get("address") or "").lower() == email.lower():
+                return ch["id"]
+        for ch in chans:
+            if ch.get("type") in ("gmail", "imap", "smtp", "email", "office365"):
+                return ch["id"]
+        return chans[0]["id"] if chans else None
+
+    def create_draft_new(self, channel_id: str, body: str, author_email: str, to: List[str],
+                         subject: str, cc: Optional[List[str]] = None) -> Dict:
+        """BROUILLON d'un nouveau courriel (nouvelle conversation), partagé, non envoyé."""
+        payload: Dict[str, Any] = {"author_id": f"alt:email:{author_email}", "body": body,
+                                   "to": to, "subject": subject, "mode": "shared"}
+        if cc:
+            payload["cc"] = cc
+        return self._post(f"/channels/{channel_id}/drafts", payload)
+
     def list_drafts(self, conversation_id: str) -> List[Dict]:
         return self._get(f"/conversations/{conversation_id}/drafts").get("_results", [])
 
