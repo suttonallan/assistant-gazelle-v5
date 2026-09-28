@@ -48,6 +48,8 @@ def _refresh_cache():
             _cache = {}
             for row in resp.json():
                 key = row.get("key", "").replace("flag_", "")
-                _cache[key] = row.get("value", "").lower() == "true"
+                v = row.get("value")
+                # Accepte true (JSON), "true" et '"true"' (valeur posée en SQL)
+                _cache[key] = v is True or str(v).strip().strip('"').lower() == "true"
     except Exception as e:
         logger.warning(f"Feature flags refresh failed: {e}")
