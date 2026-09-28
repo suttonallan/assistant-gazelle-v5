@@ -37,7 +37,11 @@ from api.assistant import router as assistant_core_router  # 💬 Assistant chat
 from api.admin import router as admin_router
 from api.front_routes import router as front_router  # 📬 Lecture Front (conversations + commentaires équipe)
 from api.campaigns_routes import router as campaigns_router  # 🎯 Campagnes (agrégation par client)
-from api.taches_routes import router as taches_router  # ✅ Tâches d'équipe + campagnes
+try:  # ✅ Tâches d'équipe + campagnes — isolé : un bogue ici ne doit jamais empêcher l'API de démarrer
+    from api.taches_routes import router as taches_router
+except Exception as _e_taches:
+    print(f"⚠️ Module Tâches désactivé (erreur au chargement) : {_e_taches}")
+    taches_router = None
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
 from api.chat_routes import router as chat_router
@@ -207,7 +211,8 @@ app.include_router(assistant_core_router)  # 💬 Assistant chat + fiche client
 app.include_router(admin_router)
 app.include_router(front_router)  # 📬 Front API
 app.include_router(campaigns_router)  # 🎯 Campagnes
-app.include_router(taches_router)  # ✅ Tâches
+if taches_router:
+    app.include_router(taches_router)  # ✅ Tâches
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
@@ -238,7 +243,8 @@ app.include_router(assistant_core_router, prefix="/api")  # 💬 /api/assistant/
 app.include_router(admin_router, prefix="/api")
 app.include_router(front_router, prefix="/api")  # 📬 Front API
 app.include_router(campaigns_router, prefix="/api")  # 🎯 Campagnes
-app.include_router(taches_router, prefix="/api")  # ✅ Tâches
+if taches_router:
+    app.include_router(taches_router, prefix="/api")  # ✅ Tâches
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(assistant_converse_router, prefix="/api/assistant")  # 💬 /api/assistant/converse

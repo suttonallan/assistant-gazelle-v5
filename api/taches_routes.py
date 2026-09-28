@@ -96,6 +96,16 @@ def _nettoyer(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+@router.get("/actif")
+def module_actif():
+    """Interrupteurs (system_settings) :
+    - flag_taches = false          → module caché pour tout le monde (coupe-circuit)
+    - flag_taches_equipe = true    → visible pour toute l'équipe (sinon : Allan seulement)
+    """
+    from core.feature_flags import is_enabled
+    return {"actif": is_enabled("taches", default=True), "equipe": is_enabled("taches_equipe", default=False)}
+
+
 @router.get("/campagnes")
 def lister_campagnes():
     return {"campagnes": CAMPAGNES, "equipe": EQUIPE}

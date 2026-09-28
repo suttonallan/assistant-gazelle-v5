@@ -47,6 +47,16 @@ function App() {
     try { localStorage.setItem('selectedLocation', selectedLocation) } catch {}
   }, [selectedLocation])
 
+  // ✅ Module Tâches : interrupteurs côté serveur (coupe-circuit + ouverture à l'équipe)
+  const [tachesFlags, setTachesFlags] = useState({ actif: false, equipe: false })
+  useEffect(() => {
+    const API_URL = import.meta.env.VITE_API_URL || ''
+    fetch(`${API_URL}/api/taches/actif`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setTachesFlags(d) })
+      .catch(() => {})
+  }, [])
+
   // Charger les institutions depuis l'API
   useEffect(() => {
     const loadInstitutions = async () => {
@@ -201,9 +211,12 @@ function App() {
   }
 
   // Rendu conditionnel selon le rôle
+  const tachesVisible = tachesFlags.actif && (effectiveRole === 'admin' ||
+    (tachesFlags.equipe && ['nick', 'louise', 'margot', 'jeanphilippe'].includes(effectiveRole)))
+
   const renderDashboard = () => {
     // ✅ Tâches : même vue pour toute l'équipe
-    if (currentView === 'taches' && ['admin', 'nick', 'louise', 'margot', 'jeanphilippe'].includes(effectiveRole)) {
+    if (currentView === 'taches' && tachesVisible) {
       return (
         <ErrorBoundary componentName="Tâches">
           <TachesDashboard currentUser={effectiveUser} role={effectiveRole} />
@@ -474,7 +487,7 @@ function App() {
                 ) : effectiveRole === 'nick' ? (
                   <>
                     {/* Inventaire - Nick */}
-                    <button
+                    {tachesVisible && <button
                       onClick={() => setCurrentView('taches')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                         currentView === 'taches'
@@ -483,7 +496,7 @@ function App() {
                       }`}
                     >
                       ✅ Tâches
-                    </button>
+                    </button>}
 
                     <button
                       onClick={() => setCurrentView('inventaire')}
@@ -575,7 +588,7 @@ function App() {
                 ) : effectiveRole === 'jeanphilippe' ? (
                   <>
                     {/* Inventaire - Jean-Philippe */}
-                    <button
+                    {tachesVisible && <button
                       onClick={() => setCurrentView('taches')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                         currentView === 'taches'
@@ -584,7 +597,7 @@ function App() {
                       }`}
                     >
                       ✅ Tâches
-                    </button>
+                    </button>}
 
                     <button
                       onClick={() => setCurrentView('inventaire')}
@@ -664,7 +677,7 @@ function App() {
                     )}
 
                     {/* Inventaire - accessible à tous (hors Nick déjà géré) */}
-                    <button
+                    {tachesVisible && <button
                       onClick={() => setCurrentView('taches')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                         currentView === 'taches'
@@ -673,7 +686,7 @@ function App() {
                       }`}
                     >
                       ✅ Tâches
-                    </button>
+                    </button>}
 
                     <button
                       onClick={() => setCurrentView('inventaire')}
