@@ -4,7 +4,10 @@ Expose la lecture des conversations, messages et commentaires internes
 via l'API Front. Enregistré deux fois dans `api/main.py` — sans prefix
 (dev, Vite proxy) et avec `/api` prefix (prod Render).
 """
+from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 import logging
 
 from core.front_client import get_front_client
@@ -67,3 +70,39 @@ def get_conversation_full(conversation_id: str):
         "messages":     _handle(client.list_messages,    conversation_id),
         "comments":     _handle(client.list_comments,    conversation_id),
     }
+
+
+# ─── Écriture : commentaires internes et brouillons (rien n'est envoyé) ───
+EQUIPE_FRONT = {"allan": "asutton@piano-tek.com", "nicolas": "nlessard@piano-tek.com", "louise": "info@piano-tek.com"}
+
+
+class CommentaireIn(BaseModel):
+    texte: str = Field(..., min_length=1, max_length=5000)
+    auteur: str = "allan"
+
+
+class BrouillonIn(BaseModel):
+    texte: str = Field(..., min_length=1, max_length=20000)
+    auteur: str = "allan"
+    a: Optional[List[str]] = None
+    cc: Optional[List[str]] = None
+    sujet: Optional[str] = None
+
+
+def _email_auteur(auteur: str) -> str:
+    if auteur not in EQUIPE_FRONT:
+        raise HTTPException(400, f"auteur inconnu (attendu : {', '.join(EQUIPE_FRONT)})")
+    return EQUIPE_FRONT[auteur]
+
+
+@router.post("/conversations/{conversation_id}/commentaires")
+def ajouter_commentaire(conversation_id: str, c: CommentaireIn):
+    """Commentaire interne dans une conversation (visible de l'équipe seulement)."""
+    return _handle(get_front_client().add_comment, conversation_id, c.texte, _email_auteur(c.auteur))
+
+
+@router.post("/conversations/{conversation_id}/brouillon")
+def creer_brouillon(conversation_id: str, b: BrouillonIn):
+    """Brouillon de réponse partagé, à relire et envoyer depuis Front (jamais envoyé ici)."""
+    return _handle(get_front_client().create_draft_reply, conversation_id, b.texte,
+                   _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet)

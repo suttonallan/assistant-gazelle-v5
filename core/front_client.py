@@ -49,6 +49,14 @@ class FrontClient:
         resp.raise_for_status()
         return resp.json()
 
+    def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.BASE_URL}{path}"
+        headers = {**self._headers(), "Content-Type": "application/json"}
+        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
+        return resp.json() if resp.text else {}
+
     # ─── Endpoints ────────────────────────────────────────────────
 
     def me(self) -> Dict:
@@ -97,6 +105,44 @@ class FrontClient:
             f"/conversations/{conversation_id}/comments",
             params={"limit": min(limit, 100)},
         ).get("_results", [])
+
+    # ─── Écriture (jamais d'envoi direct : commentaires internes et brouillons) ───
+
+    def add_comment(self, conversation_id: str, body: str, author_email: str) -> Dict:
+        """Ajoute un commentaire interne (visible de l'équipe seulement)."""
+        return self._post(f"/conversations/{conversation_id}/comments",
+                          {"author_id": f"alt:email:{author_email}", "body": body})
+
+    def _channel_de_conversation(self, conversation_id: str) -> Optional[str]:
+        inboxes = self._get(f"/conversations/{conversation_id}/inboxes").get("_results", [])
+        for inbox in inboxes:
+            chans = self._get(f"/inboxes/{inbox['id']}/channels").get("_results", [])
+            for ch in chans:
+                if ch.get("type") in ("gmail", "imap", "smtp", "email", "office365", "custom"):
+                    return ch["id"]
+            if chans:
+                return chans[0]["id"]
+        return None
+
+    def create_draft_reply(self, conversation_id: str, body: str, author_email: str,
+                           to: Optional[List[str]] = None, cc: Optional[List[str]] = None,
+                           subject: Optional[str] = None) -> Dict:
+        """Crée un BROUILLON de réponse partagé dans la conversation (non envoyé)."""
+        payload: Dict[str, Any] = {
+            "author_id": f"alt:email:{author_email}",
+            "body": body,
+            "mode": "shared",
+        }
+        channel = self._channel_de_conversation(conversation_id)
+        if channel:
+            payload["channel_id"] = channel
+        if to:
+            payload["to"] = to
+        if cc:
+            payload["cc"] = cc
+        if subject:
+            payload["subject"] = subject
+        return self._post(f"/conversations/{conversation_id}/drafts", payload)
 
 
 # ─── Singleton ────────────────────────────────────────────────────
