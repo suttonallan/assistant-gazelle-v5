@@ -55,7 +55,7 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
             f"{api}/gazelle_timeline_entries",
             params=[("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
                     ("or", "(title.ilike.*stat*,description.ilike.*stat*,description.ilike.*parking*)"),
-                    ("select", "piano_id,user_id,entry_type,title,description,occurred_at"),
+                    ("select", "piano_id,user_id,client_id,entry_type,title,description,occurred_at"),
                     ("limit", "20")],
             headers=H, timeout=20).json()
         rows = [r for r in rows if isinstance(r, dict)]
@@ -80,9 +80,20 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
             extrait = texte[max(idx - 25, 0): idx + 35].strip()
             if r.get('entry_type') == 'SYSTEM_MESSAGE' or r.get('entry_type') == 'INVOICE_LOG':
                 continue
-            notes.append(f"piano {_nom_piano(r['piano_id']) if r.get('piano_id') else 'AUCUN'} / tech {r.get('user_id') or '?'} / "
+            notes.append(f"client {r.get('client_id') or 'AUCUN'} / piano {_nom_piano(r['piano_id']) if r.get('piano_id') else 'AUCUN'} / tech {r.get('user_id') or '?'} / "
                          f"{r.get('entry_type')} / {(r.get('occurred_at') or '')[:16]} : « {extrait} »")
-        return f"{rv}. Notes du jour : " + " | ".join(notes)
+        repli = ""
+        if apt:
+            try:
+                from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+                from core.supabase_storage import SupabaseStorage
+                svc = GazelleSyncService(SupabaseStorage(silent=True))
+                orph = svc._notes_orphelines_du_jour(apt, apt.get('technicien'),
+                                                     apt.get('piano_ids') or [apt.get('piano_external_id')], debut, fin)
+                repli = f" Client du RV : {apt.get('client_external_id') or 'AUCUN'}. Repli : {len(orph)} note(s) trouvée(s)."
+            except Exception as e:
+                repli = f" Repli en erreur : {e}"
+        return f"{rv}.{repli} Notes du jour : " + " | ".join(notes)
     except Exception as e:  # le diagnostic ne doit jamais faire échouer le check
         return f"(diagnostic indisponible : {e})"
 
