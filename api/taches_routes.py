@@ -230,3 +230,83 @@ def factures_campagne(slug: str, depuis: str = Query("2025-01-01"), limite: int 
     for f in factures:
         f["lignes"] = lignes.get(f.pop("external_id"), [])
     return {"client": camp["nom"], "count": len(factures), "factures": factures}
+
+
+# --- Factures en direct de Gazelle (la copie Supabase s'est arrêtée en mars 2026) ---
+_cache_gz: Dict[str, Any] = {}
+_Q_FACTURES = """
+query F($cursor: String%(decl)s) {
+  allInvoices(first: 100, after: $cursor%(arg)s) {
+    edges { node { id number status subTotal total createdAt client { id }
+      allInvoiceItems { nodes { description quantity amount subTotal sequenceNumber } } } }
+    pageInfo { hasNextPage endCursor }
+  }
+}"""
+
+
+def _factures_gazelle(client_id: str) -> List[Dict]:
+    from core.gazelle_api_client import GazelleAPIClient
+    api = GazelleAPIClient()
+    variantes = [
+        ({"decl": ", $c: String", "arg": ", clientId: $c"}, True),
+        ({"decl": "", "arg": ""}, False),  # repli : tout parcourir et filtrer ici
+    ]
+    for gabarit, filtre_serveur in variantes:
+        q = _Q_FACTURES % gabarit
+        out, cursor, ok = [], None, True
+        for _ in range(200):
+            v = {"cursor": cursor} if cursor else {}
+            if filtre_serveur:
+                v["c"] = client_id
+            try:
+                res = api._execute_query(q, v)
+            except Exception as e:
+                _log.warning("Gazelle factures (%s) : %s", "filtre" if filtre_serveur else "complet", e)
+                ok = False
+                break
+            if res.get("errors"):
+                ok = False
+                break
+            conn = (res.get("data") or {}).get("allInvoices") or {}
+            for e in conn.get("edges", []):
+                n = e["node"]
+                if (n.get("client") or {}).get("id") == client_id:
+                    out.append(n)
+            if not (conn.get("pageInfo") or {}).get("hasNextPage"):
+                break
+            cursor = conn["pageInfo"]["endCursor"]
+        if ok:
+            return out
+    raise HTTPException(502, "Gazelle n'a pas répondu pour les factures")
+
+
+def _dollars(v):
+    return round(v / 100, 2) if isinstance(v, int) else v
+
+
+@router.get("/campagnes/{slug}/factures-gazelle")
+def factures_gazelle_campagne(slug: str, depuis: str = Query("2025-01-01")):
+    """Factures du client de la campagne, lues en direct dans Gazelle (mémoire 1 h)."""
+    camp = next((c for c in CAMPAGNES if c["slug"] == slug), None)
+    if not camp or not camp.get("client_gazelle"):
+        raise HTTPException(404, "Campagne inconnue")
+    cache = _cache_gz.get(slug)
+    if cache and time.time() - cache[0] < 3600:
+        brutes = cache[1]
+    else:
+        brutes = _factures_gazelle(camp["client_gazelle"])
+        _cache_gz[slug] = (time.time(), brutes)
+    factures = []
+    for n in brutes:
+        date = (n.get("createdAt") or "")[:10]
+        if date < depuis:
+            continue
+        items = sorted((n.get("allInvoiceItems") or {}).get("nodes", []), key=lambda i: i.get("sequenceNumber") or 0)
+        factures.append({
+            "numero": str(n.get("number", "")), "date": date, "statut": n.get("status"),
+            "sous_total": _dollars(n.get("subTotal")), "total": _dollars(n.get("total")),
+            "lignes": [{"description": i.get("description"), "quantite": i.get("quantity"),
+                        "montant": _dollars(i.get("amount")), "sous_total": _dollars(i.get("subTotal"))} for i in items],
+        })
+    factures.sort(key=lambda f: f["date"], reverse=True)
+    return {"client": camp["nom"], "count": len(factures), "factures": factures}
