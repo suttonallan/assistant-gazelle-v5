@@ -147,6 +147,25 @@ class FrontClient:
     def list_drafts(self, conversation_id: str) -> List[Dict]:
         return self._get(f"/conversations/{conversation_id}/drafts").get("_results", [])
 
+    def edit_draft(self, draft_id: str, version: str, body: str, channel_id: Optional[str],
+                   subject: Optional[str] = None, to: Optional[List[str]] = None,
+                   cc: Optional[List[str]] = None) -> Dict:
+        payload: Dict[str, Any] = {"body": body, "version": version, "mode": "shared"}
+        if channel_id:
+            payload["channel_id"] = channel_id
+        if subject:
+            payload["subject"] = subject
+        if to:
+            payload["to"] = to
+        if cc:
+            payload["cc"] = cc
+        url = f"{self.BASE_URL}/drafts/{draft_id}/"
+        headers = {**self._headers(), "Content-Type": "application/json"}
+        resp = requests.patch(url, headers=headers, json=payload, timeout=self.timeout)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
+        return resp.json() if resp.text else {"ok": True}
+
     def delete_draft(self, draft_id: str, version: str) -> None:
         url = f"{self.BASE_URL}/drafts/{draft_id}"
         headers = {**self._headers(), "Content-Type": "application/json"}

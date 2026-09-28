@@ -113,9 +113,11 @@ def creer_brouillon(conversation_id: str, b: BrouillonIn):
     """Brouillon de réponse partagé, à relire et envoyer depuis Front (jamais envoyé ici)."""
     client = get_front_client()
     email = _email_auteur(b.auteur)
-    if b.remplacer:
+    if b.remplacer:  # modifie le brouillon existant de cet auteur (le jeton n'a pas le droit de supprimer)
         for d in _handle(client.list_drafts, conversation_id):
             if ((d.get("author") or {}).get("email") or "").lower() == email:
-                _handle(client.delete_draft, d["id"], d.get("version"))
+                canal = _handle(client._channel_de_conversation, conversation_id)
+                return _handle(client.edit_draft, d["id"], d.get("version"), b.texte, canal,
+                               subject=b.sujet, to=b.a, cc=b.cc)
     return _handle(get_front_client().create_draft_reply, conversation_id, b.texte,
                    _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet)
