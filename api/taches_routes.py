@@ -355,8 +355,12 @@ def ajouter_timeline(t: TimelineIn):
         raise HTTPException(403, "Piano hors campagne : écriture refusée")
     from core.gazelle_api_client import GazelleAPIClient
     try:
-        return GazelleAPIClient().create_timeline_entry(
-            piano_id=t.piano_id, summary=t.resume, comment=t.commentaire,
-            technician_id=UTILISATEURS_GAZELLE[t.auteur], occurred_at=t.date)
+        # Même chemin que les notes de service du reste de l'app (événement complété → historique du piano).
+        # is_tuning=False : une note n'est pas un accord (ne touche pas la date du dernier accord).
+        note = t.resume + (("\n\n" + t.commentaire) if t.commentaire else "")
+        return GazelleAPIClient().push_technician_service(
+            piano_id=t.piano_id, technician_note=note, service_type="NOTE",
+            technician_id=UTILISATEURS_GAZELLE[t.auteur], client_id=piano[0]["client_external_id"],
+            event_date=t.date, is_tuning=False)
     except Exception as e:
         raise HTTPException(502, f"Gazelle : {e}")

@@ -1096,7 +1096,8 @@ class GazelleAPIClient:
         service_type: str = "TUNING",
         technician_id: Optional[str] = None,
         client_id: Optional[str] = None,
-        event_date: Optional[str] = None
+        event_date: Optional[str] = None,
+        is_tuning: bool = True
     ) -> Dict[str, Any]:
         """
         Crée un événement de service dans Gazelle pour enregistrer une note de technicien.
@@ -1186,7 +1187,7 @@ class GazelleAPIClient:
             "duration": 60,  # Durée par défaut: 1 heure
             "type": "APPOINTMENT",  # Type fixe: APPOINTMENT
             "notes": f"{service_type}: {technician_note}",  # Notes de service
-            "pianos": [{"pianoId": piano_id, "isTuning": True}]  # isTuning: True = "Il s'agit d'un accord pour ce piano"
+            "pianos": [{"pianoId": piano_id, "isTuning": is_tuning}]  # isTuning: True = "Il s'agit d'un accord pour ce piano"
         }
 
         # Ajouter clientId si disponible (récupéré depuis le piano ou fourni)
