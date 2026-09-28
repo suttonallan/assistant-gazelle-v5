@@ -110,7 +110,7 @@ def check_pda_parking(storage) -> list:
     appts = {}
     if apt_ids:
         ids_csv = ",".join(apt_ids)
-        base = f"{api}/gazelle_appointments?external_id=in.({ids_csv})&select=external_id,piano_external_id,technicien,appointment_date"
+        base = f"{api}/gazelle_appointments?external_id=in.({ids_csv})&select=external_id,piano_external_id,technicien,appointment_date,client_external_id"
         resp = http.get(base + ",piano_ids", headers=H, timeout=20)
         if resp.status_code != 200:  # colonne piano_ids pas encore créée
             resp = http.get(base, headers=H, timeout=20)
@@ -258,8 +258,13 @@ def check_pda_coherence(storage) -> list:
         if len(rs) > 1:
             rooms = {(x.get("room") or "").strip().lower() for x in rs}
             nb_pianos = len([p for p in ((appts.get(aid) or {}).get("piano_ids") or []) if p])
-            if len(rooms) > 1 and nb_pianos >= len(rs):
-                # RV multi-salles légitime : autant de pianos au RV que de demandes liées
+            apt_rv = appts.get(aid) or {}
+            dates_ok = all(_d10(x.get("appointment_date")) == _d10(apt_rv.get("appointment_date")) for x in rs)
+            techs = {x.get("technician_id") for x in rs if x.get("technician_id")}
+            tech_ok = not techs or techs <= {apt_rv.get("technicien")}
+            if len(rooms) > 1 and dates_ok and tech_ok:
+                # Pratique courante à PdA : UN RV Gazelle pour plusieurs salles le
+                # même jour, même technicien. Pas une erreur de liaison.
                 continue
             sev = "error" if len(rooms) > 1 else "warning"
             note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""

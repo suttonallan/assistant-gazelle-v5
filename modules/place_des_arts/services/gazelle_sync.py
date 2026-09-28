@@ -702,6 +702,39 @@ class GazelleSyncService:
             logger.error(f"Erreur lien demande {request_id}: {e}")
             return False
 
+    def _notes_orphelines_du_jour(self, gazelle_apt: Dict, tech: str, pianos_rv: list,
+                                  debut_utc: str, fin_utc: str) -> list:
+        """Notes de service du tech ce jour-là sur des pianos du même client, non
+        attachés au RV ni à aucun autre RV du tech ce jour-là."""
+        try:
+            client_id = gazelle_apt.get('client_external_id')
+            apt_ext_id = gazelle_apt.get('external_id')
+            if not client_id and apt_ext_id:
+                r = self.storage.client.table('gazelle_appointments').select('client_external_id')\
+                    .eq('external_id', apt_ext_id).limit(1).execute().data or []
+                client_id = r[0].get('client_external_id') if r else None
+            if not client_id:
+                return []
+            jour = str(gazelle_apt.get('appointment_date'))[:10]
+            autres = self.storage.client.table('gazelle_appointments')\
+                .select('external_id,piano_external_id,piano_ids')\
+                .eq('technicien', tech).eq('appointment_date', jour).execute().data or []
+            pris = set()
+            for a in autres:
+                if a.get('external_id') == apt_ext_id:
+                    continue
+                pris.update(p for p in (a.get('piano_ids') or [a.get('piano_external_id')]) if p)
+            notes = self.storage.client.table('gazelle_timeline_entries')\
+                .select('title, description, piano_id')\
+                .eq('client_id', client_id).eq('user_id', tech)\
+                .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
+                .gte('occurred_at', debut_utc).lt('occurred_at', fin_utc).execute().data or []
+            return [n for n in notes if n.get('piano_id') and n['piano_id'] not in pris
+                    and n['piano_id'] not in pianos_rv]
+        except Exception as e:
+            logger.warning(f"Repli stationnement impossible (RV {gazelle_apt.get('external_id')}): {e}")
+            return []
+
     def _est_demande_principale(self, apt_ext_id: Optional[str], request_id: str) -> bool:
         """Parmi les demandes PdA liées à un même RV, la « principale » est celle
         au plus petit id (choix stable). En cas d'erreur : True (comportement
@@ -746,9 +779,10 @@ class GazelleSyncService:
         if not apt_date or not pianos:
             # Sans piano, on ne peut pas rattacher le stationnement au bon RV.
             return None
-        if len(pianos) > 1 and request_id and not self._est_demande_principale(apt_ext_id, request_id):
-            # Écrit une fois = rapporté une fois : sur un RV multi-salles, le
-            # stationnement va à UNE seule demande (la première liée au RV).
+        if request_id and not self._est_demande_principale(apt_ext_id, request_id):
+            # Écrit une fois = rapporté une fois : quand un même RV couvre
+            # plusieurs demandes (plusieurs salles), le stationnement va à UNE
+            # seule demande (la première liée au RV).
             return None
 
         try:
@@ -773,14 +807,24 @@ class GazelleSyncService:
                 query = query.eq('user_id', apt_tech)
 
             result = query.execute()
+            entries = list(result.data or [])
 
-            if result.data:
-                for entry in result.data:
-                    for field in ('title', 'description'):
-                        amount = extract_parking_amount(entry.get(field) or '')
-                        if amount:
-                            logger.info(f"Stationnement {amount}$ sur piano(s) {pianos} (RV {apt_ext_id}, tech {apt_tech})")
-                            return amount
+            # Repli : un RV de plusieurs salles n'a souvent qu'UN piano attaché
+            # dans Gazelle (ex. 2026-09-18 : RV sur le Steinway D New-York, « stat »
+            # écrit sur le Hambourg D). On regarde alors les notes du même tech,
+            # même jour, sur les AUTRES pianos du même client qui ne sont attachés
+            # à aucun autre RV de ce tech ce jour-là.
+            if apt_tech and not any(extract_parking_amount((e.get('title') or '') + ' ' + (e.get('description') or '')) for e in entries):
+                entries += self._notes_orphelines_du_jour(gazelle_apt, apt_tech, pianos,
+                                                          day_start.astimezone(utc).isoformat(),
+                                                          day_end.astimezone(utc).isoformat())
+
+            for entry in entries:
+                for field in ('title', 'description'):
+                    amount = extract_parking_amount(entry.get(field) or '')
+                    if amount:
+                        logger.info(f"Stationnement {amount}$ (RV {apt_ext_id}, tech {apt_tech})")
+                        return amount
         except Exception as e:
             logger.warning(f"Erreur lecture timeline entries pour parking (RV {apt_ext_id}): {e}")
 
