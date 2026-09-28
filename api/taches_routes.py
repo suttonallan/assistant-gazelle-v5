@@ -310,3 +310,53 @@ def factures_gazelle_campagne(slug: str, depuis: str = Query("2025-01-01")):
         })
     factures.sort(key=lambda f: f["date"], reverse=True)
     return {"client": camp["nom"], "count": len(factures), "factures": factures}
+
+
+# --- Timeline Gazelle des pianos de campagne ---
+UTILISATEURS_GAZELLE = {"allan": "usr_ofYggsCDt2JAVeNP", "nicolas": "usr_HcCiFk7o0vZ9xAI0"}
+
+
+def _clients_campagnes() -> Dict[str, str]:
+    return {c["client_gazelle"]: c["slug"] for c in CAMPAGNES if c.get("client_gazelle")}
+
+
+@router.get("/pianos")
+def pianos_campagne(campagne: str = Query(...), q: Optional[str] = Query(None)):
+    """Pianos du client d'une campagne (copie Supabase de Gazelle), filtrables par marque, modèle, série ou lieu."""
+    camp = next((c for c in CAMPAGNES if c["slug"] == campagne), None)
+    if not camp or not camp.get("client_gazelle"):
+        raise HTTPException(404, "Campagne inconnue")
+    rows = _check(requests.get(
+        f"{_db().api_url}/gazelle_pianos?select=external_id,make,model,serial_number,type,location"
+        f"&client_external_id=eq.{camp['client_gazelle']}", headers=_db()._get_headers(), timeout=15)) or []
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in " ".join(str(r.get(k) or "") for k in ("make", "model", "serial_number", "location")).lower()]
+    return {"pianos": rows}
+
+
+class TimelineIn(BaseModel):
+    piano_id: str
+    resume: str
+    commentaire: Optional[str] = None
+    auteur: str = "allan"
+    date: Optional[str] = None  # ISO ; défaut : maintenant (heure de Montréal)
+
+
+@router.post("/timeline")
+def ajouter_timeline(t: TimelineIn):
+    """Ajoute une note dans la timeline Gazelle d'un piano de campagne."""
+    if t.auteur not in UTILISATEURS_GAZELLE:
+        raise HTTPException(400, "auteur inconnu")
+    piano = _check(requests.get(
+        f"{_db().api_url}/gazelle_pianos?select=external_id,client_external_id&external_id=eq.{t.piano_id}",
+        headers=_db()._get_headers(), timeout=15)) or []
+    if not piano or piano[0].get("client_external_id") not in _clients_campagnes():
+        raise HTTPException(403, "Piano hors campagne : écriture refusée")
+    from core.gazelle_api_client import GazelleAPIClient
+    try:
+        return GazelleAPIClient().create_timeline_entry(
+            piano_id=t.piano_id, summary=t.resume, comment=t.commentaire,
+            technician_id=UTILISATEURS_GAZELLE[t.auteur], occurred_at=t.date)
+    except Exception as e:
+        raise HTTPException(502, f"Gazelle : {e}")
