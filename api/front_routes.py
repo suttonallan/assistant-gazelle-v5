@@ -79,6 +79,9 @@ EQUIPE_FRONT = {"allan": "asutton@piano-tek.com", "nicolas": "nlessard@piano-tek
 class CommentaireIn(BaseModel):
     texte: str = Field(..., min_length=1, max_length=5000)
     auteur: str = "allan"
+    par_ia: bool = True  # signe « Claude IA » : l'équipe sait que ce n'est pas Allan qui tape
+
+SIGNATURE_IA = "🤖 Claude IA (pour {nom}) : "
 
 
 class BrouillonIn(BaseModel):
@@ -98,7 +101,10 @@ def _email_auteur(auteur: str) -> str:
 @router.post("/conversations/{conversation_id}/commentaires")
 def ajouter_commentaire(conversation_id: str, c: CommentaireIn):
     """Commentaire interne dans une conversation (visible de l'équipe seulement)."""
-    return _handle(get_front_client().add_comment, conversation_id, c.texte, _email_auteur(c.auteur))
+    texte = c.texte
+    if c.par_ia:
+        texte = SIGNATURE_IA.format(nom=c.auteur.capitalize()) + texte
+    return _handle(get_front_client().add_comment, conversation_id, texte, _email_auteur(c.auteur))
 
 
 @router.post("/conversations/{conversation_id}/brouillon")
