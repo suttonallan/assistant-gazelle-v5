@@ -717,8 +717,10 @@ class GazelleSyncService:
                 return []
             jour = str(gazelle_apt.get('appointment_date'))[:10]
             autres = self.storage.client.table('gazelle_appointments')\
-                .select('external_id,piano_external_id,piano_ids')\
+                .select('external_id,piano_external_id,piano_ids,status')\
                 .eq('technicien', tech).eq('appointment_date', jour).execute().data or []
+            # Un RV annulé ne « réserve » pas ses pianos
+            autres = [a for a in autres if str(a.get('status') or '').upper() not in ('CANCELLED', 'CANCELED', 'DELETED')]
             pris = set()
             for a in autres:
                 if a.get('external_id') == apt_ext_id:
