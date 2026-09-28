@@ -30,6 +30,7 @@ EQUIPE = ["allan", "nicolas", "louise", "margot", "jp", "ilyan"]
 CAMPAGNES: List[Dict[str, Any]] = [
     {
         "slug": "place-des-arts",
+        "client_gazelle": "cli_HbEwl9rN11pSuDEU",
         "nom": "Place des Arts",
         "sous_titre": "PO DS23391 · 6 pianos · 14 000 $ · avr–déc 2026",
         "contacts": "Guy Levesque · Isabelle Clairoux (cc)",
@@ -38,6 +39,7 @@ CAMPAGNES: List[Dict[str, Any]] = [
     },
     {
         "slug": "orford",
+        "client_gazelle": "cli_PmqPUBTbPFeCMGmz",
         "nom": "Orford Musique",
         "sous_titre": "48 pianos · 2 ans · ~345 000 $ · en attente subvention",
         "contacts": "Wonny Song",
@@ -201,3 +203,30 @@ def commentaires_campagne(slug: str, limite: int = Query(5, ge=1, le=20)):
         "commentaires": ctx.get("recent_team_comments", [])[:limite],
         "conversations": convs[:6],
     }
+
+
+@router.get("/campagnes/{slug}/factures")
+def factures_campagne(slug: str, depuis: str = Query("2025-01-01"), limite: int = Query(50, ge=1, le=200)):
+    """Factures Gazelle du client de la campagne (avec leurs lignes), les plus récentes d'abord."""
+    camp = next((c for c in CAMPAGNES if c["slug"] == slug), None)
+    if not camp or not camp.get("client_gazelle"):
+        raise HTTPException(404, "Campagne inconnue")
+    h = _db()._get_headers()
+    base = _db().api_url
+    factures = _check(requests.get(
+        f"{base}/gazelle_invoices?select=external_id,invoice_number,invoice_date,status,sub_total,total,notes"
+        f"&client_id=eq.{camp['client_gazelle']}&invoice_date=gte.{depuis}&order=invoice_date.desc&limit={limite}",
+        headers=h, timeout=20)) or []
+    ids = [f["external_id"] for f in factures]
+    lignes: Dict[str, List[Dict]] = {}
+    for i in range(0, len(ids), 40):
+        lot = ",".join(f'"{x}"' for x in ids[i:i + 40])
+        rows = _check(requests.get(
+            f"{base}/gazelle_invoice_items?select=invoice_external_id,description,quantity,amount,sub_total"
+            f"&invoice_external_id=in.({lot})&order=sequence_number.asc", headers=h, timeout=20)) or []
+        for r in rows:
+            lignes.setdefault(r["invoice_external_id"], []).append(
+                {k: r[k] for k in ("description", "quantity", "amount", "sub_total")})
+    for f in factures:
+        f["lignes"] = lignes.get(f.pop("external_id"), [])
+    return {"client": camp["nom"], "count": len(factures), "factures": factures}

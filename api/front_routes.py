@@ -85,6 +85,7 @@ SIGNATURE_IA = "🤖 Claude IA (pour {nom}) : "
 
 
 class BrouillonIn(BaseModel):
+    remplacer: bool = False  # supprime d'abord les brouillons existants de cet auteur dans la conversation
     texte: str = Field(..., min_length=1, max_length=20000)
     auteur: str = "allan"
     a: Optional[List[str]] = None
@@ -110,5 +111,11 @@ def ajouter_commentaire(conversation_id: str, c: CommentaireIn):
 @router.post("/conversations/{conversation_id}/brouillon")
 def creer_brouillon(conversation_id: str, b: BrouillonIn):
     """Brouillon de réponse partagé, à relire et envoyer depuis Front (jamais envoyé ici)."""
+    client = get_front_client()
+    email = _email_auteur(b.auteur)
+    if b.remplacer:
+        for d in _handle(client.list_drafts, conversation_id):
+            if ((d.get("author") or {}).get("email") or "").lower() == email:
+                _handle(client.delete_draft, d["id"], d.get("version"))
     return _handle(get_front_client().create_draft_reply, conversation_id, b.texte,
                    _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet)

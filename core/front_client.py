@@ -144,6 +144,16 @@ class FrontClient:
             payload["subject"] = subject
         return self._post(f"/conversations/{conversation_id}/drafts", payload)
 
+    def list_drafts(self, conversation_id: str) -> List[Dict]:
+        return self._get(f"/conversations/{conversation_id}/drafts").get("_results", [])
+
+    def delete_draft(self, draft_id: str, version: str) -> None:
+        url = f"{self.BASE_URL}/drafts/{draft_id}"
+        headers = {**self._headers(), "Content-Type": "application/json"}
+        resp = requests.delete(url, headers=headers, json={"version": version}, timeout=self.timeout)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
+
 
 # ─── Singleton ────────────────────────────────────────────────────
 
