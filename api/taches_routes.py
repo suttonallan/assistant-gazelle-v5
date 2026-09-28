@@ -198,11 +198,43 @@ def commentaires_campagne(slug: str, limite: int = Query(5, ge=1, le=20)):
          "url": f"https://app.frontapp.com/open/{c['id']}"}
         for c in ctx.get("conversations", [])
     ]
+    masques = _ids_masques()
+    visibles = [c for c in ctx.get("recent_team_comments", [])
+                if c.get("id") not in masques and not _est_du_bruit(c.get("text") or "")]
     return {
         "disponible": True,
-        "commentaires": ctx.get("recent_team_comments", [])[:limite],
+        "commentaires": visibles[:limite],
         "conversations": convs[:6],
     }
+
+
+def _est_du_bruit(texte: str) -> bool:
+    """Commentaire vide ou qui ne contient qu'une mention (« @asutton »)."""
+    import re
+    reste = re.sub(r"@\w+", "", texte or "").strip(" \n\t.,:;!-")
+    return len(reste) < 3
+
+
+def _ids_masques() -> set:
+    try:
+        r = requests.get(f"{_db().api_url}/commentaires_masques?select=comment_id",
+                         headers=_db()._get_headers(), timeout=10)
+        return {x["comment_id"] for x in r.json()} if r.status_code == 200 else set()
+    except Exception:
+        return set()  # table absente ou Supabase lent : on n'empêche pas l'affichage
+
+
+class MasquerIn(BaseModel):
+    par: Optional[str] = None
+
+
+@router.post("/commentaires/{comment_id}/masquer")
+def masquer_commentaire(comment_id: str, m: MasquerIn = MasquerIn()):
+    """Retire un commentaire Front des cartes campagne (il reste intact dans Front)."""
+    h = {**_db()._get_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
+    _check(requests.post(f"{_db().api_url}/commentaires_masques", headers=h,
+                         json={"comment_id": comment_id, "masque_par": m.par}, timeout=10))
+    return {"ok": True}
 
 
 @router.get("/campagnes/{slug}/factures")

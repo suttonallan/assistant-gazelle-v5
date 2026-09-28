@@ -295,7 +295,7 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
             {front && !front.disponible && <div className="text-xs text-gray-400">{front.raison}</div>}
             {front && front.disponible && front.commentaires.length === 0 && <div className="text-xs text-gray-400">Aucun commentaire récent.</div>}
             {front && front.commentaires.map((c) => (
-              <div key={c.id} className="grid grid-cols-[24px_1fr] gap-2 py-2 border-b border-gray-100 last:border-0">
+              <div key={c.id} className="group grid grid-cols-[24px_1fr_auto] gap-2 py-2 border-b border-gray-100 last:border-0">
                 <Avatar membre={membreDepuisNom(c.author_name)} petit />
                 <div className="min-w-0">
                   <div className="text-[11.5px] text-gray-500">
@@ -304,6 +304,13 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
                   </div>
                   <div className="text-[13px] text-gray-800 whitespace-pre-line line-clamp-3">{c.text}</div>
                 </div>
+                <button title="Masquer ce commentaire de la carte (il reste dans Front)"
+                  className="self-start text-gray-300 hover:text-red-600 px-1 text-lg leading-none md:opacity-0 md:group-hover:opacity-100"
+                  onClick={() => {
+                    setFront((f) => ({ ...f, commentaires: f.commentaires.filter((x) => x.id !== c.id) }))
+                    api(`/commentaires/${c.id}/masquer`, { method: 'POST', body: JSON.stringify({ par: moi }) })
+                      .catch((e) => alert(`Non masqué : ${e.message}`))
+                  }}>×</button>
               </div>
             ))}
           </div>
