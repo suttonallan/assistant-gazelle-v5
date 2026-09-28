@@ -7,10 +7,6 @@ on:
   schedule:
     - cron: '0 13 * * *'   # ~8h-9h Montreal (apres le sync du matin)
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'modules/data_quality/**'
 
 jobs:
   sanity-check:
