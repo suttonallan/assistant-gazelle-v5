@@ -737,14 +737,17 @@ class GazelleSyncService:
 
     def _est_demande_principale(self, apt_ext_id: Optional[str], request_id: str) -> bool:
         """Parmi les demandes PdA liées à un même RV, la « principale » est celle
-        au plus petit id (choix stable). En cas d'erreur : True (comportement
-        d'avant, jamais de stationnement perdu)."""
+        qui porte déjà le stationnement, sinon celle au plus petit id. En cas
+        d'erreur : True (jamais de stationnement perdu)."""
         if not apt_ext_id:
             return True
         try:
             rows = self.storage.client.table('place_des_arts_requests')\
-                .select('id').eq('appointment_id', apt_ext_id).execute().data or []
-            ids = sorted(str(r['id']) for r in rows if r.get('id'))
+                .select('id,parking').eq('appointment_id', apt_ext_id).execute().data or []
+            # Si une demande porte déjà le stationnement, c'est elle (stable, pas de
+            # déplacement d'un montant déjà facturé) ; sinon la plus petite id.
+            avec = sorted(str(r['id']) for r in rows if r.get('id') and r.get('parking'))
+            ids = avec or sorted(str(r['id']) for r in rows if r.get('id'))
             return not ids or ids[0] == str(request_id)
         except Exception as e:
             logger.warning(f"Demande principale indéterminée (RV {apt_ext_id}): {e}")
