@@ -364,3 +364,22 @@ def ajouter_timeline(t: TimelineIn):
             event_date=t.date, is_tuning=False)
     except Exception as e:
         raise HTTPException(502, f"Gazelle : {e}")
+
+
+@router.get("/gazelle/schema-notes")
+def schema_notes():
+    """Lecture seule : mutations et types Gazelle liés aux notes/timeline (diagnostic)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    api = GazelleAPIClient()
+    q = """{ __schema { mutationType { fields { name args { name type { name kind ofType { name } } } } } } }"""
+    res = api._execute_query(q, {})
+    champs = ((res.get("data") or {}).get("__schema") or {}).get("mutationType", {}).get("fields", [])
+    mots = ("note", "timeline", "comment", "history", "delete", "event")
+    garder = [f for f in champs if any(m in f["name"].lower() for m in mots)]
+    types = {}
+    for nom in ("PrivatePianoNoteInput", "PrivateTimelineEntryInput", "PrivateNoteInput", "PrivateCreateNoteInput"):
+        r = api._execute_query("""query($n:String!){ __type(name:$n){ name inputFields { name type { name kind ofType { name } } } } }""", {"n": nom})
+        t = (r.get("data") or {}).get("__type")
+        if t:
+            types[nom] = t
+    return {"mutations": garder, "types": types, "total_mutations": len(champs)}
