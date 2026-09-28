@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.supabase_storage import SupabaseStorage  # noqa: E402
 
 RECIPIENT = "asutton@piano-tek.com"
-WINDOW_DAYS = 30  # fenêtre de scan (jours en arrière)
+WINDOW_DAYS = 30  # fenêtre de scan (jours en arrière, journée Montréal)
 
 
 def _norm_amount(val):
