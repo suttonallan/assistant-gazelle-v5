@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { ROLES } from '../config/roles'
+import { API_URL } from '../utils/apiConfig'
+import { ecrireJeton } from '../utils/jetonApi'
 
-// Base de données des utilisateurs avec leurs PINs
+// Utilisateurs de l'équipe. Les PIN ne sont PLUS ici : le serveur les vérifie
+// (core/verrou_api.py) et remet un jeton de connexion.
 // IMPORTANT: gazelleId est l'ID Gazelle du technicien (source de vérité)
 // Voir docs/REGLE_IDS_GAZELLE.md
 const USERS = [
@@ -11,7 +14,6 @@ const USERS = [
     initials: 'AS',
     email: ROLES.admin.email,
     role: 'admin',
-    pin: '6342',
     gazelleId: 'usr_ofYggsCDt2JAVeNP'  // ID Gazelle technicien ALLAN
   },
   {
@@ -20,7 +22,6 @@ const USERS = [
     initials: 'L',
     email: ROLES.louise.email,
     role: 'admin',
-    pin: '6343',
     gazelleId: null  // Louise n'est pas technicien
   },
   {
@@ -29,7 +30,6 @@ const USERS = [
     initials: 'NL',
     email: ROLES.nick.email,
     role: 'technician',
-    pin: '6344',
     gazelleId: 'usr_HcCiFk7o0vZ9xAI0'  // ID Gazelle technicien Nicolas
   },
   {
@@ -38,7 +38,6 @@ const USERS = [
     initials: 'JP',
     email: ROLES.jeanphilippe.email,
     role: 'technician',
-    pin: '6345',
     gazelleId: 'usr_ReUSmIJmBF86ilY1'  // ID Gazelle technicien JP
   },
   {
@@ -47,7 +46,6 @@ const USERS = [
     initials: 'MC',
     email: ROLES.margot.email,
     role: 'assistant',
-    pin: '6341',
     gazelleId: 'usr_bbt59aCUqUaDWA8n'  // Margot Charignon dans Gazelle
   },
   // ═══════════════════════════════════════════════════════════════════
@@ -55,8 +53,8 @@ const USERS = [
   // Chaque technicien voit SEULEMENT la vue technicien Vincent-d'Indy
   // Ses notes sont identifiées par leurs initiales dans le champ travail
   // ═══════════════════════════════════════════════════════════════════
-  { id: 6, name: 'Alexandre', initials: 'AB', email: 'alexandre.bourke@gmail.com', role: 'alexandre', pin: '6346', gazelleId: null },
-  { id: 8, name: 'Guillaume', initials: 'GL', email: 'guillaume@laccordeur.ca', role: 'guillaume', pin: '6348', gazelleId: null },
+  { id: 6, name: 'Alexandre', initials: 'AB', email: 'alexandre.bourke@gmail.com', role: 'alexandre', gazelleId: null },
+  { id: 8, name: 'Guillaume', initials: 'GL', email: 'guillaume@laccordeur.ca', role: 'guillaume', gazelleId: null },
 ]
 
 export default function LoginScreen({ onLogin }) {
@@ -107,21 +105,35 @@ export default function LoginScreen({ onLogin }) {
     setError('')
   }
 
-  const authenticateWithPin = (pinCode) => {
-    const user = USERS.find(u => u.pin === pinCode)
+  const [verif, setVerif] = useState(false)
 
-    if (user) {
-      // Sauvegarder dans localStorage
-      localStorage.setItem('currentUser', JSON.stringify(user))
-      onLogin(user)
-    } else {
-      setError('PIN incorrect')
-      // Réinitialiser après 1 seconde
-      setTimeout(() => {
-        setPin('')
-        setError('')
-      }, 1000)
+  const authenticateWithPin = async (pinCode) => {
+    if (verif) return
+    setVerif(true)
+    try {
+      const r = await fetch(`${API_URL}/api/auth/connexion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinCode }),
+      })
+      const d = await r.json().catch(() => ({}))
+      const user = r.ok ? USERS.find(u => u.email === d.email) : null
+      if (user) {
+        ecrireJeton(d.jeton)
+        localStorage.setItem('currentUser', JSON.stringify(user))
+        onLogin(user)
+        return
+      }
+      setError(r.status === 429 ? d.detail : 'PIN incorrect')
+    } catch {
+      setError('Serveur injoignable, réessayez')
+    } finally {
+      setVerif(false)
     }
+    setTimeout(() => {
+      setPin('')
+      setError('')
+    }, 1500)
   }
 
   return (
@@ -157,6 +169,9 @@ export default function LoginScreen({ onLogin }) {
           </div>
 
           {/* Message d'erreur */}
+          {verif && !error && (
+            <div className="text-center text-sm text-gray-500 mb-4">Vérification…</div>
+          )}
           {error && (
             <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm text-center animate-shake">
               {error}

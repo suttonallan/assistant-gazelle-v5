@@ -25,7 +25,8 @@ jobs:
           echo "POST /api/place-des-arts/requests/sync-completed-live ..."
           code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
             "https://assistant-gazelle-v5-api.onrender.com/api/place-des-arts/requests/sync-completed-live" \
-            -H "Content-Type: application/json")
+            -H "Content-Type: application/json" \
+            -H "X-Cle-Service: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}")
           echo "HTTP $code"
           cat /tmp/out.json || true
           echo ""

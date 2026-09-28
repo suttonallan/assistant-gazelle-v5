@@ -55,7 +55,7 @@ function App() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setTachesFlags(d) })
       .catch(() => {})
-  }, [])
+  }, [currentUser])
 
   // Charger les institutions depuis l'API
   useEffect(() => {
@@ -87,12 +87,14 @@ function App() {
       }
     }
     loadInstitutions()
-  }, [])
+  }, [currentUser])
 
   // Charger l'utilisateur depuis localStorage au démarrage
   useEffect(() => {
     console.log('[App.jsx] useEffect chargement utilisateur - début');
     try {
+      // 🔒 Sans jeton de connexion (ancienne session), on redemande le PIN une fois.
+      if (!localStorage.getItem('jetonApi')) localStorage.removeItem('currentUser')
       const savedUser = localStorage.getItem('currentUser')
       console.log('[App.jsx] Utilisateur sauvegardé trouvé:', savedUser ? 'OUI' : 'NON');
       if (savedUser) {
@@ -202,6 +204,7 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('currentUser')
+    localStorage.removeItem('jetonApi')
     setCurrentUser(null)
     setSimulatedRole(null) // Réinitialiser le rôle simulé
   }

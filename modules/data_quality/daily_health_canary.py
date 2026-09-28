@@ -23,6 +23,8 @@ import requests
 
 RECIPIENT = "asutton@piano-tek.com"
 API_BASE = os.getenv("CANARY_API_BASE", "https://assistant-gazelle-v5-api.onrender.com")
+# 🔒 Clé service : laisse passer le verrou de l'API (core/verrou_api.py)
+_ENTETES = {"X-Cle-Service": os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")}
 
 # Un technicien reel pour l'appel briefing (Allan).
 _ALLAN = "usr_ofYggsCDt2JAVeNP"
@@ -56,7 +58,7 @@ def check_endpoints() -> list:
         url = f"{API_BASE}{path}"
         t0 = time.monotonic()
         try:
-            r = requests.get(url, timeout=timeout_s)
+            r = requests.get(url, timeout=timeout_s, headers=_ENTETES)
             dt = time.monotonic() - t0
             if r.status_code != 200:
                 problems.append({
@@ -91,7 +93,7 @@ def check_freshness() -> list:
     """Verifie la derniere sync via /api/system/status."""
     problems = []
     try:
-        r = requests.get(f"{API_BASE}/api/system/status", timeout=30)
+        r = requests.get(f"{API_BASE}/api/system/status", timeout=30, headers=_ENTETES)
         if r.status_code != 200:
             return problems  # deja signale par check_endpoints
         data = r.json()

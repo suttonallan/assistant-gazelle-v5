@@ -5,6 +5,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
+import { installerJetonApi } from './utils/jetonApi'
+
+installerJetonApi() // 🔒 ajoute le jeton de connexion à chaque appel vers l'API
 
 console.log('[main.jsx] Avant ReactDOM.createRoot');
 

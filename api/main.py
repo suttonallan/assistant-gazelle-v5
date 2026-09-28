@@ -37,6 +37,7 @@ from api.assistant import router as assistant_core_router  # 💬 Assistant chat
 from api.admin import router as admin_router
 from api.front_routes import router as front_router  # 📬 Lecture Front (conversations + commentaires équipe)
 from api.campaigns_routes import router as campaigns_router  # 🎯 Campagnes (agrégation par client)
+from api.auth_routes import router as auth_router  # 🔒 Connexion PIN
 try:  # ✅ Tâches d'équipe + campagnes — isolé : un bogue ici ne doit jamais empêcher l'API de démarrer
     from api.taches_routes import router as taches_router
 except Exception as _e_taches:
@@ -166,6 +167,34 @@ async def shutdown_event():
     except Exception as e:
         print(f"⚠️  Erreur lors de l'arrêt du scheduler: {e}")
 
+# 🔒 Verrou de l'API (core/verrou_api.py). Déclaré AVANT le CORS pour que les
+# réponses 401 portent aussi les en-têtes CORS (le CORS reste la couche extérieure).
+from fastapi.responses import JSONResponse as _JSONResponse
+
+
+@app.middleware("http")
+async def verrou_api_middleware(request, call_next):
+    from core import verrou_api
+    chemin = request.url.path
+    if request.method == "OPTIONS" or verrou_api.est_ouvert(chemin):
+        return await call_next(request)
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer ") and verrou_api.verifier_jeton(auth[7:]):
+        return await call_next(request)
+    if verrou_api.cle_service_valide(request.headers.get("x-cle-service")):
+        return await call_next(request)
+    try:
+        from core.feature_flags import is_enabled
+        verrouille = is_enabled("api_verrou", default=False)
+    except Exception:
+        verrouille = False
+    if verrouille:
+        return _JSONResponse({"detail": "Connexion requise"}, status_code=401)
+    verrou_api.noter_sans_jeton(chemin, request.method, request.headers.get("user-agent", ""),
+                                request.headers.get("origin", ""))
+    return await call_next(request)
+
+
 # CORS - Permet au frontend d'appeler l'API
 # Autoriser les ports de développement Vite (5173, 5174, 5175) et production
 # NOTE: allow_credentials=True ne peut pas être utilisé avec "*", donc on liste explicitement
@@ -213,6 +242,7 @@ app.include_router(front_router)  # 📬 Front API
 app.include_router(campaigns_router)  # 🎯 Campagnes
 if taches_router:
     app.include_router(taches_router)  # ✅ Tâches
+app.include_router(auth_router)  # 🔒 Connexion PIN
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
 app.include_router(chat_router)
@@ -245,6 +275,7 @@ app.include_router(front_router, prefix="/api")  # 📬 Front API
 app.include_router(campaigns_router, prefix="/api")  # 🎯 Campagnes
 if taches_router:
     app.include_router(taches_router, prefix="/api")  # ✅ Tâches
+app.include_router(auth_router, prefix="/api")  # 🔒 Connexion PIN
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(assistant_converse_router, prefix="/api/assistant")  # 💬 /api/assistant/converse
