@@ -22,6 +22,46 @@ const MEMBRES = {
   jp: { nom: 'JP', couleur: 'bg-green-700' },
   ilyan: { nom: 'Ilyan', couleur: 'bg-teal-600' },
 }
+// Couleur par client : Nicolas sait où il va avant de lire.
+const CLIENTS = {
+  pda: { nom: 'Place des Arts', bord: 'border-l-violet-500', puce: 'bg-violet-500', chip: 'bg-violet-100 text-violet-800', bande: 'from-violet-500 to-fuchsia-500' },
+  vdi: { nom: "Vincent-d'Indy", bord: 'border-l-sky-500', puce: 'bg-sky-500', chip: 'bg-sky-100 text-sky-800', bande: 'from-sky-500 to-blue-600' },
+  orford: { nom: 'Orford', bord: 'border-l-emerald-500', puce: 'bg-emerald-500', chip: 'bg-emerald-100 text-emerald-800', bande: 'from-emerald-500 to-teal-500' },
+  prive: { nom: 'Privé', bord: 'border-l-amber-500', puce: 'bg-amber-500', chip: 'bg-amber-100 text-amber-800', bande: 'from-amber-400 to-orange-500' },
+  interne: { nom: 'PTM', bord: 'border-l-slate-400', puce: 'bg-slate-400', chip: 'bg-slate-100 text-slate-700', bande: 'from-slate-400 to-slate-600' },
+}
+const CAMPAGNE_VERS_CLIENT = { 'place-des-arts': 'pda', orford: 'orford', 'vincent-dindy': 'vdi' }
+const clientDe = (t) => {
+  if (t.client && CLIENTS[t.client]) return t.client
+  if (t.campagne && CAMPAGNE_VERS_CLIENT[t.campagne]) return CAMPAGNE_VERS_CLIENT[t.campagne]
+  const txt = `${t.titre || ''} ${t.contexte || ''}`.toLowerCase()
+  if (txt.includes("d'indy") || txt.includes('dindy') || txt.includes('vdi')) return 'vdi'
+  if (txt.includes('place des arts') || txt.includes('pda') || /\btm\b|maisonneuve|wilfrid/.test(txt)) return 'pda'
+  if (txt.includes('orford')) return 'orford'
+  return null
+}
+
+// Bandes de l'échéancier, du plus pressé au moins pressé
+const BANDES = [
+  { id: 'retard', nom: 'En retard', emoji: '🔴', fond: 'bg-red-50', titre: 'text-red-700', filet: 'bg-red-500' },
+  { id: 'auj', nom: "Aujourd'hui", emoji: '🟠', fond: 'bg-orange-50', titre: 'text-orange-700', filet: 'bg-orange-500' },
+  { id: 'semaine', nom: 'Cette semaine', emoji: '🟡', fond: 'bg-yellow-50', titre: 'text-yellow-800', filet: 'bg-yellow-400' },
+  { id: 'prochaine', nom: 'Semaine prochaine', emoji: '🟢', fond: 'bg-green-50', titre: 'text-green-700', filet: 'bg-green-500' },
+  { id: 'plus_tard', nom: 'Plus tard', emoji: '🔵', fond: 'bg-sky-50', titre: 'text-sky-700', filet: 'bg-sky-400' },
+  { id: 'sans_date', nom: 'Sans date', emoji: '⚪', fond: 'bg-gray-50', titre: 'text-gray-600', filet: 'bg-gray-300' },
+]
+const bandeDe = (t) => {
+  const n = joursAvant(t.echeance)
+  if (n === null) return 'sans_date'
+  if (n < 0) return 'retard'
+  if (n === 0) return 'auj'
+  const auj = aujourdhui()
+  const finSemaine = 7 - (auj.getDay() === 0 ? 7 : auj.getDay()) // jours jusqu'à dimanche
+  if (n <= finSemaine) return 'semaine'
+  if (n <= finSemaine + 7) return 'prochaine'
+  return 'plus_tard'
+}
+
 const ROLE_VERS_MEMBRE = { admin: 'allan', nick: 'nicolas', louise: 'louise', margot: 'margot', jeanphilippe: 'jp' }
 
 // Correspondance nom Front → membre (pour les avatars des commentaires)
@@ -71,6 +111,7 @@ const formatQuand = (iso) => {
 
 // Urgent en haut : en retard, puis aujourd'hui, puis par échéance ; sans date à la fin.
 const trierUrgence = (a, b) => {
+  if (!!b.urgent - !!a.urgent) return !!b.urgent - !!a.urgent
   const da = joursAvant(a.echeance)
   const db = joursAvant(b.echeance)
   if (da === null && db === null) return (a.created_at || '').localeCompare(b.created_at || '')
@@ -123,12 +164,84 @@ function PastilleEtat({ statut, onClick }) {
   )
 }
 
+function PastilleDate({ echeance, statut }) {
+  const d = parseDate(echeance)
+  if (!d) return null
+  const n = joursAvant(echeance)
+  const fait = statut === 'fait'
+  const haut = fait ? 'bg-gray-400' : n < 0 ? 'bg-red-600' : n === 0 ? 'bg-orange-500' : n <= 3 ? 'bg-amber-500' : n <= 7 ? 'bg-yellow-500' : 'bg-emerald-600'
+  return (
+    <div className="w-12 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-white text-center shadow-sm">
+      <div className={`${haut} text-white text-[9px] font-bold uppercase tracking-wider py-0.5`}>
+        {d.toLocaleDateString('fr-CA', { weekday: 'short' }).replace('.', '')}
+      </div>
+      <div className="text-xl font-extrabold text-gray-900 leading-tight tabular-nums">{d.getDate()}</div>
+      <div className="text-[9px] font-semibold uppercase text-gray-500 pb-0.5">
+        {d.toLocaleDateString('fr-CA', { month: 'short' }).replace('.', '')}
+      </div>
+    </div>
+  )
+}
+
+function CompteRebours({ echeance, statut }) {
+  const n = joursAvant(echeance)
+  if (n === null || statut === 'fait') return null
+  const cls = n < 0 ? 'bg-red-600 text-white' : n === 0 ? 'bg-orange-500 text-white' : n <= 3 ? 'bg-amber-400 text-amber-950' : n <= 7 ? 'bg-yellow-200 text-yellow-900' : 'bg-emerald-100 text-emerald-800'
+  const txt = n < 0 ? `J+${-n}` : n === 0 ? "Auj." : `J-${n}`
+  return <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-full tabular-nums ${cls}`}>{txt}</span>
+}
+
+function PuceClient({ client }) {
+  const c = CLIENTS[client]
+  if (!c) return null
+  return <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${c.chip}`}>{c.nom}</span>
+}
+
+/* ---------- Bande calendrier 14 jours ---------- */
+function BandeCalendrier({ taches, jourChoisi, onChoisir }) {
+  const jours = Array.from({ length: 14 }, (_, i) => { const d = aujourdhui(); d.setDate(d.getDate() + i); return d })
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const retard = taches.filter((t) => t.statut !== 'fait' && joursAvant(t.echeance) < 0).length
+  return (
+    <div className="flex gap-1.5 overflow-x-auto pb-2 mb-5 -mx-1 px-1">
+      {retard > 0 && (
+        <button onClick={() => onChoisir(jourChoisi === 'retard' ? null : 'retard')}
+          className={`flex-shrink-0 w-16 rounded-xl py-2 text-center border-2 ${jourChoisi === 'retard' ? 'border-red-600 bg-red-600 text-white' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          <div className="text-[10px] font-bold uppercase">Retard</div>
+          <div className="text-2xl font-extrabold leading-none mt-0.5">{retard}</div>
+        </button>
+      )}
+      {jours.map((d, i) => {
+        const k = iso(d)
+        const du = taches.filter((t) => t.statut !== 'fait' && (t.echeance || '').slice(0, 10) === k)
+        const weekend = d.getDay() === 0 || d.getDay() === 6
+        const choisi = jourChoisi === k
+        return (
+          <button key={k} onClick={() => onChoisir(choisi ? null : k)}
+            className={`flex-shrink-0 w-14 rounded-xl py-2 text-center border-2 transition ${choisi ? 'border-blue-600 bg-blue-600 text-white' : i === 0 ? 'border-orange-400 bg-orange-50' : weekend ? 'border-transparent bg-gray-100' : 'border-transparent bg-white shadow-sm'}`}>
+            <div className={`text-[10px] font-bold uppercase ${choisi ? 'text-blue-100' : i === 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+              {i === 0 ? 'Auj.' : d.toLocaleDateString('fr-CA', { weekday: 'short' }).replace('.', '')}
+            </div>
+            <div className={`text-lg font-extrabold leading-tight ${choisi ? 'text-white' : 'text-gray-900'}`}>{d.getDate()}</div>
+            <div className="flex justify-center gap-0.5 h-2 mt-0.5 flex-wrap px-1">
+              {du.slice(0, 4).map((t) => (
+                <span key={t.id} className={`w-1.5 h-1.5 rounded-full ${t.urgent ? 'bg-red-600' : CLIENTS[clientDe(t)]?.puce || 'bg-gray-400'} ${choisi ? 'ring-1 ring-white' : ''}`} />
+              ))}
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ---------- Formulaire d'édition (modale) ---------- */
 function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer }) {
   const [f, setF] = useState(() => ({
     titre: tache.titre || '', contexte: tache.contexte || '', statut: tache.statut || 'a_faire',
     assigne: tache.assigne || '', echeance: tache.echeance || '', campagne: tache.campagne || '',
     note: tache.note || '', etapes: tache.etapes || [], liens: tache.liens || [],
+    urgent: !!tache.urgent, client: tache.client || '',
   }))
   const maj = (k, v) => setF((x) => ({ ...x, [k]: v }))
   const champ = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
@@ -154,6 +267,16 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
             <option value="">— Aucune campagne —</option>
             {campagnes.map((c) => <option key={c.slug} value={c.slug}>{c.nom}</option>)}
           </select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <select className={champ} value={f.client} onChange={(e) => maj('client', e.target.value)}>
+            <option value="">— Client (couleur) —</option>
+            {Object.entries(CLIENTS).map(([k, c]) => <option key={k} value={k}>{c.nom}</option>)}
+          </select>
+          <button type="button" onClick={() => maj('urgent', !f.urgent)}
+            className={`rounded-lg px-3 py-2 text-sm font-bold border-2 ${f.urgent ? 'bg-red-600 border-red-600 text-white' : 'border-gray-300 text-gray-500'}`}>
+            ⚡ {f.urgent ? 'Urgent' : 'Marquer urgent'}
+          </button>
         </div>
         <input className={champ} placeholder="Note courte (ex. « +2 j », « facturé 7340 »)" value={f.note} onChange={(e) => maj('note', e.target.value)} />
 
@@ -210,7 +333,7 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
 
 /* ---------- Carte campagne ---------- */
 function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }) {
-  const [ouverte, setOuverte] = useState(true)
+  const [ouverte, setOuverte] = useState(false)
   const [front, setFront] = useState(null)
   const [ajout, setAjout] = useState(false)
   const [nouv, setNouv] = useState({ titre: '', note: '', assigne: moi || '' })
@@ -229,17 +352,38 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
     return ordre[a.statut] - ordre[b.statut] || trierUrgence(a, b)
   })
 
+  const client = CAMPAGNE_VERS_CLIENT[campagne.slug]
+  const couleur = CLIENTS[client] || CLIENTS.interne
+  const ouverts = elements.filter((t) => t.statut !== 'fait')
+  const prochaine = [...ouverts].filter((t) => t.echeance).sort(trierUrgence)[0]
+  const urgents = ouverts.filter((t) => t.urgent).length
+  const pct = elements.length ? Math.round((faits / elements.length) * 100) : 0
+
   return (
-    <article className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col gap-3">
+    <article className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+      <div className={`h-2 bg-gradient-to-r ${couleur.bande}`} />
+      <div className="p-4 flex flex-col gap-3">
       <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={() => setOuverte(!ouverte)}>
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900 leading-tight">{campagne.nom}</h3>
+        <div className="min-w-0">
+          <h3 className="text-xl font-bold text-gray-900 leading-tight flex items-center gap-2">
+            {campagne.nom}
+            {urgents > 0 && <span className="text-[10px] font-extrabold bg-red-600 text-white px-2 py-0.5 rounded-full">⚡ {urgents} urgent{urgents > 1 ? 's' : ''}</span>}
+          </h3>
           <div className="text-xs text-gray-500 mt-1">{campagne.sous_titre}</div>
           <div className="text-[11px] text-gray-400 mt-0.5">{campagne.contacts}</div>
         </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-lg font-bold tabular-nums">{faits} / {elements.length}</div>
-          <div className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Faits {ouverte ? '▾' : '▸'}</div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {prochaine && <PastilleDate echeance={prochaine.echeance} statut={prochaine.statut} />}
+          <span className="text-gray-400 text-lg">{ouverte ? '▾' : '▸'}</span>
+        </div>
+      </div>
+      <div onClick={() => setOuverte(!ouverte)} className="cursor-pointer">
+        <div className="flex justify-between text-[11px] font-bold text-gray-500 mb-1">
+          <span>{faits} / {elements.length} faits</span>
+          {prochaine && <span className="truncate ml-2">Prochaine : {prochaine.titre}</span>}
+        </div>
+        <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className={`h-full bg-gradient-to-r ${couleur.bande} rounded-full transition-all`} style={{ width: `${pct}%` }} />
         </div>
       </div>
 
@@ -258,7 +402,9 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
                     {t.source === 'auto' && <span className="ml-2 text-[9px] uppercase tracking-wider border border-dashed border-gray-300 text-gray-400 px-1 rounded">auto</span>}
                   </button>
                   <span className={`text-xs whitespace-nowrap flex items-center gap-2 ${t.note ? (t.statut === 'en_cours' ? 'text-amber-700 font-semibold' : 'text-gray-500') : ech.ton}`}>
-                    {meta}
+                    {t.urgent && t.statut !== 'fait' && <span className="text-red-600 font-extrabold">⚡</span>}
+                    <span className="hidden sm:inline">{t.note || (t.echeance ? '' : meta)}</span>
+                    <CompteRebours echeance={t.echeance} statut={t.statut} />
                     {t.assigne && <Avatar membre={t.assigne} petit />}
                   </span>
                 </div>
@@ -323,36 +469,49 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
           )}
         </>
       )}
+      </div>
     </article>
   )
 }
 
 /* ---------- Carte tâche ---------- */
-function CarteTache({ tache, onOuvrir, onDeplacer, onEtape }) {
-  const ech = formatEcheance(tache.echeance, tache.statut)
+function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, campagnes = [] }) {
   const etapes = tache.etapes || []
   const nbFaites = etapes.filter((e) => e.fait).length
   const idx = COLONNES.findIndex((c) => c.id === tache.statut)
   const fait = tache.statut === 'fait'
+  const client = clientDe(tache)
+  const couleur = CLIENTS[client]
+  const camp = campagnes.find((c) => c.slug === tache.campagne)
+  const urgent = tache.urgent && !fait
   return (
     <article onClick={() => onOuvrir(tache)}
-      className={`bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col gap-2.5 ${fait ? 'opacity-75' : ''}`}>
-      <div className="flex justify-between items-start gap-2">
-        <h4 className={`text-[15px] font-semibold leading-snug ${fait ? 'line-through text-gray-500' : 'text-gray-900'}`}>{tache.titre}</h4>
-        {tache.source === 'auto' && <span className="text-[10px] uppercase tracking-wider border border-dashed border-gray-300 text-gray-400 px-1.5 rounded-full">Auto</span>}
+      className={`relative bg-white border border-gray-200 border-l-[6px] ${couleur ? couleur.bord : 'border-l-gray-300'} rounded-xl p-3.5 shadow-sm hover:shadow-md transition cursor-pointer flex flex-col gap-2.5 ${fait ? 'opacity-70' : ''} ${urgent ? 'bg-red-50 ring-2 ring-red-500' : ''}`}>
+      <div className="flex gap-3 items-start">
+        <PastilleDate echeance={tache.echeance} statut={tache.statut} />
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 mb-1">
+            {urgent && <span className="text-[10px] font-extrabold bg-red-600 text-white px-2 py-0.5 rounded-full">⚡ URGENT</span>}
+            <CompteRebours echeance={tache.echeance} statut={tache.statut} />
+            <PuceClient client={client} />
+            {camp && !client && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{camp.nom}</span>}
+            {tache.source === 'auto' && <span className="text-[10px] uppercase tracking-wider border border-dashed border-gray-300 text-gray-400 px-1.5 rounded-full">Auto</span>}
+          </div>
+          <h4 className={`text-[15px] font-bold leading-snug ${fait ? 'line-through text-gray-500' : 'text-gray-900'}`}>{tache.titre}</h4>
+          {tache.contexte && <p className="text-[13px] text-gray-500 mt-0.5 line-clamp-2">{tache.contexte}</p>}
+        </div>
       </div>
-      {tache.contexte && <p className="text-[13px] text-gray-500">{tache.contexte}</p>}
       {etapes.length > 0 && (
         <div className="space-y-1.5">
-          {etapes.length > 2 && (
-            <div>
-              <div className="flex justify-between text-[10.5px] uppercase tracking-wider text-gray-400 font-semibold"><span>Progression</span><span>{nbFaites} / {etapes.length}</span></div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-blue-600 rounded-full" style={{ width: `${(nbFaites / etapes.length) * 100}%` }} /></div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${nbFaites === etapes.length ? 'bg-emerald-500' : 'bg-gradient-to-r from-blue-500 to-violet-500'}`} style={{ width: `${(nbFaites / etapes.length) * 100}%` }} />
             </div>
-          )}
+            <span className="text-[11px] font-bold text-gray-500 tabular-nums">{nbFaites}/{etapes.length}</span>
+          </div>
           {etapes.map((e, i) => (
-            <label key={i} className="flex items-start gap-2 text-[13.5px]" onClick={(ev) => ev.stopPropagation()}>
-              <input type="checkbox" className="mt-1" checked={!!e.fait} onChange={() => onEtape(tache, i)} />
+            <label key={i} className="flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
+              <input type="checkbox" className="mt-0.5 w-4 h-4 accent-emerald-600" checked={!!e.fait} onChange={() => onEtape(tache, i)} />
               <span className={`flex-1 ${e.fait ? 'line-through text-gray-400' : 'text-gray-800'}`}>{e.texte}</span>
               {e.date && <span className="text-[11px] text-gray-400">{formatQuand(e.date + 'T12:00:00')}</span>}
             </label>
@@ -361,15 +520,20 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape }) {
       )}
       {tache.liens?.length > 0 && <div className="flex flex-wrap gap-1.5">{tache.liens.map((l, i) => <Lien key={i} lien={l} />)}</div>}
       <div className="flex items-center justify-between gap-2">
-        <Avatar membre={tache.assigne} />
         <div className="flex items-center gap-2">
-          <span className={`text-[12.5px] ${ech.ton}`}>{ech.texte}</span>
-          <div className="flex" onClick={(e) => e.stopPropagation()}>
-            <button disabled={idx === 0} title="Reculer" onClick={() => onDeplacer(tache, COLONNES[idx - 1]?.id)}
-              className="px-1.5 py-0.5 text-gray-400 hover:text-gray-800 disabled:opacity-20">◀</button>
-            <button disabled={idx === COLONNES.length - 1} title="Avancer" onClick={() => onDeplacer(tache, COLONNES[idx + 1]?.id)}
-              className="px-1.5 py-0.5 text-gray-400 hover:text-gray-800 disabled:opacity-20">▶</button>
-          </div>
+          <Avatar membre={tache.assigne} />
+          {tache.note && <span className="text-[12px] font-semibold text-gray-600">{tache.note}</span>}
+        </div>
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {tache.statut !== 'fait' ? (
+            <button onClick={() => onDeplacer(tache, 'fait')}
+              className="text-xs font-bold px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white">✓ Fait</button>
+          ) : (
+            <button onClick={() => onDeplacer(tache, 'a_faire')} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-gray-300 text-gray-500">Rouvrir</button>
+          )}
+          {tache.statut === 'a_faire' && (
+            <button onClick={() => onDeplacer(tache, 'en_cours')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200">En cours</button>
+          )}
         </div>
       </div>
     </article>
@@ -389,6 +553,10 @@ export default function TachesDashboard({ currentUser, role }) {
   const [recherche, setRecherche] = useState('')
   const [colMobile, setColMobile] = useState('a_faire')
   const [edition, setEdition] = useState(null)
+  const [vue, setVue] = useState(() => { try { return localStorage.getItem('taches_vue') || 'echeancier' } catch { return 'echeancier' } })
+  const [jourChoisi, setJourChoisi] = useState(null)
+  const [voirFaits, setVoirFaits] = useState(false)
+  useEffect(() => { try { localStorage.setItem('taches_vue', vue) } catch {} }, [vue])
 
   useEffect(() => { try { localStorage.setItem('taches_filtre', filtre) } catch {} }, [filtre])
 
@@ -455,6 +623,16 @@ export default function TachesDashboard({ currentUser, role }) {
   const tableau = taches.filter((t) => !(t.campagne && slugs.has(t.campagne)))
     .filter((t) => filtre === 'equipe' || !moi || t.assigne === moi)
     .filter(correspond)
+  // Échéancier : toutes les tâches (campagnes comprises), classées par urgence de date
+  const pourMoi = taches.filter((t) => filtre === 'equipe' || !moi || t.assigne === moi).filter(correspond)
+  const ouvertes = pourMoi.filter((t) => t.statut !== 'fait')
+    .filter((t) => !jourChoisi || (jourChoisi === 'retard' ? joursAvant(t.echeance) < 0 : (t.echeance || '').slice(0, 10) === jourChoisi))
+  const parBande = (id) => ouvertes.filter((t) => bandeDe(t) === id).sort(trierUrgence)
+  const faitesRecentes = pourMoi.filter((t) => t.statut === 'fait').sort((a, b) => (b.fait_le || '').localeCompare(a.fait_le || '')).slice(0, 12)
+  const nbRetard = ouvertes.filter((t) => bandeDe(t) === 'retard').length
+  const nbUrgent = ouvertes.filter((t) => t.urgent).length
+  const nbSemaine = ouvertes.filter((t) => ['auj', 'semaine'].includes(bandeDe(t))).length
+
   const parColonne = (id) => {
     const xs = tableau.filter((t) => t.statut === id)
     return id === 'fait' ? xs.sort((a, b) => (b.fait_le || '').localeCompare(a.fait_le || '')) : xs.sort(trierUrgence)
@@ -509,43 +687,103 @@ export default function TachesDashboard({ currentUser, role }) {
         </>
       )}
 
-      <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2">
-        Tâches <span className="bg-white border border-gray-200 rounded-full px-2 text-[11px]">{tableau.length}</span>
-      </h3>
-
-      <div className="flex md:hidden gap-1 mb-3 bg-white border border-gray-200 rounded-xl p-1">
-        {COLONNES.map((c) => (
-          <button key={c.id} onClick={() => setColMobile(c.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold ${colMobile === c.id ? 'bg-blue-50 text-blue-700' : 'text-gray-500'}`}>
-            {c.nom} · {parColonne(c.id).length}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div className="flex bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
+          {[['echeancier', '📅 Échéancier'], ['statut', '🗂️ Par statut']].map(([k, l]) => (
+            <button key={k} onClick={() => setVue(k)}
+              className={`px-4 py-2 rounded-lg text-sm font-bold ${vue === k ? 'bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow' : 'text-gray-500'}`}>{l}</button>
+          ))}
+        </div>
+        <div className="flex gap-2 text-xs font-bold">
+          {nbRetard > 0 && <span className="px-3 py-1.5 rounded-full bg-red-600 text-white">🔴 {nbRetard} en retard</span>}
+          {nbUrgent > 0 && <span className="px-3 py-1.5 rounded-full bg-red-100 text-red-700">⚡ {nbUrgent} urgent{nbUrgent > 1 ? 's' : ''}</span>}
+          <span className="px-3 py-1.5 rounded-full bg-yellow-100 text-yellow-800">🟡 {nbSemaine} cette semaine</span>
+        </div>
       </div>
 
-      <main className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-        {COLONNES.map((c) => {
-          const cartes = parColonne(c.id)
-          return (
-            <section key={c.id} className={`${c.fond} rounded-2xl p-3 min-h-[200px] ${colMobile === c.id ? 'block' : 'hidden'} md:block`}>
-              <div className="flex items-center gap-2 px-1 pb-3">
-                <span className="text-[13px] font-bold uppercase tracking-wider text-gray-900">{c.nom}</span>
-                <span className="text-xs bg-white border border-gray-200 rounded-full px-2 font-semibold text-gray-500">{cartes.length}</span>
+      {vue === 'echeancier' ? (
+        <>
+          <BandeCalendrier taches={pourMoi} jourChoisi={jourChoisi} onChoisir={setJourChoisi} />
+          {jourChoisi && (
+            <button onClick={() => setJourChoisi(null)} className="mb-3 text-sm font-semibold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full">
+              ✕ {jourChoisi === 'retard' ? 'Tâches en retard seulement' : `Tâches du ${parseDate(jourChoisi).toLocaleDateString('fr-CA', { weekday: 'long', day: 'numeric', month: 'long' })}`} — tout afficher
+            </button>
+          )}
+          <div className="space-y-5">
+            {BANDES.map((b) => {
+              const cartes = parBande(b.id)
+              if (cartes.length === 0) return null
+              return (
+                <section key={b.id} className={`${b.fond} rounded-2xl p-3 md:p-4`}>
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <span className={`w-1.5 h-6 rounded-full ${b.filet}`} />
+                    <span className={`text-base font-extrabold ${b.titre}`}>{b.emoji} {b.nom}</span>
+                    <span className="text-xs font-bold bg-white rounded-full px-2.5 py-0.5 text-gray-600 shadow-sm">{cartes.length}</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {cartes.map((t) => (
+                      <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
+            {ouvertes.length === 0 && (
+              <div className="text-center py-10 text-gray-400">
+                <div className="text-4xl mb-2">🎉</div>Rien à faire {jourChoisi ? 'ce jour-là' : 'pour l\'instant'}.
               </div>
-              <div className="flex flex-col gap-2.5">
-                {cartes.map((t) => (
-                  <CarteTache key={t.id} tache={t} onOuvrir={setEdition}
-                    onDeplacer={(tt, statut) => statut && modifier(tt, { statut })}
-                    onEtape={basculerEtape} />
-                ))}
-                {c.id === 'a_faire' && (
-                  <button className="border-2 border-dashed border-gray-300 hover:border-blue-500 hover:text-blue-600 text-gray-400 rounded-xl py-3 text-sm font-medium"
-                    onClick={() => setEdition({ statut: 'a_faire', assigne: moi })}>+ Ajouter une tâche</button>
+            )}
+            <button className="w-full border-2 border-dashed border-gray-300 hover:border-blue-500 hover:text-blue-600 text-gray-400 rounded-xl py-3 text-sm font-semibold"
+              onClick={() => setEdition({ statut: 'a_faire', assigne: moi, echeance: jourChoisi && jourChoisi !== 'retard' ? jourChoisi : '' })}>+ Ajouter une tâche</button>
+            {faitesRecentes.length > 0 && (
+              <section>
+                <button onClick={() => setVoirFaits(!voirFaits)} className="text-sm font-bold text-emerald-700 mb-2">
+                  {voirFaits ? '▾' : '▸'} ✅ Fait récemment ({faitesRecentes.length})
+                </button>
+                {voirFaits && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                    {faitesRecentes.map((t) => (
+                      <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                    ))}
+                  </div>
                 )}
-              </div>
-            </section>
-          )
-        })}
-      </main>
+              </section>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex md:hidden gap-1 mb-3 bg-white border border-gray-200 rounded-xl p-1">
+            {COLONNES.map((c) => (
+              <button key={c.id} onClick={() => setColMobile(c.id)}
+                className={`flex-1 py-2.5 rounded-lg text-sm font-semibold ${colMobile === c.id ? 'bg-blue-50 text-blue-700' : 'text-gray-500'}`}>
+                {c.nom} · {parColonne(c.id).length}
+              </button>
+            ))}
+          </div>
+          <main className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+            {COLONNES.map((c) => {
+              const cartes = parColonne(c.id)
+              return (
+                <section key={c.id} className={`${c.fond} rounded-2xl p-3 min-h-[200px] ${colMobile === c.id ? 'block' : 'hidden'} md:block`}>
+                  <div className="flex items-center gap-2 px-1 pb-3">
+                    <span className="text-[13px] font-bold uppercase tracking-wider text-gray-900">{c.nom}</span>
+                    <span className="text-xs bg-white border border-gray-200 rounded-full px-2 font-semibold text-gray-500">{cartes.length}</span>
+                  </div>
+                  <div className="flex flex-col gap-2.5">
+                    {cartes.map((t) => (
+                      <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
+          </main>
+        </>
+      )}
 
       {edition && (
         <ModaleTache tache={edition} campagnes={campagnes}

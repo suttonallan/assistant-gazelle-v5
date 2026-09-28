@@ -83,12 +83,14 @@ class TacheIn(BaseModel):
     liens: Optional[List[Dict[str, Any]]] = None   # [{label, url, source}]
     source: Optional[str] = None
     cree_par: Optional[str] = None
+    urgent: Optional[bool] = None
+    client: Optional[str] = None  # pda, vdi, orford, prive… (couleur dans l'échéancier)
 
 
 def _nettoyer(data: Dict[str, Any]) -> Dict[str, Any]:
     if "statut" in data and data["statut"] not in STATUTS:
         raise HTTPException(400, f"statut invalide (attendu : {', '.join(STATUTS)})")
-    for champ in ("echeance", "campagne", "assigne", "contexte", "note"):
+    for champ in ("echeance", "campagne", "assigne", "contexte", "note", "client"):
         if champ in data and data[champ] == "":
             data[champ] = None
     if "titre" in data and not (data["titre"] or "").strip():
