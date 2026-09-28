@@ -59,7 +59,17 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
                     ("limit", "20")],
             headers=H, timeout=20).json()
         rows = [r for r in rows if isinstance(r, dict)]
-        rv = (f"RV : piano {apt.get('piano_external_id') or 'AUCUN'}, "
+        def _nom_piano(pid):
+            try:
+                p = http.get(f"{api}/gazelle_pianos", params=[("external_id", f"eq.{pid}"),
+                             ("select", "make,model,location")], headers=H, timeout=15).json()
+                p = p[0] if isinstance(p, list) and p else {}
+                return f"{pid} ({' '.join(x for x in [p.get('make'), p.get('model')] if x)} @ {p.get('location') or '?'})"
+            except Exception:
+                return pid
+        rv = (f"RV {apt.get('external_id')} : pianos du RV = "
+              f"[{', '.join(_nom_piano(p) for p in (apt.get('piano_ids') or [apt.get('piano_external_id')]) if p) or 'AUCUN'}]"
+              f"{'' if 'piano_ids' in apt else ' (piano_ids non lu)'}, "
               f"tech {apt.get('technicien') or 'AUCUN'}") if apt else "RV introuvable dans gazelle_appointments"
         if not rows:
             return f"{rv}. Aucune note mentionnant « stat » ce jour-là."
@@ -68,7 +78,9 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
             texte = (r.get('description') or r.get('title') or '').replace('\n', ' ')
             idx = max(texte.lower().find('stat'), 0)
             extrait = texte[max(idx - 25, 0): idx + 35].strip()
-            notes.append(f"piano {r.get('piano_id') or 'AUCUN'} / tech {r.get('user_id') or '?'} / "
+            if r.get('entry_type') == 'SYSTEM_MESSAGE' or r.get('entry_type') == 'INVOICE_LOG':
+                continue
+            notes.append(f"piano {_nom_piano(r['piano_id']) if r.get('piano_id') else 'AUCUN'} / tech {r.get('user_id') or '?'} / "
                          f"{r.get('entry_type')} / {(r.get('occurred_at') or '')[:16]} : « {extrait} »")
         return f"{rv}. Notes du jour : " + " | ".join(notes)
     except Exception as e:  # le diagnostic ne doit jamais faire échouer le check
@@ -252,6 +264,7 @@ def check_pda_coherence(storage) -> list:
             sev = "error" if len(rooms) > 1 else "warning"
             note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""
             det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}" for x in rs)
+            det += f" — pianos du RV dans Gazelle : {nb_pianos}" + ("" if "piano_ids" in (appts.get(aid) or {}) else " (piano_ids non lu)")
             anomalies.append({
                 "check": "pda_double_lien", "severity": sev,
                 "title": f"RV lié à {len(rs)} demandes — {aid}{note}",
