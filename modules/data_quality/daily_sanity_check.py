@@ -99,23 +99,54 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
 
 
 def check_pda_parking(storage) -> list:
-    """Pour chaque demande PdA récente AVEC stationnement, on revalide via la logique
-    corrigée (note « stat » sur LE piano du RV). Si le montant stocké ne correspond
-    pas à ce que la note du piano justifie -> anomalie (mauvaise attribution / double)."""
+    """Règle d'Allan : un « stat » écrit ce jour-là = un stationnement rapporté ;
+    pas de « stat » = rien. On compare donc, par JOURNÉE (Montréal) et par
+    TECHNICIEN, le total rapporté sur les demandes PdA au total des « stat »
+    écrits dans les notes de service PdA — peu importe à quel piano ou à quel
+    RV Gazelle la note est rattachée."""
     anomalies = []
     H = storage._get_headers()
     api = storage.api_url
     import requests as http
+    from collections import defaultdict
+    from core.timezone_utils import bornes_journee_utc
+    from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
+    PDA = "cli_HbEwl9rN11pSuDEU"
     since = (datetime.now() - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%d")
 
     reqs = http.get(
-        f"{api}/place_des_arts_requests?parking=not.is.null"
-        f"&appointment_date=gte.{since}"
-        f"&select=id,appointment_id,appointment_date,room,for_who,technician_id,parking",
+        f"{api}/place_des_arts_requests?parking=not.is.null&appointment_date=gte.{since}"
+        f"&select=id,appointment_date,room,for_who,technician_id,parking",
         headers=H, timeout=20).json()
-    reqs = [r for r in reqs if isinstance(r, dict) and _norm_amount(r.get("parking"))]
-    if not reqs:
+    rapporte = defaultdict(float)
+    for r in reqs if isinstance(reqs, list) else []:
+        m = _norm_amount(r.get("parking"))
+        if m:
+            rapporte[((r.get("appointment_date") or "")[:10], r.get("technician_id"))] += float(m)
+    if not rapporte:
         return anomalies
+
+    for (jour, tech), total_rapporte in sorted(rapporte.items()):
+        debut, fin = bornes_journee_utc(jour)
+        params = [("client_id", f"eq.{PDA}"), ("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
+                  ("entry_type", "in.(SERVICE_ENTRY_MANUAL,SERVICE_ENTRY_AUTOMATED)"),
+                  ("select", "title,description")]
+        if tech:
+            params.append(("user_id", f"eq.{tech}"))
+        notes = http.get(f"{api}/gazelle_timeline_entries", params=params, headers=H, timeout=20).json()
+        ecrit = 0.0
+        for n in notes if isinstance(notes, list) else []:
+            m = extract_parking_amount(n.get("title") or "") or extract_parking_amount(n.get("description") or "")
+            if m:
+                ecrit += float(m)
+        if abs(ecrit - total_rapporte) > 0.009:
+            anomalies.append({
+                "check": "pda_parking", "severity": "warning",
+                "title": f"Stationnement à vérifier — {jour}",
+                "detail": (f"{total_rapporte:.2f} $ rapporté sur les demandes PdA, "
+                           f"{ecrit:.2f} $ de « stat » écrits dans les notes de service ce jour-là."),
+            })
+    return anomalies
 
     apt_ids = [r["appointment_id"] for r in reqs if r.get("appointment_id")]
     appts = {}
