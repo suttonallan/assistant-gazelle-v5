@@ -470,6 +470,7 @@ class SoumissionIn(BaseModel):
     lignes: List[LigneSoumission]
     notes: Optional[str] = None
     locale: str = "fr"
+    completer_id: Optional[str] = None  # remplir une soumission existante (vide) au lieu d'en créer une
 
 
 @router.post("/gazelle/soumission")
@@ -488,17 +489,24 @@ def creer_soumission(s: SoumissionIn):
     items = []
     for i, l in enumerate(s.lignes):
         cents = int(round(l.montant * 100))
-        nom = noms_msl.get(l.service_id) if l.service_id else None
-        if not isinstance(nom, dict):
-            nom = {"fr_CA": l.nom, "en_US": l.nom}
+        # Les lignes de soumission prennent un nom texte (pas I18n) — cf. updateEstimate
+        nom = _nom_i18n(noms_msl.get(l.service_id)) if l.service_id else ""
+        nom = nom or l.nom
         item = {"name": nom, "quantity": 100, "amount": cents, "duration": 0, "type": "LABOR_FIXED_RATE",
                 "isTaxable": True, "isTuning": False, "sequenceNumber": i, "photos": [],
                 "taxes": _build_taxes(cents, True)}
         if l.description:
-            item["description"] = {"fr_CA": l.description, "en_US": l.description}
+            item["description"] = l.description
         if l.service_id:
             item["masterServiceItemId"] = l.service_id
         items.append(item)
+    tiers = [{"sequenceNumber": 0, "isPrimary": True, "estimateTierGroups": [], "ungroupedEstimateTierItems": items}]
+    if s.completer_id:
+        try:
+            r = gz.update_estimate(s.completer_id, {"estimateTiers": tiers})
+        except Exception as e:
+            raise HTTPException(502, f"updateEstimate : {e}")
+        return {"numero": (r or {}).get("number"), "id": s.completer_id, "total_avant_taxes": sum(l.montant for l in s.lignes)}
     today = aujourdhui_montreal()
     create_input = {"clientId": s.client_id, "pianoId": s.piano_id, "locale": s.locale,
                     "estimatedOn": today.isoformat(), "expiresOn": (today + timedelta(days=30)).isoformat()}
@@ -512,7 +520,6 @@ def creer_soumission(s: SoumissionIn):
     est = payload.get("estimate")
     if not est:
         raise HTTPException(502, f"Gazelle a refusé la création ({_mutation_error_detail(payload)}) {res.get('errors') if isinstance(res, dict) else ''}")
-    tiers = [{"sequenceNumber": 0, "isPrimary": True, "estimateTierGroups": [], "ungroupedEstimateTierItems": items}]
     try:
         gz.update_estimate(est["id"], {"estimateTiers": tiers})
     except Exception as e:
