@@ -563,3 +563,39 @@ def soumissions_client(client_id: str = Query(...)):
     except Exception as e:
         raise HTTPException(502, str(e))
     return res
+
+
+# --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
+_Q_EVENEMENT = """query($id: String!) { event(id: $id) { id title start type status notes
+  client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""
+
+
+def _evenement(gz, eid: str) -> Dict[str, Any]:
+    res = gz._execute_query(_Q_EVENEMENT, {"id": eid})
+    if res.get("errors"):
+        raise HTTPException(502, str(res["errors"]))
+    return (res.get("data") or {}).get("event") or {}
+
+
+@router.get("/gazelle/evenement/{eid}")
+def lire_evenement(eid: str):
+    from core.gazelle_api_client import GazelleAPIClient
+    return _evenement(GazelleAPIClient(), eid)
+
+
+@router.delete("/gazelle/evenement/{eid}")
+def supprimer_note_evenement(eid: str):
+    """Supprime UNIQUEMENT un rendez-vous-note créé par l'IA (titre « Service: NOTE »,
+    notes commençant par « NOTE: »). Tout autre rendez-vous est refusé."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    ev = _evenement(gz, eid)
+    if ev.get("title") != "Service: NOTE" or not (ev.get("notes") or "").startswith("NOTE: "):
+        raise HTTPException(403, f"Refusé : ce rendez-vous n'est pas une note créée par l'IA ({ev.get('title')!r})")
+    res = gz._execute_query("""mutation($id: String!) { deleteEvent(id: $id) { mutationErrors { fieldName messages } } }""", {"id": eid})
+    if res.get("errors"):
+        raise HTTPException(502, str(res["errors"]))
+    err = ((res.get("data") or {}).get("deleteEvent") or {}).get("mutationErrors") or []
+    if err:
+        raise HTTPException(502, str(err))
+    return {"supprime": eid, "titre": ev.get("title")}
