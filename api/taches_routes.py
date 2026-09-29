@@ -566,7 +566,7 @@ def soumissions_client(client_id: str = Query(...)):
 
 
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
-_Q_EVENEMENT = """query($id: String!) { event(id: $id) { id title start type status notes
+_Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""
 
 
