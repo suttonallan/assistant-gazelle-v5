@@ -593,6 +593,9 @@ class ServiceReports:
         for entry in deduplicated_entries:
             entry_type = entry.get("entry_type") or ""
             if entry_type == "SERVICE_ENTRY_MANUAL":
+                # 📝 = note de dossier (createClientLog), pas un service rendu
+                if (entry.get("description") or entry.get("title") or "").lstrip().startswith("📝"):
+                    continue
                 services.append(entry)
             elif entry_type == "PIANO_MEASUREMENT":
                 measurements.append(entry)

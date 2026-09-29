@@ -1364,6 +1364,11 @@ class GazelleToSupabaseSync:
 
                     details = ' | '.join(description_parts) if description_parts else ''
 
+                    # 📝 = note de dossier ajoutée par createClientLog : Gazelle la classe
+                    # SERVICE_ENTRY_MANUAL, mais ce n'est pas un service rendu.
+                    if entry_type == 'SERVICE_ENTRY_MANUAL' and (details or title or '').lstrip().startswith('📝'):
+                        entry_type = 'NOTE'
+
                     # ═══════════════════════════════════════════════════════════════
                     # VERROU SÉCURITÉ #2: Ne JAMAIS écraser avec des valeurs vides
                     # Si le nouveau contenu est vide, on ne l'inclut pas dans l'UPSERT

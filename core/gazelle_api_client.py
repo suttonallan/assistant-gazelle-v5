@@ -918,6 +918,31 @@ class GazelleAPIClient:
         print(f"✅ {len(entries)} entrées récentes récupérées pour client {client_id}")
         return entries
 
+    def create_client_log(self, client_id: str, comment: str, piano_id: Optional[str] = None,
+                          created_at: Optional[str] = None) -> Dict[str, Any]:
+        """Ajoute une NOTE à la timeline, sans rendez-vous (createClientLog, confirmé par
+        le support Gazelle le 2026-09-29). Avec piano_id : historique du piano ;
+        sans : commentaire sur le client."""
+        mutation = """
+        mutation CreateClientLog($clientId: String!, $pianoId: String, $input: PrivateClientLogInput!) {
+            createClientLog(clientId: $clientId, pianoId: $pianoId, input: $input) {
+                __typename
+                mutationErrors { fieldName messages }
+            }
+        }
+        """
+        entree: Dict[str, Any] = {"comment": comment}
+        if created_at:
+            entree["createdAt"] = created_at
+        result = self._execute_query(mutation, {"clientId": client_id, "pianoId": piano_id, "input": entree})
+        if result.get("errors"):
+            raise ValueError(f"Erreurs GraphQL: {result['errors']}")
+        payload = (result.get("data") or {}).get("createClientLog") or {}
+        erreurs = payload.get("mutationErrors") or []
+        if erreurs:
+            raise ValueError("; ".join(f"{e.get('fieldName')}: {', '.join(e.get('messages') or [])}" for e in erreurs))
+        return payload
+
     def create_timeline_entry(
         self,
         piano_id: str,
