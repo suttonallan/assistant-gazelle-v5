@@ -114,8 +114,11 @@ def creer_brouillon(conversation_id: str, b: BrouillonIn):
     client = get_front_client()
     email = _email_auteur(b.auteur)
     if b.remplacer:  # modifie le brouillon existant de cet auteur (le jeton n'a pas le droit de supprimer)
-        for d in _handle(client.list_drafts, conversation_id):
-            if ((d.get("author") or {}).get("email") or "").lower() == email:
+        # Brouillons de la conversation : ceux de l'auteur, ou ceux créés par l'API (auteur « api_jwt… »)
+        brouillons = [m for m in _handle(client.list_messages, conversation_id) if m.get("is_draft")]
+        for d in brouillons:
+            auteur = ((d.get("author") or {}).get("email") or "").lower()
+            if auteur == email or auteur.startswith("api_jwt"):
                 canal = _handle(client._channel_de_conversation, conversation_id)
                 return _handle(client.edit_draft, d["id"], d.get("version"), b.texte, canal,
                                subject=b.sujet, to=b.a, cc=b.cc)
