@@ -611,7 +611,7 @@ def timeline_piano_gazelle(client_id: str = Query(...), piano_id: str = Query(..
     gz = GazelleAPIClient()
     try:
         res = gz._execute_query("""query($c: String!, $n: Int!) { allTimelineEntries(clientId: $c, first: $n) {
-          edges { node { id occurredAt type summary comment piano { id } } } } }""", {"c": client_id, "n": 100})
+          edges { node { id occurredAt type summary comment relatedId relatedType piano { id } } } } }""", {"c": client_id, "n": 100})
     except Exception as e:
         raise HTTPException(502, str(e))
     edges = (((res.get("data") or {}).get("allTimelineEntries") or {}).get("edges")) or []
@@ -649,7 +649,8 @@ def supprimer_entree_ia(entry_id: str, client_id: str = Query(...), piano_id: st
         raise HTTPException(403, "Refusé : cette entrée n'a pas été écrite par l'IA")
     gz = GazelleAPIClient()
     try:
-        res = gz._execute_query("""mutation($id: String!) { deleteClientLog(id: $id) { mutationErrors { fieldName messages } } }""", {"id": entry_id})
+        # L'identifiant à supprimer est celui de l'objet lié (relatedId), pas celui de l'entrée
+        res = gz._execute_query("""mutation($id: String!) { deleteClientLog(id: $id) { mutationErrors { fieldName messages } } }""", {"id": e.get("relatedId") or entry_id})
     except Exception as ex:
         raise HTTPException(502, f"Gazelle : {ex}")
     err = ((res.get("data") or {}).get("deleteClientLog") or {}).get("mutationErrors") or []
