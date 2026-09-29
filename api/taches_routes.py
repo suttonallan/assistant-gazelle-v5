@@ -504,12 +504,33 @@ def creer_soumission(s: SoumissionIn):
                     "estimatedOn": today.isoformat(), "expiresOn": (today + timedelta(days=30)).isoformat()}
     if s.notes:
         create_input["notes"] = s.notes
-    res = gz._execute_query(_CREATE_ESTIMATE, {"input": create_input})
+    try:
+        res = gz._execute_query(_CREATE_ESTIMATE, {"input": create_input})
+    except Exception as e:
+        raise HTTPException(502, f"createEstimate : {e}")
     payload = ((res or {}).get("data") or {}).get("createEstimate") or {}
     est = payload.get("estimate")
     if not est:
         raise HTTPException(502, f"Gazelle a refusé la création ({_mutation_error_detail(payload)}) {res.get('errors') if isinstance(res, dict) else ''}")
     tiers = [{"sequenceNumber": 0, "isPrimary": True, "estimateTierGroups": [], "ungroupedEstimateTierItems": items}]
-    gz.update_estimate(est["id"], {"estimateTiers": tiers})
+    try:
+        gz.update_estimate(est["id"], {"estimateTiers": tiers})
+    except Exception as e:
+        raise HTTPException(502, f"Soumission #{est.get('number')} créée VIDE, lignes refusées : {e}")
     return {"numero": est.get("number"), "id": est.get("id"),
             "total_avant_taxes": sum(l.montant for l in s.lignes)}
+
+
+
+@router.get("/gazelle/soumissions")
+def soumissions_client(client_id: str = Query(...)):
+    """Soumissions Gazelle récentes d'un client (numéro, date, total, archivée)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """query($c: String) { allEstimates(first: 20, filters: {clientId: $c}) {
+      nodes { id number estimatedOn isArchived recommendedTierTotal
+        allEstimateTiers { allUngroupedEstimateTierItems { name amount } } } } }"""
+    try:
+        res = GazelleAPIClient()._execute_query(q, {"c": client_id})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    return res
