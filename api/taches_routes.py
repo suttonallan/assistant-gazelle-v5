@@ -657,3 +657,11 @@ def supprimer_entree_ia(entry_id: str, client_id: str = Query(...), piano_id: st
         raise HTTPException(502, str(err))
     requests.delete(f"{_db().api_url}/gazelle_timeline_entries?external_id=eq.{entry_id}", headers=_db()._get_headers(), timeout=15)
     return {"supprime": entry_id}
+
+
+@router.get("/gazelle/schema-type")
+def schema_type(nom: str = Query(...)):
+    """Lecture seule : champs d'un type Gazelle (diagnostic)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    r = GazelleAPIClient()._execute_query("""query($n:String!){ __type(name:$n){ name fields { name type { name kind ofType { name } } } } }""", {"n": nom})
+    return (r.get("data") or {}).get("__type")
