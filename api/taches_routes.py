@@ -634,3 +634,26 @@ def retirer_copie_timeline(external_id: str):
         raise HTTPException(409, "Elle existe encore dans Gazelle : rien retiré")
     _check(requests.delete(f"{_db().api_url}/gazelle_timeline_entries?external_id=eq.{external_id}", headers=h, timeout=15))
     return {"retire": external_id, "titre": r.get("title"), "type": r.get("entry_type")}
+
+
+@router.delete("/gazelle/timeline/{entry_id}")
+def supprimer_entree_ia(entry_id: str, client_id: str = Query(...), piano_id: str = Query(...)):
+    """Supprime une entrée de timeline Gazelle SEULEMENT si elle a été écrite par l'IA
+    (signature « Saisi par Claude IA »). Puis la retire de la copie Supabase."""
+    from core.gazelle_api_client import GazelleAPIClient
+    entrees = timeline_piano_gazelle(client_id=client_id, piano_id=piano_id, limite=50)["entrees"]
+    e = next((x for x in entrees if x["id"] == entry_id), None)
+    if not e:
+        raise HTTPException(404, "Entrée introuvable pour ce piano")
+    if "Saisi par Claude IA" not in (e.get("comment") or ""):
+        raise HTTPException(403, "Refusé : cette entrée n'a pas été écrite par l'IA")
+    gz = GazelleAPIClient()
+    try:
+        res = gz._execute_query("""mutation($id: String!) { deleteClientLog(id: $id) { mutationErrors { fieldName messages } } }""", {"id": entry_id})
+    except Exception as ex:
+        raise HTTPException(502, f"Gazelle : {ex}")
+    err = ((res.get("data") or {}).get("deleteClientLog") or {}).get("mutationErrors") or []
+    if err:
+        raise HTTPException(502, str(err))
+    requests.delete(f"{_db().api_url}/gazelle_timeline_entries?external_id=eq.{entry_id}", headers=_db()._get_headers(), timeout=15)
+    return {"supprime": entry_id}
