@@ -571,7 +571,10 @@ _Q_EVENEMENT = """query($id: String!) { event(id: $id) { id title start type sta
 
 
 def _evenement(gz, eid: str) -> Dict[str, Any]:
-    res = gz._execute_query(_Q_EVENEMENT, {"id": eid})
+    try:
+        res = gz._execute_query(_Q_EVENEMENT, {"id": eid})
+    except Exception as e:
+        raise HTTPException(502, f"Gazelle : {e}")
     if res.get("errors"):
         raise HTTPException(502, str(res["errors"]))
     return (res.get("data") or {}).get("event") or {}
