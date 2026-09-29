@@ -602,3 +602,35 @@ def supprimer_note_evenement(eid: str):
     if err:
         raise HTTPException(502, str(err))
     return {"supprime": eid, "titre": ev.get("title")}
+
+
+@router.get("/gazelle/timeline-piano")
+def timeline_piano_gazelle(client_id: str = Query(...), piano_id: str = Query(...), limite: int = Query(15, le=50)):
+    """Entrées timeline EN DIRECT de Gazelle pour un piano (vérification après ménage)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    try:
+        res = gz._execute_query("""query($c: String!, $n: Int!) { allTimelineEntries(clientId: $c, first: $n) {
+          edges { node { id occurredAt type summary comment piano { id } } } } }""", {"c": client_id, "n": 100})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    edges = (((res.get("data") or {}).get("allTimelineEntries") or {}).get("edges")) or []
+    out = [e["node"] for e in edges if (e["node"].get("piano") or {}).get("id") == piano_id]
+    return {"entrees": out[:limite]}
+
+
+@router.delete("/copie/timeline/{external_id}")
+def retirer_copie_timeline(external_id: str):
+    """Retire de la COPIE Supabase une entrée qui n'existe plus dans Gazelle
+    (la synchro n'efface jamais). Refuse si l'entrée existe encore dans Gazelle."""
+    h = _db()._get_headers()
+    rows = _check(requests.get(f"{_db().api_url}/gazelle_timeline_entries?select=external_id,client_id,piano_id,title,description,entry_type&external_id=eq.{external_id}",
+                               headers=h, timeout=15)) or []
+    if not rows:
+        raise HTTPException(404, "Absente de la copie")
+    r = rows[0]
+    encore = timeline_piano_gazelle(client_id=r["client_id"], piano_id=r["piano_id"], limite=50)["entrees"]
+    if any(e["id"] == external_id for e in encore):
+        raise HTTPException(409, "Elle existe encore dans Gazelle : rien retiré")
+    _check(requests.delete(f"{_db().api_url}/gazelle_timeline_entries?external_id=eq.{external_id}", headers=h, timeout=15))
+    return {"retire": external_id, "titre": r.get("title"), "type": r.get("entry_type")}
