@@ -59,3 +59,25 @@ def journal(request: Request):
         raise HTTPException(403, "Réservé à Allan")
     from core.feature_flags import is_enabled
     return {"verrou_actif": is_enabled("api_verrou", default=False), "sans_jeton": verrou_api.journal()}
+
+
+
+class GoogleIn(BaseModel):
+    credential: str = Field(..., min_length=20)
+
+
+@router.get("/config")
+def config():
+    """Public : identifiant de l'app Google (vide = connexion Google pas encore active)."""
+    return {"google_client_id": verrou_api.google_client_id()}
+
+
+@router.post("/google")
+def connexion_google(g: GoogleIn):
+    try:
+        res = verrou_api.connexion_google(g.credential)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    if not res:
+        raise HTTPException(401, "Connexion Google refusée")
+    return res

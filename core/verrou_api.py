@@ -34,6 +34,10 @@ DUREE_JETON = 30 * 86400
 CHEMINS_OUVERTS = (
     "/api/auth/connexion",
     "/auth/connexion",
+    "/api/auth/google",
+    "/auth/google",
+    "/api/auth/config",
+    "/auth/config",
     "/api/zoom/webhook",
     "/gazelle_oauth_callback",
     "/health",
@@ -174,3 +178,60 @@ def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str) -> Non
 def journal() -> Dict[str, Any]:
     return {k: {**v, "agents": sorted(v["agents"]), "origines": sorted(v["origines"])}
             for k, v in sorted(_journal.items(), key=lambda kv: -kv[1]["n"])}
+
+
+
+# ─── Connexion Google ─────────────────────────────────────────────────────
+# Adresses Google autorisées → profil. Complétable sans code via
+# system_settings « comptes_google » = {"adresse@…": "qui"}.
+COMPTES_GOOGLE = {
+    "asutton@piano-tek.com": "allan",
+    "suttonallan@gmail.com": "allan",
+    "info@piano-tek.com": "louise",
+    "nlessard@piano-tek.com": "nick",
+    "jpreny@gmail.com": "jp",
+    "margotcharignon@gmail.com": "margot",
+}
+
+
+def google_client_id() -> Optional[str]:
+    """Identifiant public de l'app Google (system_settings « google_oauth_client_id »)."""
+    try:
+        v = _storage().get_system_setting("google_oauth_client_id")
+    except Exception:
+        return None
+    return str(v).strip().strip('"') if v else None
+
+
+def _comptes() -> Dict[str, str]:
+    comptes = dict(COMPTES_GOOGLE)
+    try:
+        extra = _storage().get_system_setting("comptes_google")
+        if isinstance(extra, str):
+            extra = json.loads(extra)
+        if isinstance(extra, dict):
+            comptes.update({k.lower(): v for k, v in extra.items()})
+    except Exception:
+        pass
+    return comptes
+
+
+def connexion_google(credential: str) -> Optional[Dict[str, Any]]:
+    """Vérifie le jeton Google (signature, audience, courriel vérifié) puis la liste d'adresses."""
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as g_requests
+    cid = google_client_id()
+    if not cid:
+        raise PermissionError("Connexion Google pas encore configurée")
+    try:
+        infos = id_token.verify_oauth2_token(credential, g_requests.Request(), cid)
+    except ValueError:
+        return None
+    email = (infos.get("email") or "").lower()
+    if not infos.get("email_verified") or not email:
+        return None
+    qui = _comptes().get(email)
+    if not qui:
+        raise PermissionError(f"{email} n'est pas autorisé")
+    jeton = _signer({"qui": qui, "exp": int(time.time() + DUREE_JETON), "via": "google"})
+    return {"jeton": jeton, "qui": qui, **PROFILS.get(qui, {})}

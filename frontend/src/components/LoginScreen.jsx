@@ -60,6 +60,48 @@ const USERS = [
 export default function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
+  const [googleId, setGoogleId] = useState(null)
+
+  // 🔐 Connexion Google : active dès que le serveur fournit l'identifiant de l'app
+  useEffect(() => {
+    fetch(`${API_URL}/api/auth/config`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.google_client_id) setGoogleId(d.google_client_id) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!googleId) return
+    const surCredential = async ({ credential }) => {
+      setError('')
+      try {
+        const r = await fetch(`${API_URL}/api/auth/google`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential }),
+        })
+        const d = await r.json().catch(() => ({}))
+        const user = r.ok ? USERS.find((u) => u.email === d.email) : null
+        if (user) {
+          ecrireJeton(d.jeton)
+          localStorage.setItem('currentUser', JSON.stringify(user))
+          onLogin(user)
+        } else {
+          setError(d.detail || 'Connexion Google refusée')
+        }
+      } catch {
+        setError('Serveur injoignable, réessayez')
+      }
+    }
+    const initialiser = () => {
+      window.google.accounts.id.initialize({ client_id: googleId, callback: surCredential, auto_select: true })
+      const zone = document.getElementById('bouton-google')
+      if (zone) window.google.accounts.id.renderButton(zone, { theme: 'filled_blue', size: 'large', text: 'signin_with', shape: 'pill', width: 280 })
+    }
+    if (window.google?.accounts?.id) { initialiser(); return }
+    const sc = document.createElement('script')
+    sc.src = 'https://accounts.google.com/gsi/client'
+    sc.async = true
+    sc.onload = initialiser
+    document.head.appendChild(sc)
+  }, [googleId])
 
   // Écouter les touches du clavier
   useEffect(() => {
@@ -140,6 +182,14 @@ export default function LoginScreen({ onLogin }) {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden">
         <div className="p-8">
+          {googleId && (
+            <div className="mb-8 text-center">
+              <div className="text-4xl mb-4">🎹</div>
+              <h1 className="text-2xl font-bold text-gray-800 mb-5">Assistant Gazelle</h1>
+              <div id="bouton-google" className="flex justify-center" />
+              <div className="mt-6 text-xs text-gray-400 uppercase tracking-wider">ou avec le PIN</div>
+            </div>
+          )}
           {/* Titre épuré */}
           <div className="text-center mb-8">
             <div className="text-4xl mb-4">🔒</div>
