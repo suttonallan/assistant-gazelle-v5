@@ -417,3 +417,99 @@ def schema_notes():
         if t:
             types[nom] = t
     return {"mutations": garder, "types": types, "total_mutations": len(champs)}
+
+
+# --- Soumissions Gazelle (brouillon : rien n'est envoyé au client) ---
+
+@router.get("/gazelle/clients")
+def chercher_clients(q: str = Query(..., min_length=2)):
+    """Clients (copie Supabase de Gazelle) dont le nom contient q, avec leurs pianos."""
+    h = _db()._get_headers()
+    base = _db().api_url
+    motif = requests.utils.quote(f"*{q}*")
+    clients = _check(requests.get(
+        f"{base}/gazelle_clients?select=external_id,company_name&company_name=ilike.{motif}&limit=10",
+        headers=h, timeout=15)) or []
+    for c in clients:
+        c["pianos"] = _check(requests.get(
+            f"{base}/gazelle_pianos?select=external_id,make,model,serial_number,type,location"
+            f"&client_external_id=eq.{c['external_id']}", headers=h, timeout=15)) or []
+    return {"clients": clients}
+
+
+def _nom_i18n(n):
+    if isinstance(n, dict):
+        return n.get("fr_CA") or n.get("fr") or n.get("en_US") or ""
+    return n or ""
+
+
+@router.get("/gazelle/services")
+def chercher_services(q: str = Query("", max_length=80)):
+    """Catalogue Gazelle (prix courants), filtré par nom."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query(
+        "query { allMasterServiceItems { id name amount isArchived isTaxable type } }")
+    items = ((res or {}).get("data") or {}).get("allMasterServiceItems") or []
+    ql = q.lower()
+    out = [{"id": i["id"], "nom": _nom_i18n(i.get("name")), "prix": (i.get("amount") or 0) / 100,
+            "type": i.get("type")}
+           for i in items if not i.get("isArchived") and ql in _nom_i18n(i.get("name")).lower()]
+    return {"services": out}
+
+
+class LigneSoumission(BaseModel):
+    nom: str
+    montant: float  # dollars
+    description: Optional[str] = None
+    service_id: Optional[str] = None  # MasterServiceItem : reprend son nom officiel
+
+
+class SoumissionIn(BaseModel):
+    client_id: str
+    piano_id: str
+    lignes: List[LigneSoumission]
+    notes: Optional[str] = None
+    locale: str = "fr"
+
+
+@router.post("/gazelle/soumission")
+def creer_soumission(s: SoumissionIn):
+    """Crée une soumission dans Gazelle (2 étapes éprouvées : createEstimate minimal
+    puis updateEstimate avec taxes). Rien n'est envoyé : Louise/Allan l'envoient depuis Gazelle."""
+    from datetime import timedelta
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import aujourdhui_montreal
+    from api.assistant_duplication import _CREATE_ESTIMATE, _build_taxes, _mutation_error_detail
+    gz = GazelleAPIClient()
+    noms_msl = {}
+    if any(l.service_id for l in s.lignes):
+        res = gz._execute_query("query { allMasterServiceItems { id name } }")
+        noms_msl = {i["id"]: i.get("name") for i in ((res or {}).get("data") or {}).get("allMasterServiceItems") or []}
+    items = []
+    for i, l in enumerate(s.lignes):
+        cents = int(round(l.montant * 100))
+        nom = noms_msl.get(l.service_id) if l.service_id else None
+        if not isinstance(nom, dict):
+            nom = {"fr_CA": l.nom, "en_US": l.nom}
+        item = {"name": nom, "quantity": 100, "amount": cents, "duration": 0, "type": "LABOR_FIXED_RATE",
+                "isTaxable": True, "isTuning": False, "sequenceNumber": i, "photos": [],
+                "taxes": _build_taxes(cents, True)}
+        if l.description:
+            item["description"] = {"fr_CA": l.description, "en_US": l.description}
+        if l.service_id:
+            item["masterServiceItemId"] = l.service_id
+        items.append(item)
+    today = aujourdhui_montreal()
+    create_input = {"clientId": s.client_id, "pianoId": s.piano_id, "locale": s.locale,
+                    "estimatedOn": today.isoformat(), "expiresOn": (today + timedelta(days=30)).isoformat()}
+    if s.notes:
+        create_input["notes"] = s.notes
+    res = gz._execute_query(_CREATE_ESTIMATE, {"input": create_input})
+    payload = ((res or {}).get("data") or {}).get("createEstimate") or {}
+    est = payload.get("estimate")
+    if not est:
+        raise HTTPException(502, f"Gazelle a refusé la création ({_mutation_error_detail(payload)}) {res.get('errors') if isinstance(res, dict) else ''}")
+    tiers = [{"sequenceNumber": 0, "isPrimary": True, "estimateTierGroups": [], "ungroupedEstimateTierItems": items}]
+    gz.update_estimate(est["id"], {"estimateTiers": tiers})
+    return {"numero": est.get("number"), "id": est.get("id"),
+            "total_avant_taxes": sum(l.montant for l in s.lignes)}
