@@ -2438,6 +2438,22 @@ async def run_email_scanner():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DiagnosticIn(BaseModel):
+    sujet: str = ""
+    texte: str
+
+
+@router.post("/email-scanner/diagnostic")
+async def diagnostic_scanner(d: DiagnosticIn):
+    """Rejoue l'analyse IA + l'analyseur classique sur un courriel, sans rien envoyer ni enregistrer."""
+    from modules.place_des_arts.services.email_parser_llm import diagnostic_llm
+    try:
+        classique = parse_email_text(d.texte)
+    except Exception as e:  # noqa: BLE001
+        classique = f"erreur: {e}"
+    return {"ia": diagnostic_llm(d.sujet, d.texte), "classique": str(classique)[:1500]}
+
+
 @router.get("/email-scanner/history")
 async def email_scanner_history(limit: int = Query(default=20, le=100)):
     """

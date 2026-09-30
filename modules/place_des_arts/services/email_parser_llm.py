@@ -114,3 +114,28 @@ def parse_email_llm(subject: Optional[str], body: Optional[str]) -> Optional[Lis
     except Exception as e:  # noqa: BLE001
         logger.warning(f"parse_email_llm échec, fallback regex: {e}")
         return None
+
+
+def diagnostic_llm(subject: Optional[str], body: Optional[str]) -> Dict[str, Any]:
+    """Même appel que parse_email_llm, mais retourne la réponse brute (pour comprendre un refus)."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"erreur": "ANTHROPIC_API_KEY absente"}
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=_MODEL, max_tokens=4000, system=_system_prompt(), tools=[_TOOL],
+            tool_choice={"type": "tool", "name": "extraire_demandes_pda"},
+            messages=[{"role": "user", "content": f"Objet : {subject or '(sans objet)'}\n\n{body}"}],
+        )
+        return {
+            "modele": getattr(resp, "model", None),
+            "stop_reason": getattr(resp, "stop_reason", None),
+            "blocs": [getattr(b, "type", None) for b in resp.content],
+            "outil": next((b.input for b in resp.content if getattr(b, "type", None) == "tool_use"), None),
+            "texte": " ".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text")[:1000],
+            "usage": str(getattr(resp, "usage", "")),
+        }
+    except Exception as e:  # noqa: BLE001
+        return {"erreur": f"{type(e).__name__}: {e}"[:1500]}
