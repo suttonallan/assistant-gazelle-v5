@@ -120,6 +120,35 @@ const trierUrgence = (a, b) => {
   return da - db
 }
 
+// Ordre manuel (flèches ↑↓) d'abord ; sans ordre choisi → classement par urgence.
+const trierOrdre = (a, b) => {
+  const oa = a.ordre ?? null
+  const ob = b.ordre ?? null
+  if (oa === null && ob === null) return trierUrgence(a, b)
+  if (oa === null) return -1
+  if (ob === null) return 1
+  return oa - ob
+}
+
+// Échange l'élément i avec son voisin (delta = -1 ou +1) dans une copie de la liste.
+const echanger = (liste, i, delta) => {
+  const j = i + delta
+  if (j < 0 || j >= liste.length) return null
+  const copie = [...liste]
+  ;[copie[i], copie[j]] = [copie[j], copie[i]]
+  return copie
+}
+
+function Fleches({ onMonter, onDescendre, className = '' }) {
+  const btn = 'w-6 h-5 flex items-center justify-center rounded text-[11px] leading-none text-gray-400 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-20 disabled:hover:bg-transparent'
+  return (
+    <span className={`inline-flex flex-col ${className}`} onClick={(e) => e.stopPropagation()}>
+      <button type="button" title="Monter" className={btn} disabled={!onMonter} onClick={onMonter}>▲</button>
+      <button type="button" title="Descendre" className={btn} disabled={!onDescendre} onClick={onDescendre}>▼</button>
+    </span>
+  )
+}
+
 async function api(chemin, options = {}) {
   const r = await fetch(`${API_URL}/api/taches${chemin}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -284,6 +313,9 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
           <div className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Étapes</div>
           {f.etapes.map((et, i) => (
             <div key={i} className="flex items-center gap-2 mb-1">
+              <Fleches
+                onMonter={i > 0 ? () => maj('etapes', echanger(f.etapes, i, -1)) : null}
+                onDescendre={i < f.etapes.length - 1 ? () => maj('etapes', echanger(f.etapes, i, 1)) : null} />
               <input type="checkbox" checked={!!et.fait} onChange={(e) => {
                 const etapes = [...f.etapes]; etapes[i] = { ...et, fait: e.target.checked, date: e.target.checked ? new Date().toISOString().slice(0, 10) : null }; maj('etapes', etapes)
               }} />
@@ -332,7 +364,7 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
 }
 
 /* ---------- Carte campagne ---------- */
-function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }) {
+function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter, onReordonner }) {
   const [ouverte, setOuverte] = useState(false)
   const [front, setFront] = useState(null)
   const [ajout, setAjout] = useState(false)
@@ -349,7 +381,7 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
   const faits = elements.filter((t) => t.statut === 'fait').length
   const tries = [...elements].sort((a, b) => {
     const ordre = { fait: 0, en_cours: 1, a_faire: 2 }
-    return ordre[a.statut] - ordre[b.statut] || trierUrgence(a, b)
+    return ordre[a.statut] - ordre[b.statut] || trierOrdre(a, b)
   })
 
   const client = CAMPAGNE_VERS_CLIENT[campagne.slug]
@@ -391,11 +423,16 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
         <>
           <div className="border-t border-gray-100">
             {tries.length === 0 && <div className="text-sm text-gray-400 py-2">Aucun élément pour l'instant.</div>}
-            {tries.map((t) => {
+            {tries.map((t, i) => {
               const ech = formatEcheance(t.echeance, t.statut)
               const meta = t.note || ech.texte
+              // On ne déplace qu'entre voisins du même statut (les faits restent groupés)
+              const voisin = (d) => tries[i + d] && tries[i + d].statut === t.statut
               return (
-                <div key={t.id} className="grid grid-cols-[18px_1fr_auto] gap-2 items-center py-2 border-b border-gray-100 text-sm">
+                <div key={t.id} className="grid grid-cols-[24px_18px_1fr_auto] gap-2 items-center py-2 border-b border-gray-100 text-sm">
+                  <Fleches
+                    onMonter={voisin(-1) ? () => onReordonner(echanger(tries, i, -1)) : null}
+                    onDescendre={voisin(1) ? () => onReordonner(echanger(tries, i, 1)) : null} />
                   <PastilleEtat statut={t.statut} onClick={() => onCycle(t)} />
                   <button className={`text-left truncate ${t.statut === 'fait' ? 'line-through text-gray-400' : 'text-gray-900 font-medium'}`} onClick={() => onOuvrir(t)}>
                     {t.titre}
@@ -475,7 +512,7 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter }
 }
 
 /* ---------- Carte tâche ---------- */
-function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, campagnes = [] }) {
+function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes = [] }) {
   const etapes = tache.etapes || []
   const nbFaites = etapes.filter((e) => e.fait).length
   const idx = COLONNES.findIndex((c) => c.id === tache.statut)
@@ -510,7 +547,12 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, campagnes = [] }) {
             <span className="text-[11px] font-bold text-gray-500 tabular-nums">{nbFaites}/{etapes.length}</span>
           </div>
           {etapes.map((e, i) => (
-            <label key={i} className="flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
+            <label key={i} className="group/etape flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
+              {onEtapes && (
+                <Fleches className="hidden md:inline-flex -my-1 -ml-1 opacity-0 group-hover/etape:opacity-100"
+                  onMonter={i > 0 ? (ev) => { ev.preventDefault(); onEtapes(tache, echanger(etapes, i, -1)) } : null}
+                  onDescendre={i < etapes.length - 1 ? (ev) => { ev.preventDefault(); onEtapes(tache, echanger(etapes, i, 1)) } : null} />
+              )}
               <input type="checkbox" className="mt-0.5 w-4 h-4 accent-emerald-600" checked={!!e.fait} onChange={() => onEtape(tache, i)} />
               <span className={`flex-1 ${e.fait ? 'line-through text-gray-400' : 'text-gray-800'}`}>{e.texte}</span>
               {e.date && <span className="text-[11px] text-gray-400">{formatQuand(e.date + 'T12:00:00')}</span>}
@@ -609,6 +651,16 @@ export default function TachesDashboard({ currentUser, role }) {
     }
     setEdition(null)
   }
+  const reordonner = async (liste) => {
+    const ordres = Object.fromEntries(liste.map((t, k) => [t.id, (k + 1) * 10]))
+    setTaches((xs) => xs.map((x) => (x.id in ordres ? { ...x, ordre: ordres[x.id] } : x)))
+    try {
+      await api('/ordre', { method: 'POST', body: JSON.stringify({ ids: liste.map((t) => t.id) }) })
+    } catch (e) {
+      alert(`Ordre non enregistré : ${e.message}`)
+      charger()
+    }
+  }
   const basculerEtape = (tache, i) => {
     const etapes = (tache.etapes || []).map((e, j) => (j === i ? { ...e, fait: !e.fait, date: !e.fait ? new Date().toISOString().slice(0, 10) : null } : e))
     modifier(tache, { etapes })
@@ -681,7 +733,8 @@ export default function TachesDashboard({ currentUser, role }) {
                 elements={taches.filter((t) => t.campagne === c.slug).filter(correspond)}
                 onCycle={(t) => modifier(t, { statut: SUIVANT[t.statut] })}
                 onOuvrir={setEdition}
-                onAjouter={creer} />
+                onAjouter={creer}
+                onReordonner={reordonner} />
             ))}
           </section>
         </>
@@ -723,7 +776,7 @@ export default function TachesDashboard({ currentUser, role }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {cartes.map((t) => (
                       <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
-                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} onEtapes={(tt, etapes) => modifier(tt, { etapes })} />
                     ))}
                   </div>
                 </section>
@@ -745,7 +798,7 @@ export default function TachesDashboard({ currentUser, role }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {faitesRecentes.map((t) => (
                       <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
-                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} onEtapes={(tt, etapes) => modifier(tt, { etapes })} />
                     ))}
                   </div>
                 )}
@@ -775,7 +828,7 @@ export default function TachesDashboard({ currentUser, role }) {
                   <div className="flex flex-col gap-2.5">
                     {cartes.map((t) => (
                       <CarteTache key={t.id} tache={t} campagnes={campagnes} onOuvrir={setEdition}
-                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} />
+                        onDeplacer={(tt, statut) => statut && modifier(tt, { statut })} onEtape={basculerEtape} onEtapes={(tt, etapes) => modifier(tt, { etapes })} />
                     ))}
                   </div>
                 </section>

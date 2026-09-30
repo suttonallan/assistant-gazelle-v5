@@ -154,6 +154,21 @@ def creer_tache(tache: TacheIn):
     return rows[0] if rows else data
 
 
+class OrdreIn(BaseModel):
+    ids: List[str]
+
+
+@router.post("/ordre")
+def reordonner(o: OrdreIn):
+    """Enregistre l'ordre manuel d'une liste : 1re = 10, 2e = 20, …"""
+    if not o.ids or len(o.ids) > 200:
+        raise HTTPException(400, "Liste vide ou trop longue")
+    for i, tid in enumerate(o.ids):
+        _check(requests.patch(_url(f"?id=eq.{requests.utils.quote(tid)}"), headers=_db()._get_headers(),
+                              json={"ordre": (i + 1) * 10}, timeout=15))
+    return {"ok": True, "n": len(o.ids)}
+
+
 @router.patch("/{tache_id}")
 def modifier_tache(tache_id: str, tache: TacheIn):
     data = _nettoyer(tache.model_dump(exclude_unset=True))
