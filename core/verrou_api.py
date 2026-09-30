@@ -155,12 +155,21 @@ def est_ouvert(chemin: str) -> bool:
     return chemin in CHEMINS_OUVERTS_EXACTS or any(chemin.startswith(c) for c in CHEMINS_OUVERTS)
 
 
+def _cles_service() -> list:
+    """Toutes les clés service acceptées (Render peut en avoir deux : ancienne JWT et nouvelle sb_secret_)."""
+    return [v for v in {os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), os.getenv("SUPABASE_KEY", "")} if v]
+
+
 def cle_service_valide(cle: Optional[str]) -> bool:
-    attendue = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or ""
-    return bool(cle and attendue and hmac.compare_digest(cle, attendue))
+    return bool(cle) and any(hmac.compare_digest(cle, a) for a in _cles_service())
 
 
-def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str) -> None:
+def _empreinte(cle: str) -> str:
+    """Forme d'une clé sans la révéler : 4 premiers caractères + longueur."""
+    return f"{cle[:4]}…({len(cle)})" if cle else "aucune"
+
+
+def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fournie: str = "") -> None:
     """Compte les appels sans jeton (mode observation), par route."""
     import re
     motif = re.sub(r"/(ins|cli|cnv|usr|evt|tea|com|msg)_[A-Za-z0-9]+", r"/\1_…", chemin)
@@ -173,6 +182,8 @@ def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str) -> Non
         e["agents"].add((agent or "")[:80])
     if len(e["origines"]) < 5:
         e["origines"].add(origine or "")
+    if cle_fournie:  # clé service envoyée mais refusée : on note sa forme (jamais la clé)
+        e["cle_refusee"] = f"reçue {_empreinte(cle_fournie)} ; attendues {[_empreinte(a) for a in _cles_service()]}"
 
 
 def journal() -> Dict[str, Any]:
