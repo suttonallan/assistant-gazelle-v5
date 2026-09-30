@@ -130,15 +130,17 @@ def check_pda_parking(storage) -> list:
         rv = {a["external_id"]: a for a in (rows if isinstance(rows, list) else [])}
     rapporte = defaultdict(float)
     demandes = defaultdict(list)
+    clients = defaultdict(set)  # clients Gazelle des RV liés (ex. Opéra de Montréal : piano PdA prêté)
     for r in reqs:
         a = rv.get(r.get("appointment_id")) or {}
         cle = ((a.get("appointment_date") or r.get("appointment_date") or "")[:10],
                a.get("technicien") or r.get("technician_id"))
         rapporte[cle] += float(_norm_amount(r.get("parking")))
+        clients[cle].add(a.get("client_external_id") or PDA)
         lien = ("aucun RV Gazelle lié" if not r.get("appointment_id") else
                 "RV introuvable dans Gazelle (supprimé ?)" if not a else
                 f"RV du {(a.get('appointment_date') or '')[:10]}"
-                + ("" if a.get("client_external_id") == PDA else " (PAS au dossier Place des Arts)")
+                + ("" if a.get("client_external_id") == PDA else f" au dossier d'un autre client ({a.get('client_external_id')})")
                 + (f", statut {a.get('status')}" if a.get("status") not in (None, "ACTIVE", "COMPLETE", "COMPLETED") else ""))
         demandes[cle].append(f"{(r.get('appointment_date') or '')[:10]} {r.get('room') or ''} « {r.get('for_who') or ''} » "
                              f"{_norm_amount(r.get('parking'))} $ — {lien}")
@@ -147,7 +149,8 @@ def check_pda_parking(storage) -> list:
 
     for (jour, tech), total_rapporte in sorted(rapporte.items()):
         debut, fin = bornes_journee_utc(jour)
-        params = [("client_id", f"eq.{PDA}"), ("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
+        cl = sorted(clients[(jour, tech)] | {PDA})
+        params = [("client_id", f"in.({','.join(cl)})"), ("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
                   ("entry_type", "in.(SERVICE_ENTRY_MANUAL,SERVICE_ENTRY_AUTOMATED)"),
                   ("select", "title,description")]
         if tech:
@@ -163,7 +166,8 @@ def check_pda_parking(storage) -> list:
                 "check": "pda_parking", "severity": "warning",
                 "title": f"Stationnement à vérifier — {jour}",
                 "detail": (f"{total_rapporte:.2f} $ rapporté sur les demandes PdA, "
-                           f"{ecrit:.2f} $ de « stat » écrits dans les notes de service ce jour-là. "
+                           f"{ecrit:.2f} $ de « stat » écrits ce jour-là dans les notes de service "
+                           f"(dossiers : Place des Arts{', + client du RV lié' if len(cl) > 1 else ''}). "
                            f"Demande(s) : " + " | ".join(demandes[(jour, tech)])),
             })
     return anomalies
