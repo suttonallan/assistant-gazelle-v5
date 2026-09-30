@@ -167,3 +167,37 @@ def creer_discussion(d: DiscussionIn):
     texte = (SIGNATURE_IA.format(nom=d.auteur.capitalize()) + d.texte) if d.par_ia else d.texte
     return _handle(get_front_client().create_discussion, d.sujet, texte, _email_auteur(d.auteur),
                    sorted(set(membres + [_email_auteur(d.auteur)])))
+
+
+
+@router.get("/contact-fils")
+def fils_contact(email: str = Query(..., min_length=5), page: Optional[str] = None,
+                 limite: int = Query(20, ge=1, le=50)):
+    """LECTURE SEULE — conversations d'un contact avec messages et commentaires (texte abrégé).
+    Sert aux analyses (ex. questions restées sans réponse). Paginer avec « page »."""
+    import time as _t
+    client = get_front_client()
+    lot = _handle(client.conversations_contact, email, page, limite)
+    fils = []
+    for c in lot["conversations"]:
+        try:
+            msgs = client.list_messages(c["id"], limit=100)
+            coms = client.list_comments(c["id"], limit=100)
+        except Exception as e:  # noqa: BLE001
+            fils.append({"id": c["id"], "sujet": c.get("subject"), "erreur": str(e)[:200]})
+            continue
+        fils.append({
+            "id": c["id"], "sujet": c.get("subject"), "cree": c.get("created_at"),
+            "messages": [{
+                "t": m.get("created_at"), "entrant": m.get("is_inbound"), "brouillon": m.get("is_draft"),
+                "de": next((r.get("handle") for r in m.get("recipients", []) if r.get("role") == "from"), None),
+                "a": [r.get("handle") for r in m.get("recipients", []) if r.get("role") in ("to", "cc")],
+                "texte": (m.get("text") or m.get("blurb") or "")[:2500],
+            } for m in msgs],
+            "commentaires": [{
+                "t": x.get("posted_at"), "auteur": ((x.get("author") or {}).get("email")),
+                "texte": (x.get("body") or "")[:1500],
+            } for x in coms],
+        })
+        _t.sleep(0.3)  # ménage la limite de débit Front
+    return {"fils": fils, "page_suivante": lot["page_suivante"]}

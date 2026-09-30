@@ -84,6 +84,19 @@ class FrontClient:
         path = f"/conversations/search/{quote(query, safe='')}"
         return self._get(path, params={"limit": min(limit, 100)}).get("_results", [])
 
+    def conversations_contact(self, email: str, page_token: Optional[str] = None, limit: int = 25) -> Dict:
+        """Conversations d'un contact (par adresse), les plus récentes d'abord, page par page."""
+        params: Dict[str, Any] = {"limit": min(limit, 100)}
+        if page_token:
+            params["page_token"] = page_token
+        data = self._get(f"/contacts/alt:email:{quote(email, safe='@')}/conversations", params=params)
+        suivant = ((data.get("_pagination") or {}).get("next") or "")
+        jeton = None
+        if "page_token=" in suivant:
+            from urllib.parse import urlparse, parse_qs
+            jeton = (parse_qs(urlparse(suivant).query).get("page_token") or [None])[0]
+        return {"conversations": data.get("_results", []), "page_suivante": jeton}
+
     def get_conversation(self, conversation_id: str) -> Dict:
         """Détail d'une conversation (metadata, participants, statut)."""
         return self._get(f"/conversations/{conversation_id}")
