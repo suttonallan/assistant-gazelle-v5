@@ -81,6 +81,46 @@ def _system_prompt() -> str:
     )
 
 
+def _normaliser(brut: Any) -> Optional[Dict[str, Any]]:
+    """Remet d'aplomb la réponse de l'outil.
+
+    Constaté en production (sept. 2026) : le modèle renvoie parfois tout l'objet
+    sérialisé en texte DANS le champ « demandes » :
+        {"demandes": "{\"est_demande\": true, \"demandes\": [...]}"}
+    Lu tel quel, est_demande était absent → « aucune demande » → demande ratée.
+    Retourne None si la réponse est illisible (l'appelant retombe sur le regex).
+    """
+    import json
+
+    def charger(x):
+        if isinstance(x, str):
+            try:
+                return json.loads(x)
+            except ValueError:
+                return None
+        return x
+
+    data = charger(brut)
+    if not isinstance(data, dict):
+        return None
+    if isinstance(data.get("demandes"), str) and charger(data["demandes"]) is None:
+        return None  # texte illisible dans « demandes »
+    demandes = charger(data.get("demandes"))
+    # Objet complet emballé dans « demandes »
+    if isinstance(demandes, dict) and ("demandes" in demandes or "est_demande" in demandes):
+        return _normaliser(demandes)
+    if isinstance(demandes, dict):
+        demandes = [demandes]
+    if demandes is None:
+        demandes = []
+    if not isinstance(demandes, list):
+        return None
+    est = data.get("est_demande")
+    if isinstance(est, str):
+        est = est.strip().lower() in ("true", "vrai", "oui", "1")
+    return {**data, "est_demande": bool(est), "demandes": demandes}
+
+
 def parse_email_llm(subject: Optional[str], body: Optional[str]) -> Optional[List[Dict[str, Any]]]:
     """Voir la convention de retour dans le docstring du module."""
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -105,12 +145,20 @@ def parse_email_llm(subject: Optional[str], body: Optional[str]) -> Optional[Lis
         )
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and block.name == "extraire_demandes_pda":
-                data = block.input or {}
-                if not data.get("est_demande"):
+                data = _normaliser(block.input)
+                if data is None:
+                    # Réponse mal formée : on ne conclut PAS « aucune demande »,
+                    # on laisse l'analyseur classique trancher.
+                    logger.warning(f"parse_email_llm : réponse mal formée, repli regex : {str(block.input)[:300]}")
+                    return None
+                demandes = [d for d in data["demandes"] if isinstance(d, dict) and d.get("date")]
+                if not data.get("est_demande") and not demandes:
+                    logger.info(f"parse_email_llm : pas une demande ({data.get('raison_si_non', '')}) — {subject}")
                     return []
-                # Ne garder que les demandes avec au moins une date.
-                return [d for d in (data.get("demandes") or []) if d.get("date")]
-        return []
+                return demandes
+        # Pas d'appel d'outil (réponse coupée…) : repli sur l'analyseur classique.
+        logger.warning(f"parse_email_llm : aucun appel d'outil (stop={getattr(resp, 'stop_reason', '?')}), repli regex")
+        return None
     except Exception as e:  # noqa: BLE001
         logger.warning(f"parse_email_llm échec, fallback regex: {e}")
         return None

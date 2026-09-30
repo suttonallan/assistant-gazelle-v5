@@ -52,6 +52,12 @@ def _sujet_hors_perimetre(subject: str) -> bool:
     return any(motif in sujet for motif in _SUJETS_HORS_PERIMETRE)
 
 
+def _est_une_reponse(subject: str) -> bool:
+    """Vrai si le sujet est une réponse ou un transfert (RE:, TR:, Fwd:…)."""
+    import re
+    return bool(re.match(r"\s*(re|tr|fw|fwd|réf)\s*:", (subject or '').lower()))
+
+
 def _signature_demande(demande: Dict[str, Any]) -> str:
     """
     Identifie une demande par son CONTENU, pas par le message qui la porte.
@@ -215,6 +221,18 @@ class PDAEmailProcessor:
                 self._record_processed_email(email_data, status='out_of_scope')
                 return {'requests_created': 0, 'confirmation_sent': False}
             parsed_requests = parse_email_text(body_text)
+
+        if parsed_requests == [] and not _est_une_reponse(subject):
+            # Filet de sécurité : l'IA dit « pas de demande » mais l'analyseur
+            # classique en voit une dans un courriel NEUF (pas un « RE: » qui
+            # cite l'original). Mieux vaut un avis de trop qu'une demande ratée
+            # (cas du TM 2026-10-01, sept. 2026).
+            filet = parse_email_text(body_text)
+            if filet:
+                logger.warning(f"IA : aucune demande, analyseur classique : {len(filet)} — signalé quand même : {subject}")
+                for r in filet:
+                    r.setdefault('warnings', []).append("L'IA n'a pas reconnu cette demande — à vérifier")
+                parsed_requests = filet
 
         if not parsed_requests:
             logger.info(f"Aucune demande détectée dans l'email: {subject}")
