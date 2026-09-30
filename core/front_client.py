@@ -126,12 +126,12 @@ class FrontClient:
 
     def create_draft_reply(self, conversation_id: str, body: str, author_email: str,
                            to: Optional[List[str]] = None, cc: Optional[List[str]] = None,
-                           subject: Optional[str] = None) -> Dict:
-        """Crée un BROUILLON de réponse partagé dans la conversation (non envoyé)."""
+                           subject: Optional[str] = None, mode: str = "shared") -> Dict:
+        """Crée un BROUILLON de réponse dans la conversation (non envoyé). mode : private | shared."""
         payload: Dict[str, Any] = {
             "author_id": f"alt:email:{author_email}",
             "body": body,
-            "mode": "shared",
+            "mode": mode,
         }
         channel = self._channel_de_conversation(conversation_id)
         if channel:
@@ -156,10 +156,10 @@ class FrontClient:
         return chans[0]["id"] if chans else None
 
     def create_draft_new(self, channel_id: str, body: str, author_email: str, to: List[str],
-                         subject: str, cc: Optional[List[str]] = None) -> Dict:
-        """BROUILLON d'un nouveau courriel (nouvelle conversation), partagé, non envoyé."""
+                         subject: str, cc: Optional[List[str]] = None, mode: str = "shared") -> Dict:
+        """BROUILLON d'un nouveau courriel (nouvelle conversation), non envoyé. mode : private | shared."""
         payload: Dict[str, Any] = {"author_id": f"alt:email:{author_email}", "body": body,
-                                   "to": to, "subject": subject, "mode": "shared"}
+                                   "to": to, "subject": subject, "mode": mode}
         if cc:
             payload["cc"] = cc
         return self._post(f"/channels/{channel_id}/drafts", payload)

@@ -91,6 +91,7 @@ class BrouillonIn(BaseModel):
     a: Optional[List[str]] = None
     cc: Optional[List[str]] = None
     sujet: Optional[str] = None
+    prive: bool = False  # True = visible seulement par l'auteur dans Front
 
 
 def _email_auteur(auteur: str) -> str:
@@ -123,7 +124,8 @@ def creer_brouillon(conversation_id: str, b: BrouillonIn):
                 return _handle(client.edit_draft, d["id"], d.get("version"), b.texte, canal,
                                subject=b.sujet, to=b.a, cc=b.cc)
     return _handle(get_front_client().create_draft_reply, conversation_id, b.texte,
-                   _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet)
+                   _email_auteur(b.auteur), to=b.a, cc=b.cc, subject=b.sujet,
+                   mode="private" if b.prive else "shared")
 
 
 
@@ -133,6 +135,7 @@ class NouveauCourrielIn(BaseModel):
     texte: str = Field(..., min_length=1, max_length=20000)
     cc: Optional[List[str]] = None
     auteur: str = "allan"
+    prive: bool = False  # True = visible seulement par l'auteur dans Front
 
 
 @router.post("/brouillon-nouveau")
@@ -143,4 +146,5 @@ def creer_brouillon_nouveau(b: NouveauCourrielIn):
     canal = _handle(client.channel_pour, email)
     if not canal:
         raise HTTPException(502, "Aucune boîte d'envoi trouvée dans Front")
-    return _handle(client.create_draft_new, canal, b.texte, email, b.a, b.sujet, b.cc)
+    return _handle(client.create_draft_new, canal, b.texte, email, b.a, b.sujet, b.cc,
+                   "private" if b.prive else "shared")
