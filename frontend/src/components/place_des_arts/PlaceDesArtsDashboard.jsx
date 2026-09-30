@@ -1356,10 +1356,28 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
             <div className="space-y-1">
               {orphanServices.map((o) => (
                 <div key={o.appointment_id}>
-                  <div className="flex items-center justify-between bg-white rounded px-3 py-2 text-sm border border-amber-200">
-                    <span className="text-gray-800">
-                      {o.date} — {o.title}{o.technician_id ? ` (${o.technician_id})` : ''}
-                    </span>
+                  <div className="flex items-start justify-between bg-white rounded px-3 py-2 text-sm border border-amber-200">
+                    <div className="min-w-0 flex-1 mr-3">
+                      <div className="text-gray-900 font-medium flex flex-wrap items-center gap-2">
+                        <span>
+                          {o.date ? new Date(o.date + 'T12:00:00').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short' }) : '—'}
+                          {o.time ? ` · ${o.time.slice(0, 5).replace(':', 'h')}` : ''}
+                        </span>
+                        <span className="text-gray-500 font-normal">{(o.title || '').trim()}</span>
+                        {o.technicien_nom && o.technicien_nom !== '-' && (
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{o.technicien_nom}</span>
+                        )}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${o.termine ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
+                          {o.termine ? 'Fait' : 'À venir'}
+                        </span>
+                      </div>
+                      {o.pianos?.length > 0 && (
+                        <div className="text-xs text-gray-600 mt-0.5">🎹 {o.pianos.join(' · ')}</div>
+                      )}
+                      {o.description && (
+                        <div className="text-xs text-gray-500 mt-0.5 italic">« {o.description.trim()} »</div>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleDismissOrphan(o)}

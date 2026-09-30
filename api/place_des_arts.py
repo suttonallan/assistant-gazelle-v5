@@ -2006,7 +2006,29 @@ async def check_completed_requests():
                     'status': apt.get('status', ''),
                     'description': apt.get('description') or apt.get('notes') or '',
                 })
+            # Détails lisibles : technicien, piano, fait / à venir
             if orphan_services:
+                from modules.pda_v6_matcher import tech_name
+                pids_par_rv = {a.get('external_id'): (a.get('piano_ids') or []) for a in gazelle_appointments}
+                tous_pids = sorted({p for o in orphan_services for p in pids_par_rv.get(o['appointment_id'], [])})
+                pianos = {}
+                if tous_pids:
+                    try:
+                        res = storage.client.table('gazelle_pianos')\
+                            .select('external_id,make,model,serial_number,location')\
+                            .in_('external_id', tous_pids).execute()
+                        pianos = {p['external_id']: p for p in (res.data or [])}
+                    except Exception as e:
+                        logging.warning(f"Pianos des orphelins : {e}")
+                for o in orphan_services:
+                    o['technicien_nom'] = tech_name(o.get('technician_id'))
+                    o['termine'] = (o.get('status') or '').upper() in ('COMPLETE', 'COMPLETED')
+                    o['pianos'] = [
+                        ' '.join(x for x in [p.get('make'), p.get('model'),
+                                             f"SN {p['serial_number']}" if p.get('serial_number') else '',
+                                             f"· {p['location']}" if p.get('location') else ''] if x)
+                        for p in (pianos.get(pid) for pid in pids_par_rv.get(o['appointment_id'], [])) if p
+                    ]
                 logging.info(f"🔍 {len(orphan_services)} service(s) Gazelle PDA sans demande correspondante")
         except Exception as e:
             logging.warning(f"Erreur détection orphelins: {e}")
