@@ -116,13 +116,32 @@ def check_pda_parking(storage) -> list:
 
     reqs = http.get(
         f"{api}/place_des_arts_requests?parking=not.is.null&appointment_date=gte.{since}"
-        f"&select=id,appointment_date,room,for_who,technician_id,parking",
+        f"&select=id,appointment_id,appointment_date,room,for_who,technician_id,parking",
         headers=H, timeout=20).json()
+    reqs = [r for r in (reqs if isinstance(reqs, list) else []) if _norm_amount(r.get("parking"))]
+    # Date et technicien du RV Gazelle lié (la date de la demande peut différer)
+    ids = sorted({r["appointment_id"] for r in reqs if r.get("appointment_id")})
+    rv = {}
+    if ids:
+        rows = http.get(f"{api}/gazelle_appointments",
+                        params=[("external_id", f"in.({','.join(ids)})"),
+                                ("select", "external_id,appointment_date,technicien,client_external_id,status")],
+                        headers=H, timeout=20).json()
+        rv = {a["external_id"]: a for a in (rows if isinstance(rows, list) else [])}
     rapporte = defaultdict(float)
-    for r in reqs if isinstance(reqs, list) else []:
-        m = _norm_amount(r.get("parking"))
-        if m:
-            rapporte[((r.get("appointment_date") or "")[:10], r.get("technician_id"))] += float(m)
+    demandes = defaultdict(list)
+    for r in reqs:
+        a = rv.get(r.get("appointment_id")) or {}
+        cle = ((a.get("appointment_date") or r.get("appointment_date") or "")[:10],
+               a.get("technicien") or r.get("technician_id"))
+        rapporte[cle] += float(_norm_amount(r.get("parking")))
+        lien = ("aucun RV Gazelle lié" if not r.get("appointment_id") else
+                "RV introuvable dans Gazelle (supprimé ?)" if not a else
+                f"RV du {(a.get('appointment_date') or '')[:10]}"
+                + ("" if a.get("client_external_id") == PDA else " (PAS au dossier Place des Arts)")
+                + (f", statut {a.get('status')}" if a.get("status") not in (None, "ACTIVE", "COMPLETE", "COMPLETED") else ""))
+        demandes[cle].append(f"{(r.get('appointment_date') or '')[:10]} {r.get('room') or ''} « {r.get('for_who') or ''} » "
+                             f"{_norm_amount(r.get('parking'))} $ — {lien}")
     if not rapporte:
         return anomalies
 
@@ -144,7 +163,8 @@ def check_pda_parking(storage) -> list:
                 "check": "pda_parking", "severity": "warning",
                 "title": f"Stationnement à vérifier — {jour}",
                 "detail": (f"{total_rapporte:.2f} $ rapporté sur les demandes PdA, "
-                           f"{ecrit:.2f} $ de « stat » écrits dans les notes de service ce jour-là."),
+                           f"{ecrit:.2f} $ de « stat » écrits dans les notes de service ce jour-là. "
+                           f"Demande(s) : " + " | ".join(demandes[(jour, tech)])),
             })
     return anomalies
 
