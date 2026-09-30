@@ -44,7 +44,7 @@ _TOOL = {
                     "properties": {
                         "date": {"type": "string", "description": "Date du service AAAA-MM-JJ."},
                         "time": {"type": "string", "description": "Heure ou moment (ex. '14h', 'avant midi'). Vide si absent."},
-                        "room": {"type": "string", "description": "Salle (ex. 'Wilfrid-Pelletier', 'Maisonneuve', 'Salle D')."},
+                        "room": {"type": "string", "description": "Salle, recopiée telle qu'écrite (ex. 'TM', 'MS', 'WP', '5E', 'Salle D'). MS = Maison symphonique, jamais Maisonneuve."},
                         "for_who": {"type": "string", "description": "Pour qui / événement (ex. 'OSM', 'FIJM', artiste)."},
                         "piano": {"type": "string", "description": "Piano si mentionné (ex. 'Steinway D')."},
                         "diapason": {"type": "string", "description": "Diapason si mentionné (ex. '442')."},
@@ -76,6 +76,10 @@ def _system_prompt() -> str:
         "Une demande peut se trouver dans un bloc CITÉ ou TRANSFÉRÉ : extrais-la "
         "si l'email demande vraiment le service. Mais si la partie NEUVE ne fait "
         "qu'accuser réception d'un fil, NE ré-extrais PAS la demande citée.\n\n"
+        "Salles : recopie le code tel qu'écrit dans le courriel. Codes : MS = Maison "
+        "symphonique (ce N'EST PAS Maisonneuve), TM = Théâtre Maisonneuve, WP = Salle "
+        "Wilfrid-Pelletier, 5E ou C5 = Cinquième Salle, SCL ou CL = Salle Claude-Léveillée, "
+        "TJD = Théâtre Jean-Duceppe.\n\n"
         "Dates en AAAA-MM-JJ (déduis l'année à partir d'aujourd'hui). Une entrée "
         "par service distinct (date + salle + heure). N'invente aucun champ absent."
     )
