@@ -345,10 +345,13 @@ class EventManager:
             "billing_amount": "billing_amount",
             "parking": "parking",
             "status": "status",
+            "appointment_id": "appointment_id",  # relier la demande au bon RV Gazelle
         }
         db_field = field_map.get(field)
         if not db_field:
             return {"ok": False, "error": f"Champ non supporté: {field}"}
+        if db_field == "appointment_id" and value and not str(value).startswith("evt_"):
+            return {"ok": False, "error": "appointment_id doit être un identifiant Gazelle evt_…"}
 
         payload = {"updated_at": datetime.now(timezone.utc).isoformat()}
         if db_field in ("request_date", "appointment_date", "billed_at"):
