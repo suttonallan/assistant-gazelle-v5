@@ -1,4 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { DndContext, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import { CSS } from '@dnd-kit/utilities'
 import { API_URL } from '../utils/apiConfig'
 
 /**
@@ -130,23 +134,54 @@ const trierOrdre = (a, b) => {
   return oa - ob
 }
 
-// Échange l'élément i avec son voisin (delta = -1 ou +1) dans une copie de la liste.
-const echanger = (liste, i, delta) => {
-  const j = i + delta
-  if (j < 0 || j >= liste.length) return null
-  const copie = [...liste]
-  ;[copie[i], copie[j]] = [copie[j], copie[i]]
-  return copie
+/* ---------- Glisser-déposer (souris : glisser ; iPhone : appui long puis glisser) ---------- */
+function ListeTriable({ ids, onDeplacer, children }) {
+  const capteurs = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
+  )
+  // Après un glissé, le relâchement produit un « clic » : on l'ignore (sinon il cocherait une étape ou ouvrirait la tâche).
+  const vientDeGlisser = useRef(false)
+  const terminer = () => { setTimeout(() => { vientDeGlisser.current = false }, 0) }
+  return (
+    <div onClickCapture={(e) => { if (vientDeGlisser.current) { e.stopPropagation(); e.preventDefault() } }}>
+      <DndContext sensors={capteurs} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        onDragStart={() => { vientDeGlisser.current = true }}
+        onDragCancel={terminer}
+        onDragEnd={({ active, over }) => {
+          terminer()
+          if (!over || active.id === over.id) return
+          const de = ids.indexOf(active.id)
+          const vers = ids.indexOf(over.id)
+          if (de >= 0 && vers >= 0) onDeplacer(de, vers)
+        }}>
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>{children}</SortableContext>
+      </DndContext>
+    </div>
+  )
 }
 
-function Fleches({ onMonter, onDescendre, className = '' }) {
-  const btn = 'w-6 h-5 flex items-center justify-center rounded text-[11px] leading-none text-gray-400 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-20 disabled:hover:bg-transparent'
+// poignee=false : toute la ligne se prend. poignee=true : seulement l'élément qui reçoit les props « poignee » (champs texte).
+function LigneTriable({ id, poignee = false, className = '', children }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform), transition,
+    position: 'relative', zIndex: isDragging ? 30 : undefined,
+    ...(poignee ? {} : { WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }),
+  }
+  const surLigne = poignee ? {} : { ...listeners }
   return (
-    <span className={`inline-flex flex-col ${className}`} onClick={(e) => e.stopPropagation()}>
-      <button type="button" title="Monter" className={btn} disabled={!onMonter} onClick={onMonter}>▲</button>
-      <button type="button" title="Descendre" className={btn} disabled={!onDescendre} onClick={onDescendre}>▼</button>
-    </span>
+    <div ref={setNodeRef} style={style} {...surLigne}
+      className={`${className} ${isDragging ? 'bg-white shadow-lg ring-2 ring-blue-400 rounded-lg' : ''}`}>
+      {typeof children === 'function'
+        ? children({ ref: setActivatorNodeRef, ...attributes, ...listeners })
+        : children}
+    </div>
   )
+}
+
+function Prise({ className = '' }) {
+  return <span aria-hidden className={`select-none text-gray-300 leading-none text-sm ${className}`}>⠿</span>
 }
 
 async function api(chemin, options = {}) {
@@ -311,19 +346,21 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
 
         <div>
           <div className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Étapes</div>
+          <ListeTriable ids={f.etapes.map((_, i) => `e${i}`)} onDeplacer={(de, vers) => maj('etapes', arrayMove(f.etapes, de, vers))}>
           {f.etapes.map((et, i) => (
-            <div key={i} className="flex items-center gap-2 mb-1">
-              <Fleches
-                onMonter={i > 0 ? () => maj('etapes', echanger(f.etapes, i, -1)) : null}
-                onDescendre={i < f.etapes.length - 1 ? () => maj('etapes', echanger(f.etapes, i, 1)) : null} />
+            <LigneTriable key={i} id={`e${i}`} poignee className="flex items-center gap-2 mb-1">
+              {(prise) => (<>
+              <span {...prise} title="Glisser pour déplacer" className="cursor-grab active:cursor-grabbing touch-none px-1 -ml-1 py-1"><Prise className="text-gray-400" /></span>
               <input type="checkbox" checked={!!et.fait} onChange={(e) => {
                 const etapes = [...f.etapes]; etapes[i] = { ...et, fait: e.target.checked, date: e.target.checked ? new Date().toISOString().slice(0, 10) : null }; maj('etapes', etapes)
               }} />
               <input className="flex-1 border-b border-gray-200 text-sm py-1 focus:outline-none focus:border-blue-500" value={et.texte}
                 onChange={(e) => { const etapes = [...f.etapes]; etapes[i] = { ...et, texte: e.target.value }; maj('etapes', etapes) }} />
               <button className="text-gray-400 hover:text-red-600" onClick={() => maj('etapes', f.etapes.filter((_, j) => j !== i))}>×</button>
-            </div>
+              </>)}
+            </LigneTriable>
           ))}
+          </ListeTriable>
           <button className="text-sm text-blue-600 hover:underline" onClick={() => maj('etapes', [...f.etapes, { texte: '', fait: false }])}>+ Ajouter une étape</button>
         </div>
 
@@ -423,16 +460,21 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter, 
         <>
           <div className="border-t border-gray-100">
             {tries.length === 0 && <div className="text-sm text-gray-400 py-2">Aucun élément pour l'instant.</div>}
-            {tries.map((t, i) => {
+            {['fait', 'en_cours', 'a_faire'].map((st) => {
+              const groupe = tries.filter((t) => t.statut === st)
+              if (groupe.length === 0) return null
+              return (
+                <ListeTriable key={st} ids={groupe.map((t) => t.id)}
+                  onDeplacer={(de, vers) => {
+                    const deplace = arrayMove(groupe, de, vers)
+                    onReordonner(['fait', 'en_cours', 'a_faire'].flatMap((s2) => (s2 === st ? deplace : tries.filter((t) => t.statut === s2))))
+                  }}>
+            {groupe.map((t) => {
               const ech = formatEcheance(t.echeance, t.statut)
               const meta = t.note || ech.texte
-              // On ne déplace qu'entre voisins du même statut (les faits restent groupés)
-              const voisin = (d) => tries[i + d] && tries[i + d].statut === t.statut
               return (
-                <div key={t.id} className="grid grid-cols-[24px_18px_1fr_auto] gap-2 items-center py-2 border-b border-gray-100 text-sm">
-                  <Fleches
-                    onMonter={voisin(-1) ? () => onReordonner(echanger(tries, i, -1)) : null}
-                    onDescendre={voisin(1) ? () => onReordonner(echanger(tries, i, 1)) : null} />
+                <LigneTriable key={t.id} id={t.id} className="group/ligne grid grid-cols-[12px_18px_1fr_auto] gap-2 items-center py-2 border-b border-gray-100 text-sm cursor-grab active:cursor-grabbing">
+                  <Prise className="opacity-40 md:opacity-0 md:group-hover/ligne:opacity-100" />
                   <PastilleEtat statut={t.statut} onClick={() => onCycle(t)} />
                   <button className={`text-left truncate ${t.statut === 'fait' ? 'line-through text-gray-400' : 'text-gray-900 font-medium'}`} onClick={() => onOuvrir(t)}>
                     {t.titre}
@@ -444,7 +486,10 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter, 
                     <CompteRebours echeance={t.echeance} statut={t.statut} />
                     {t.assigne && <Avatar membre={t.assigne} petit />}
                   </span>
-                </div>
+                </LigneTriable>
+              )
+            })}
+                </ListeTriable>
               )
             })}
             {!ajout ? (
@@ -546,18 +591,17 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes 
             </div>
             <span className="text-[11px] font-bold text-gray-500 tabular-nums">{nbFaites}/{etapes.length}</span>
           </div>
+          <ListeTriable ids={etapes.map((_, i) => `e${i}`)} onDeplacer={(de, vers) => onEtapes && onEtapes(tache, arrayMove(etapes, de, vers))}>
           {etapes.map((e, i) => (
-            <label key={i} className="group/etape flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
-              {onEtapes && (
-                <Fleches className="hidden md:inline-flex -my-1 -ml-1 opacity-0 group-hover/etape:opacity-100"
-                  onMonter={i > 0 ? (ev) => { ev.preventDefault(); onEtapes(tache, echanger(etapes, i, -1)) } : null}
-                  onDescendre={i < etapes.length - 1 ? (ev) => { ev.preventDefault(); onEtapes(tache, echanger(etapes, i, 1)) } : null} />
-              )}
+            <LigneTriable key={i} id={`e${i}`} className="cursor-grab active:cursor-grabbing">
+            <label className="flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
               <input type="checkbox" className="mt-0.5 w-4 h-4 accent-emerald-600" checked={!!e.fait} onChange={() => onEtape(tache, i)} />
               <span className={`flex-1 ${e.fait ? 'line-through text-gray-400' : 'text-gray-800'}`}>{e.texte}</span>
               {e.date && <span className="text-[11px] text-gray-400">{formatQuand(e.date + 'T12:00:00')}</span>}
             </label>
+            </LigneTriable>
           ))}
+          </ListeTriable>
         </div>
       )}
       {tache.liens?.length > 0 && <div className="flex flex-wrap gap-1.5">{tache.liens.map((l, i) => <Lien key={i} lien={l} />)}</div>}
