@@ -73,7 +73,8 @@ def get_conversation_full(conversation_id: str):
 
 
 # ─── Écriture : commentaires internes et brouillons (rien n'est envoyé) ───
-EQUIPE_FRONT = {"allan": "asutton@piano-tek.com", "nicolas": "nlessard@piano-tek.com", "louise": "info@piano-tek.com"}
+EQUIPE_FRONT = {"allan": "asutton@piano-tek.com", "nicolas": "nlessard@piano-tek.com", "louise": "info@piano-tek.com",
+                "margot": "margotcharignon@gmail.com"}
 
 
 class CommentaireIn(BaseModel):
@@ -91,7 +92,7 @@ class BrouillonIn(BaseModel):
     a: Optional[List[str]] = None
     cc: Optional[List[str]] = None
     sujet: Optional[str] = None
-    prive: bool = False  # True = visible seulement par l'auteur dans Front
+    prive: bool = True  # visible seulement par l'auteur dans Front (False = toute l'équipe le voit)
 
 
 def _email_auteur(auteur: str) -> str:
@@ -135,7 +136,7 @@ class NouveauCourrielIn(BaseModel):
     texte: str = Field(..., min_length=1, max_length=20000)
     cc: Optional[List[str]] = None
     auteur: str = "allan"
-    prive: bool = False  # True = visible seulement par l'auteur dans Front
+    prive: bool = True  # visible seulement par l'auteur dans Front (False = toute l'équipe le voit)
 
 
 @router.post("/brouillon-nouveau")
@@ -148,3 +149,21 @@ def creer_brouillon_nouveau(b: NouveauCourrielIn):
         raise HTTPException(502, "Aucune boîte d'envoi trouvée dans Front")
     return _handle(client.create_draft_new, canal, b.texte, email, b.a, b.sujet, b.cc,
                    "private" if b.prive else "shared")
+
+
+
+class DiscussionIn(BaseModel):
+    avec: List[str]  # membres de l'équipe : margot, nicolas, louise…
+    sujet: str = Field(..., min_length=1, max_length=300)
+    texte: str = Field(..., min_length=1, max_length=5000)
+    auteur: str = "allan"
+    par_ia: bool = True
+
+
+@router.post("/discussion")
+def creer_discussion(d: DiscussionIn):
+    """Discussion interne Front avec des membres de l'équipe (plutôt qu'un courriel). Publiée tout de suite."""
+    membres = [_email_auteur(m) for m in d.avec]
+    texte = (SIGNATURE_IA.format(nom=d.auteur.capitalize()) + d.texte) if d.par_ia else d.texte
+    return _handle(get_front_client().create_discussion, d.sujet, texte, _email_auteur(d.auteur),
+                   sorted(set(membres + [_email_auteur(d.auteur)])))

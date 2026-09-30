@@ -113,6 +113,16 @@ class FrontClient:
         return self._post(f"/conversations/{conversation_id}/comments",
                           {"author_id": f"alt:email:{author_email}", "body": body})
 
+    def create_discussion(self, subject: str, body: str, author_email: str,
+                          teammate_emails: List[str]) -> Dict:
+        """Discussion INTERNE (conversation d'équipe, pas un courriel) avec un premier commentaire."""
+        return self._post("/conversations", {
+            "type": "discussion",
+            "subject": subject,
+            "teammate_ids": [f"alt:email:{e}" for e in teammate_emails],
+            "comment": {"author_id": f"alt:email:{author_email}", "body": body},
+        })
+
     def _channel_de_conversation(self, conversation_id: str) -> Optional[str]:
         inboxes = self._get(f"/conversations/{conversation_id}/inboxes").get("_results", [])
         for inbox in inboxes:
