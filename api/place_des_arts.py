@@ -2440,18 +2440,30 @@ async def run_email_scanner():
 
 class DiagnosticIn(BaseModel):
     sujet: str = ""
-    texte: str
+    texte: str = ""
+    gmail_message_id: Optional[str] = None  # rejoue sur le courriel complet, tel que le scanner le lit
 
 
 @router.post("/email-scanner/diagnostic")
 async def diagnostic_scanner(d: DiagnosticIn):
     """Rejoue l'analyse IA + l'analyseur classique sur un courriel, sans rien envoyer ni enregistrer."""
-    from modules.place_des_arts.services.email_parser_llm import diagnostic_llm
+    from modules.place_des_arts.services.email_parser_llm import diagnostic_llm, parse_email_llm
+    extra = {}
+    if d.gmail_message_id:
+        from core.gmail_scanner import get_gmail_scanner
+        sc = get_gmail_scanner()
+        if not sc.initialize():
+            raise HTTPException(502, "Gmail non initialisé")
+        mail = sc._get_email_content(d.gmail_message_id) or {}
+        d.texte = mail.get("body_text", "")
+        d.sujet = mail.get("subject", d.sujet)
+        extra = {"longueur_corps": len(d.texte), "debut": d.texte[:300], "fin": d.texte[-600:],
+                 "parse_email_llm": str(parse_email_llm(d.sujet, d.texte))[:800]}
     try:
         classique = parse_email_text(d.texte)
     except Exception as e:  # noqa: BLE001
         classique = f"erreur: {e}"
-    return {"ia": diagnostic_llm(d.sujet, d.texte), "classique": str(classique)[:1500]}
+    return {"ia": diagnostic_llm(d.sujet, d.texte), "classique": str(classique)[:1500], **extra}
 
 
 @router.get("/email-scanner/history")
