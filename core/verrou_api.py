@@ -155,18 +155,66 @@ def est_ouvert(chemin: str) -> bool:
     return chemin in CHEMINS_OUVERTS_EXACTS or any(chemin.startswith(c) for c in CHEMINS_OUVERTS)
 
 
+def _role_jwt(cle: str) -> Optional[str]:
+    """Rôle inscrit dans une clé Supabase de type JWT (« anon », « service_role »), sinon None."""
+    if not cle or not cle.startswith("eyJ") or cle.count(".") != 2:
+        return None
+    try:
+        corps = cle.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(corps + "=" * (-len(corps) % 4))).get("role")
+    except Exception:
+        return None
+
+
 def _cles_service() -> list:
-    """Toutes les clés service acceptées (Render peut en avoir deux : ancienne JWT et nouvelle sb_secret_)."""
-    return [v for v in {os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), os.getenv("SUPABASE_KEY", "")} if v]
+    """Clés service connues de Render. Une clé JWT « anon » (publique, visible dans le site)
+    n'est JAMAIS acceptée, même si elle traîne dans une variable SUPABASE_KEY."""
+    cles = {os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), os.getenv("SUPABASE_KEY", "")}
+    return [v for v in cles if v and _role_jwt(v) in (None, "service_role")]
+
+
+_cles_verifiees: Dict[str, float] = {}
+
+
+def _verifiee_par_supabase(cle: str) -> bool:
+    """Clé JWT « service_role » inconnue de Render (ex. ancienne clé dans les secrets GitHub) :
+    on demande à Supabase si elle est authentique (signature). Résultat gardé 1 h."""
+    empreinte = hashlib.sha256(cle.encode()).hexdigest()
+    if time.time() - _cles_verifiees.get(empreinte, 0) < 3600:
+        return True
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    if not url:
+        return False
+    try:
+        import requests
+        r = requests.get(f"{url}/rest/v1/system_settings?select=key&limit=1",
+                         headers={"apikey": cle, "Authorization": f"Bearer {cle}"}, timeout=8)
+        if r.status_code == 200:
+            _cles_verifiees[empreinte] = time.time()
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def cle_service_valide(cle: Optional[str]) -> bool:
-    return bool(cle) and any(hmac.compare_digest(cle, a) for a in _cles_service())
+    if not cle:
+        return False
+    if any(hmac.compare_digest(cle, a) for a in _cles_service()):
+        return True
+    return _role_jwt(cle) == "service_role" and _verifiee_par_supabase(cle)
 
 
 def _empreinte(cle: str) -> str:
-    """Forme d'une clé sans la révéler : 4 premiers caractères + longueur."""
-    return f"{cle[:4]}…({len(cle)})" if cle else "aucune"
+    """Forme d'une clé sans la révéler : 4 premiers caractères + longueur (+ rôle si JWT)."""
+    if not cle:
+        return "aucune"
+    role = _role_jwt(cle)
+    return f"{cle[:4]}…({len(cle)})" + (f" rôle={role}" if role else "")
+
+
+def _cles_toutes() -> list:
+    return [v for v in {os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), os.getenv("SUPABASE_KEY", "")} if v]
 
 
 def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fournie: str = "") -> None:
@@ -183,7 +231,7 @@ def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fo
     if len(e["origines"]) < 5:
         e["origines"].add(origine or "")
     if cle_fournie:  # clé service envoyée mais refusée : on note sa forme (jamais la clé)
-        e["cle_refusee"] = f"reçue {_empreinte(cle_fournie)} ; attendues {[_empreinte(a) for a in _cles_service()]}"
+        e["cle_refusee"] = f"reçue {_empreinte(cle_fournie)} ; connues {[_empreinte(a) for a in _cles_toutes()]}"
 
 
 def journal() -> Dict[str, Any]:
