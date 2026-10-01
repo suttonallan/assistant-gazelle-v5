@@ -450,8 +450,11 @@ class GazelleToSupabaseSync:
 
                     # Vérifier qu'on a au moins un identifiant
                     if not company_name and not first_name and not last_name:
-                        print(f"⚠️  Client {external_id} ignoré (aucun nom disponible)")
-                        self._record_error('clients', external_id, 'aucun nom disponible')
+                        # Fiche vide dans Gazelle (ni nom ni contact) : rien à
+                        # synchroniser, ce n'est PAS une erreur. Avant le
+                        # 2026-09-27 ces fiches n'étaient jamais relues ; le
+                        # rattrapage les a fait apparaître comme « erreurs ».
+                        self.stats['clients']['ignores_sans_nom'] = self.stats['clients'].get('ignores_sans_nom', 0) + 1
                         continue
 
                     # Email, téléphone, ville/code postal du contact
