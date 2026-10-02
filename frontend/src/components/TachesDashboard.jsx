@@ -299,82 +299,73 @@ function BandeCalendrier({ taches, jourChoisi, onChoisir }) {
 }
 
 /* ---------- Formulaire d'édition (modale) ---------- */
-const AVEC_FRONT = ['allan', 'nicolas', 'louise', 'margot', 'jp']  // JP : avisé par courriel (pas de compte Front)
+const AVEC_FRONT = ['allan', 'nicolas', 'louise', 'margot']  // peuvent écrire dans le fil (compte Front)
+const AVISABLES = ['allan', 'nicolas', 'louise', 'margot', 'jp']  // JP : prévenu par courriel
 
-function Aviser({ tache, moi, onAvise }) {
-  const [a, setA] = useState(() => (tache.assigne && tache.assigne !== moi && AVEC_FRONT.includes(tache.assigne)) ? tache.assigne : '')
-  const [msg, setMsg] = useState('')
-  const [etat, setEtat] = useState(null)
-  if (!moi || !['allan', 'nicolas', 'louise', 'margot'].includes(moi)) return null
-  const envoyer = async () => {
-    setEtat('envoi')
-    try {
-      const r = await api(`/${tache.id}/aviser`, { method: 'POST', body: JSON.stringify({ de: moi, a, message: msg }) })
-      setEtat('ok'); setMsg('')
-      if (r.tache) onAvise(r.tache)
-    } catch (e) { setEtat(null); alert(`Avis non envoyé : ${e.message}`) }
-  }
-  return (
-    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
-      <div className="text-xs font-bold uppercase tracking-wider text-amber-800">🔔 Aviser quelqu'un (Front)</div>
-      <div className="flex gap-2">
-        <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" value={a} onChange={(e) => setA(e.target.value)}>
-          <option value="">— Qui ? —</option>
-          {AVEC_FRONT.filter((k) => k !== moi).map((k) => <option key={k} value={k}>{MEMBRES[k].nom}{k === 'jp' ? ' (courriel)' : ''}</option>)}
-        </select>
-        <input className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" placeholder="Ex. Les marteaux sont arrivés, passe les prendre"
-          value={msg} onChange={(e) => { setMsg(e.target.value); setEtat(null) }} />
-        <button className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-amber-600 text-white disabled:opacity-40"
-          disabled={!a || !msg.trim() || etat === 'envoi'} onClick={envoyer}>{etat === 'envoi' ? '…' : 'Envoyer'}</button>
-      </div>
-      {etat === 'ok' && <div className="text-xs text-emerald-700 font-semibold">✓ Envoyé — le lien est ajouté à la tâche.</div>}
-    </div>
-  )
-}
-
-function Commentaires({ tache, moi, onMaj }) {
+// Fil de la tâche = SA discussion Front (source unique). Commenter et prévenir = un seul geste.
+function FilTache({ tache, moi, onMaj }) {
+  const [fil, setFil] = useState(null)
   const [texte, setTexte] = useState('')
+  const [aviser, setAviser] = useState(() => (tache.assigne && tache.assigne !== moi && AVISABLES.includes(tache.assigne)) ? [tache.assigne] : [])
   const [envoi, setEnvoi] = useState(false)
-  const coms = tache.commentaires || []
-  const ajouter = async () => {
-    if (!texte.trim() || !moi) return
+  useEffect(() => {
+    let annule = false
+    api(`/${tache.id}/commentaires`).then((d) => { if (!annule) setFil(d) })
+      .catch((e) => { if (!annule) setFil({ erreur: e.message, commentaires: [] }) })
+    return () => { annule = true }
+  }, [tache.id])
+  const peutEcrire = moi && AVEC_FRONT.includes(moi)
+  const publier = async () => {
+    if (!texte.trim()) return
     setEnvoi(true)
     try {
-      onMaj(await api(`/${tache.id}/commentaires`, { method: 'POST', body: JSON.stringify({ auteur: moi, texte }) }))
-      setTexte('')
-    } catch (e) { alert(`Commentaire non enregistré : ${e.message}`) } finally { setEnvoi(false) }
+      const d = await api(`/${tache.id}/commentaires`, { method: 'POST', body: JSON.stringify({ auteur: moi, texte, aviser }) })
+      setFil(d); setTexte('')
+      if (d.discussion && !tache.front_discussion) onMaj({ ...tache, front_discussion: d.discussion })
+    } catch (e) { alert(`Non publié : ${e.message}`) } finally { setEnvoi(false) }
   }
-  const retirer = async (c) => {
-    if (!window.confirm('Supprimer ce commentaire ?')) return
-    try { onMaj(await api(`/${tache.id}/commentaires/${encodeURIComponent(c.quand)}?auteur=${moi}`, { method: 'DELETE' })) }
-    catch (e) { alert(`Non supprimé : ${e.message}`) }
-  }
+  const coms = fil?.commentaires || []
   return (
     <div>
-      <div className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">💬 Commentaires {coms.length > 0 && `(${coms.length})`}</div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-xs font-bold uppercase tracking-wider text-gray-500">💬 Fil de la tâche {coms.length > 0 && `(${coms.length})`}</div>
+        {fil?.url && <a href={fil.url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">Ouvrir dans Front ↗</a>}
+      </div>
+      {!fil && <div className="text-xs text-gray-400 mb-2">Chargement…</div>}
+      {fil?.erreur && <div className="text-xs text-red-600 mb-2">{fil.erreur}</div>}
       <div className="space-y-2 mb-2">
         {coms.map((c) => (
-          <div key={c.quand} className="group flex gap-2">
+          <div key={c.id} className="flex gap-2">
             <Avatar membre={c.auteur} petit />
             <div className="flex-1 min-w-0 bg-gray-50 rounded-lg px-3 py-1.5">
               <div className="text-[11px] text-gray-500"><span className="font-semibold text-gray-800">{MEMBRES[c.auteur]?.nom || c.auteur}</span> · {formatQuand(c.quand)}</div>
               <div className="text-[13px] text-gray-800 whitespace-pre-line">{c.texte}</div>
             </div>
-            {c.auteur === moi && (
-              <button title="Supprimer" className="self-start text-gray-300 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100" onClick={() => retirer(c)}>×</button>
-            )}
           </div>
         ))}
       </div>
-      {moi ? (
-        <div className="flex gap-2">
-          <textarea rows={2} className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" placeholder="Écrire un commentaire…"
+      {peutEcrire ? (
+        <div className="space-y-2">
+          <textarea rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" placeholder="Écrire dans le fil… (ex. les marteaux sont arrivés)"
             value={texte} onChange={(e) => setTexte(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ajouter() }} />
-          <button className="self-end px-3 py-1.5 text-sm font-semibold rounded-lg bg-blue-600 text-white disabled:opacity-40"
-            disabled={!texte.trim() || envoi} onClick={ajouter}>{envoi ? '…' : 'Publier'}</button>
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) publier() }} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-gray-500 mr-1">🔔 Prévenir :</span>
+            {AVISABLES.filter((k) => k !== moi).map((k) => {
+              const on = aviser.includes(k)
+              return (
+                <button key={k} type="button" onClick={() => setAviser(on ? aviser.filter((x) => x !== k) : [...aviser, k])}
+                  className={`text-xs px-2.5 py-1 rounded-full border ${on ? 'bg-amber-500 border-amber-500 text-white font-semibold' : 'border-gray-300 text-gray-600'}`}>
+                  {MEMBRES[k].nom}{k === 'jp' ? ' ✉︎' : ''}
+                </button>
+              )
+            })}
+            <button className="ml-auto px-3 py-1.5 text-sm font-semibold rounded-lg bg-blue-600 text-white disabled:opacity-40"
+              disabled={!texte.trim() || envoi} onClick={publier}>{envoi ? '…' : 'Publier'}</button>
+          </div>
+          <div className="text-[11px] text-gray-400">Le fil vit dans Front (discussion interne). Les personnes cochées sont notifiées ; JP reçoit un courriel.</div>
         </div>
-      ) : <div className="text-xs text-gray-400">Connectez-vous pour commenter.</div>}
+      ) : <div className="text-xs text-gray-400">Lecture seule.</div>}
     </div>
   )
 }
@@ -457,9 +448,7 @@ function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprim
           <button className="text-sm text-blue-600 hover:underline" onClick={() => maj('liens', [...f.liens, { label: '', url: '' }])}>+ Ajouter un lien</button>
         </div>
 
-        {tache.id && <Commentaires tache={tache} moi={moi} onMaj={onAvise} />}
-
-        {tache.id && <Aviser tache={tache} moi={moi} onAvise={onAvise} />}
+        {tache.id && <FilTache tache={tache} moi={moi} onMaj={onAvise} />}
 
         <div className="flex justify-between pt-2">
           {tache.id ? (
@@ -692,7 +681,7 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes 
         <div className="flex items-center gap-2">
           <Avatar membre={tache.assigne} />
           {tache.note && <span className="text-[12px] font-semibold text-gray-600">{tache.note}</span>}
-          {tache.commentaires?.length > 0 && <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">💬 {tache.commentaires.length}</span>}
+          {tache.front_discussion && <span title="Cette tâche a un fil de discussion" className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">💬</span>}
         </div>
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {tache.statut !== 'fait' ? (

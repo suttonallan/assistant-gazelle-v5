@@ -85,6 +85,7 @@ class TacheIn(BaseModel):
     cree_par: Optional[str] = None
     urgent: Optional[bool] = None
     client: Optional[str] = None  # pda, vdi, orford, prive… (couleur dans l'échéancier)
+    front_discussion: Optional[str] = None  # cnv_… : fil Front de la tâche
 
 
 def _nettoyer(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -188,81 +189,88 @@ class AviserIn(BaseModel):
 
 
 class CommentaireTacheIn(BaseModel):
-    auteur: str
+    auteur: str                       # membre qui écrit (allan, nicolas, louise, margot)
     texte: str
+    aviser: List[str] = []            # membres à prévenir (JP : par courriel, pas de compte Front)
 
 
-def _lire_commentaires(tache_id: str) -> List[Dict[str, Any]]:
-    rows = _check(requests.get(_url(f"?id=eq.{tache_id}&select=commentaires"), headers=_db()._get_headers(), timeout=15))
+PAR_COURRIEL = {"jp": "jpreny@gmail.com"}  # techniciens sans compte Front
+
+
+def _tache(tache_id: str, champs: str) -> Dict[str, Any]:
+    rows = _check(requests.get(_url(f"?id=eq.{tache_id}&select={champs}"), headers=_db()._get_headers(), timeout=15))
     if not rows:
         raise HTTPException(404, "Tâche introuvable")
-    return rows[0].get("commentaires") or []
+    return rows[0]
 
 
-def _ecrire_commentaires(tache_id: str, commentaires: List[Dict[str, Any]]) -> Dict[str, Any]:
-    rows = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
-                                 json={"commentaires": commentaires,
-                                       "updated_at": datetime.now(timezone.utc).isoformat()}, timeout=15))
-    return rows[0] if rows else {}
+@router.get("/{tache_id}/commentaires")
+def lire_commentaires(tache_id: str):
+    """Le fil de la tâche = les commentaires de SA discussion Front (source unique)."""
+    t = _tache(tache_id, "front_discussion")
+    cid = t.get("front_discussion")
+    if not cid:
+        return {"discussion": None, "commentaires": []}
+    from core.front_client import get_front_client
+    try:
+        coms = get_front_client().list_comments(cid, limit=100)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Front : {e}")
+    from api.front_routes import EQUIPE_FRONT
+    par_email = {v: k for k, v in EQUIPE_FRONT.items()}
+    sortie = []
+    for c in sorted(coms, key=lambda x: x.get("posted_at") or 0):
+        email = ((c.get("author") or {}).get("email") or "").lower()
+        sortie.append({"id": c.get("id"), "auteur": par_email.get(email, (c.get("author") or {}).get("first_name") or email),
+                       "texte": c.get("body") or "",
+                       "quand": datetime.fromtimestamp(c.get("posted_at") or 0, timezone.utc).isoformat()})
+    return {"discussion": cid, "url": f"https://app.frontapp.com/open/{cid}", "commentaires": sortie}
 
 
 @router.post("/{tache_id}/commentaires")
 def commenter(tache_id: str, c: CommentaireTacheIn):
-    if c.auteur not in EQUIPE:
-        raise HTTPException(400, "Auteur inconnu")
-    if not c.texte.strip():
-        raise HTTPException(400, "Commentaire vide")
-    coms = _lire_commentaires(tache_id)
-    coms.append({"auteur": c.auteur, "texte": c.texte.strip()[:4000],
-                 "quand": datetime.now(timezone.utc).isoformat()})
-    return _ecrire_commentaires(tache_id, coms)
-
-
-@router.delete("/{tache_id}/commentaires/{quand}")
-def supprimer_commentaire(tache_id: str, quand: str, auteur: str = Query(...)):
-    """Supprime un commentaire (identifié par son horodatage) — seulement par son auteur."""
-    coms = _lire_commentaires(tache_id)
-    restants = [x for x in coms if not (x.get("quand") == quand and x.get("auteur") == auteur)]
-    if len(restants) == len(coms):
-        raise HTTPException(404, "Commentaire introuvable (ou pas le vôtre)")
-    return _ecrire_commentaires(tache_id, restants)
-
-
-@router.post("/{tache_id}/aviser")
-def aviser(tache_id: str, av: AviserIn):
-    """Avise un membre de l'équipe par une discussion interne Front (pas un courriel),
-    puis garde le lien de la discussion dans la tâche."""
+    """Ajoute un commentaire au fil Front de la tâche (le crée au premier commentaire)
+    et prévient les membres cochés : abonnés à la discussion (notification Front),
+    ou courriel envoyé depuis Front pour JP."""
     from api.front_routes import EQUIPE_FRONT
     from core.front_client import get_front_client
-    # Techniciens externes sans compte Front : avisés par courriel envoyé depuis Front (boîte info@)
-    PAR_COURRIEL = {"jp": "jpreny@gmail.com"}
-    if av.de not in EQUIPE_FRONT or (av.a not in EQUIPE_FRONT and av.a not in PAR_COURRIEL):
-        raise HTTPException(400, f"Destinataire inconnu (possibles : {', '.join(list(EQUIPE_FRONT) + list(PAR_COURRIEL))})")
-    if not av.message.strip():
-        raise HTTPException(400, "Message vide")
-    rows = _check(requests.get(_url(f"?id=eq.{tache_id}&select=titre,liens"), headers=_db()._get_headers(), timeout=15))
-    if not rows:
-        raise HTTPException(404, "Tâche introuvable")
-    titre = rows[0]["titre"]
+    if c.auteur not in EQUIPE_FRONT:
+        raise HTTPException(400, "Seuls les membres ayant un compte Front peuvent commenter")
+    if not c.texte.strip():
+        raise HTTPException(400, "Commentaire vide")
+    inconnus = [m for m in c.aviser if m not in EQUIPE_FRONT and m not in PAR_COURRIEL]
+    if inconnus:
+        raise HTTPException(400, f"Destinataires inconnus : {', '.join(inconnus)}")
+    t = _tache(tache_id, "titre,front_discussion,assigne")
     client = get_front_client()
+    auteur_email = EQUIPE_FRONT[c.auteur]
+    avises_front = sorted({EQUIPE_FRONT[m] for m in c.aviser if m in EQUIPE_FRONT} - {auteur_email})
+    cid = t.get("front_discussion")
     try:
-        if av.a in EQUIPE_FRONT:
-            conv = client.create_discussion(
-                f"Tâche : {titre}", f"{av.message.strip()}\n\n— Tâche : {titre}",
-                EQUIPE_FRONT[av.de], sorted({EQUIPE_FRONT[av.de], EQUIPE_FRONT[av.a]}))
+        if not cid:
+            conv = client.create_discussion(f"Tâche : {t['titre']}", c.texte.strip(), auteur_email,
+                                            sorted(set(avises_front) | {auteur_email}))
+            cid = conv.get("id")
+            _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
+                                  json={"front_discussion": cid}, timeout=15))
         else:
-            canal = client.channel_pour("info@piano-tek.com")
-            signature = {"allan": "Allan", "nicolas": "Nicolas", "louise": "Louise", "margot": "Margot"}.get(av.de, av.de)
-            conv = client.send_new_message(canal, PAR_COURRIEL[av.a], f"Tâche : {titre}",
-                                           f"{av.message.strip()}\n\n{signature}", EQUIPE_FRONT[av.de])
+            client.add_comment(cid, c.texte.strip(), auteur_email)
+        if avises_front:
+            try:
+                client.ajouter_abonnes(cid, avises_front)
+            except Exception as e:  # noqa: BLE001 — le commentaire est posé ; la notification est un plus
+                _log.warning("Abonnement Front impossible (%s) : %s", cid, e)
+        for m in c.aviser:
+            if m in PAR_COURRIEL:
+                canal = client.channel_pour("info@piano-tek.com")
+                signature = c.auteur.capitalize()
+                client.send_new_message(canal, PAR_COURRIEL[m], f"Tâche : {t['titre']}",
+                                        f"{c.texte.strip()}\n\n{signature}", auteur_email)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Front : {e}")
-    lien = {"label": f"Avis à {av.a.capitalize()} ({datetime.now().strftime('%d/%m')})",
-            "url": f"https://app.frontapp.com/open/{conv.get('id')}" if conv.get('id') else "https://app.frontapp.com", "source": "front"}
-    maj = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
-                                json={"liens": (rows[0].get("liens") or []) + [lien],
-                                      "updated_at": datetime.now(timezone.utc).isoformat()}, timeout=15))
-    return {"ok": True, "discussion": conv.get("id"), "tache": maj[0] if maj else None}
+    return lire_commentaires(tache_id)
 
 
 @router.delete("/{tache_id}")

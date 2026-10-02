@@ -126,6 +126,12 @@ class FrontClient:
         return self._post(f"/conversations/{conversation_id}/comments",
                           {"author_id": f"alt:email:{author_email}", "body": body})
 
+    def ajouter_abonnes(self, conversation_id: str, emails: List[str]) -> None:
+        """Abonne des coéquipiers à une conversation : ils sont notifiés des nouveaux commentaires."""
+        if emails:
+            self._post(f"/conversations/{conversation_id}/followers",
+                       {"teammate_ids": [f"alt:email:{e}" for e in emails]})
+
     def create_discussion(self, subject: str, body: str, author_email: str,
                           teammate_emails: List[str]) -> Dict:
         """Discussion INTERNE (conversation d'équipe, pas un courriel) avec un premier commentaire."""
