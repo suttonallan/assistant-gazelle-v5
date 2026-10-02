@@ -178,6 +178,17 @@ class FrontClient:
                 return ch["id"]
         return chans[0]["id"] if chans else None
 
+    def send_new_message(self, channel_id: str, to: str, subject: str, body: str, author_email: str) -> Dict:
+        """ENVOIE un courriel (pas un brouillon). Réservé aux avis internes déclenchés par un clic
+        explicite d'un membre de l'équipe (ex. bouton « Aviser » vers un tech sans compte Front)."""
+        import html
+        corps = "".join(f"<p>{html.escape(l)}</p>" for l in body.split("\n") if l.strip())
+        res = self._post(f"/channels/{channel_id}/messages",
+                         {"to": [to], "subject": subject, "body": corps, "author_id": f"alt:email:{author_email}"})
+        # Front répond 202 avec l'identifiant du message ; la conversation n'est connue qu'après coup
+        return {"id": (res.get("_links", {}).get("related", {}).get("conversation", "") or "").rsplit("/", 1)[-1] or None,
+                "message_uid": res.get("message_uid")}
+
     def create_draft_new(self, channel_id: str, body: str, author_email: str, to: List[str],
                          subject: str, cc: Optional[List[str]] = None, mode: str = "shared") -> Dict:
         """BROUILLON d'un nouveau courriel (nouvelle conversation), non envoyé. mode : private | shared."""

@@ -24,7 +24,6 @@ const MEMBRES = {
   louise: { nom: 'Louise', couleur: 'bg-amber-600' },
   margot: { nom: 'Margot', couleur: 'bg-purple-600' },
   jp: { nom: 'JP', couleur: 'bg-green-700' },
-  ilyan: { nom: 'Ilyan', couleur: 'bg-teal-600' },
 }
 // Couleur par client : Nicolas sait où il va avant de lire.
 const CLIENTS = {
@@ -300,13 +299,13 @@ function BandeCalendrier({ taches, jourChoisi, onChoisir }) {
 }
 
 /* ---------- Formulaire d'édition (modale) ---------- */
-const AVEC_FRONT = ['allan', 'nicolas', 'louise', 'margot']  // membres joignables par Front
+const AVEC_FRONT = ['allan', 'nicolas', 'louise', 'margot', 'jp']  // JP : avisé par courriel (pas de compte Front)
 
 function Aviser({ tache, moi, onAvise }) {
   const [a, setA] = useState(() => (tache.assigne && tache.assigne !== moi && AVEC_FRONT.includes(tache.assigne)) ? tache.assigne : '')
   const [msg, setMsg] = useState('')
   const [etat, setEtat] = useState(null)
-  if (!moi || !AVEC_FRONT.includes(moi)) return null
+  if (!moi || !['allan', 'nicolas', 'louise', 'margot'].includes(moi)) return null
   const envoyer = async () => {
     setEtat('envoi')
     try {
@@ -317,11 +316,11 @@ function Aviser({ tache, moi, onAvise }) {
   }
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
-      <div className="text-xs font-bold uppercase tracking-wider text-amber-800">🔔 Aviser quelqu'un (discussion Front)</div>
+      <div className="text-xs font-bold uppercase tracking-wider text-amber-800">🔔 Aviser quelqu'un (Front)</div>
       <div className="flex gap-2">
         <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" value={a} onChange={(e) => setA(e.target.value)}>
           <option value="">— Qui ? —</option>
-          {AVEC_FRONT.filter((k) => k !== moi).map((k) => <option key={k} value={k}>{MEMBRES[k].nom}</option>)}
+          {AVEC_FRONT.filter((k) => k !== moi).map((k) => <option key={k} value={k}>{MEMBRES[k].nom}{k === 'jp' ? ' (courriel)' : ''}</option>)}
         </select>
         <input className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" placeholder="Ex. Les marteaux sont arrivés, passe les prendre"
           value={msg} onChange={(e) => { setMsg(e.target.value); setEtat(null) }} />
