@@ -300,7 +300,40 @@ function BandeCalendrier({ taches, jourChoisi, onChoisir }) {
 }
 
 /* ---------- Formulaire d'édition (modale) ---------- */
-function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer }) {
+const AVEC_FRONT = ['allan', 'nicolas', 'louise', 'margot']  // membres joignables par Front
+
+function Aviser({ tache, moi, onAvise }) {
+  const [a, setA] = useState(() => (tache.assigne && tache.assigne !== moi && AVEC_FRONT.includes(tache.assigne)) ? tache.assigne : '')
+  const [msg, setMsg] = useState('')
+  const [etat, setEtat] = useState(null)
+  if (!moi || !AVEC_FRONT.includes(moi)) return null
+  const envoyer = async () => {
+    setEtat('envoi')
+    try {
+      const r = await api(`/${tache.id}/aviser`, { method: 'POST', body: JSON.stringify({ de: moi, a, message: msg }) })
+      setEtat('ok'); setMsg('')
+      if (r.tache) onAvise(r.tache)
+    } catch (e) { setEtat(null); alert(`Avis non envoyé : ${e.message}`) }
+  }
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+      <div className="text-xs font-bold uppercase tracking-wider text-amber-800">🔔 Aviser quelqu'un (discussion Front)</div>
+      <div className="flex gap-2">
+        <select className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm" value={a} onChange={(e) => setA(e.target.value)}>
+          <option value="">— Qui ? —</option>
+          {AVEC_FRONT.filter((k) => k !== moi).map((k) => <option key={k} value={k}>{MEMBRES[k].nom}</option>)}
+        </select>
+        <input className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm" placeholder="Ex. Les marteaux sont arrivés, passe les prendre"
+          value={msg} onChange={(e) => { setMsg(e.target.value); setEtat(null) }} />
+        <button className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-amber-600 text-white disabled:opacity-40"
+          disabled={!a || !msg.trim() || etat === 'envoi'} onClick={envoyer}>{etat === 'envoi' ? '…' : 'Envoyer'}</button>
+      </div>
+      {etat === 'ok' && <div className="text-xs text-emerald-700 font-semibold">✓ Envoyé — le lien est ajouté à la tâche.</div>}
+    </div>
+  )
+}
+
+function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprimer, onAvise }) {
   const [f, setF] = useState(() => ({
     titre: tache.titre || '', contexte: tache.contexte || '', statut: tache.statut || 'a_faire',
     assigne: tache.assigne || '', echeance: tache.echeance || '', campagne: tache.campagne || '',
@@ -377,6 +410,8 @@ function ModaleTache({ tache, campagnes, onFermer, onEnregistrer, onSupprimer })
           ))}
           <button className="text-sm text-blue-600 hover:underline" onClick={() => maj('liens', [...f.liens, { label: '', url: '' }])}>+ Ajouter un lien</button>
         </div>
+
+        {tache.id && <Aviser tache={tache} moi={moi} onAvise={onAvise} />}
 
         <div className="flex justify-between pt-2">
           {tache.id ? (
@@ -883,7 +918,7 @@ export default function TachesDashboard({ currentUser, role }) {
       )}
 
       {edition && (
-        <ModaleTache tache={edition} campagnes={campagnes}
+        <ModaleTache tache={edition} campagnes={campagnes} moi={moi} onAvise={remplacer}
           onFermer={() => setEdition(null)} onEnregistrer={enregistrer} onSupprimer={supprimer} />
       )}
     </div>

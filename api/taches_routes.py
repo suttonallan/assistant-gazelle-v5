@@ -181,6 +181,40 @@ def modifier_tache(tache_id: str, tache: TacheIn):
     return rows[0]
 
 
+class AviserIn(BaseModel):
+    de: str        # membre qui envoie (allan, nicolas, louise, margot)
+    a: str         # membre avisé
+    message: str
+
+
+@router.post("/{tache_id}/aviser")
+def aviser(tache_id: str, av: AviserIn):
+    """Avise un membre de l'équipe par une discussion interne Front (pas un courriel),
+    puis garde le lien de la discussion dans la tâche."""
+    from api.front_routes import EQUIPE_FRONT
+    from core.front_client import get_front_client
+    if av.de not in EQUIPE_FRONT or av.a not in EQUIPE_FRONT:
+        raise HTTPException(400, f"Membre sans compte Front (possibles : {', '.join(EQUIPE_FRONT)})")
+    if not av.message.strip():
+        raise HTTPException(400, "Message vide")
+    rows = _check(requests.get(_url(f"?id=eq.{tache_id}&select=titre,liens"), headers=_db()._get_headers(), timeout=15))
+    if not rows:
+        raise HTTPException(404, "Tâche introuvable")
+    titre = rows[0]["titre"]
+    try:
+        conv = get_front_client().create_discussion(
+            f"Tâche : {titre}", f"{av.message.strip()}\n\n— Tâche : {titre}",
+            EQUIPE_FRONT[av.de], sorted({EQUIPE_FRONT[av.de], EQUIPE_FRONT[av.a]}))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Front : {e}")
+    lien = {"label": f"Avis à {av.a.capitalize()} ({datetime.now().strftime('%d/%m')})",
+            "url": f"https://app.frontapp.com/open/{conv.get('id')}", "source": "front"}
+    maj = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
+                                json={"liens": (rows[0].get("liens") or []) + [lien],
+                                      "updated_at": datetime.now(timezone.utc).isoformat()}, timeout=15))
+    return {"ok": True, "discussion": conv.get("id"), "tache": maj[0] if maj else None}
+
+
 @router.delete("/{tache_id}")
 def supprimer_tache(tache_id: str):
     _check(requests.delete(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(), timeout=15))
