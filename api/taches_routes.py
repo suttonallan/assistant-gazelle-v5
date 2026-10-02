@@ -187,6 +187,47 @@ class AviserIn(BaseModel):
     message: str
 
 
+class CommentaireTacheIn(BaseModel):
+    auteur: str
+    texte: str
+
+
+def _lire_commentaires(tache_id: str) -> List[Dict[str, Any]]:
+    rows = _check(requests.get(_url(f"?id=eq.{tache_id}&select=commentaires"), headers=_db()._get_headers(), timeout=15))
+    if not rows:
+        raise HTTPException(404, "Tâche introuvable")
+    return rows[0].get("commentaires") or []
+
+
+def _ecrire_commentaires(tache_id: str, commentaires: List[Dict[str, Any]]) -> Dict[str, Any]:
+    rows = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
+                                 json={"commentaires": commentaires,
+                                       "updated_at": datetime.now(timezone.utc).isoformat()}, timeout=15))
+    return rows[0] if rows else {}
+
+
+@router.post("/{tache_id}/commentaires")
+def commenter(tache_id: str, c: CommentaireTacheIn):
+    if c.auteur not in EQUIPE:
+        raise HTTPException(400, "Auteur inconnu")
+    if not c.texte.strip():
+        raise HTTPException(400, "Commentaire vide")
+    coms = _lire_commentaires(tache_id)
+    coms.append({"auteur": c.auteur, "texte": c.texte.strip()[:4000],
+                 "quand": datetime.now(timezone.utc).isoformat()})
+    return _ecrire_commentaires(tache_id, coms)
+
+
+@router.delete("/{tache_id}/commentaires/{quand}")
+def supprimer_commentaire(tache_id: str, quand: str, auteur: str = Query(...)):
+    """Supprime un commentaire (identifié par son horodatage) — seulement par son auteur."""
+    coms = _lire_commentaires(tache_id)
+    restants = [x for x in coms if not (x.get("quand") == quand and x.get("auteur") == auteur)]
+    if len(restants) == len(coms):
+        raise HTTPException(404, "Commentaire introuvable (ou pas le vôtre)")
+    return _ecrire_commentaires(tache_id, restants)
+
+
 @router.post("/{tache_id}/aviser")
 def aviser(tache_id: str, av: AviserIn):
     """Avise un membre de l'équipe par une discussion interne Front (pas un courriel),

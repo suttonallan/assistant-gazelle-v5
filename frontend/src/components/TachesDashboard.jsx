@@ -332,6 +332,53 @@ function Aviser({ tache, moi, onAvise }) {
   )
 }
 
+function Commentaires({ tache, moi, onMaj }) {
+  const [texte, setTexte] = useState('')
+  const [envoi, setEnvoi] = useState(false)
+  const coms = tache.commentaires || []
+  const ajouter = async () => {
+    if (!texte.trim() || !moi) return
+    setEnvoi(true)
+    try {
+      onMaj(await api(`/${tache.id}/commentaires`, { method: 'POST', body: JSON.stringify({ auteur: moi, texte }) }))
+      setTexte('')
+    } catch (e) { alert(`Commentaire non enregistré : ${e.message}`) } finally { setEnvoi(false) }
+  }
+  const retirer = async (c) => {
+    if (!window.confirm('Supprimer ce commentaire ?')) return
+    try { onMaj(await api(`/${tache.id}/commentaires/${encodeURIComponent(c.quand)}?auteur=${moi}`, { method: 'DELETE' })) }
+    catch (e) { alert(`Non supprimé : ${e.message}`) }
+  }
+  return (
+    <div>
+      <div className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">💬 Commentaires {coms.length > 0 && `(${coms.length})`}</div>
+      <div className="space-y-2 mb-2">
+        {coms.map((c) => (
+          <div key={c.quand} className="group flex gap-2">
+            <Avatar membre={c.auteur} petit />
+            <div className="flex-1 min-w-0 bg-gray-50 rounded-lg px-3 py-1.5">
+              <div className="text-[11px] text-gray-500"><span className="font-semibold text-gray-800">{MEMBRES[c.auteur]?.nom || c.auteur}</span> · {formatQuand(c.quand)}</div>
+              <div className="text-[13px] text-gray-800 whitespace-pre-line">{c.texte}</div>
+            </div>
+            {c.auteur === moi && (
+              <button title="Supprimer" className="self-start text-gray-300 hover:text-red-600 md:opacity-0 md:group-hover:opacity-100" onClick={() => retirer(c)}>×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      {moi ? (
+        <div className="flex gap-2">
+          <textarea rows={2} className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500" placeholder="Écrire un commentaire…"
+            value={texte} onChange={(e) => setTexte(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ajouter() }} />
+          <button className="self-end px-3 py-1.5 text-sm font-semibold rounded-lg bg-blue-600 text-white disabled:opacity-40"
+            disabled={!texte.trim() || envoi} onClick={ajouter}>{envoi ? '…' : 'Publier'}</button>
+        </div>
+      ) : <div className="text-xs text-gray-400">Connectez-vous pour commenter.</div>}
+    </div>
+  )
+}
+
 function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprimer, onAvise }) {
   const [f, setF] = useState(() => ({
     titre: tache.titre || '', contexte: tache.contexte || '', statut: tache.statut || 'a_faire',
@@ -409,6 +456,8 @@ function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprim
           ))}
           <button className="text-sm text-blue-600 hover:underline" onClick={() => maj('liens', [...f.liens, { label: '', url: '' }])}>+ Ajouter un lien</button>
         </div>
+
+        {tache.id && <Commentaires tache={tache} moi={moi} onMaj={onAvise} />}
 
         {tache.id && <Aviser tache={tache} moi={moi} onAvise={onAvise} />}
 
@@ -643,6 +692,7 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes 
         <div className="flex items-center gap-2">
           <Avatar membre={tache.assigne} />
           {tache.note && <span className="text-[12px] font-semibold text-gray-600">{tache.note}</span>}
+          {tache.commentaires?.length > 0 && <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">💬 {tache.commentaires.length}</span>}
         </div>
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
           {tache.statut !== 'fait' ? (
@@ -917,7 +967,8 @@ export default function TachesDashboard({ currentUser, role }) {
       )}
 
       {edition && (
-        <ModaleTache tache={edition} campagnes={campagnes} moi={moi} onAvise={remplacer}
+        <ModaleTache tache={edition} campagnes={campagnes} moi={moi}
+          onAvise={(t) => { remplacer(t); setEdition((e) => (e && e.id === t.id ? { ...e, ...t } : e)) }}
           onFermer={() => setEdition(null)} onEnregistrer={enregistrer} onSupprimer={supprimer} />
       )}
     </div>
