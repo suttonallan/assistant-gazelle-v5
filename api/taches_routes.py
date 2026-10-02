@@ -711,6 +711,33 @@ def supprimer_note_evenement(eid: str):
     return {"supprime": eid, "titre": ev.get("title")}
 
 
+@router.get("/gazelle/charge")
+def charge_techniciens(debut: str = Query(...), fin: str = Query(...)):
+    """LECTURE SEULE — charge par technicien et par jour (RV, blocs perso, source de la prise de RV).
+    Sert à comprendre un déséquilibre (ex. Nicolas plein, JP vide)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import MONTREAL_TZ
+    noms = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_ReUSmIJmBF86ilY1": "JP",
+            "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot", "usr_HihJsEgkmpTEziJo": "À attribuer"}
+    evs = GazelleAPIClient().get_appointments(start_date_override=debut, end_date_override=fin) or []
+    sortie = []
+    for e in evs:
+        if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED"):
+            continue
+        try:
+            d = datetime.fromisoformat(e["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+        except Exception:
+            continue
+        uid = (e.get("user") or {}).get("id")
+        cb = (e.get("createdBy") or {}).get("id")
+        sortie.append({"jour": d.strftime("%Y-%m-%d"), "heure": d.strftime("%H:%M"), "tech": noms.get(uid, uid),
+                       "type": e.get("type"), "titre": (e.get("title") or "")[:60], "duree_min": e.get("duration"),
+                       "journee": e.get("isAllDay"), "source": e.get("source"), "cree_par": noms.get(cb, cb),
+                       "cree_le": (e.get("createdAt") or "")[:10]})
+    sortie.sort(key=lambda x: (x["jour"], x["tech"] or "", x["heure"]))
+    return {"evenements": sortie}
+
+
 @router.get("/gazelle/timeline-piano")
 def timeline_piano_gazelle(client_id: str = Query(...), piano_id: str = Query(...), limite: int = Query(15, le=50)):
     """Entrées timeline EN DIRECT de Gazelle pour un piano (vérification après ménage)."""
