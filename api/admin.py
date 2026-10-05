@@ -462,3 +462,16 @@ async def decouverte_lien_reservation():
         "types_lies": types_lies,
         "champs_par_type": {k: v for k, v in champs.items() if k.startswith("Private") or k in types_lies},
     }
+
+
+@router.get("/decouverte-type/{nom_type}")
+async def decouverte_type(nom_type: str):
+    """TEMPORAIRE — Liste les champs/arguments d'un type du schéma Gazelle (schéma seulement)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    q = """query($n: String!) { __type(name: $n) { name kind
+        fields { name args { name type { name kind ofType { name kind } } } type { name kind ofType { name kind ofType { name } } } }
+        inputFields { name type { name kind ofType { name kind } } }
+        enumValues { name } } }"""
+    res = gz._execute_query(q, {"n": nom_type})
+    return (res.get("data") or {}).get("__type")
