@@ -101,7 +101,7 @@ Working tz is always `America/Montreal` (EST/EDT). Gazelle returns UTC ISO; alwa
 - Never extract piano model from free-text notes; use `piano_id`, `instrument_id`, or `Client Token` for SQL joins.
 
 ### Environment
-Required `.env` vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`), `SUPABASE_ANON_KEY`, `GAZELLE_CLIENT_ID`, `GAZELLE_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `GOOGLE_CREDENTIALS_PATH` (→ `config/google-credentials.json`), `VITE_API_URL`. Optional: `OPENAI_API_KEY` (embeddings only), `ZOOM_SECRET_TOKEN`, `RESEND_API_KEY`, `PLANE_API_KEY`, `EMAIL_SMS_FORWARD`. `config/` is gitignored.
+Required `.env` vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_KEY`), `SUPABASE_ANON_KEY`, `GAZELLE_CLIENT_ID`, `GAZELLE_CLIENT_SECRET`, `ANTHROPIC_API_KEY`, `GOOGLE_CREDENTIALS_PATH` (→ `config/google-credentials.json`), `VITE_API_URL`. Optional: `OPENAI_API_KEY` (embeddings only), `ZOOM_SECRET_TOKEN`, `RESEND_API_KEY`, `PLANE_API_KEY` (les textos Zoom vont toujours à info@piano-tek.com, fixé dans le code). `config/` is gitignored.
 
 ## CI/CD and Deployments
 | Workflow | Trigger | Purpose |

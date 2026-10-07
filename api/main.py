@@ -297,6 +297,9 @@ app.include_router(institutions_router, prefix="/api")  # Route dynamique /api/{
 # Webhook Zoom pour SMS
 # ============================================================
 
+SMS_FORWARD_EMAIL = 'info@piano-tek.com'
+
+
 def _transferer_sms_par_email(sender: str, recipient: str, timestamp: str, content: str) -> None:
     """
     Transfere par courriel un SMS recu via Zoom.
@@ -318,7 +321,11 @@ def _transferer_sms_par_email(sender: str, recipient: str, timestamp: str, conte
             print("⚠️ Aucune méthode d'envoi disponible (ni Gmail API ni Resend) - email non envoyé")
             return
 
-        recipient_email = os.getenv('EMAIL_SMS_FORWARD', 'info@piano-tek.com')
+        # Les textos Zoom vont TOUJOURS a la boite partagee info@ (traitee dans
+        # Front par l'equipe), jamais a une boite personnelle. On n'utilise plus
+        # la variable EMAIL_SMS_FORWARD : les avis arrivaient a asutton@,
+        # vraisemblablement via cette variable sur Render (oct. 2026).
+        recipient_email = SMS_FORWARD_EMAIL
 
         html_content = f"""
         <h2>📩 SMS Reçu via Zoom</h2>
@@ -526,7 +533,8 @@ async def zoom_webhook_health():
         "status": "ok",
         "service": "zoom-webhook",
         "zoom_secret_token_configured": bool(os.getenv('ZOOM_SECRET_TOKEN')),
-        "email_notifier_configured": bool(os.getenv('RESEND_API_KEY'))
+        "email_notifier_configured": bool(os.getenv('RESEND_API_KEY')),
+        "sms_forward_recipient": SMS_FORWARD_EMAIL
     }
 
 
