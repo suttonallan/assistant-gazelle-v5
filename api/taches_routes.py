@@ -15,10 +15,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from core.supabase_storage import SupabaseStorage
+from core.timezone_utils import aujourdhui_montreal
 
 router = APIRouter(prefix="/taches", tags=["taches"])
 _log = logging.getLogger(__name__)
@@ -49,6 +50,42 @@ CAMPAGNES: List[Dict[str, Any]] = [
 ]
 
 _storage: Optional[SupabaseStorage] = None
+
+# Visibilité : la direction (Allan, Nicolas, Louise) voit tout ; les autres
+# (Margot, JP…) ne voient que les tâches qui les concernent — assignées à eux,
+# ou contenant une étape qui leur est assignée. Appliqué par le SERVEUR.
+QUI_VERS_MEMBRE = {"allan": "allan", "nick": "nicolas", "nicolas": "nicolas", "louise": "louise",
+                   "margot": "margot", "jp": "jp"}
+VOIT_TOUT = {"allan", "nicolas", "louise"}
+
+
+def _membre(request: Request) -> Optional[str]:
+    """Membre connecté d'après le jeton signé (None = clé service / tâche automatique)."""
+    from core import verrou_api
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        d = verrou_api.verifier_jeton(auth[7:])
+        if d:
+            return QUI_VERS_MEMBRE.get(d.get("qui"), d.get("qui") or "inconnu")
+    if verrou_api.cle_service_valide(request.headers.get("x-cle-service")):
+        return None
+    raise HTTPException(401, "Connexion requise")
+
+
+def _concerne(t: Dict[str, Any], membre: str) -> bool:
+    return t.get("assigne") == membre or any((e or {}).get("assigne") == membre for e in (t.get("etapes") or []))
+
+
+def _restreint(request: Request) -> Optional[str]:
+    """Membre à qui appliquer le filtre, ou None si la personne voit tout."""
+    m = _membre(request)
+    return None if (m is None or m in VOIT_TOUT) else m
+
+
+def _verifier_acces(request: Request, tache_id: str) -> None:
+    m = _restreint(request)
+    if m and not _concerne(_tache(tache_id, "id,assigne,etapes"), m):
+        raise HTTPException(404, "Tâche introuvable")
 
 
 def _db() -> SupabaseStorage:
@@ -118,6 +155,7 @@ def lister_campagnes():
 
 @router.get("")
 def lister_taches(
+    request: Request,
     campagne: Optional[str] = Query(None),
     assigne: Optional[str] = Query(None),
     inclure_faites_depuis_jours: int = Query(30, ge=0, le=3650),
@@ -142,12 +180,18 @@ def lister_taches(
                     pass
             garder.append(t)
         taches = garder
-    return {"taches": taches}
+    m = _restreint(request)
+    if m:
+        taches = [t for t in taches if _concerne(t, m)]
+    return {"taches": taches, "voit_tout": m is None}
 
 
 @router.post("")
-def creer_tache(tache: TacheIn):
+def creer_tache(tache: TacheIn, request: Request):
     data = _nettoyer({k: v for k, v in tache.model_dump().items() if v is not None})
+    m = _restreint(request)
+    if m:
+        data["assigne"] = m
     if "titre" not in data:
         raise HTTPException(400, "Le titre est requis")
     data.setdefault("statut", "a_faire")
@@ -160,7 +204,9 @@ class OrdreIn(BaseModel):
 
 
 @router.post("/ordre")
-def reordonner(o: OrdreIn):
+def reordonner(o: OrdreIn, request: Request):
+    for tid in o.ids:
+        _verifier_acces(request, tid)
     """Enregistre l'ordre manuel d'une liste : 1re = 10, 2e = 20, …"""
     if not o.ids or len(o.ids) > 200:
         raise HTTPException(400, "Liste vide ou trop longue")
@@ -171,12 +217,48 @@ def reordonner(o: OrdreIn):
 
 
 @router.patch("/{tache_id}")
-def modifier_tache(tache_id: str, tache: TacheIn):
+def modifier_tache(tache_id: str, tache: TacheIn, request: Request):
+    _verifier_acces(request, tache_id)
     data = _nettoyer(tache.model_dump(exclude_unset=True))
     if not data:
         raise HTTPException(400, "Rien à modifier")
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     rows = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(), json=data, timeout=15))
+    if not rows:
+        raise HTTPException(404, "Tâche introuvable")
+    return rows[0]
+
+
+class EtapeIn(BaseModel):
+    index: int
+    texte: Optional[str] = None       # sert à retrouver la bonne étape si l'ordre a changé entre-temps
+    fait: Optional[bool] = None       # None = basculer
+    assigne: Optional[str] = None     # membre responsable de l'étape ("" = personne)
+
+
+@router.post("/{tache_id}/etape")
+def modifier_etape(tache_id: str, e: EtapeIn, request: Request):
+    _verifier_acces(request, tache_id)
+    """Modifie UNE étape à partir de la version à jour en base. Cocher une étape
+    n'envoie plus toute la liste (qui pouvait être périmée sur l'écran d'un
+    collègue et écraser les cases cochées par les autres)."""
+    t = _tache(tache_id, "id,etapes")
+    etapes = list(t.get("etapes") or [])
+    i = e.index
+    if e.texte is not None and not (0 <= i < len(etapes) and etapes[i].get("texte") == e.texte):
+        i = next((k for k, x in enumerate(etapes) if x.get("texte") == e.texte), -1)
+    if not (0 <= i < len(etapes)):
+        raise HTTPException(409, "Étape introuvable (modifiée par quelqu'un d'autre ?) — rechargez la page")
+    et = dict(etapes[i])
+    if "assigne" in e.model_fields_set:
+        et["assigne"] = e.assigne or None
+    if e.fait is not None or "assigne" not in e.model_fields_set:
+        fait = (not et.get("fait")) if e.fait is None else e.fait
+        et["fait"] = fait
+        et["date"] = aujourdhui_montreal().isoformat() if fait else None
+    etapes[i] = et
+    rows = _check(requests.patch(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(),
+                                 json={"etapes": etapes, "updated_at": datetime.now(timezone.utc).isoformat()}, timeout=15))
     if not rows:
         raise HTTPException(404, "Tâche introuvable")
     return rows[0]
@@ -205,7 +287,8 @@ def _tache(tache_id: str, champs: str) -> Dict[str, Any]:
 
 
 @router.get("/{tache_id}/commentaires")
-def lire_commentaires(tache_id: str):
+def lire_commentaires(tache_id: str, request: Request):
+    _verifier_acces(request, tache_id)
     """Le fil de la tâche = les commentaires de SA discussion Front (source unique)."""
     t = _tache(tache_id, "front_discussion")
     cid = t.get("front_discussion")
@@ -228,7 +311,8 @@ def lire_commentaires(tache_id: str):
 
 
 @router.post("/{tache_id}/commentaires")
-def commenter(tache_id: str, c: CommentaireTacheIn):
+def commenter(tache_id: str, c: CommentaireTacheIn, request: Request):
+    _verifier_acces(request, tache_id)
     """Ajoute un commentaire au fil Front de la tâche (le crée au premier commentaire)
     et prévient les membres cochés : abonnés à la discussion (notification Front),
     ou courriel envoyé depuis Front pour JP."""
@@ -274,7 +358,8 @@ def commenter(tache_id: str, c: CommentaireTacheIn):
 
 
 @router.delete("/{tache_id}")
-def supprimer_tache(tache_id: str):
+def supprimer_tache(tache_id: str, request: Request):
+    _verifier_acces(request, tache_id)
     _check(requests.delete(_url(f"?id=eq.{tache_id}"), headers=_db()._get_headers(), timeout=15))
     return {"ok": True}
 
@@ -285,7 +370,9 @@ _CACHE_TTL = 600
 
 
 @router.get("/campagnes/{slug}/commentaires")
-def commentaires_campagne(slug: str, limite: int = Query(5, ge=1, le=20)):
+def commentaires_campagne(request: Request, slug: str, limite: int = Query(5, ge=1, le=20)):
+    if _restreint(request):
+        raise HTTPException(403, "Réservé à la direction")
     camp = next((c for c in CAMPAGNES if c["slug"] == slug), None)
     if not camp:
         raise HTTPException(404, "Campagne inconnue")
@@ -347,8 +434,10 @@ def masquer_commentaire(comment_id: str, m: MasquerIn = MasquerIn()):
 
 
 @router.get("/campagnes/{slug}/factures")
-def factures_campagne(slug: str, depuis: str = Query("2025-01-01"), limite: int = Query(50, ge=1, le=200)):
+def factures_campagne(request: Request, slug: str, depuis: str = Query("2025-01-01"), limite: int = Query(50, ge=1, le=200)):
     """Factures Gazelle du client de la campagne (avec leurs lignes), les plus récentes d'abord."""
+    if _restreint(request):
+        raise HTTPException(403, "Réservé à la direction")
     camp = next((c for c in CAMPAGNES if c["slug"] == slug), None)
     if not camp or not camp.get("client_gazelle"):
         raise HTTPException(404, "Campagne inconnue")
@@ -426,8 +515,10 @@ def _dollars(v):
 
 
 @router.get("/campagnes/{slug}/factures-gazelle")
-def factures_gazelle_campagne(slug: str, depuis: str = Query("2025-01-01")):
+def factures_gazelle_campagne(request: Request, slug: str, depuis: str = Query("2025-01-01")):
     """Factures du client de la campagne, lues en direct dans Gazelle (mémoire 1 h)."""
+    if _restreint(request):
+        raise HTTPException(403, "Réservé à la direction")
     camp = next((c for c in CAMPAGNES if c["slug"] == slug), None)
     if not camp or not camp.get("client_gazelle"):
         raise HTTPException(404, "Campagne inconnue")

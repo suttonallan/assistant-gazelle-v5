@@ -426,6 +426,11 @@ function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprim
               }} />
               <input className="flex-1 border-b border-gray-200 text-sm py-1 focus:outline-none focus:border-blue-500" value={et.texte}
                 onChange={(e) => { const etapes = [...f.etapes]; etapes[i] = { ...et, texte: e.target.value }; maj('etapes', etapes) }} />
+              <select title="Responsable de l'étape" className="text-xs border border-gray-200 rounded px-1 py-1 text-gray-600" value={et.assigne || ''}
+                onChange={(e) => { const etapes = [...f.etapes]; etapes[i] = { ...et, assigne: e.target.value || null }; maj('etapes', etapes) }}>
+                <option value="">—</option>
+                {Object.entries(MEMBRES).map(([k, m]) => <option key={k} value={k}>{m.nom}</option>)}
+              </select>
               <button className="text-gray-400 hover:text-red-600" onClick={() => maj('etapes', f.etapes.filter((_, j) => j !== i))}>×</button>
               </>)}
             </LigneTriable>
@@ -628,6 +633,9 @@ function CarteCampagne({ campagne, elements, moi, onCycle, onOuvrir, onAjouter, 
   )
 }
 
+// Une tâche est « pour moi » si elle m'est assignée OU si une de ses étapes non faites m'est assignée
+const estPourMoi = (t, moi) => t.assigne === moi || (t.etapes || []).some((e) => e.assigne === moi && !e.fait)
+
 /* ---------- Carte tâche ---------- */
 function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes = [] }) {
   const etapes = tache.etapes || []
@@ -669,6 +677,7 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes 
             <label className="flex items-start gap-2.5 text-[13.5px] py-0.5" onClick={(ev) => ev.stopPropagation()}>
               <input type="checkbox" className="mt-0.5 w-4 h-4 accent-emerald-600" checked={!!e.fait} onChange={() => onEtape(tache, i)} />
               <span className={`flex-1 ${e.fait ? 'line-through text-gray-400' : 'text-gray-800'}`}>{e.texte}</span>
+              {e.assigne && <Avatar membre={e.assigne} petit />}
               {e.date && <span className="text-[11px] text-gray-400">{formatQuand(e.date + 'T12:00:00')}</span>}
             </label>
             </LigneTriable>
@@ -704,6 +713,7 @@ export default function TachesDashboard({ currentUser, role }) {
   const moi = ROLE_VERS_MEMBRE[role] || null
   const [taches, setTaches] = useState([])
   const [campagnes, setCampagnes] = useState([])
+  const [voitTout, setVoitTout] = useState(true)  // false pour Margot, JP… (le serveur filtre)
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState(null)
   const [filtre, setFiltre] = useState(() => {
@@ -723,6 +733,7 @@ export default function TachesDashboard({ currentUser, role }) {
     try {
       const [t, c] = await Promise.all([api(''), api('/campagnes')])
       setTaches(t.taches || [])
+      setVoitTout(t.voit_tout !== false)
       setCampagnes(c.campagnes || [])
       setErreur(null)
     } catch (e) {
@@ -732,6 +743,14 @@ export default function TachesDashboard({ currentUser, role }) {
     }
   }, [])
   useEffect(() => { charger() }, [charger])
+  // Ce que les collègues cochent ou modifient apparaît sans recharger la page
+  useEffect(() => {
+    const rafraichir = () => { if (document.visibilityState === 'visible') charger() }
+    const minuterie = setInterval(rafraichir, 30000)
+    window.addEventListener('focus', rafraichir)
+    document.addEventListener('visibilitychange', rafraichir)
+    return () => { clearInterval(minuterie); window.removeEventListener('focus', rafraichir); document.removeEventListener('visibilitychange', rafraichir) }
+  }, [charger])
 
   const remplacer = (t) => setTaches((xs) => xs.map((x) => (x.id === t.id ? t : x)))
 
@@ -778,10 +797,22 @@ export default function TachesDashboard({ currentUser, role }) {
       charger()
     }
   }
-  const basculerEtape = (tache, i) => {
-    const etapes = (tache.etapes || []).map((e, j) => (j === i ? { ...e, fait: !e.fait, date: !e.fait ? new Date().toISOString().slice(0, 10) : null } : e))
-    modifier(tache, { etapes })
+  const changerEtape = async (tache, i, changement) => {
+    const et = (tache.etapes || [])[i]
+    if (!et) return
+    const avant = tache
+    const local = { ...et, ...changement }
+    if ('fait' in changement) local.date = changement.fait ? new Date().toISOString().slice(0, 10) : null
+    remplacer({ ...tache, etapes: tache.etapes.map((e, j) => (j === i ? local : e)) })
+    try {
+      remplacer(await api(`/${tache.id}/etape`, { method: 'POST', body: JSON.stringify({ index: i, texte: et.texte, ...changement }) }))
+    } catch (e) {
+      remplacer(avant)
+      alert(`Étape non enregistrée : ${e.message}`)
+      charger()
+    }
   }
+  const basculerEtape = (tache, i) => changerEtape(tache, i, { fait: !(tache.etapes || [])[i]?.fait })
 
   const correspond = (t) => {
     if (!recherche.trim()) return true
@@ -790,10 +821,10 @@ export default function TachesDashboard({ currentUser, role }) {
   }
   const slugs = useMemo(() => new Set(campagnes.map((c) => c.slug)), [campagnes])
   const tableau = taches.filter((t) => !(t.campagne && slugs.has(t.campagne)))
-    .filter((t) => filtre === 'equipe' || !moi || t.assigne === moi)
+    .filter((t) => filtre === 'equipe' || !moi || estPourMoi(t, moi))
     .filter(correspond)
   // Échéancier : toutes les tâches (campagnes comprises), classées par urgence de date
-  const pourMoi = taches.filter((t) => filtre === 'equipe' || !moi || t.assigne === moi).filter(correspond)
+  const pourMoi = taches.filter((t) => filtre === 'equipe' || !moi || estPourMoi(t, moi)).filter(correspond)
   const ouvertes = pourMoi.filter((t) => t.statut !== 'fait')
     .filter((t) => !jourChoisi || (jourChoisi === 'retard' ? joursAvant(t.echeance) < 0 : (t.echeance || '').slice(0, 10) === jourChoisi))
   const parBande = (id) => ouvertes.filter((t) => bandeDe(t) === id).sort(trierUrgence)
@@ -819,7 +850,7 @@ export default function TachesDashboard({ currentUser, role }) {
         <div className="flex items-center gap-2 flex-wrap">
           <input className="border border-gray-200 rounded-full px-4 py-2 text-sm w-48 focus:outline-none focus:border-blue-500" placeholder="Rechercher…"
             value={recherche} onChange={(e) => setRecherche(e.target.value)} />
-          {moi && (
+          {moi && voitTout && (
             <div className="flex bg-white border border-gray-200 rounded-full p-0.5">
               {[['moi', 'Mes tâches'], ['equipe', "Toute l'équipe"]].map(([k, l]) => (
                 <button key={k} onClick={() => setFiltre(k)}
@@ -839,7 +870,7 @@ export default function TachesDashboard({ currentUser, role }) {
         </div>
       )}
 
-      {campagnes.length > 0 && (
+      {campagnes.length > 0 && voitTout && (
         <>
           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-2">
             Campagnes <span className="bg-white border border-gray-200 rounded-full px-2 text-[11px]">{campagnes.length}</span>
