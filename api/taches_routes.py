@@ -15,13 +15,51 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from core.supabase_storage import SupabaseStorage
 from core.timezone_utils import aujourdhui_montreal
 
-router = APIRouter(prefix="/taches", tags=["taches"])
+# Membres privés d'accès au module (réglable sans déploiement : system_settings
+# « taches_membres_bloques » = ["margot", …] ; [] pour rouvrir à tous).
+BLOQUES_PAR_DEFAUT = ["margot"]
+
+
+def _membres_bloques() -> set:
+    try:
+        import json as _json
+        v = SupabaseStorage(silent=True).get_system_setting("taches_membres_bloques")
+        if isinstance(v, str):
+            v = _json.loads(v)
+        if isinstance(v, list):
+            return set(v)
+    except Exception:
+        pass
+    return set(BLOQUES_PAR_DEFAUT)
+
+
+def _qui_du_jeton(request: Request) -> Optional[str]:
+    from core import verrou_api
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        d = verrou_api.verifier_jeton(auth[7:])
+        if d:
+            q = d.get("qui")
+            return {"nick": "nicolas"}.get(q, q)
+    return None
+
+
+def _pas_bloque(request: Request) -> None:
+    """Appliqué à TOUTES les routes /taches (sauf /actif, qui répond « inactif »)."""
+    if request.url.path.rstrip("/").endswith("/taches/actif"):
+        return
+    q = _qui_du_jeton(request)
+    if q and q in _membres_bloques():
+        raise HTTPException(403, "Accès au module Tâches suspendu")
+
+
+router = APIRouter(prefix="/taches", tags=["taches"], dependencies=[Depends(_pas_bloque)])
 _log = logging.getLogger(__name__)
 
 STATUTS = ("a_faire", "en_cours", "fait")
@@ -139,12 +177,15 @@ def _nettoyer(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/actif")
-def module_actif():
+def module_actif(request: Request):
     """Interrupteurs (system_settings) :
     - flag_taches = false          → module caché pour tout le monde (coupe-circuit)
     - flag_taches_equipe = true    → visible pour toute l'équipe (sinon : Allan seulement)
     """
     from core.feature_flags import is_enabled
+    q = _qui_du_jeton(request)
+    if q and q in _membres_bloques():
+        return {"actif": False, "equipe": False}
     return {"actif": is_enabled("taches", default=True), "equipe": is_enabled("taches_equipe", default=False)}
 
 
