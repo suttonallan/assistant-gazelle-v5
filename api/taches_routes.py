@@ -23,7 +23,7 @@ from core.timezone_utils import aujourdhui_montreal
 
 # Membres privés d'accès au module (réglable sans déploiement : system_settings
 # « taches_membres_bloques » = ["margot", …] ; [] pour rouvrir à tous).
-BLOQUES_PAR_DEFAUT = ["margot"]
+BLOQUES_PAR_DEFAUT: List[str] = []
 
 
 def _membres_bloques() -> set:
@@ -50,13 +50,22 @@ def _qui_du_jeton(request: Request) -> Optional[str]:
     return None
 
 
+# Ce qu'un membre hors direction (Margot, JP…) peut appeler : ses tâches et leur fil.
+# Tout le reste (outils Gazelle, factures, campagnes, timeline…) est réservé à la direction.
+import re as _re
+_ROUTES_MEMBRE = _re.compile(r"/taches(/actif|/campagnes|/ordre|/[0-9a-f-]{36}(/etape|/commentaires)?)?/?$")
+
+
 def _pas_bloque(request: Request) -> None:
     """Appliqué à TOUTES les routes /taches (sauf /actif, qui répond « inactif »)."""
-    if request.url.path.rstrip("/").endswith("/taches/actif"):
+    chemin = request.url.path.rstrip("/")
+    if chemin.endswith("/taches/actif"):
         return
     q = _qui_du_jeton(request)
     if q and q in _membres_bloques():
         raise HTTPException(403, "Accès au module Tâches suspendu")
+    if q and q not in ("allan", "nicolas", "louise") and not _ROUTES_MEMBRE.search(chemin):
+        raise HTTPException(403, "Réservé à la direction")
 
 
 router = APIRouter(prefix="/taches", tags=["taches"], dependencies=[Depends(_pas_bloque)])
