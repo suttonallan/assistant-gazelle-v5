@@ -48,13 +48,32 @@ function App() {
   }, [selectedLocation])
 
   // ✅ Module Tâches : interrupteurs côté serveur (coupe-circuit + ouverture à l'équipe)
-  const [tachesFlags, setTachesFlags] = useState({ actif: false, equipe: false })
+  // Interrupteurs du module Tâches. Le serveur Render peut dormir au chargement :
+  // on part de la dernière réponse connue, puis on redemande jusqu'à obtenir une réponse.
+  const [tachesFlags, setTachesFlags] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('taches_flags')) || { actif: false, equipe: false } }
+    catch { return { actif: false, equipe: false } }
+  })
   useEffect(() => {
     const API_URL = import.meta.env.VITE_API_URL || ''
-    fetch(`${API_URL}/api/taches/actif`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d) setTachesFlags(d) })
-      .catch(() => {})
+    let annule = false
+    let essai = 0
+    const charger = () => {
+      fetch(`${API_URL}/api/taches/actif`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((d) => {
+          if (annule || !d) return
+          setTachesFlags(d)
+          try { localStorage.setItem('taches_flags', JSON.stringify(d)) } catch {}
+        })
+        .catch(() => {
+          if (annule || essai >= 8) return
+          essai += 1
+          setTimeout(charger, Math.min(2000 * essai, 15000))  // 2 s, 4 s, 6 s… jusqu'à ~1 min
+        })
+    }
+    charger()
+    return () => { annule = true }
   }, [currentUser])
 
   // Charger les institutions depuis l'API
