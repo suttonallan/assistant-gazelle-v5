@@ -183,9 +183,13 @@ function Prise({ className = '' }) {
   return <span aria-hidden className={`select-none text-gray-300 leading-none text-sm ${className}`}>⠿</span>
 }
 
+// Aperçu « voir comme » (sélecteur de rôle d'Allan) : le serveur applique le filtre du membre
+// choisi. Il n'honore cet en-tête que pour le jeton d'Allan ; pour les autres, il est ignoré.
+let voirComme = null
+
 async function api(chemin, options = {}) {
   const r = await fetch(`${API_URL}/api/taches${chemin}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(voirComme ? { 'X-Voir-Comme': voirComme } : {}) },
     ...options,
   })
   const texte = await r.text()
@@ -711,6 +715,7 @@ function CarteTache({ tache, onOuvrir, onDeplacer, onEtape, onEtapes, campagnes 
 /* ---------- Vue principale ---------- */
 export default function TachesDashboard({ currentUser, role }) {
   const moi = ROLE_VERS_MEMBRE[role] || null
+  voirComme = moi && moi !== 'allan' ? moi : null
   const [taches, setTaches] = useState([])
   const [campagnes, setCampagnes] = useState([])
   const [voitTout, setVoitTout] = useState(true)  // false pour Margot, JP… (le serveur filtre)
@@ -742,7 +747,7 @@ export default function TachesDashboard({ currentUser, role }) {
       setChargement(false)
     }
   }, [])
-  useEffect(() => { charger() }, [charger])
+  useEffect(() => { charger() }, [charger, moi])  // recharge aussi quand Allan change de rôle (aperçu)
   // Ce que les collègues cochent ou modifient apparaît sans recharger la page
   useEffect(() => {
     const rafraichir = () => { if (document.visibilityState === 'visible') charger() }

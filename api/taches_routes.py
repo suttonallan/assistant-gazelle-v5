@@ -39,6 +39,18 @@ def _membres_bloques() -> set:
     return set(BLOQUES_PAR_DEFAUT)
 
 
+_APERCU_POSSIBLE = {"nicolas", "louise", "margot", "jp"}
+
+
+def _apercu(qui: Optional[str], request: Request) -> Optional[str]:
+    """Allan peut « voir comme » un membre (sélecteur de rôle) : le serveur applique alors
+    exactement le filtre de ce membre. Accepté UNIQUEMENT depuis le jeton d'Allan."""
+    voir = (request.headers.get("x-voir-comme") or "").strip().lower()
+    if qui == "allan" and voir in _APERCU_POSSIBLE:
+        return voir
+    return qui
+
+
 def _qui_du_jeton(request: Request) -> Optional[str]:
     from core import verrou_api
     auth = request.headers.get("authorization", "")
@@ -46,7 +58,7 @@ def _qui_du_jeton(request: Request) -> Optional[str]:
         d = verrou_api.verifier_jeton(auth[7:])
         if d:
             q = d.get("qui")
-            return {"nick": "nicolas"}.get(q, q)
+            return _apercu({"nick": "nicolas"}.get(q, q), request)
     return None
 
 
@@ -113,7 +125,7 @@ def _membre(request: Request) -> Optional[str]:
     if auth.lower().startswith("bearer "):
         d = verrou_api.verifier_jeton(auth[7:])
         if d:
-            return QUI_VERS_MEMBRE.get(d.get("qui"), d.get("qui") or "inconnu")
+            return _apercu(QUI_VERS_MEMBRE.get(d.get("qui"), d.get("qui") or "inconnu"), request)
     if verrou_api.cle_service_valide(request.headers.get("x-cle-service")):
         return None
     raise HTTPException(401, "Connexion requise")
