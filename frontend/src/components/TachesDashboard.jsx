@@ -374,21 +374,44 @@ function FilTache({ tache, moi, onMaj }) {
   )
 }
 
-function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprimer, onAvise }) {
-  const [f, setF] = useState(() => ({
+function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprimer, onAvise, onEtapeImmediate }) {
+  const depart = () => ({
     titre: tache.titre || '', contexte: tache.contexte || '', statut: tache.statut || 'a_faire',
     assigne: tache.assigne || '', echeance: tache.echeance || '', campagne: tache.campagne || '',
     note: tache.note || '', etapes: tache.etapes || [], liens: tache.liens || [],
     urgent: !!tache.urgent, client: tache.client || '',
-  }))
+  })
+  const [f, setF] = useState(depart)
+  // Version de référence : ce qui est déjà enregistré (mise à jour quand une case est
+  // enregistrée tout de suite), pour savoir s'il reste des modifications non enregistrées.
+  const base = useRef(depart())
   const maj = (k, v) => setF((x) => ({ ...x, [k]: v }))
+  const modifie = JSON.stringify(f) !== JSON.stringify(base.current)
+  const fermer = () => {
+    if (modifie && !window.confirm('Fermer sans enregistrer vos modifications ?')) return
+    onFermer()
+  }
+  // Case cochée / responsable d'une étape : enregistré IMMÉDIATEMENT si l'étape existe
+  // déjà en base (sinon, avec le bouton Enregistrer).
+  const changerEtapeLigne = (i, changement) => {
+    const et = f.etapes[i]
+    const local = { ...et, ...changement }
+    if ('fait' in changement) local.date = changement.fait ? new Date().toISOString().slice(0, 10) : null
+    const etapes = [...f.etapes]; etapes[i] = local; maj('etapes', etapes)
+    const enBase = (tache.etapes || [])[i]
+    if (tache.id && onEtapeImmediate && enBase && enBase.texte === et.texte) {
+      onEtapeImmediate(tache, i, changement)
+      const b = [...base.current.etapes]; b[i] = local
+      base.current = { ...base.current, etapes: b }
+    }
+  }
   const champ = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500'
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto" onClick={onFermer}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto" onClick={fermer}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 space-y-3 mt-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold">{tache.id ? 'Modifier la tâche' : 'Nouvelle tâche'}</h3>
-          <button onClick={onFermer} className="text-gray-400 hover:text-gray-700 text-xl">×</button>
+          <button onClick={fermer} className="text-gray-400 hover:text-gray-700 text-xl">×</button>
         </div>
         <input className={champ + ' font-semibold'} placeholder="Ce qu'il faut faire" value={f.titre} onChange={(e) => maj('titre', e.target.value)} autoFocus />
         <input className={champ} placeholder="Contexte (client, piano, soumission…)" value={f.contexte} onChange={(e) => maj('contexte', e.target.value)} />
@@ -425,13 +448,11 @@ function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprim
             <LigneTriable key={i} id={`e${i}`} poignee className="flex items-center gap-2 mb-1">
               {(prise) => (<>
               <span {...prise} title="Glisser pour déplacer" className="cursor-grab active:cursor-grabbing touch-none px-1 -ml-1 py-1"><Prise className="text-gray-400" /></span>
-              <input type="checkbox" checked={!!et.fait} onChange={(e) => {
-                const etapes = [...f.etapes]; etapes[i] = { ...et, fait: e.target.checked, date: e.target.checked ? new Date().toISOString().slice(0, 10) : null }; maj('etapes', etapes)
-              }} />
+              <input type="checkbox" checked={!!et.fait} onChange={(e) => changerEtapeLigne(i, { fait: e.target.checked })} />
               <input className="flex-1 border-b border-gray-200 text-sm py-1 focus:outline-none focus:border-blue-500" value={et.texte}
                 onChange={(e) => { const etapes = [...f.etapes]; etapes[i] = { ...et, texte: e.target.value }; maj('etapes', etapes) }} />
               <select title="Responsable de l'étape" className="text-xs border border-gray-200 rounded px-1 py-1 text-gray-600" value={et.assigne || ''}
-                onChange={(e) => { const etapes = [...f.etapes]; etapes[i] = { ...et, assigne: e.target.value || null }; maj('etapes', etapes) }}>
+                onChange={(e) => changerEtapeLigne(i, { assigne: e.target.value || '' })}>
                 <option value="">—</option>
                 {Object.entries(MEMBRES).map(([k, m]) => <option key={k} value={k}>{m.nom}</option>)}
               </select>
@@ -464,14 +485,20 @@ function ModaleTache({ tache, campagnes, moi, onFermer, onEnregistrer, onSupprim
             <button className="text-sm text-red-600 hover:underline" onClick={() => { if (window.confirm('Supprimer cette tâche ?')) onSupprimer(tache) }}>Supprimer</button>
           ) : <span />}
           <div className="flex gap-2">
-            <button className="px-4 py-2 text-sm border border-gray-300 rounded-lg" onClick={onFermer}>Annuler</button>
+            <button className="px-4 py-2 text-sm border border-gray-300 rounded-lg" onClick={fermer}>Annuler</button>
             <button className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg disabled:opacity-50"
               disabled={!f.titre.trim()}
-              onClick={() => onEnregistrer({
-                ...f,
-                etapes: f.etapes.filter((e) => e.texte.trim()),
-                liens: f.liens.filter((l) => (l.url || '').trim()),
-              })}>
+              onClick={() => {
+                const data = {
+                  ...f,
+                  etapes: f.etapes.filter((e) => e.texte.trim()),
+                  liens: f.liens.filter((l) => (l.url || '').trim()),
+                }
+                // Étapes inchangées ici : ne pas renvoyer la liste (elle pourrait écraser
+                // des cases cochées entre-temps par un collègue).
+                if (tache.id && JSON.stringify(f.etapes) === JSON.stringify(base.current.etapes)) delete data.etapes
+                onEnregistrer(data)
+              }}>
               Enregistrer
             </button>
           </div>
@@ -994,7 +1021,7 @@ export default function TachesDashboard({ currentUser, role }) {
       {edition && (
         <ModaleTache tache={edition} campagnes={campagnes} moi={moi}
           onAvise={(t) => { remplacer(t); setEdition((e) => (e && e.id === t.id ? { ...e, ...t } : e)) }}
-          onFermer={() => setEdition(null)} onEnregistrer={enregistrer} onSupprimer={supprimer} />
+          onFermer={() => setEdition(null)} onEnregistrer={enregistrer} onSupprimer={supprimer} onEtapeImmediate={changerEtape} />
       )}
     </div>
   )
