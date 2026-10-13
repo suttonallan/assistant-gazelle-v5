@@ -130,9 +130,8 @@ export default function MaJournee({ currentUser }) {
         </p>
       </div>
 
-      {/* Assistant Gazelle — tous ceux qui ont la permission use_assistant
-          (Allan, Louise, Nick, JP, Margot). Résolu par EMAIL pour éviter le
-          piège du rôle de login "assistant" (Margot était exclue). */}
+      {/* Assistant Gazelle — permission use_assistant (config/roles.js) :
+          Allan, Louise, Nicolas. Pas Margot ni Jean-Philippe (oct. 2026). */}
       {(isLouise || isAllan || hasPermission(currentUser?.email, 'use_assistant')) && (
         <ClientAccessPanel currentUser={currentUser} />
       )}

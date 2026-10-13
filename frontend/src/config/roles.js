@@ -51,8 +51,8 @@ export const ROLES = {
     permissions: [
       'view_inventory',
       'edit_inventory', // Peut modifier toutes les colonnes
-      'view_tours', // Peut voir les tournées et les pianos à accorder
-      'use_assistant' // Jean-Philippe peut utiliser l'assistant
+      'view_tours' // Peut voir les tournées et les pianos à accorder
+      // Pas d'Assistant Gazelle (décision d'Allan, oct. 2026)
     ],
     dashboards: ['inventaire', 'tournees']
   },
@@ -66,7 +66,7 @@ export const ROLES = {
       'view_inventory',
       'edit_inventory', // Peut modifier les quantités
       'view_tours', // Peut voir les tournées
-      'use_assistant', // Margot peut utiliser l'assistant
+      // Pas d'Assistant Gazelle (décision d'Allan, oct. 2026)
       'edit_vdi' // Peut entrer des notes sur les pianos VD
     ],
     dashboards: ['inventaire', 'tournees', 'vincent-dindy']
