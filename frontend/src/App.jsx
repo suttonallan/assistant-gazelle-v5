@@ -260,6 +260,14 @@ function App() {
         </ErrorBoundary>
       )
     }
+    // 🚗 Frais partagés : ouvert directement depuis le menu de l'assistant
+    if (currentView === 'frais-partages') {
+      return (
+        <ErrorBoundary componentName="Frais partagés">
+          <SharedTravelFeeCalculator />
+        </ErrorBoundary>
+      )
+    }
     switch (effectiveRole) {
       case 'nick':
         // Nick: Navigation par currentView (comme admin)

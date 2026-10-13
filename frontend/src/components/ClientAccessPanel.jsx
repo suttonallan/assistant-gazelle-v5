@@ -93,36 +93,36 @@ function isActionRequest(text) {
 const CAPABILITIES = [
   {
     label: "👥 RV d'accompagnement",
-    help: "Ex. : « Margot va avec Nicolas jeudi chez Tremblay » · « Mets JP sur le RV de 14h d'Allan demain »",
-    template: "Ajoute Margot comme accompagnatrice au RV de Nicolas de demain chez ",
+    help: "Indiquez qui accompagne, sur le RV de qui, et quel jour.",
+    examples: ["Margot va avec Nicolas jeudi chez Tremblay", "Mets JP sur le RV de 14h d'Allan demain"],
   },
   {
     label: "🔁 Réactiver une soumission",
-    help: "Nouvelle soumission (brouillon) au prix à jour à partir d'un numéro",
-    template: "Réactive la soumission #",
+    help: "Donnez le numéro de l'ancienne soumission : une copie au prix à jour est créée en brouillon.",
+    examples: ["Réactive la soumission #11766 avec le prix à jour"],
   },
   {
     label: "📝 Réviser une soumission",
-    help: "Analyser et proposer des améliorations à une soumission",
-    template: "Révise la soumission #",
+    help: "Donnez le numéro ou le nom du client.",
+    examples: ["Révise la soumission #11802", "Améliore la soumission de Gagnon"],
   },
   {
     label: "🔍 Chercher dans les notes",
-    help: "Retrouver des RV ou des clients par mot-clé",
-    template: "Chez quels clients a-t-on ",
-  },
-  {
-    label: "🚗 Frais partagés (plusieurs clients)",
-    help: "Ouvre le calculateur : répartit les frais d'une tournée éloignée entre les clients",
-    navigateTo: 'calculateur-frais',
-    anchor: 'frais-partages',
+    help: "Posez votre question avec un mot-clé.",
+    examples: ["Chez quels clients a-t-on changé des cordes cette année ?", "Qui a un PLS installé à Laval ?"],
   },
   {
     label: "📞 Appels récents",
-    help: "Liste des relances du Call Center faites par un technicien",
-    template: "Quels appels Nicolas a-t-il faits cette semaine ?",
+    help: "Nommez le technicien et la période.",
+    examples: ["Quels appels Nicolas a-t-il faits cette semaine ?", "Mes appels d'hier"],
+  },
+  {
+    label: "🚗 Frais partagés (plusieurs clients)",
+    help: "Ouvre le calculateur pour répartir les frais d'une tournée éloignée entre les clients.",
+    navigateTo: 'frais-partages',
   },
 ]
+
 
 export default function ClientAccessPanel({ currentUser }) {
   const [searchTerm, setSearchTerm] = useState('')
@@ -378,16 +378,23 @@ export default function ClientAccessPanel({ currentUser }) {
                   key={c.label}
                   type="button"
                   onClick={() => c.navigateTo
-                    ? window.dispatchEvent(new CustomEvent('ptm:navigate', { detail: { view: c.navigateTo, anchor: c.anchor } }))
-                    : applyQuickAction(c.template)}
+                    ? window.dispatchEvent(new CustomEvent('ptm:navigate', { detail: { view: c.navigateTo } }))
+                    : applyQuickAction(c.examples[0])}
                   className="w-full text-left px-3 py-2 hover:bg-teal-50 transition-colors"
                 >
                   <div className="text-sm font-medium text-gray-800">{c.label}</div>
-                  <div className="text-xs text-gray-500">{c.help}</div>
+                  <div className="text-xs text-gray-600">{c.help}</div>
+                  {c.examples && (
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Par exemple : {c.examples.map((ex, k) => (
+                        <span key={k}>{k > 0 && ' · '}<i>« {ex} »</i></span>
+                      ))}
+                    </div>
+                  )}
                 </button>
               ))}
               <div className="px-3 py-2 text-xs text-gray-500">
-                Autre chose ? Écrivez-le simplement : si je ne sais pas encore le faire,
+                Autre chose ? Écrivez-le simplement. Si je ne sais pas encore le faire,
                 la demande est envoyée à l'administrateur.
               </div>
             </div>
