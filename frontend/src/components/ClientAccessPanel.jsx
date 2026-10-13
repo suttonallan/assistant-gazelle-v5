@@ -93,7 +93,7 @@ function isActionRequest(text) {
 const CAPABILITIES = [
   {
     label: "👥 RV d'accompagnement",
-    help: "Ajouter un technicien qui accompagne sur le RV d'un autre",
+    help: "Ex. : « Margot va avec Nicolas jeudi chez Tremblay » · « Mets JP sur le RV de 14h d'Allan demain »",
     template: "Ajoute Margot comme accompagnatrice au RV de Nicolas de demain chez ",
   },
   {
