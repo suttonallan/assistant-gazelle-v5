@@ -51,12 +51,67 @@ REACTIVATE_ESTIMATE_TOOL = {
     },
 }
 
-TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL, JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL]
+# Outil de repli : quand l'assistant ne sait pas faire, la demande est transmise
+# à l'administrateur (Allan) par courriel, pour devenir une future fonctionnalité.
+FEATURE_REQUEST_TOOL = {
+    "name": "request_new_feature",
+    "description": (
+        "Transmet à l'administrateur (Allan) une demande que tu NE SAIS PAS faire "
+        "avec tes autres outils (ex. déplacer un RV, modifier un client, envoyer un "
+        "courriel). À utiliser seulement pour une vraie demande d'action ou de "
+        "fonctionnalité, pas pour une simple question ou une demande ambiguë "
+        "(dans ce cas, pose d'abord une question)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string",
+                        "description": "Résumé en une phrase de ce que l'utilisateur voulait faire."},
+            "original_request": {"type": "string",
+                                 "description": "La demande de l'utilisateur, telle qu'écrite."},
+        },
+        "required": ["summary", "original_request"],
+    },
+}
+
+ADMIN_EMAIL = "asutton@piano-tek.com"
 
 
-def _run_tool(name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+def execute_feature_request(summary: str, original_request: str,
+                            user_first_name: Optional[str] = None) -> Dict[str, Any]:
+    """Envoie la demande non prise en charge par courriel à l'administrateur."""
+    from html import escape
+    from core.email_notifier import get_email_notifier
+    qui = user_first_name or "Un utilisateur"
+    sujet = f"[Assistant Gazelle] Demande non prise en charge — {qui} : {summary[:80]}"
+    html = (
+        f"<p><b>{escape(qui)}</b> a demandé à l'assistant quelque chose qu'il ne sait pas encore faire.</p>"
+        f"<p><b>Résumé :</b> {escape(summary)}</p>"
+        f"<p><b>Demande originale :</b><br>{escape(original_request)}</p>"
+        f"<p style='color:#888'>Date : {aujourdhui_montreal().isoformat()}</p>"
+    )
+    texte = f"{qui} : {summary}\n\nDemande originale :\n{original_request}"
+    notifier = get_email_notifier()
+    ok = notifier.send_email([ADMIN_EMAIL], sujet, html, texte)
+    if ok:
+        return {"success": True, "message": "Demande transmise à l'administrateur."}
+    return {"success": False, "error": f"Envoi impossible : {notifier.last_error}"}
+
+
+TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+         JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, FEATURE_REQUEST_TOOL]
+
+
+def _run_tool(name: str, tool_input: Dict[str, Any],
+              user_first_name: Optional[str] = None) -> Dict[str, Any]:
     """Exécute un outil et retourne un dict résultat (jamais d'exception qui remonte)."""
     try:
+        if name == "request_new_feature":
+            return execute_feature_request(
+                summary=tool_input.get("summary", ""),
+                original_request=tool_input.get("original_request", ""),
+                user_first_name=user_first_name,
+            )
         if name == "reactivate_estimate":
             return duplicate_estimate(
                 int(tool_input["estimate_number"]),
@@ -129,9 +184,11 @@ async def converse(req: ConverseRequest):
         "Sers-toi de l'HISTORIQUE : si l'utilisateur confirme (« oui », « vas-y ») une "
         "action que tu viens de proposer, exécute-la avec l'outil. Si une demande est "
         "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner.\n"
-        "IMPORTANT : si AUCUN outil ne correspond à la demande (ex. déplacer / replanifier "
-        "un rendez-vous, changer son lieu, modifier un client), DIS-LE clairement et "
-        "explique ce que tu peux faire — n'utilise JAMAIS un outil qui ne convient pas. "
+        "IMPORTANT : si AUCUN outil ne correspond à une vraie demande d'action (ex. déplacer / "
+        "replanifier un rendez-vous, changer son lieu, modifier un client), n'utilise JAMAIS "
+        "un outil qui ne convient pas : appelle request_new_feature pour transmettre la "
+        "demande à l'administrateur, puis dis à l'utilisateur que tu ne sais pas encore le "
+        "faire et que sa demande a été envoyée à l'administrateur (Allan). "
         "Les créations de soumission sont toujours des brouillons : rien n'est envoyé au client."
         + user_ctx
     )
@@ -158,7 +215,7 @@ async def converse(req: ConverseRequest):
         messages.append({"role": "assistant", "content": resp.content})
         tool_results = []
         for tu in tool_uses:
-            result = _run_tool(tu.name, tu.input or {})
+            result = _run_tool(tu.name, tu.input or {}, req.current_user_first_name)
             actions.append({"type": tu.name, "input": tu.input, "result": result})
             tool_results.append({
                 "type": "tool_result",

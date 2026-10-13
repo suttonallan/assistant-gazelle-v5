@@ -89,11 +89,32 @@ function isActionRequest(text) {
   return detectActionType(text) !== null || text.trim().split(/\s+/).length > 3
 }
 
-// Raccourcis visibles sous la barre : pré-remplissent une demande type
-const QUICK_ACTIONS = [
+// Ce que l'assistant sait faire : chaque ligne pré-remplit une demande type
+const CAPABILITIES = [
   {
     label: "👥 RV d'accompagnement",
+    help: "Ajouter un technicien qui accompagne sur le RV d'un autre",
     template: "Ajoute Margot comme accompagnatrice au RV de Nicolas de demain chez ",
+  },
+  {
+    label: "🔁 Réactiver une soumission",
+    help: "Nouvelle soumission (brouillon) au prix à jour à partir d'un numéro",
+    template: "Réactive la soumission #",
+  },
+  {
+    label: "📝 Réviser une soumission",
+    help: "Analyser et proposer des améliorations à une soumission",
+    template: "Révise la soumission #",
+  },
+  {
+    label: "🔍 Chercher dans les notes",
+    help: "Retrouver des RV ou des clients par mot-clé",
+    template: "Chez quels clients a-t-on ",
+  },
+  {
+    label: "📞 Appels récents",
+    help: "Liste des relances du Call Center faites par un technicien",
+    template: "Quels appels Nicolas a-t-il faits cette semaine ?",
   },
 ]
 
@@ -110,12 +131,14 @@ export default function ClientAccessPanel({ currentUser }) {
   const [conversation, setConversation] = useState([])   // [{role:'user'|'assistant', content}]
   const [convInput, setConvInput] = useState('')          // champ de réponse dans le fil
   const [convLoading, setConvLoading] = useState(false)
+  const [showCapabilities, setShowCapabilities] = useState(false)
 
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
   const inputRef = useRef(null)
 
   const applyQuickAction = (template) => {
+    setShowCapabilities(false)
     setSuggestions([])
     setShowSuggestions(false)
     setSearchTerm(template)
@@ -192,7 +215,10 @@ export default function ClientAccessPanel({ currentUser }) {
       const reply = resp.ok
         ? (data.reply || "Désolé, je n'ai pas pu répondre.")
         : (data.detail || `Erreur ${resp.status}`)
-      setConversation(prev => [...prev, { role: 'assistant', content: reply }])
+      const forwarded = resp.ok && (data.actions || []).some(
+        a => a.type === 'request_new_feature' && a.result?.success
+      )
+      setConversation(prev => [...prev, { role: 'assistant', content: reply, forwarded }])
     } catch (err) {
       setConversation(prev => [...prev, { role: 'assistant', content: `⚠️ Erreur réseau : ${err.message}` }])
     } finally {
@@ -330,19 +356,34 @@ export default function ClientAccessPanel({ currentUser }) {
           )}
         </form>
 
-        {/* Raccourcis d'actions — rendent visibles les demandes possibles */}
-        <div className="flex flex-wrap gap-2 mt-3">
-          {QUICK_ACTIONS.map((a) => (
-            <button
-              key={a.label}
-              type="button"
-              onClick={() => applyQuickAction(a.template)}
-              className="text-xs px-3 py-1.5 rounded-full bg-white border border-teal-300 text-teal-700 hover:bg-teal-100 transition-colors"
-              title="Pré-remplit la demande : modifiez les noms, la date et le client, puis Entrée"
-            >
-              {a.label}
-            </button>
-          ))}
+        {/* Ce que l'assistant sait faire */}
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowCapabilities(v => !v)}
+            className="text-xs px-3 py-1.5 rounded-full bg-white border border-teal-300 text-teal-700 hover:bg-teal-100 transition-colors"
+          >
+            💡 Ce que je sais faire {showCapabilities ? '▲' : '▼'}
+          </button>
+          {showCapabilities && (
+            <div className="mt-2 bg-white border border-teal-200 rounded-lg divide-y divide-gray-100">
+              {CAPABILITIES.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  onClick={() => applyQuickAction(c.template)}
+                  className="w-full text-left px-3 py-2 hover:bg-teal-50 transition-colors"
+                >
+                  <div className="text-sm font-medium text-gray-800">{c.label}</div>
+                  <div className="text-xs text-gray-500">{c.help}</div>
+                </button>
+              ))}
+              <div className="px-3 py-2 text-xs text-gray-500">
+                Autre chose ? Écrivez-le simplement : si je ne sais pas encore le faire,
+                la demande est envoyée à l'administrateur.
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -374,6 +415,11 @@ export default function ClientAccessPanel({ currentUser }) {
                   }`}
                 >
                   {m.content}
+                  {m.forwarded && (
+                    <div className="mt-2 text-xs px-2 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800">
+                      📨 Demande de fonctionnalité envoyée à l'administrateur
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
