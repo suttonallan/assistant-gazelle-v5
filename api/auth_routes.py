@@ -62,6 +62,14 @@ def journal(request: Request):
 
 
 
+@router.get("/activite")
+def activite(request: Request):
+    """Qui utilise l'app, et comment (Google ou PIN). Réservé à Allan."""
+    if _qui(request) != "allan":
+        raise HTTPException(403, "Réservé à Allan")
+    return {"activite": verrou_api.activite_equipe()}
+
+
 class GoogleIn(BaseModel):
     credential: str = Field(..., min_length=20)
 

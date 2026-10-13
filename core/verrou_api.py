@@ -115,9 +115,54 @@ def verifier_jeton(jeton: str) -> Optional[Dict[str, Any]]:
         donnees = json.loads(base64.urlsafe_b64decode(corps + "=" * (-len(corps) % 4)))
         if donnees.get("exp", 0) < time.time():
             return None
+        noter_activite(donnees.get("qui"), donnees.get("via") or "pin")
         return donnees
     except Exception:
         return None
+
+
+# ─── Activité de l'équipe (qui utilise l'app, via Google ou PIN) ─────────
+# system_settings « activite_equipe » = {qui: {derniere_activite, via, google_le, pin_le}}
+# Écrit au plus une fois toutes les 30 min par personne (en tâche de fond).
+_derniere_ecriture: Dict[str, float] = {}
+
+
+def noter_activite(qui: Optional[str], via: str, force: bool = False) -> None:
+    if not qui:
+        return
+    maintenant = time.time()
+    if not force and maintenant - _derniere_ecriture.get(f"{qui}:{via}", 0) < 1800:
+        return
+    _derniere_ecriture[f"{qui}:{via}"] = maintenant
+
+    def _ecrire():
+        try:
+            from core.timezone_utils import MONTREAL_TZ
+            from datetime import datetime
+            quand = datetime.now(MONTREAL_TZ).strftime("%Y-%m-%d %H:%M")
+            st = _storage()
+            act = st.get_system_setting("activite_equipe") or {}
+            if isinstance(act, str):
+                act = json.loads(act)
+            e = dict(act.get(qui) or {})
+            e["derniere_activite"] = quand
+            e["via"] = via
+            e[f"{via}_le"] = quand
+            act[qui] = e
+            st.save_system_setting("activite_equipe", act)
+        except Exception as exc:  # jamais bloquant
+            print(f"⚠️ activite_equipe : {exc}")
+
+    import threading
+    threading.Thread(target=_ecrire, daemon=True).start()
+
+
+def activite_equipe() -> Dict[str, Any]:
+    try:
+        act = _storage().get_system_setting("activite_equipe") or {}
+        return json.loads(act) if isinstance(act, str) else act
+    except Exception:
+        return {}
 
 
 def connexion(pin: str, ip: str) -> Optional[Dict[str, Any]]:
@@ -131,6 +176,7 @@ def connexion(pin: str, ip: str) -> Optional[Dict[str, Any]]:
         if hmac.compare_digest(_hacher_pin(pin, h["sel"]), h["hash"]):
             _echecs.pop(ip, None)
             jeton = _signer({"qui": role, "exp": int(maintenant + DUREE_JETON)})
+            noter_activite(role, "pin", force=True)
             return {"jeton": jeton, "qui": role, **PROFILS.get(role, {})}
     essais.append(maintenant)
     _echecs[ip] = essais
@@ -293,4 +339,5 @@ def connexion_google(credential: str) -> Optional[Dict[str, Any]]:
     if not qui:
         raise PermissionError(f"{email} n'est pas autorisé")
     jeton = _signer({"qui": qui, "exp": int(time.time() + DUREE_JETON), "via": "google"})
+    noter_activite(qui, "google", force=True)
     return {"jeton": jeton, "qui": qui, **PROFILS.get(qui, {})}

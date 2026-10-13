@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 import BriefingCard from './BriefingCard'
 import ClientAccessPanel from './ClientAccessPanel'
+import ActiviteEquipe from './ActiviteEquipe'
 import FeedbackReviewPanel from './FeedbackReviewPanel'
 import { hasPermission } from '../config/roles'
 
@@ -135,6 +136,8 @@ export default function MaJournee({ currentUser }) {
       {(isLouise || isAllan || hasPermission(currentUser?.email, 'use_assistant')) && (
         <ClientAccessPanel currentUser={currentUser} />
       )}
+
+      {isAllan && <ActiviteEquipe />}
 
       {/* Navigation date */}
       <div className="flex items-center justify-between mb-6 bg-white rounded-xl shadow px-4 py-3">
