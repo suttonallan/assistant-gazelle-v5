@@ -83,8 +83,19 @@ function detectActionType(text) {
 }
 
 function isActionRequest(text) {
-  return detectActionType(text) !== null
+  if (!text) return false
+  // Une phrase (plus de 3 mots) est une demande à l'assistant, même si aucun
+  // mot-clé ne correspond : l'assistant conversationnel choisit lui-même l'outil.
+  return detectActionType(text) !== null || text.trim().split(/\s+/).length > 3
 }
+
+// Raccourcis visibles sous la barre : pré-remplissent une demande type
+const QUICK_ACTIONS = [
+  {
+    label: "👥 RV d'accompagnement",
+    template: "Ajoute Margot comme accompagnatrice au RV de Nicolas de demain chez ",
+  },
+]
 
 export default function ClientAccessPanel({ currentUser }) {
   const [searchTerm, setSearchTerm] = useState('')
@@ -102,6 +113,17 @@ export default function ClientAccessPanel({ currentUser }) {
 
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
+  const inputRef = useRef(null)
+
+  const applyQuickAction = (template) => {
+    setSuggestions([])
+    setShowSuggestions(false)
+    setSearchTerm(template)
+    setTimeout(() => {
+      const el = inputRef.current
+      if (el) { el.focus(); el.setSelectionRange(template.length, template.length) }
+    }, 0)
+  }
 
   // Fermer les suggestions si clic en dehors
   useEffect(() => {
@@ -183,7 +205,7 @@ export default function ClientAccessPanel({ currentUser }) {
     if (e) e.preventDefault()
     const text = searchTerm.trim()
     if (!text) return
-    if (!detectActionType(text)) return  // sinon on laisse l'autocomplete gérer la recherche client
+    if (!isActionRequest(text)) return  // nom court : on laisse l'autocomplete gérer la recherche client
     setShowSuggestions(false)
     setSearchTerm('')
     sendConversation(text)
@@ -244,11 +266,12 @@ export default function ClientAccessPanel({ currentUser }) {
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input
+                ref={inputRef}
                 type="text"
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder="Nom du client OU demande d'action..."
+                placeholder="Nom du client, ou écrivez une demande à l’assistant…"
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
               />
               {(loadingSuggestions || convLoading) && (
@@ -306,6 +329,21 @@ export default function ClientAccessPanel({ currentUser }) {
             </div>
           )}
         </form>
+
+        {/* Raccourcis d'actions — rendent visibles les demandes possibles */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {QUICK_ACTIONS.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              onClick={() => applyQuickAction(a.template)}
+              className="text-xs px-3 py-1.5 rounded-full bg-white border border-teal-300 text-teal-700 hover:bg-teal-100 transition-colors"
+              title="Pré-remplit la demande : modifiez les noms, la date et le client, puis Entrée"
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Fil conversationnel avec l'assistant (mémoire + champ de réponse toujours visible) */}
