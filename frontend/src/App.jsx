@@ -31,6 +31,20 @@ function App() {
   const [currentView, setCurrentView] = useState(() => {
     try { return localStorage.getItem('currentView') || 'chat' } catch { return 'chat' }
   })
+
+  // Navigation demandée depuis un composant enfant (ex. menu de l'assistant)
+  useEffect(() => {
+    const onNavigate = (e) => {
+      const { view, anchor } = e.detail || {}
+      if (!view) return
+      setCurrentView(view)
+      if (anchor) {
+        setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300)
+      }
+    }
+    window.addEventListener('ptm:navigate', onNavigate)
+    return () => window.removeEventListener('ptm:navigate', onNavigate)
+  }, [])
   const [simulatedRole, setSimulatedRole] = useState(null) // Pour tester les rôles sans auth
   const [chatOpen, setChatOpen] = useState(false) // Contrôle du chat flottant
   const [institutionsDropdownOpen, setInstitutionsDropdownOpen] = useState(false) // Dropdown Institutions

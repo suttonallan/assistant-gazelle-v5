@@ -113,8 +113,9 @@ const CAPABILITIES = [
   },
   {
     label: "🚗 Frais partagés (plusieurs clients)",
-    help: "Onglet Calculateur → section « Frais partagés » : répartit les frais d'une tournée éloignée",
-    template: "",
+    help: "Ouvre le calculateur : répartit les frais d'une tournée éloignée entre les clients",
+    navigateTo: 'calculateur-frais',
+    anchor: 'frais-partages',
   },
   {
     label: "📞 Appels récents",
@@ -376,7 +377,9 @@ export default function ClientAccessPanel({ currentUser }) {
                 <button
                   key={c.label}
                   type="button"
-                  onClick={() => applyQuickAction(c.template)}
+                  onClick={() => c.navigateTo
+                    ? window.dispatchEvent(new CustomEvent('ptm:navigate', { detail: { view: c.navigateTo, anchor: c.anchor } }))
+                    : applyQuickAction(c.template)}
                   className="w-full text-left px-3 py-2 hover:bg-teal-50 transition-colors"
                 >
                   <div className="text-sm font-medium text-gray-800">{c.label}</div>

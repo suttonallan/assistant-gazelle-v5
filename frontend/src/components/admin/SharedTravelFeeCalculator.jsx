@@ -83,7 +83,7 @@ export default function SharedTravelFeeCalculator() {
   const money = (v) => `${Number(v).toFixed(2)} $`
 
   return (
-    <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <div id="frais-partages" className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h2 className="text-xl font-bold text-gray-800 mb-1">🚗 Frais partagés — plusieurs clients sur la route</h2>
       <p className="text-sm text-gray-500 mb-5">
         Entrez les clients dans n’importe quel ordre : le calcul prend le trajet le plus court.
