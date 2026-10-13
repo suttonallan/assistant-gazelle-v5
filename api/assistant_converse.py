@@ -188,7 +188,8 @@ async def converse(req: ConverseRequest):
         "replanifier un rendez-vous, changer son lieu, modifier un client), n'utilise JAMAIS "
         "un outil qui ne convient pas : appelle request_new_feature pour transmettre la "
         "demande à l'administrateur, puis dis à l'utilisateur que tu ne sais pas encore le "
-        "faire et que sa demande a été envoyée à l'administrateur (Allan). "
+        "faire et que sa demande a été envoyée à l'administrateur (Allan). Ne promets "
+        "jamais de revenir vers l'utilisateur plus tard : tu ne peux pas le faire. "
         "Les créations de soumission sont toujours des brouillons : rien n'est envoyé au client."
         + user_ctx
     )
