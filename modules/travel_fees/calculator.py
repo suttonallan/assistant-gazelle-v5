@@ -230,6 +230,34 @@ class TravelFeeCalculator:
         time_fee = (excess_s / 3600.0) * self.PRICE_PER_HOUR
         return distance_fee, time_fee, distance_fee + time_fee
 
+    def _distance_matrix(self, points: List[str]):
+        """Matrice complète distances (m) / durées (s) entre tous les points, en un appel."""
+        n = len(points)
+        if self.degraded_mode:
+            return ([[0 if i == j else 20000 for j in range(n)] for i in range(n)],
+                    [[0 if i == j else 1200 for j in range(n)] for i in range(n)])
+        url = "https://maps.googleapis.com/maps/api/distancematrix/json"
+        params = {
+            'origins': '|'.join(points), 'destinations': '|'.join(points),
+            'key': self.api_key, 'mode': 'driving', 'language': 'fr', 'units': 'metric',
+        }
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        if data['status'] != 'OK':
+            raise Exception(f"Google Maps API error: {data['status']}")
+        dist = [[0] * n for _ in range(n)]
+        dur = [[0] * n for _ in range(n)]
+        for i, row in enumerate(data['rows']):
+            for j, el in enumerate(row['elements']):
+                if i == j:
+                    continue
+                if el['status'] != 'OK':
+                    raise Exception(f"Adresse introuvable : {points[j] if i == 0 else points[i]}")
+                dist[i][j] = el['distance']['value']
+                dur[i][j] = el['duration']['value']
+        return dist, dur
+
     def calculate_shared_route(
         self,
         technician_name: str,
@@ -238,34 +266,58 @@ class TravelFeeCalculator:
         """
         Frais d'une tournée avec plusieurs clients, partagés entre eux.
 
-        Trajet : domicile du technicien → client 1 → client 2 → … → retour.
+        L'ordre des visites est OPTIMISÉ (le moins cher possible) :
+        domicile du technicien → clients dans le meilleur ordre → retour.
         La zone gratuite (40 km / 40 min) s'applique UNE fois à la tournée.
         Les frais totaux sont répartis au prorata de ce que chaque client
         paierait s'il était seul : chacun paie toujours moins que seul.
         """
+        from itertools import permutations
+
         tech = next((t for t in self.TECHNICIANS if t.name == technician_name), None)
         if tech is None:
             raise ValueError(f"Technicien inconnu : {technician_name}")
         if len(destinations) < 2:
             raise ValueError("Il faut au moins deux clients pour partager les frais.")
+        if len(destinations) > 9:
+            raise ValueError("Maximum 9 clients par tournée.")
 
-        points = [tech.full_address] + [d["address"] for d in destinations] + [tech.full_address]
-        legs = []
-        total_m, total_s = 0.0, 0.0
-        for a, b in zip(points[:-1], points[1:]):
-            if self.degraded_mode:
-                m, sec = 20000, 1200
-            else:
-                m, sec = self._call_distance_matrix_api(a, b)
-            total_m += m
-            total_s += sec
-            legs.append({"km": round(m / 1000.0, 1), "minutes": round(sec / 60.0)})
+        points = [tech.full_address] + [d["address"] for d in destinations]
+        dist, dur = self._distance_matrix(points)
 
-        total_km = total_m / 1000.0
-        d_fee, t_fee, route_fee = self._fee_from_totals(total_km, total_s)
+        def route_totals(order):
+            path = [0] + [i + 1 for i in order] + [0]
+            m = sum(dist[a][b] for a, b in zip(path[:-1], path[1:]))
+            sec = sum(dur[a][b] for a, b in zip(path[:-1], path[1:]))
+            return m, sec
 
-        solos = [self.calculate_fee_for_technician(tech, d["address"]).total_fee
-                 for d in destinations]
+        def cost(order):
+            m, sec = route_totals(order)
+            return (round(self._fee_from_totals(m / 1000.0, sec)[2], 2), m)
+
+        n = len(destinations)
+        entered = tuple(range(n))
+        best = min(permutations(range(n)), key=cost)  # ≤ 9! = 362 880 essais, instantané
+
+        def summarize(order):
+            m, sec = route_totals(order)
+            d_fee, t_fee, fee = self._fee_from_totals(m / 1000.0, sec)
+            path = [0] + [i + 1 for i in order] + [0]
+            legs = [{"km": round(dist[a][b] / 1000.0, 1), "minutes": round(dur[a][b] / 60.0)}
+                    for a, b in zip(path[:-1], path[1:])]
+            return m / 1000.0, sec, d_fee, t_fee, fee, legs
+
+        entered_fee = summarize(entered)[4]
+        total_km, total_s, d_fee, t_fee, route_fee, legs = summarize(best)
+        ordered = [destinations[i] for i in best]
+
+        # Frais « seul » de chaque client = aller-retour domicile ↔ client
+        solos = []
+        for i in best:
+            m = dist[0][i + 1] + dist[i + 1][0]
+            sec = dur[0][i + 1] + dur[i + 1][0]
+            solos.append(self._fee_from_totals(m / 1000.0, sec)[2])
+        destinations = ordered
         sum_solo = sum(solos)
         to_share = min(route_fee, sum_solo)
 
@@ -292,6 +344,9 @@ class TravelFeeCalculator:
             "distance_fee": round(d_fee, 2),
             "time_fee": round(t_fee, 2),
             "total_fee": round(to_share, 2),
+            "optimized_order": [d.get("label") or d["address"] for d in ordered],
+            "order_changed": list(best) != list(entered),
+            "entered_order_fee": round(entered_fee, 2),
             "sum_solo_fees": round(sum_solo, 2),
             "savings": round(sum_solo - to_share, 2),
             "clients": clients,

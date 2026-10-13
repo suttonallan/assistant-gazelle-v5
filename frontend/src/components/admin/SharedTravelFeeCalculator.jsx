@@ -4,7 +4,7 @@ import { API_URL } from '../../utils/apiConfig'
 /**
  * Frais partagés — tournée avec plusieurs clients éloignés.
  *
- * Trajet : domicile du technicien → client 1 → client 2 → … → retour.
+ * Trajet optimisé : domicile du technicien → clients dans le meilleur ordre → retour.
  * La zone gratuite s'applique une seule fois à la tournée ; le total est
  * réparti au prorata de ce que chaque client paierait seul.
  */
@@ -86,8 +86,9 @@ export default function SharedTravelFeeCalculator() {
     <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h2 className="text-xl font-bold text-gray-800 mb-1">🚗 Frais partagés — plusieurs clients sur la route</h2>
       <p className="text-sm text-gray-500 mb-5">
-        Entrez les clients dans l’ordre de la tournée. La zone gratuite compte une seule fois,
-        et le total est réparti selon ce que chaque client paierait seul.
+        Entrez les clients dans n’importe quel ordre : le calcul prend le trajet le plus court.
+        La zone gratuite compte une seule fois, et le total est réparti selon ce que chaque
+        client paierait seul.
       </p>
 
       <label className="block text-sm font-medium text-gray-700 mb-1">Technicien</label>
@@ -187,6 +188,14 @@ export default function SharedTravelFeeCalculator() {
               ⚠️ Distances estimées (Google Maps indisponible) — vérifier avant de facturer.
             </div>
           )}
+          <div className="mb-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-900">
+            <b>Trajet optimisé :</b> {result.technician_name} → {result.optimized_order.join(' → ')} → retour
+            {result.order_changed && (
+              <div className="text-xs text-blue-700 mt-1">
+                Dans l’ordre entré, les frais auraient été de {money(result.entered_order_fee)}.
+              </div>
+            )}
+          </div>
           <div className="text-sm text-gray-600 mb-3">
             Tournée de {result.technician_name} : <b>{result.total_km} km</b>, <b>{result.total_minutes} min</b> (aller-retour, tous arrêts).
             Total des frais : <b>{money(result.total_fee)}</b>
