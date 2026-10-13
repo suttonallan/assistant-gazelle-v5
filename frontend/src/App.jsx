@@ -14,6 +14,7 @@ import AssistantWidget from './components/AssistantWidget'
 import ChatIntelligent from './components/ChatIntelligent'
 import MaJournee from './components/MaJournee' // 🧠 Briefings Intelligents V2
 import TravelFeeCalculator from './components/admin/TravelFeeCalculator'
+import SharedTravelFeeCalculator from './components/admin/SharedTravelFeeCalculator'
 import KilometersCalculator from './components/admin/KilometersCalculator'
 import ChatStats from './components/ChatStats'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -276,6 +277,9 @@ function App() {
               <div className="space-y-8">
                 <TravelFeeCalculator />
                 <div className="border-t border-gray-200 pt-8">
+                  <SharedTravelFeeCalculator />
+                </div>
+                <div className="border-t border-gray-200 pt-8">
                   <KilometersCalculator />
                 </div>
               </div>
@@ -308,6 +312,9 @@ function App() {
             <ErrorBoundary componentName="Calculateur Frais">
               <div className="space-y-8">
                 <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <SharedTravelFeeCalculator />
+                </div>
                 <div className="border-t border-gray-200 pt-8">
                   <KilometersCalculator />
                 </div>
@@ -371,6 +378,9 @@ function App() {
                 <div className="bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden p-4">
                   <div className="space-y-8">
                     <TravelFeeCalculator />
+                    <div className="border-t border-gray-200 pt-8">
+                      <SharedTravelFeeCalculator />
+                    </div>
                     <div className="border-t border-gray-200 pt-8">
                       <KilometersCalculator />
                     </div>
@@ -449,6 +459,9 @@ function App() {
             <ErrorBoundary componentName="Calculateur Frais">
               <div className="space-y-8">
                 <TravelFeeCalculator />
+                <div className="border-t border-gray-200 pt-8">
+                  <SharedTravelFeeCalculator />
+                </div>
                 <div className="border-t border-gray-200 pt-8">
                   <KilometersCalculator />
                 </div>

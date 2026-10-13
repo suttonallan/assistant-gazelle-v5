@@ -112,6 +112,11 @@ const CAPABILITIES = [
     template: "Chez quels clients a-t-on ",
   },
   {
+    label: "🚗 Frais partagés (plusieurs clients)",
+    help: "Onglet Calculateur → section « Frais partagés » : répartit les frais d'une tournée éloignée",
+    template: "",
+  },
+  {
     label: "📞 Appels récents",
     help: "Liste des relances du Call Center faites par un technicien",
     template: "Quels appels Nicolas a-t-il faits cette semaine ?",

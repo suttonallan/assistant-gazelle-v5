@@ -222,6 +222,82 @@ class TravelFeeCalculator:
             is_free=is_free
         )
 
+    def _fee_from_totals(self, distance_km: float, duration_seconds: float):
+        """Applique la zone gratuite (une seule fois) et les tarifs à un trajet total."""
+        excess_km = max(0, distance_km - self.FREE_DISTANCE_KM)
+        excess_s = max(0, duration_seconds - self.FREE_TIME_SECONDS)
+        distance_fee = excess_km * self.PRICE_PER_KM
+        time_fee = (excess_s / 3600.0) * self.PRICE_PER_HOUR
+        return distance_fee, time_fee, distance_fee + time_fee
+
+    def calculate_shared_route(
+        self,
+        technician_name: str,
+        destinations: List[Dict[str, str]],
+    ) -> Dict:
+        """
+        Frais d'une tournée avec plusieurs clients, partagés entre eux.
+
+        Trajet : domicile du technicien → client 1 → client 2 → … → retour.
+        La zone gratuite (40 km / 40 min) s'applique UNE fois à la tournée.
+        Les frais totaux sont répartis au prorata de ce que chaque client
+        paierait s'il était seul : chacun paie toujours moins que seul.
+        """
+        tech = next((t for t in self.TECHNICIANS if t.name == technician_name), None)
+        if tech is None:
+            raise ValueError(f"Technicien inconnu : {technician_name}")
+        if len(destinations) < 2:
+            raise ValueError("Il faut au moins deux clients pour partager les frais.")
+
+        points = [tech.full_address] + [d["address"] for d in destinations] + [tech.full_address]
+        legs = []
+        total_m, total_s = 0.0, 0.0
+        for a, b in zip(points[:-1], points[1:]):
+            if self.degraded_mode:
+                m, sec = 20000, 1200
+            else:
+                m, sec = self._call_distance_matrix_api(a, b)
+            total_m += m
+            total_s += sec
+            legs.append({"km": round(m / 1000.0, 1), "minutes": round(sec / 60.0)})
+
+        total_km = total_m / 1000.0
+        d_fee, t_fee, route_fee = self._fee_from_totals(total_km, total_s)
+
+        solos = [self.calculate_fee_for_technician(tech, d["address"]).total_fee
+                 for d in destinations]
+        sum_solo = sum(solos)
+        to_share = min(route_fee, sum_solo)
+
+        clients = []
+        for d, solo in zip(destinations, solos):
+            share = (to_share * solo / sum_solo) if sum_solo > 0 else 0.0
+            clients.append({
+                "label": d.get("label") or d["address"],
+                "address": d["address"],
+                "solo_fee": round(solo, 2),
+                "share": round(share, 2),
+            })
+        # Ajuster l'arrondi pour que la somme des parts = total exact
+        diff = round(to_share, 2) - sum(c["share"] for c in clients)
+        if clients and abs(diff) >= 0.01:
+            i = max(range(len(clients)), key=lambda k: clients[k]["share"])
+            clients[i]["share"] = round(clients[i]["share"] + diff, 2)
+
+        return {
+            "technician_name": tech.name,
+            "total_km": round(total_km, 1),
+            "total_minutes": round(total_s / 60.0),
+            "legs": legs,
+            "distance_fee": round(d_fee, 2),
+            "time_fee": round(t_fee, 2),
+            "total_fee": round(to_share, 2),
+            "sum_solo_fees": round(sum_solo, 2),
+            "savings": round(sum_solo - to_share, 2),
+            "clients": clients,
+            "degraded_mode": self.degraded_mode,
+        }
+
     def calculate_all_technicians(
         self,
         destination_address: str

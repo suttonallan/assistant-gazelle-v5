@@ -150,6 +150,32 @@ async def calculate_travel_fees(request: TravelFeeRequest) -> TravelFeeResponse:
         raise HTTPException(status_code=500, detail=f"Erreur calcul frais: {str(e)}")
 
 
+class SharedTravelStop(BaseModel):
+    label: Optional[str] = None  # Nom du client (affichage)
+    address: str
+
+
+class SharedTravelFeeRequest(BaseModel):
+    """Tournée avec plusieurs clients : frais partagés."""
+    technician: str
+    stops: List[SharedTravelStop]
+
+
+@router.post("/travel-fees/shared")
+async def calculate_shared_travel_fees(request: SharedTravelFeeRequest) -> Dict[str, Any]:
+    """Calcule les frais d'une tournée (plusieurs clients) et la part de chacun."""
+    try:
+        calculator = TravelFeeCalculator()
+        return calculator.calculate_shared_route(
+            request.technician,
+            [{"label": s.label, "address": s.address} for s in request.stops if s.address.strip()],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur calcul frais partagés: {str(e)}")
+
+
 @router.post("/kilometers/calculate", response_model=KilometersResponse)
 async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse:
     """
