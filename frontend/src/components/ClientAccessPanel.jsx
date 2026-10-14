@@ -117,6 +117,11 @@ const CAPABILITIES = [
     examples: ["Quels appels Nicolas a-t-il faits cette semaine ?", "Mes appels d'hier"],
   },
   {
+    label: "📷 Photos d'un courriel → piano",
+    help: "Nommez le client : les photos de son dernier courriel sont ajoutées au dossier de son piano dans Gazelle.",
+    examples: ["Ajoute au piano de Rebecca Boyce les photos de son courriel", "Ajoute toutes les photos reçues de Tremblay à son piano"],
+  },
+  {
     label: "🚗 Frais partagés (plusieurs clients)",
     help: "Ouvre le calculateur pour répartir les frais d'une tournée éloignée entre les clients.",
     navigateTo: 'frais-partages',

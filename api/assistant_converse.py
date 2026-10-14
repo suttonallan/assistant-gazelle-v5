@@ -25,6 +25,7 @@ from api.assistant_routes import (
     execute_review_estimate, execute_search_keyword, execute_joint_appointment, execute_list_calls,
 )
 from api.assistant_duplication import duplicate_estimate
+from api.photos_piano_routes import ATTACH_PHOTOS_TOOL, execute_attach_photos
 
 router = APIRouter()
 
@@ -99,7 +100,7 @@ def execute_feature_request(summary: str, original_request: str,
 
 
 TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
-         JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, FEATURE_REQUEST_TOOL]
+         JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL]
 
 
 # ── Garde-fou heures ─────────────────────────────────────────────────
@@ -155,6 +156,13 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             )
         if name == "create_joint_appointment":
             return execute_joint_appointment(**tool_input)
+        if name == "attach_email_photos_to_piano":
+            return execute_attach_photos(
+                client_name=tool_input.get("client_name", ""),
+                client_email=tool_input.get("client_email"),
+                piano_id=tool_input.get("piano_id"),
+                toutes=bool(tool_input.get("toutes", False)),
+            )
         if name == "list_recent_calls":
             return execute_list_calls(
                 technician_first_name=tool_input.get("technician_first_name"),
@@ -205,7 +213,9 @@ async def converse(req: ConverseRequest):
         "- create_joint_appointment : créer un RV conjoint.\n"
         "- list_recent_calls : liste des appels du Call Center Gazelle faits par un "
         "technicien (relances client, avec résultat noté). Si l'utilisateur dit "
-        "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n\n"
+        "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n"
+        "- attach_email_photos_to_piano : ajouter au dossier du piano d'un client les "
+        "photos qu'il a envoyées par courriel.\n\n"
         "HEURES : toutes les heures que tu reçois sont déjà en heure de Montréal ; "
         "ne fais jamais de conversion de fuseau horaire. Pour « le premier RV », passe "
         "source_time_hint='premier'.\n"
