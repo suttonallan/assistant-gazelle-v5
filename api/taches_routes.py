@@ -682,6 +682,14 @@ def schema_mutation(nom: str = Query(...)):
     return {"trouve": True, "mutation": f, "types": types}
 
 
+@router.get("/gazelle/schema-type")
+def schema_type(nom: str = Query(...)):
+    """Lecture seule : champs d'un type d'entrée Gazelle (ex. PrivateContactPhoneInput)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    r = GazelleAPIClient()._execute_query("""query($n:String!){ __type(name:$n){ name kind inputFields { name type { name kind ofType { name kind ofType { name } } } } enumValues { name } } }""", {"n": nom})
+    return (r.get("data") or {}).get("__type") or {"trouve": False}
+
+
 @router.get("/gazelle/schema-notes")
 def schema_notes():
     """Lecture seule : mutations et types Gazelle liés aux notes/timeline (diagnostic)."""
