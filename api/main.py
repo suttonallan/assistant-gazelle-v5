@@ -32,6 +32,7 @@ from api.alertes_rv import router as alertes_rv_router
 from api.tableau_de_bord_routes import router_alertes, router_pianos, router_system  # 🆕 Tableau de Bord unifié (3 routers)
 from api.inventaire import router as inventaire_router
 from api.catalogue_routes import router as catalogue_router
+from api.photos_piano_routes import router as photos_piano_router
 from api.tournees import router as tournees_router
 from api.assistant import router as assistant_core_router  # 💬 Assistant chat + fiche client (routes /assistant/chat, /client/{id}, /smart-recipes, /health)
 from api.admin import router as admin_router
@@ -235,6 +236,7 @@ app.include_router(vincent_dindy_router)
 app.include_router(alertes_rv_router)
 app.include_router(inventaire_router)
 app.include_router(catalogue_router)
+app.include_router(photos_piano_router)
 app.include_router(tournees_router)
 app.include_router(assistant_core_router)  # 💬 Assistant chat + fiche client
 app.include_router(admin_router)
@@ -268,6 +270,7 @@ app.include_router(vincent_dindy_router, prefix="/api")
 app.include_router(alertes_rv_router, prefix="/api")
 app.include_router(inventaire_router, prefix="/api")
 app.include_router(catalogue_router, prefix="/api")
+app.include_router(photos_piano_router, prefix="/api")
 app.include_router(tournees_router, prefix="/api")
 app.include_router(assistant_core_router, prefix="/api")  # 💬 /api/assistant/chat, /api/assistant/client/{id}
 app.include_router(admin_router, prefix="/api")
