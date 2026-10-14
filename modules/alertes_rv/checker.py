@@ -20,17 +20,9 @@ from core.gazelle_api_client import GazelleAPIClient
 from config.techniciens_config import GAZELLE_IDS
 
 
-# Mots-clés pour identifier les RV d'institutions
-# Ces RV sont EXCLUS des alertes "non confirmé" car on n'attend pas de confirmation client
-INSTITUTION_KEYWORDS = [
-    'vincent-d\'indy', 'vincent d\'indy', 'vd ', ' vd', 'v-d',
-    'place des arts', 'pda',
-    'grands ballets', 'gnb',
-    'orford',
-    'uqam', 'pierre-péladeau',
-    'cmm',  # Conservatoire de musique de Montréal
-    'osm', 'orchestre symphonique',
-]
+# Mots-clés des RV d'institutions : liste unique dans core/rv_institution.py
+# (ces RV sont EXCLUS des alertes « non confirmé » : pas de confirmation client attendue)
+from core.rv_institution import INSTITUTION_KEYWORDS  # noqa: E402
 
 
 def _is_institution_appointment(apt: Dict[str, Any]) -> bool:

@@ -44,23 +44,9 @@ from config.techniciens_config import GAZELLE_IDS
 EXCLUDED_EVENT_TYPES = ['MEMO', 'BLOCKED', 'HOLIDAY']  # Note: PERSONAL peut être une institution
 
 # Mots-clés pour identifier les RV d'institutions (alertes même sans client)
-INSTITUTION_KEYWORDS = [
-    'vincent-d\'indy', 'vincent d\'indy', 'vd ', ' vd', 'v-d',
-    'place des arts', 'pda',
-    'grands ballets', 'gnb',
-    'orford',
-    'uqam', 'pierre-péladeau',
-    'cmm',
-]
-
-
-def _is_institution_appointment(title: str, location: str, description: str) -> bool:
-    """Vérifie si un RV est lié à une institution."""
-    text_to_check = f"{title or ''} {location or ''} {description or ''}".lower()
-    for keyword in INSTITUTION_KEYWORDS:
-        if keyword in text_to_check:
-            return True
-    return False
+# Règle partagée avec l'assistant : voir core/rv_institution.py
+from core.rv_institution import INSTITUTION_KEYWORDS  # noqa: E402,F401
+from core.rv_institution import is_institution_appointment as _is_institution_appointment  # noqa: E402
 
 
 class GazelleToSupabaseSync:

@@ -223,7 +223,7 @@ def execute_joint_appointment(
         return {
             "id": c["id"],
             "heure_montreal": fmt_heure(c),
-            "client": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+            "client": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip() or c.get("title", ""),
             "title": c.get("title", ""),
         }
 
@@ -272,13 +272,28 @@ def execute_joint_appointment(
         {"filters": {
             "startOn": iso_date,
             "endOn": iso_date,
-            "type": ["APPOINTMENT"],
+            "type": ["APPOINTMENT", "PERSONAL"],
         }},
     )
     nodes = fetch_result.get("data", {}).get("allEventsBatched", {}).get("nodes", []) or []
 
+    # Même règle que le reste de l'assistant (sync, alertes, briefings) : un RV
+    # PERSONNEL compte comme RV client s'il est rattaché à un client OU à une
+    # institution (Place des Arts, Vincent-d'Indy, Orford…). Les RV personnels
+    # purs (congés, notes) et nos propres clones d'accompagnement sont exclus.
+    from core.rv_institution import is_institution_appointment as _is_institution_appointment
+
+    def compte_comme_rv(n) -> bool:
+        if (n.get("type") or "").upper() == "APPOINTMENT":
+            return True
+        titre = n.get("title") or ""
+        if titre.startswith("[Accompagnement]"):
+            return False
+        return bool((n.get("client") or {}).get("id")) or _is_institution_appointment(titre, "", n.get("notes") or "")
+
     # Filtrer sur le tech principal
-    candidates = [n for n in nodes if (n.get("user") or {}).get("id") == source_tech_id]
+    candidates = [n for n in nodes
+                  if (n.get("user") or {}).get("id") == source_tech_id and compte_comme_rv(n)]
     candidates.sort(key=lambda n: n.get("start") or "")
 
     if not candidates:
@@ -312,7 +327,7 @@ def execute_joint_appointment(
         if not hint:
             return True
         contact = (node.get("client") or {}).get("defaultContact") or {}
-        full_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".lower()
+        full_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')} {node.get('title') or ''}".lower()
         return hint.strip().lower() in full_name
 
     hint_l = (source_time_hint or "").lower()
@@ -351,7 +366,7 @@ def execute_joint_appointment(
     source_title = source.get("title") or ""
     source_notes = source.get("notes") or ""
     contact = (source.get("client") or {}).get("defaultContact") or {}
-    client_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip() or "(client inconnu)"
+    client_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip() or source_title or "(client inconnu)"
     pianos = (source.get("allEventPianos", {}) or {}).get("nodes", []) or []
     piano_str = ", ".join(
         f"{p['piano']['make']} {p['piano']['model']}" for p in pianos if p.get("piano")
