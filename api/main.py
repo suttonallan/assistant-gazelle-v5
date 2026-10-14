@@ -537,6 +537,8 @@ async def zoom_webhook_health():
         "service": "zoom-webhook",
         "zoom_secret_token_configured": bool(os.getenv('ZOOM_SECRET_TOKEN')),
         "email_notifier_configured": bool(os.getenv('RESEND_API_KEY')),
+        # Clés de l'app Zoom Server-to-Server (API téléphone : résumés d'appel, contacts)
+        "zoom_api_configured": all(os.getenv(k) for k in ('ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET', 'ZOOM_ACCOUNT_ID')),
         "sms_forward_recipient": SMS_FORWARD_EMAIL
     }
 
