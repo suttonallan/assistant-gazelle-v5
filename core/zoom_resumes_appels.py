@@ -9,7 +9,9 @@ Flux :
 4. Claude réécrit le résumé : concis, en français, erreurs de transcription corrigées
    (noms des techniciens, adresse, prix) à partir de la fiche Gazelle.
 5. La note est ajoutée à la chronologie du client (createClientLog).
-   Client introuvable → la note part à info@ pour traitement manuel.
+   Numéro inconnu + vraie demande de service + nom connu → fiche créée comme client
+   potentiel (PROSPECT) avec téléphone, courriel et adresse tirés de l'appel.
+   Sinon (fournisseur, démarchage, nom inconnu) → la note part à info@.
 
 La structure exacte des réponses Zoom n'est pas documentée publiquement : l'extraction
 est volontairement tolérante (parcours récursif du JSON) et le JSON brut est journalisé.
@@ -147,8 +149,10 @@ def _nom_client(c: Dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- Claude
 
-def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]]) -> str:
-    """Claude transforme le résumé Zoom en note courte et fiable pour Gazelle."""
+def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Claude transforme le résumé Zoom en note courte et fiable pour Gazelle, et en extrait
+    les coordonnées de l'appelant (servent à créer un client potentiel s'il est inconnu).
+    Retourne {"note", "prenom", "nom", "courriel", "adresse": {rue, ville, code_postal}, "reference", "demande_client"}."""
     import anthropic
 
     brut = {k: v for k, v in resume_brut.items() if k != "_ids"}
@@ -172,7 +176,14 @@ def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]
         "Puis, seulement si l'info existe, une ligne chacune : « Problème : … », « Solution prévue : … », "
         "« Service proposé : … » (avec prix et durée), « Contexte : … » (référence, historique du piano), "
         "« Suivi : … » (prochaines étapes concrètes, qui fait quoi).\n"
-        "Maximum 8 lignes. Pas de liens, pas de formules de politesse, pas de numéros de téléphone."
+        "Maximum 8 lignes. Pas de liens, pas de formules de politesse, pas de numéros de téléphone.\n\n"
+        "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour :\n"
+        '{"note": "<la note>", "prenom": "<prénom de l\'appelant ou null>", "nom": "<nom ou null>", '
+        '"courriel": "<ou null>", "adresse": {"rue": "<ou null>", "ville": "<ou null>", "code_postal": "<ou null>"}, '
+        '"reference": "<qui l\'a recommandé, ou null>", '
+        '"demande_client": <true si l\'appelant est un client ou client potentiel qui demande un service de piano ; '
+        'false pour un fournisseur, un démarcheur, un faux numéro ou un appel sans contenu>}\n'
+        "N'invente aucune coordonnée : null si l'info n'est pas dans le résumé."
     )
     message = f"FICHE GAZELLE DU CLIENT :\n{fiche}\n\nRÉSUMÉ ZOOM (JSON brut) :\n{texte_brut}"
 
@@ -184,10 +195,21 @@ def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]
                                             messages=[{"role": "user", "content": message}])
             texte = "".join(b.text for b in rep.content if getattr(b, "type", "") == "text").strip()
             if texte:
-                return texte
+                return _lire_json(texte)
         except Exception as e:  # modèle indisponible → repli
             derniere_erreur = e
     raise RuntimeError(f"Réécriture Claude impossible : {derniere_erreur}")
+
+
+def _lire_json(texte: str) -> Dict[str, Any]:
+    m = re.search(r"\{.*\}", texte, re.S)
+    try:
+        d = json.loads(m.group(0)) if m else {}
+    except Exception:
+        d = {}
+    if not d.get("note"):
+        d = {"note": texte, "demande_client": False}
+    return d
 
 
 # ---------------------------------------------------------------- Orchestration
@@ -238,15 +260,30 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
 
         numeros = _numeros(resume) or _numeros(payload_objet)
         client = trouver_client(numeros)
-        note = reecrire_resume(resume, client)
+        r = reecrire_resume(resume, client)
+        note = r["note"]
+
+        from core.gazelle_api_client import GazelleAPIClient
+        gz = GazelleAPIClient()
 
         if not client:
-            _courriel_secours(note, numeros, "Client introuvable dans Gazelle")
+            # Numéro inconnu : on crée la fiche comme client potentiel, seulement si
+            # l'appel est une vraie demande de service et qu'on a au moins un nom.
+            if r.get("demande_client") and numeros and (r.get("prenom") or r.get("nom")):
+                d = numeros[0]
+                cid = gz.create_client(r.get("prenom"), r.get("nom"),
+                                       telephone=f"({d[0:3]}) {d[3:6]}-{d[6:]}",
+                                       courriel=r.get("courriel"), adresse=r.get("adresse") or {},
+                                       reference=r.get("reference"))
+                gz.create_client_log(cid, note)
+                _marquer_traite(rid)
+                print(f"✅ Client potentiel créé ({cid}) avec le résumé d'appel")
+                return {"ok": True, "client": cid, "cree": True}
+            _courriel_secours(note, numeros, "Client introuvable dans Gazelle (fiche non créée)")
             _marquer_traite(rid)
             return {"ok": True, "raison": "client_introuvable", "numeros": numeros}
 
-        from core.gazelle_api_client import GazelleAPIClient
-        GazelleAPIClient().create_client_log(client["external_id"], note)
+        gz.create_client_log(client["external_id"], note)
         _marquer_traite(rid)
         print(f"✅ Résumé d'appel ajouté à la chronologie de {_nom_client(client)} ({client['external_id']})")
         return {"ok": True, "client": client["external_id"]}

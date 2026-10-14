@@ -943,6 +943,45 @@ class GazelleAPIClient:
             raise ValueError("; ".join(f"{e.get('fieldName')}: {', '.join(e.get('messages') or [])}" for e in erreurs))
         return payload
 
+    def create_client(self, prenom: Optional[str], nom: Optional[str], telephone: Optional[str] = None,
+                      courriel: Optional[str] = None, adresse: Optional[Dict[str, str]] = None,
+                      statut: str = "PROSPECT", reference: Optional[str] = None) -> str:
+        """Crée un client Gazelle (par défaut : client potentiel) avec son contact principal.
+        Retourne l'identifiant du client (cli_...)."""
+        contact: Dict[str, Any] = {"isDefault": True, "isBillingDefault": True,
+                                   "firstName": prenom or None, "lastName": nom or None}
+        if telephone:
+            contact["phones"] = [{"isDefault": True, "type": "PRIMARY", "phoneNumber": telephone}]
+        if courriel:
+            contact["emails"] = [{"isDefault": True, "email": courriel}]
+        if adresse and (adresse.get("rue") or adresse.get("ville")):
+            contact["locations"] = [{"locationType": "ADDRESS", "usageType": "STREET",
+                                     "street1": adresse.get("rue"), "municipality": adresse.get("ville"),
+                                     "region": adresse.get("province") or "QC",
+                                     "postalCode": adresse.get("code_postal"), "countryCode": "CA"}]
+        entree: Dict[str, Any] = {"status": statut, "contacts": [contact]}
+        if reference:
+            entree["referredByNotes"] = reference
+        mutation = """
+        mutation CreateClient($input: PrivateClientInput!) {
+            createClient(input: $input) {
+                client { id }
+                mutationErrors { fieldName messages }
+            }
+        }
+        """
+        result = self._execute_query(mutation, {"input": entree})
+        if result.get("errors"):
+            raise ValueError(f"Erreurs GraphQL: {result['errors']}")
+        payload = (result.get("data") or {}).get("createClient") or {}
+        erreurs = payload.get("mutationErrors") or []
+        if erreurs:
+            raise ValueError("; ".join(f"{e.get('fieldName')}: {', '.join(e.get('messages') or [])}" for e in erreurs))
+        cid = (payload.get("client") or {}).get("id")
+        if not cid:
+            raise ValueError(f"createClient sans identifiant : {payload}")
+        return cid
+
     def create_timeline_entry(
         self,
         piano_id: str,
