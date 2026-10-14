@@ -125,3 +125,14 @@ def depuis_front(req: DepuisFrontRequest) -> Dict[str, Any]:
             resultats.append({"fichier": nom, "erreur": str(e)[:300]})
     ok = [r for r in resultats if not r.get("erreur")]
     return {"piano_id": req.piano_id, "ajoutees": len(ok), "total": len(resultats), "resultats": resultats}
+
+
+@router.get("/piano/{piano_id}")
+def pieces_du_piano(piano_id: str) -> Dict[str, Any]:
+    """Pièces jointes (photos) d'un piano Gazelle, avec leur état de traitement."""
+    q = """query($id: String!) { piano(id: $id) { id make totalAttachmentsCount
+      attachments { nodes { id filename status type createdAt } } } }"""
+    res = GazelleAPIClient()._execute_query(q, {"id": piano_id})
+    if res.get("errors"):
+        raise HTTPException(status_code=502, detail=res["errors"])
+    return res.get("data") or {}
