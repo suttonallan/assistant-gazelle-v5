@@ -102,6 +102,31 @@ TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, FEATURE_REQUEST_TOOL]
 
 
+# ── Garde-fou heures ─────────────────────────────────────────────────
+# Gazelle et Supabase renvoient des heures UTC (« …T13:00:00Z »). Le modèle les
+# lirait telles quelles (13h au lieu de 9h). Avant de donner un résultat d'outil
+# au modèle, TOUTE date-heure UTC est convertie en heure de Montréal.
+import re as _re
+_ISO_UTC = _re.compile(r"\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|\+00:00|\+0000)")
+
+
+def _vers_montreal(valeur: Any) -> Any:
+    from core.timezone_utils import utc_to_montreal
+    if isinstance(valeur, str):
+        def conv(m):
+            try:
+                dt = utc_to_montreal(f"{m.group(1)}T{m.group(2)}:00+00:00")
+                return dt.strftime("%Y-%m-%d %Hh%M (heure de Montréal)")
+            except Exception:
+                return m.group(0)
+        return _ISO_UTC.sub(conv, valeur)
+    if isinstance(valeur, dict):
+        return {k: _vers_montreal(v) for k, v in valeur.items()}
+    if isinstance(valeur, list):
+        return [_vers_montreal(v) for v in valeur]
+    return valeur
+
+
 def _run_tool(name: str, tool_input: Dict[str, Any],
               user_first_name: Optional[str] = None) -> Dict[str, Any]:
     """Exécute un outil et retourne un dict résultat (jamais d'exception qui remonte)."""
@@ -181,6 +206,9 @@ async def converse(req: ConverseRequest):
         "- list_recent_calls : liste des appels du Call Center Gazelle faits par un "
         "technicien (relances client, avec résultat noté). Si l'utilisateur dit "
         "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n\n"
+        "HEURES : toutes les heures que tu reçois sont déjà en heure de Montréal ; "
+        "ne fais jamais de conversion de fuseau horaire. Pour « le premier RV », passe "
+        "source_time_hint='premier'.\n"
         "Sers-toi de l'HISTORIQUE : si l'utilisateur confirme (« oui », « vas-y ») une "
         "action que tu viens de proposer, exécute-la avec l'outil. Si une demande est "
         "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner.\n"
@@ -221,7 +249,7 @@ async def converse(req: ConverseRequest):
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tu.id,
-                "content": json.dumps(result, ensure_ascii=False, default=str),
+                "content": json.dumps(_vers_montreal(result), ensure_ascii=False, default=str),
             })
         messages.append({"role": "user", "content": tool_results})
 

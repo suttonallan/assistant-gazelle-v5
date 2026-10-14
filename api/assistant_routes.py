@@ -154,7 +154,8 @@ JOINT_APPOINTMENT_TOOL = {
             "source_time_hint": {
                 "type": "string",
                 "description": (
-                    "Heure approximative si mentionnée (ex: '14h', '9h30', 'matin'). "
+                    "Heure approximative si mentionnée (ex: '14h', '9h30', 'matin'), "
+                    "ou 'premier' / 'dernier' pour le premier ou le dernier RV de la journée. "
                     "Optionnel — utile seulement si le tech a plusieurs RV ce jour."
                 ),
             },
@@ -170,6 +171,14 @@ JOINT_APPOINTMENT_TOOL = {
                 "description": (
                     "Prénom du technicien accompagnateur à ajouter au RV. "
                     "Valeurs : Allan, Nicolas, JP, Jean-Philippe, Margot."
+                ),
+            },
+            "duration_minutes": {
+                "type": "integer",
+                "description": (
+                    "Durée du RV personnel de l'accompagnateur, en minutes, si "
+                    "l'utilisateur la précise (ex. « 10 min »). Sinon : même durée "
+                    "que le RV principal."
                 ),
             },
         },
@@ -189,9 +198,34 @@ def execute_joint_appointment(
     companion_first_name: str,
     source_time_hint: Optional[str] = None,
     client_name_hint: Optional[str] = None,
+    duration_minutes: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Exécute le workflow joint RV. Retourne un dict avec success + détails."""
+    """Exécute le workflow joint RV. Retourne un dict avec success + détails.
+
+    HEURES : Gazelle renvoie l'UTC. Tout ce qui est comparé ou renvoyé à
+    l'assistant passe par utc_to_montreal — jamais d'heure UTC brute en sortie.
+    """
     from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import utc_to_montreal
+
+    def heure_mtl(node) -> Optional[datetime]:
+        try:
+            return utc_to_montreal(node.get("start", ""))
+        except Exception:
+            return None
+
+    def fmt_heure(node) -> str:
+        dt = heure_mtl(node)
+        return dt.strftime("%Hh%M") if dt else "?"
+
+    def resume(c) -> Dict[str, Any]:
+        contact = (c.get("client") or {}).get("defaultContact") or {}
+        return {
+            "id": c["id"],
+            "heure_montreal": fmt_heure(c),
+            "client": f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+            "title": c.get("title", ""),
+        }
 
     source_tech_id = resolve_tech(source_tech_first_name)
     companion_tech_id = resolve_tech(companion_first_name)
@@ -245,6 +279,7 @@ def execute_joint_appointment(
 
     # Filtrer sur le tech principal
     candidates = [n for n in nodes if (n.get("user") or {}).get("id") == source_tech_id]
+    candidates.sort(key=lambda n: n.get("start") or "")
 
     if not candidates:
         return {
@@ -256,36 +291,22 @@ def execute_joint_appointment(
     def matches_time(node, hint):
         if not hint:
             return True
-        # Extraire l'heure "14h", "9h30", "9:30"
-        m = re.search(r"(\d{1,2})\s*[h:]\s*(\d{0,2})", hint.lower())
+        dt = heure_mtl(node)
+        if dt is None:
+            return True
+        h_lower = hint.lower()
+        m = re.search(r"(\d{1,2})\s*[h:]\s*(\d{0,2})", h_lower)
         if not m:
-            # "matin" / "après-midi" / "soir"
-            start_str = node.get("start", "")
-            try:
-                hour = datetime.fromisoformat(start_str.replace("Z", "+00:00")).astimezone().hour
-            except Exception:
-                return True
-            h_lower = hint.lower()
             if "matin" in h_lower:
-                return hour < 12
+                return dt.hour < 12
             if "après-midi" in h_lower or "apres-midi" in h_lower or "pm" in h_lower:
-                return 12 <= hour < 18
+                return 12 <= dt.hour < 18
             if "soir" in h_lower:
-                return hour >= 17
+                return dt.hour >= 17
             return True
-        target_h = int(m.group(1))
-        target_m = int(m.group(2)) if m.group(2) else 0
-        try:
-            dt = datetime.fromisoformat(node.get("start", "").replace("Z", "+00:00"))
-            # Convertir UTC en heure de Montréal (approx -4h en avril, EDT)
-            local_h = (dt.hour - 4) % 24
-            local_m = dt.minute
-        except Exception:
-            return True
+        target = int(m.group(1)) * 60 + (int(m.group(2)) if m.group(2) else 0)
         # Tolérance ±1h
-        node_minutes = local_h * 60 + local_m
-        target_minutes = target_h * 60 + target_m
-        return abs(node_minutes - target_minutes) <= 60
+        return abs(dt.hour * 60 + dt.minute - target) <= 60
 
     def matches_client(node, hint):
         if not hint:
@@ -294,10 +315,15 @@ def execute_joint_appointment(
         full_name = f"{contact.get('firstName', '')} {contact.get('lastName', '')}".lower()
         return hint.strip().lower() in full_name
 
+    hint_l = (source_time_hint or "").lower()
+    rang = "premier" if any(w in hint_l for w in ("premier", "première", "premiere", "first")) else \
+           "dernier" if any(w in hint_l for w in ("dernier", "dernière", "derniere", "last")) else None
     filtered = [
         c for c in candidates
-        if matches_time(c, source_time_hint) and matches_client(c, client_name_hint)
+        if (rang or matches_time(c, source_time_hint)) and matches_client(c, client_name_hint)
     ]
+    if rang and filtered:
+        filtered = [filtered[0] if rang == "premier" else filtered[-1]]
 
     if not filtered:
         # Aucun match avec les hints — retourner les candidats bruts pour clarification
@@ -308,19 +334,7 @@ def execute_joint_appointment(
                 f"{TECH_DISPLAY_NAMES[source_tech_id]} a {len(candidates)} RV le {iso_date}. "
                 f"Précise l'heure ou le nom du client."
             ),
-            "candidates": [
-                {
-                    "id": c["id"],
-                    "start": c.get("start", ""),
-                    "client": (
-                        ((c.get("client") or {}).get("defaultContact") or {}).get("firstName", "")
-                        + " "
-                        + ((c.get("client") or {}).get("defaultContact") or {}).get("lastName", "")
-                    ).strip(),
-                    "title": c.get("title", ""),
-                }
-                for c in candidates
-            ],
+            "candidates": [resume(c) for c in candidates],
         }
 
     if len(filtered) > 1:
@@ -329,19 +343,7 @@ def execute_joint_appointment(
             "error": (
                 f"{len(filtered)} RV correspondent. Précise davantage l'heure ou le client."
             ),
-            "candidates": [
-                {
-                    "id": c["id"],
-                    "start": c.get("start", ""),
-                    "client": (
-                        ((c.get("client") or {}).get("defaultContact") or {}).get("firstName", "")
-                        + " "
-                        + ((c.get("client") or {}).get("defaultContact") or {}).get("lastName", "")
-                    ).strip(),
-                    "title": c.get("title", ""),
-                }
-                for c in filtered
-            ],
+            "candidates": [resume(c) for c in filtered],
         }
 
     source = filtered[0]
@@ -363,7 +365,7 @@ def execute_joint_appointment(
     clone_input = {
         "title": f"[Accompagnement] {source_title}",
         "start": source["start"],
-        "duration": source.get("duration") or 60,
+        "duration": int(duration_minutes) if duration_minutes else (source.get("duration") or 60),
         "type": "PERSONAL",
         "userId": companion_tech_id,
         "notes": (
@@ -426,6 +428,8 @@ def execute_joint_appointment(
         "source_tech": source_full,
         "companion_tech": companion_full,
         "date": iso_date,
+        "heure_montreal": fmt_heure(source),
+        "duree_minutes": clone_input["duration"],
         "annotation_warning": annotation_warning,
     }
 
