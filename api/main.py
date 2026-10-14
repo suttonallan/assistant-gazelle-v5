@@ -516,6 +516,15 @@ async def zoom_webhook(request: Request, background_tasks: BackgroundTasks):
 
             return {"status": "received", "message": "SMS traité avec succès"}
 
+        # 3. Résumé d'appel IA (« Call Summary Changed ») → chronologie Gazelle du client.
+        # Traitement en tâche de fond (API Zoom + Claude + Gazelle > 3 s).
+        if 'summary' in event:
+            from core.zoom_resumes_appels import traiter_evenement_resume
+            objet = (data.get('payload') or {}).get('object') or data.get('payload') or {}
+            print(f"📞 Événement résumé d'appel Zoom : {event} — {json.dumps(objet)[:800]}")
+            background_tasks.add_task(traiter_evenement_resume, objet)
+            return {"status": "received", "message": "Résumé d'appel pris en charge"}
+
         # Autres événements non gérés
         print(f"ℹ️ Événement Zoom reçu (non traité): {data.get('event', 'unknown')}")
         return {"status": "received", "message": "Événement reçu mais non traité"}
