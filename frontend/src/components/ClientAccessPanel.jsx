@@ -237,7 +237,11 @@ export default function ClientAccessPanel({ currentUser }) {
     if (e) e.preventDefault()
     const text = searchTerm.trim()
     if (!text) return
-    if (!isActionRequest(text)) return  // nom court : on laisse l'autocomplete gérer la recherche client
+    if (!isActionRequest(text)) {
+      // Texte court : si un client correspond, on ouvre sa fiche ;
+      // sinon on l'envoie quand même à l'assistant (jamais de bouton sans effet).
+      if (suggestions.length > 0) { selectClient(suggestions[0]); return }
+    }
     setShowSuggestions(false)
     setSearchTerm('')
     sendConversation(text)
@@ -312,7 +316,7 @@ export default function ClientAccessPanel({ currentUser }) {
                 </div>
               )}
             </div>
-            {isActionRequest(searchTerm) && (
+            {searchTerm.trim() && !selectedClient && (
               <button
                 type="submit"
                 disabled={convLoading}
