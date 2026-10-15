@@ -538,6 +538,28 @@ async def zoom_webhook(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=f"Erreur serveur: {str(e)}")
 
 
+@app.get("/api/zoom/api-test")
+async def zoom_api_test():
+    """Lecture seule : l'assistant obtient-il un jeton Zoom et lit-il l'historique d'appels ?
+    Ne renvoie aucune donnée personnelle (seulement des compteurs et codes d'erreur)."""
+    from core.zoom_sms import get_zoom_access_token, ZOOM_API_BASE_URL
+    try:
+        token = get_zoom_access_token()
+    except Exception as e:
+        return {"jeton": False, "erreur": str(e)[:300]}
+    r = requests.get(f"{ZOOM_API_BASE_URL}/phone/call_history", params={"page_size": 5},
+                     headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    res = {"jeton": True, "historique_http": r.status_code}
+    if r.status_code == 200:
+        d = r.json()
+        appels = d.get("call_logs") or d.get("call_history") or []
+        res["appels_lus"] = len(appels)
+        res["champs"] = sorted(appels[0].keys()) if appels else []
+    else:
+        res["erreur"] = r.text[:300]
+    return res
+
+
 @app.get("/api/zoom/webhook/health")
 async def zoom_webhook_health():
     """Health check pour le webhook Zoom."""
