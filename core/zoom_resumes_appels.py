@@ -9,7 +9,10 @@ Flux :
 4. Claude réécrit le résumé : concis, en français, erreurs de transcription corrigées
    (noms des techniciens, adresse, prix) à partir de la fiche Gazelle.
 5. La note est ajoutée à la chronologie du client (createClientLog).
-   Numéro inconnu + vraie demande de service + nom connu → fiche créée comme client
+   Numéro inconnu → on vérifie d'abord si c'est un client existant qui appelle d'un
+   autre numéro (même courriel, ou même nom + même code postal) : note rattachée à sa
+   fiche. Nom semblable mais doute → rien n'est créé, courriel à info@ avec les fiches
+   possibles. Personne de semblable + vraie demande de service + nom → fiche créée comme client
    potentiel (PROSPECT) avec téléphone, courriel et adresse tirés de l'appel.
    Sinon (fournisseur, démarchage, nom inconnu) → la note part à info@.
 
@@ -142,6 +145,83 @@ def trouver_client(numeros: List[str]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _cp(v: Any) -> str:
+    return re.sub(r"\s", "", str(v or "")).upper()
+
+
+def trouver_par_identite(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Numéro inconnu : un client existant appelle peut-être d'un autre numéro.
+    Cherche par courriel, puis par nom (confirmé par le code postal).
+    Retourne {"sur": client} si certain, {"candidats": [...]} si doute, {} si rien."""
+    from core.supabase_storage import SupabaseStorage
+    db = SupabaseStorage()
+    h = db._get_headers()
+
+    def _get(table, params):
+        try:
+            rep = requests.get(f"{db.api_url}/{table}", headers=h, timeout=15, params={"select": "*", "limit": "10", **params})
+            return rep.json() if rep.status_code == 200 else []
+        except Exception:
+            return []
+
+    def _client(cid):
+        l = _get("gazelle_clients", {"external_id": f"eq.{cid}"})
+        return l[0] if l else {"external_id": cid}
+
+    courriel = (r.get("courriel") or "").strip()
+    if courriel and "@" in courriel:
+        l = _get("gazelle_clients", {"email": f"ilike.{courriel}"})
+        if l:
+            return {"sur": l[0], "par": "courriel"}
+        l = _get("gazelle_contacts", {"email": f"ilike.{courriel}"})
+        if l and l[0].get("client_external_id"):
+            return {"sur": _client(l[0]["client_external_id"]), "par": "courriel"}
+
+    prenom, nom = (r.get("prenom") or "").strip(), (r.get("nom") or "").strip()
+    if not nom:
+        return {}
+    params = {"last_name": f"ilike.{nom}"}
+    if prenom:
+        params["first_name"] = f"ilike.{prenom}*"
+    candidats = _get("gazelle_clients", params)
+    for c in _get("gazelle_contacts", params):
+        cid = c.get("client_external_id")
+        if cid and all(x.get("external_id") != cid for x in candidats):
+            candidats.append(_client(cid))
+    if not candidats:
+        return {}
+
+    cp = _cp((r.get("adresse") or {}).get("code_postal"))
+    if cp:
+        memes = [c for c in candidats if _cp(c.get("postal_code")) == cp]
+        if len(memes) == 1:
+            return {"sur": memes[0], "par": "nom et code postal"}
+    return {"candidats": candidats}
+
+
+def _courriel_a_confirmer(note: str, numeros: List[str], candidats: List[Dict[str, Any]]) -> None:
+    """Doute entre un client existant et un nouveau : on demande à l'équipe."""
+    from core.email_notifier import EmailNotifier
+    n = EmailNotifier()
+    if not n.method:
+        return
+    tel = ", ".join(numeros) or "inconnu"
+    lignes = [f"{_nom_client(c)} — {c.get('city') or ''} {c.get('postal_code') or ''} — {c.get('phone') or 's.t.'} "
+              f"(https://gazelleapp.io/app/v2/clients/x/{c.get('external_id')})" for c in candidats[:5]]
+    liste_html = "".join(f"<li>{l}</li>" for l in lignes)
+    n.send_email(
+        to_emails=[COURRIEL_SECOURS],
+        subject=f"📞 Appel d'un nouveau numéro ({tel}) : client existant ?",
+        html_content=(f"<p>Le numéro <strong>{tel}</strong> n'est dans aucune fiche, mais l'appelant "
+                      f"ressemble à un client existant :</p><ul>{liste_html}</ul>"
+                      "<p>Rien n'a été créé ni ajouté. Ajoutez la note à la bonne fiche "
+                      "(et le nouveau numéro au contact), ou créez le client s'il s'agit d'un homonyme.</p>"
+                      f"<pre style='white-space:pre-wrap;font-family:inherit'>{note}</pre>"
+                      "<p style='color:#666;font-size:12px'>Assistant Gazelle V5</p>"),
+        plain_content=f"Numéro {tel} inconnu ; clients possibles :\n" + "\n".join(lignes) + f"\n\n{note}",
+    )
+
+
 def _nom_client(c: Dict[str, Any]) -> str:
     nom = " ".join(x for x in (c.get("first_name"), c.get("last_name")) if x)
     return nom or c.get("company_name") or "Client"
@@ -267,7 +347,22 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
         gz = GazelleAPIClient()
 
         if not client:
-            # Numéro inconnu : on crée la fiche comme client potentiel, seulement si
+            # Numéro inconnu. D'abord : est-ce un client existant qui appelle d'un
+            # autre numéro ? (courriel, ou nom confirmé par le code postal)
+            ident = trouver_par_identite(r)
+            if ident.get("sur"):
+                c = ident["sur"]
+                tel = ", ".join(f"({d[0:3]}) {d[3:6]}-{d[6:]}" for d in numeros)
+                gz.create_client_log(c["external_id"], note + (f"\n(Appel reçu d'un numéro absent de la fiche : {tel})" if tel else ""))
+                _marquer_traite(rid)
+                print(f"✅ Appel d'un autre numéro rattaché à {_nom_client(c)} ({ident['par']})")
+                return {"ok": True, "client": c["external_id"], "rattache_par": ident["par"]}
+            if ident.get("candidats"):
+                _courriel_a_confirmer(note, numeros, ident["candidats"])
+                _marquer_traite(rid)
+                return {"ok": True, "raison": "a_confirmer", "candidats": [c.get("external_id") for c in ident["candidats"]]}
+
+            # Personne de connu : fiche créée comme client potentiel, seulement si
             # l'appel est une vraie demande de service et qu'on a au moins un nom.
             if r.get("demande_client") and numeros and (r.get("prenom") or r.get("nom")):
                 d = numeros[0]
