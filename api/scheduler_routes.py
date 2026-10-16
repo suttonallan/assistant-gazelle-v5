@@ -235,6 +235,16 @@ async def run_messages_rv():
         raise HTTPException(status_code=500, detail=f"Erreur messages/RV : {e}")
 
 
+@router.post("/run/factures-doublons")
+async def run_factures_doublons(envoyer: bool = False):
+    """Cherche les factures en double. Par défaut, affiche seulement (n'envoie rien)."""
+    from modules.alerts.factures_doublons import verifier_doublons
+    try:
+        return {"success": True, "stats": verifier_doublons(envoyer=envoyer)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur factures en double : {e}")
+
+
 # ============================================================
 # IMPORTS INDIVIDUELS GAZELLE
 # ============================================================

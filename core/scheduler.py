@@ -781,6 +781,20 @@ def task_messages_rv_existant():
         traceback.print_exc()
 
 
+def task_factures_doublons():
+    """Factures Gazelle possiblement en double (même client, montants semblables,
+    créées à moins de 3 semaines d'écart) → courriel à info@ pour Louise."""
+    try:
+        from modules.alerts.factures_doublons import verifier_doublons
+        stats = verifier_doublons()
+        print(f"🧾 Factures en double : { {k: v for k, v in stats.items() if k != 'detail'} }")
+        return stats
+    except Exception as e:
+        print(f"❌ Erreur vérification factures en double : {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def task_sync_call_center_sheet():
     """
     Compile les nouveaux appels du Call Center Gazelle (relances client par
@@ -1081,6 +1095,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Aux 15 min (7h-21h) - Messages ↔ RV existants configurée")
+
+    # 12:30 et 18:30 - Factures Gazelle en double
+    scheduler.add_job(
+        task_factures_doublons,
+        trigger=CronTrigger(hour='12,18', minute=30, timezone='America/Montreal'),
+        id='factures_doublons',
+        name='Factures en double -> info@ (12h30, 18h30)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 12:30 et 18:30 - Factures en double configurée")
 
     # 19:00 - Sync Call Center vers Google Sheet
     scheduler.add_job(

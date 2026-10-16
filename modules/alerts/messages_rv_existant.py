@@ -92,6 +92,22 @@ def _client_par_telephone(tel: str) -> Optional[str]:
     return (c or {}).get("external_id")
 
 
+def nom_client(client_id: str) -> str:
+    """Nom affiché de la fiche Gazelle (pour que la note dise DE QUI il s'agit)."""
+    from core.supabase_storage import SupabaseStorage
+    db = SupabaseStorage()
+    try:
+        r = requests.get(f"{db.api_url}/gazelle_clients", headers=db._get_headers(), timeout=15,
+                         params={"select": "company_name,first_name,last_name",
+                                 "external_id": f"eq.{client_id}", "limit": "1"})
+        c = (r.json() if r.status_code == 200 else [None])[0] or {}
+    except Exception:
+        c = {}
+    return (c.get("company_name")
+            or " ".join(x for x in (c.get("first_name"), c.get("last_name")) if x)
+            or "Ce client")
+
+
 def prochain_rv(client_id: str) -> Optional[Dict[str, Any]]:
     from core.supabase_storage import SupabaseStorage
     db = SupabaseStorage()
@@ -113,7 +129,7 @@ def prochain_rv(client_id: str) -> Optional[Dict[str, Any]]:
     return lignes[0] if lignes else None
 
 
-def texte_commentaire(rv: Dict[str, Any]) -> str:
+def texte_commentaire(rv: Dict[str, Any], nom: str = "Ce client", par: str = "") -> str:
     quand = str(rv.get("appointment_date") or "")[:10]
     try:
         d = datetime.strptime(quand, "%Y-%m-%d")
@@ -125,7 +141,8 @@ def texte_commentaire(rv: Dict[str, Any]) -> str:
         quand += f" à {heure.replace(':', ' h ')}"
     tech = TECHS.get(rv.get("technicien") or "", "")
     avec = f" avec {tech}" if tech else ""
-    return (f"📅 Ce client a déjà un rendez-vous : {quand}{avec}. "
+    source = f" (fiche Gazelle trouvée par {par})" if par else ""
+    return (f"📅 {nom}{source} a déjà un rendez-vous : {quand}{avec}. "
             "Vérifier avant de rappeler. (Assistant Gazelle)")
 
 
@@ -150,9 +167,11 @@ def verifier_messages() -> Dict[str, int]:
         stats["conversations"] += 1
         tel = telephone_du_sujet(conv.get("subject", ""))
         client_id = _client_par_telephone(tel) if tel else None
+        par = f"le numéro ({tel[:3]}) {tel[3:6]}-{tel[6:]}" if client_id else ""
         if not client_id:
             courriel = courriel_client(conv)
             client_id = _client_par_courriel(courriel) if courriel else None
+            par = f"le courriel {courriel}" if client_id else ""
         if not client_id:
             continue
         stats["clients_trouves"] += 1
@@ -164,7 +183,8 @@ def verifier_messages() -> Dict[str, int]:
         if cle in deja:
             continue
         try:
-            front.add_comment(conv["id"], texte_commentaire(rv), AUTEUR_COMMENTAIRE)
+            front.add_comment(conv["id"], texte_commentaire(rv, nom_client(client_id), par),
+                              AUTEUR_COMMENTAIRE)
             nouveaux.append(cle)
             stats["signales"] += 1
         except Exception as e:
