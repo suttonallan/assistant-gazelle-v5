@@ -10,6 +10,11 @@ client, créées à moins de FENETRE_JOURS l'une de l'autre, avec des totaux
 semblables (écart ≤ ECART_MAX), dont au moins une est récente → courriel à
 info@ (Front) pour que Louise annule celle de trop. Rien n'est modifié dans
 Gazelle. Chaque paire n'est signalée qu'une fois.
+
+Avis au technicien (quasi temps réel) : quand un technicien crée une facture
+pour un client qui a déjà une facture récente impayée, il reçoit un courriel
+tout de suite (passage aux 15 min) pour vérifier que ce n'est pas un doublon,
+pendant qu'il est encore chez le client ou peu après.
 """
 from datetime import datetime, timedelta, timezone
 from itertools import combinations
@@ -19,6 +24,7 @@ FENETRE_JOURS = 21          # écart max entre les deux créations
 RECENTE_JOURS = 3           # au moins une des deux créée récemment
 ECART_MAX = 0.25            # totaux semblables : ±25 %
 CLE_SIGNALES = "factures_doublons_signales"
+AVIS_TECH_HEURES = 24       # avis au tech seulement pour une facture créée depuis 24 h
 DESTINATAIRE = "info@piano-tek.com"
 
 # Clients institutionnels : plusieurs factures rapprochées sont normales.
@@ -138,6 +144,46 @@ def trouver_doublons(factures: List[Dict[str, Any]], maintenant: datetime) -> Li
     return paires
 
 
+def _payee(f: Dict[str, Any]) -> bool:
+    return str(f.get("status") or "").upper() == "PAID"
+
+
+def avis_a_envoyer(factures: List[Dict[str, Any]], maintenant: datetime) -> List[Dict[str, Any]]:
+    """Factures créées récemment par un technicien alors que le même client a
+    déjà une autre facture impayée (créée avant)."""
+    from config.techniciens_config import get_technicien_by_id
+    avis = []
+    for f in factures:
+        cid = (f.get("client") or {}).get("id")
+        cree = _date(f.get("createdAt"))
+        tech = get_technicien_by_id((f.get("assignedTo") or {}).get("id") or "")
+        if (not cid or cid in CLIENTS_EXCLUS or _annulee(f) or not cree or not tech
+                or not tech.get("email") or cree < maintenant - timedelta(hours=AVIS_TECH_HEURES)):
+            continue
+        impayees = [g for g in factures
+                    if g is not f and (g.get("client") or {}).get("id") == cid
+                    and not _annulee(g) and not _payee(g)
+                    and (_date(g.get("createdAt")) or cree) < cree]
+        if impayees:
+            avis.append({"cle": f"tech:{f['id']}", "client": _nom(f), "facture": f,
+                         "impayees": impayees, "tech": tech})
+    return avis
+
+
+def _envoyer_avis_tech(n, a: Dict[str, Any]) -> bool:
+    prenom = (a["tech"].get("prenom") or a["tech"].get("nom_complet") or "").split(" ")[0]
+    autres = [_ligne(g) for g in a["impayees"]]
+    texte = (f"Bonjour {prenom},\n\nTu viens de créer la facture n° {a['facture'].get('number')} "
+             f"pour {a['client']}, mais ce client a déjà une facture impayée :\n  "
+             + "\n  ".join(autres)
+             + "\n\nVérifie que ce n'est pas la même (une facture déjà préparée par Louise, par exemple). "
+             "Si c'est un doublon, avise Louise pour qu'elle annule celle de trop.\n\nAssistant Gazelle")
+    html = texte.replace("\n", "<br>")
+    return n.send_email(to_emails=[a["tech"]["email"]],
+                        subject=f"⚠️ {a['client']} : une facture impayée existe déjà",
+                        html_content=html, plain_content=texte)
+
+
 def _ligne(f: Dict[str, Any]) -> str:
     quand = _date(f.get("createdAt"))
     if quand:
@@ -160,17 +206,36 @@ def verifier_doublons(envoyer: bool = True) -> Dict[str, Any]:
     deja = db.get_system_setting(CLE_SIGNALES) or []
     nouvelles = [p for p in paires if p["cle"] not in deja]
 
+    avis = [a for a in avis_a_envoyer(lot["factures"], maintenant) if a["cle"] not in deja]
+
     stats = {"mode": lot["mode"], "factures": len(lot["factures"]),
              "doublons": len(paires), "nouveaux": len(nouvelles),
              "detail": [{"client": p["client"], "factures": [_ligne(f) for f in p["factures"]]}
-                        for p in nouvelles]}
-    if not (envoyer and nouvelles):
+                        for p in nouvelles],
+             "avis_tech": [{"tech": a["tech"].get("email"), "client": a["client"],
+                            "nouvelle": _ligne(a["facture"]),
+                            "impayees": [_ligne(g) for g in a["impayees"]]} for a in avis]}
+    if not (envoyer and (nouvelles or avis)):
         return stats
 
     from core.email_notifier import EmailNotifier
     n = EmailNotifier()
     if not n.method:
         stats["envoi"] = "aucune méthode d'envoi"
+        return stats
+
+    envoyes_tech = []
+    for a in avis:
+        try:
+            if _envoyer_avis_tech(n, a):
+                envoyes_tech.append(a["cle"])
+        except Exception as e:
+            print(f"⚠️ Avis technicien non envoyé ({a['cle']}) : {e}")
+    if envoyes_tech:
+        deja = deja + envoyes_tech
+        db.save_system_setting(CLE_SIGNALES, deja[-500:])
+    stats["avis_tech_envoyes"] = len(envoyes_tech)
+    if not nouvelles:
         return stats
 
     blocs_html, blocs_txt = [], []

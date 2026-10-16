@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 16 octobre
+- **Avis au technicien** : quand un technicien crée une facture pour un client qui a déjà une facture récente impayée, il reçoit un courriel dans le quart d'heure pour vérifier que ce n'est pas un doublon (par exemple une facture déjà préparée par Louise).
 - **Factures en double** : aux 15 minutes (7 h à 21 h), l'assistant repère dans Gazelle un client qui a deux factures rapprochées (moins de 3 semaines) avec des montants semblables, et écrit à info@ pour que Louise annule celle de trop. Rien n'est modifié automatiquement ; les institutions sont exclues.
 - **Note « déjà un rendez-vous »** : la note dans Front nomme maintenant le client de la fiche Gazelle et dit comment il a été reconnu (numéro ou courriel), pour éviter de confondre deux clients.
 - **Message d'un client qui a déjà son rendez-vous** : quand un client laisse un message (vocal, texto, courriel) et que sa fiche Gazelle a un rendez-vous à venir, l'assistant ajoute dans la conversation Front une note interne « Ce client a déjà un rendez-vous : jour, heure, technicien ». Vérifié aux 15 minutes : un rendez-vous pris en ligne après le message est aussi signalé. Rien n'est fermé automatiquement.
