@@ -833,6 +833,81 @@ def soumissions_client(client_id: str = Query(...)):
     return res
 
 
+# --- Factures : lecture d'un client + création en BROUILLON (jamais envoyée) ---
+_Q_FACTURES_CLIENT = """query($c: String) { allInvoices(first: 10, filters: {clientId: $c}) {
+  nodes { id number status createdAt dueOn subTotal total notes topNotes taxPricingMode
+    contact { id } assignedTo { id }
+    allInvoiceItems { nodes { description type quantity amount taxable billable sequenceNumber
+      masterServiceItem { id } piano { id } taxes { taxId name rate total } } } } } }"""
+
+
+@router.get("/gazelle/factures")
+def factures_client(client_id: str = Query(...)):
+    """LECTURE — 10 dernières factures Gazelle d'un client, avec lignes et taxes (en direct)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    try:
+        res = GazelleAPIClient()._execute_query(_Q_FACTURES_CLIENT, {"c": client_id})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    return res
+
+
+class LigneFacture(BaseModel):
+    description: str
+    montant: float  # dollars, quantité 1
+    taxable: bool = True
+    service_id: Optional[str] = None  # MasterServiceItem
+    piano_id: Optional[str] = None
+
+
+class FactureIn(BaseModel):
+    client_id: str
+    lignes: List[LigneFacture]
+    echeance: Optional[str] = None  # ISO AAAA-MM-JJ
+    notes: Optional[str] = None
+    top_notes: Optional[str] = None
+    contact_id: Optional[str] = None
+    assigne_a: Optional[str] = None
+
+
+@router.post("/gazelle/facture")
+def creer_facture(f: FactureIn):
+    """Crée une facture Gazelle en BROUILLON (DRAFT), TPS/TVQ cochées.
+    Rien n'est envoyé au client : l'envoi reste un geste humain dans Gazelle."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from api.assistant_duplication import _CREATE_INVOICE, _build_taxes, _mutation_error_detail
+    if not f.lignes:
+        raise HTTPException(400, "Aucune ligne")
+    items = []
+    for i, l in enumerate(f.lignes):
+        cents = int(round(l.montant * 100))
+        item = {"description": l.description, "type": "LABOR_FIXED_RATE", "quantity": 100,
+                "amount": cents, "taxable": l.taxable, "billable": True, "sequenceNumber": i,
+                "taxes": _build_taxes(cents, l.taxable)}
+        if l.service_id:
+            item["masterServiceItemId"] = l.service_id
+        if l.piano_id:
+            item["pianoId"] = l.piano_id
+        items.append(item)
+    inp = {"clientId": f.client_id, "status": "DRAFT", "taxPricingMode": "EXCLUSIVE", "invoiceItems": items}
+    for cle, val in (("dueOn", f.echeance), ("notes", f.notes), ("topNotes", f.top_notes),
+                     ("contactId", f.contact_id), ("assignedToId", f.assigne_a)):
+        if val:
+            inp[cle] = val
+    try:
+        res = GazelleAPIClient()._execute_query(_CREATE_INVOICE, {"input": inp})
+    except Exception as e:
+        raise HTTPException(502, f"createInvoice : {e}")
+    payload = ((res or {}).get("data") or {}).get("createInvoice") or {}
+    inv = payload.get("invoice")
+    if not inv:
+        raise HTTPException(502, f"Gazelle a refusé la création ({_mutation_error_detail(payload)}) "
+                                 f"{res.get('errors') if isinstance(res, dict) else ''}")
+    return {"numero": inv.get("number"), "id": inv.get("id"), "statut": inv.get("status"),
+            "echeance": inv.get("dueOn"), "sous_total": _dollars(inv.get("subTotal")),
+            "total": _dollars(inv.get("total"))}
+
+
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
 _Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""

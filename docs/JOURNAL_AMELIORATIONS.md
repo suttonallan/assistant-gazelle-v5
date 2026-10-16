@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 16 octobre
+- **Factures préparées par Claude** : Claude peut maintenant créer une facture Gazelle (taxes TPS/TVQ cochées) en brouillon, jamais envoyée — l'envoi reste fait par l'équipe dans Gazelle. Premier usage : versement d'octobre du contrat Vincent-d'Indy.
+
 ### 14 octobre
 - **Appels Zoom → Gazelle** : quand Zoom produit le résumé d'un appel, l'assistant le réécrit (court, en français, noms et adresses corrigés) et l'ajoute à la chronologie du client, retrouvé par son numéro. *En attente : clés Zoom dans Render + abonnement « Call Summary Changed ».*
 - **Numéro inconnu** : l'assistant vérifie d'abord si c'est un client existant qui appelle d'un autre numéro (même courriel, ou même nom + même code postal) et rattache la note à sa fiche. En cas de doute, rien n'est créé : courriel à info@ avec les fiches possibles.
