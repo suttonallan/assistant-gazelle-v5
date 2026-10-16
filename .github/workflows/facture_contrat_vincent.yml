@@ -1,0 +1,49 @@
+name: 🧾 Facture versements contrat Vincent-d'Indy
+
+on:
+  schedule:
+    # Chaque matin vers 9 h Montréal. Le script ne fait quelque chose que
+    # 3 semaines avant une échéance (1 août, 15 oct, 15 janv, 15 avril)
+    # et seulement si la facture n'existe pas déjà dans Gazelle.
+    - cron: '17 13 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Simuler un jour (AAAA-MM-JJ), vide = aujourd'hui"
+        required: false
+      essai:
+        description: "Mode essai (rien créé, rien envoyé)"
+        type: boolean
+        default: true
+
+jobs:
+  facture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Préparer la facture du versement
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
+          GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DATE_SIMULEE: ${{ github.event.inputs.date }}
+          ESSAI: ${{ github.event.inputs.essai }}
+        run: |
+          ARGS=""
+          if [ -n "$DATE_SIMULEE" ]; then ARGS="$ARGS --date $DATE_SIMULEE"; fi
+          if [ "$ESSAI" = "true" ]; then ARGS="$ARGS --essai"; fi
+          python scripts/facture_contrat_vincent.py $ARGS
