@@ -225,6 +225,16 @@ async def run_rv_alerts(request: RunTaskRequest):
         )
 
 
+@router.post("/run/messages-rv")
+async def run_messages_rv():
+    """Vérifie tout de suite les messages Front ouverts contre les RV Gazelle."""
+    from modules.alerts.messages_rv_existant import verifier_messages
+    try:
+        return {"success": True, "stats": verifier_messages()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur messages/RV : {e}")
+
+
 # ============================================================
 # IMPORTS INDIVIDUELS GAZELLE
 # ============================================================

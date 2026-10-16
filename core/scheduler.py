@@ -764,6 +764,23 @@ def task_scan_spam():
 # SYNC CALL CENTER -> GOOGLE SHEET
 # ============================================================
 
+def task_messages_rv_existant():
+    """
+    Messages clients ouverts dans Front (info@) : si le client a déjà un RV à
+    venir dans Gazelle, ajoute un commentaire interne pour éviter un rappel
+    inutile (cas du 2026-10-16 : message vocal puis RV pris en ligne).
+    """
+    try:
+        from modules.alerts.messages_rv_existant import verifier_messages
+        stats = verifier_messages()
+        print(f"📅 Messages ↔ RV existants : {stats}")
+        return stats
+    except Exception as e:
+        print(f"❌ Erreur vérification messages/RV : {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def task_sync_call_center_sheet():
     """
     Compile les nouveaux appels du Call Center Gazelle (relances client par
@@ -1053,6 +1070,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Toutes les 2 heures (8h45-18h45) - Scan Spam configurée")
+
+    # Aux 15 min (7h-21h) - Messages clients Front ↔ RV déjà pris dans Gazelle
+    scheduler.add_job(
+        task_messages_rv_existant,
+        trigger=CronTrigger(hour='7-21', minute='*/15', timezone='America/Montreal'),
+        id='messages_rv_existant',
+        name='Messages Front : signaler un RV déjà pris (aux 15 min, 7h-21h)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Aux 15 min (7h-21h) - Messages ↔ RV existants configurée")
 
     # 19:00 - Sync Call Center vers Google Sheet
     scheduler.add_job(

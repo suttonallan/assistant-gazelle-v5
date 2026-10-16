@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 16 octobre
+- **Message d'un client qui a déjà son rendez-vous** : quand un client laisse un message (vocal, texto, courriel) et que sa fiche Gazelle a un rendez-vous à venir, l'assistant ajoute dans la conversation Front une note interne « Ce client a déjà un rendez-vous : jour, heure, technicien ». Vérifié aux 15 minutes : un rendez-vous pris en ligne après le message est aussi signalé. Rien n'est fermé automatiquement.
 - **Factures du contrat Vincent-d'Indy automatiques** : 3 semaines avant chaque échéance (1er août, 15 octobre, 15 janvier, 15 avril), l'assistant prépare la facture du versement en brouillon dans Gazelle (montants indexés de 5 % chaque année) et écrit à Louise et Allan pour qu'elle l'envoie depuis QuickBooks à Julio Gonzalo et à la comptabilité de l'École. Jamais de doublon : si la facture existe déjà, rien n'est créé.
 - **Factures préparées par Claude** : Claude peut maintenant créer une facture Gazelle (taxes TPS/TVQ cochées) en brouillon, jamais envoyée — l'envoi reste fait par l'équipe dans Gazelle. Premier usage : versement d'octobre du contrat Vincent-d'Indy.
 
