@@ -1096,16 +1096,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ Aux 15 min (7h-21h) - Messages ↔ RV existants configurée")
 
-    # 12:30 et 18:30 - Factures Gazelle en double
+    # Aux 15 min (7h-21h) - Factures Gazelle en double (quasi temps réel :
+    # Louise est avertie peu après qu'un technicien crée une 2e facture)
     scheduler.add_job(
         task_factures_doublons,
-        trigger=CronTrigger(hour='12,18', minute=30, timezone='America/Montreal'),
+        trigger=CronTrigger(hour='7-21', minute='7,22,37,52', timezone='America/Montreal'),
         id='factures_doublons',
-        name='Factures en double -> info@ (12h30, 18h30)',
+        name='Factures en double -> info@ (aux 15 min, 7h-21h)',
         replace_existing=True,
         max_instances=1
     )
-    print("   ✅ 12:30 et 18:30 - Factures en double configurée")
+    print("   ✅ Aux 15 min (7h-21h) - Factures en double configurée")
 
     # 19:00 - Sync Call Center vers Google Sheet
     scheduler.add_job(

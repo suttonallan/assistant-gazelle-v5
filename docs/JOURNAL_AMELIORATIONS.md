@@ -7,7 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 16 octobre
-- **Factures en double** : deux fois par jour (12 h 30 et 18 h 30), l'assistant repère dans Gazelle un client qui a deux factures rapprochées (moins de 3 semaines) avec des montants semblables, et écrit à info@ pour que Louise annule celle de trop. Rien n'est modifié automatiquement ; les institutions sont exclues.
+- **Factures en double** : aux 15 minutes (7 h à 21 h), l'assistant repère dans Gazelle un client qui a deux factures rapprochées (moins de 3 semaines) avec des montants semblables, et écrit à info@ pour que Louise annule celle de trop. Rien n'est modifié automatiquement ; les institutions sont exclues.
 - **Note « déjà un rendez-vous »** : la note dans Front nomme maintenant le client de la fiche Gazelle et dit comment il a été reconnu (numéro ou courriel), pour éviter de confondre deux clients.
 - **Message d'un client qui a déjà son rendez-vous** : quand un client laisse un message (vocal, texto, courriel) et que sa fiche Gazelle a un rendez-vous à venir, l'assistant ajoute dans la conversation Front une note interne « Ce client a déjà un rendez-vous : jour, heure, technicien ». Vérifié aux 15 minutes : un rendez-vous pris en ligne après le message est aussi signalé. Rien n'est fermé automatiquement.
 - **Factures du contrat Vincent-d'Indy automatiques** : 3 semaines avant chaque échéance (1er août, 15 octobre, 15 janvier, 15 avril), l'assistant prépare la facture du versement en brouillon dans Gazelle (montants indexés de 5 % chaque année) et écrit à Louise et Allan pour qu'elle l'envoie depuis QuickBooks à Julio Gonzalo et à la comptabilité de l'École. Jamais de doublon : si la facture existe déjà, rien n'est créé.
