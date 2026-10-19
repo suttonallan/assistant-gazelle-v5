@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 19 octobre
+- **Résumés d'appels Zoom : numéro retrouvé** : le numéro du client n'était pas fourni avec le résumé, d'où des avis « client introuvable — numéro : inconnu » même pour des clients connus. L'assistant va maintenant chercher le numéro dans l'historique d'appels Zoom, retrouve la fiche Gazelle et y verse la note.
+
 ### 16 octobre
 - **Avis au technicien** : quand un technicien crée une facture pour un client qui a déjà une facture récente impayée, il reçoit un courriel dans le quart d'heure pour vérifier que ce n'est pas un doublon (par exemple une facture déjà préparée par Louise).
 - **Factures en double** : aux 15 minutes (7 h à 21 h), l'assistant repère dans Gazelle un client qui a deux factures rapprochées (moins de 3 semaines) avec des montants semblables, et écrit à info@ pour que Louise annule celle de trop. Rien n'est modifié automatiquement ; les institutions sont exclues.

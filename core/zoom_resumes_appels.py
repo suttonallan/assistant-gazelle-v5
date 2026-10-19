@@ -117,6 +117,90 @@ def recuperer_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
     return resume
 
 
+def _date_iso(v: Any) -> Optional[datetime]:
+    try:
+        s = str(v).strip().replace("Z", "+00:00")
+        if re.match(r"^\d{4}-\d{2}-\d{2}T", s):
+            d = datetime.fromisoformat(s)
+            if d.tzinfo is None:
+                from datetime import timezone
+                d = d.replace(tzinfo=timezone.utc)
+            return d
+    except Exception:
+        pass
+    return None
+
+
+def numeros_par_historique(resume: Dict[str, Any], payload_objet: Dict[str, Any]) -> List[str]:
+    """Le résumé IA et le webhook ne donnent pas le numéro de l'appelant : il est dans
+    l'historique d'appels Zoom (caller_did_number / callee_did_number). On retrouve l'appel
+    par son identifiant, sinon par l'heure la plus proche de celle du résumé."""
+    try:
+        token = get_zoom_access_token()
+    except Exception as e:
+        print(f"⚠️ Historique Zoom : jeton impossible ({e})")
+        return []
+
+    # 1. Identifiants d'appel présents dans le résumé ou le webhook.
+    ids: List[str] = []
+    for source in (resume, payload_objet):
+        for cle, val in _parcourir(source):
+            derniere = cle.split(".")[-1].split("[")[0].lower()
+            if derniere in ("call_id", "call_log_id", "call_history_id", "call_path_id") and val and str(val) not in ids:
+                ids.append(str(val))
+    for cid in ids:
+        for chemin in (f"/phone/call_history/{cid}", f"/phone/call_history_detail/{cid}", f"/phone/call_logs/{cid}"):
+            try:
+                n = _numeros(_zoom_get(chemin, token))
+                if n:
+                    print(f"📞 Numéro trouvé dans l'historique Zoom ({chemin.split('/')[2]})")
+                    return n
+            except Exception:
+                continue
+
+    # 2. Heure de l'appel d'après le résumé (sinon : maintenant).
+    from datetime import timezone, timedelta
+    moment = None
+    for source in (resume, payload_objet):
+        for cle, val in _parcourir(source):
+            if "time" in cle.split(".")[-1].lower() or "date" in cle.split(".")[-1].lower():
+                moment = _date_iso(val)
+                if moment:
+                    break
+        if moment:
+            break
+    moment = moment or datetime.now(timezone.utc)
+
+    try:
+        jour = moment.astimezone(timezone.utc)
+        hist = _zoom_get(
+            f"/phone/call_history?page_size=100&from={(jour - timedelta(days=1)).date()}&to={jour.date()}", token)
+    except Exception as e:
+        print(f"⚠️ Historique Zoom illisible : {e}")
+        return []
+    appels = hist.get("call_logs") or hist.get("call_history") or []
+
+    # Correspondance exacte d'un identifiant, sinon l'appel le plus proche (≤ 3 h avant le résumé).
+    for a in appels:
+        if any(str(v) in ids for v in a.values() if v):
+            return _numeros(a)
+    meilleur, ecart_min = None, None
+    for a in appels:
+        if not _numeros(a):
+            continue
+        debut = _date_iso(a.get("start_time") or a.get("answer_time"))
+        fin = _date_iso(a.get("end_time")) or debut
+        if not debut:
+            continue
+        ecart = abs((moment - fin).total_seconds())
+        if ecart <= 3 * 3600 and (ecart_min is None or ecart < ecart_min):
+            meilleur, ecart_min = a, ecart
+    if meilleur:
+        print(f"📞 Numéro retrouvé par l'heure de l'appel (écart {int(ecart_min // 60)} min)")
+        return _numeros(meilleur)
+    return []
+
+
 # ---------------------------------------------------------------- Gazelle / Supabase
 
 def trouver_client(numeros: List[str]) -> Optional[Dict[str, Any]]:
@@ -338,7 +422,7 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
         if _deja_traite(rid):
             return {"ok": True, "raison": "deja_traite"}
 
-        numeros = _numeros(resume) or _numeros(payload_objet)
+        numeros = _numeros(resume) or _numeros(payload_objet) or numeros_par_historique(resume, payload_objet)
         client = trouver_client(numeros)
         r = reecrire_resume(resume, client)
         note = r["note"]
