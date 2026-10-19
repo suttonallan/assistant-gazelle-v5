@@ -908,6 +908,61 @@ def creer_facture(f: FactureIn):
             "total": _dollars(inv.get("total"))}
 
 
+# --- Rendez-vous Gazelle (créé à la demande d'Allan depuis une conversation Claude) ---
+class RendezVousIn(BaseModel):
+    client_id: str
+    user_id: str                       # technicien (1 event = 1 technicien)
+    debut_montreal: str                # "2026-12-20T12:00" — heure de Montréal
+    duree_min: int = 120
+    titre: Optional[str] = None        # défaut : nom du client (format natif PTM)
+    notes: Optional[str] = None
+    piano_ids: List[str] = []
+    accord: bool = True                # isTuning sur les pianos
+
+
+@router.post("/gazelle/rendez-vous")
+def creer_rendez_vous(r: RendezVousIn):
+    """Crée un APPOINTMENT dans Gazelle au format natif PTM (durée en minutes, start en UTC,
+    travelMode DRIVING, pas de location : l'adresse vient de la fiche client)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import MONTREAL_TZ
+    try:
+        local = datetime.fromisoformat(r.debut_montreal)
+    except ValueError:
+        raise HTTPException(400, "debut_montreal invalide (attendu AAAA-MM-JJTHH:MM)")
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=MONTREAL_TZ)
+    start = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    gz = GazelleAPIClient()
+    titre = r.titre
+    if not titre:
+        res = gz._execute_query("query($id: String!) { client(id: $id) { id companyName "
+                                "defaultContact { firstName lastName } } }", {"id": r.client_id})
+        c = (res.get("data") or {}).get("client") or {}
+        dc = c.get("defaultContact") or {}
+        titre = c.get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()
+    inp = {"title": titre, "start": start, "duration": r.duree_min, "type": "APPOINTMENT",
+           "travelMode": "DRIVING", "userId": r.user_id, "clientId": r.client_id}
+    if r.notes:
+        inp["notes"] = r.notes
+    if r.piano_ids:
+        inp["pianos"] = [{"pianoId": p, "isTuning": r.accord} for p in r.piano_ids]
+    mut = """mutation($input: PrivateEventInput!) { createEvent(input: $input) {
+      event { id title start duration type status user { id firstName } client { id }
+              allEventPianos(first: 5) { nodes { piano { id make model } } } }
+      mutationErrors { fieldName messages } } }"""
+    try:
+        res = gz._execute_query(mut, {"input": inp})
+    except Exception as e:
+        raise HTTPException(502, f"createEvent : {e}")
+    payload = ((res or {}).get("data") or {}).get("createEvent") or {}
+    ev = payload.get("event")
+    if not ev:
+        raise HTTPException(502, f"Gazelle a refusé le rendez-vous : {payload.get('mutationErrors')} "
+                                 f"{res.get('errors') if isinstance(res, dict) else ''}")
+    return {"evenement": ev, "start_utc": start}
+
+
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
 _Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""
