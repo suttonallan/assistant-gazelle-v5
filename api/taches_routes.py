@@ -1128,7 +1128,7 @@ def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
                 m = it.get("masterServiceItem")
                 if m and m["id"] not in vus:
                     vus.add(m["id"])
-                    c = compte.setdefault(m["id"], {"service": _nom_i18n(m.get("name")), "factures": 0})
+                    c = compte.setdefault(m["id"], {"id": m["id"], "service": _nom_i18n(m.get("name")), "factures": 0})
                     c["factures"] += 1
         pi = bloc.get("pageInfo") or {}
         if not pi.get("hasNextPage"):
