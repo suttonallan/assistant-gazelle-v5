@@ -945,7 +945,8 @@ class GazelleAPIClient:
 
     def create_client(self, prenom: Optional[str], nom: Optional[str], telephone: Optional[str] = None,
                       courriel: Optional[str] = None, adresse: Optional[Dict[str, str]] = None,
-                      statut: str = "PROSPECT", reference: Optional[str] = None) -> str:
+                      statut: str = "PROSPECT", reference: Optional[str] = None,
+                      localization_id: Optional[str] = None) -> str:
         """Crée un client Gazelle (par défaut : client potentiel) avec son contact principal.
         Retourne l'identifiant du client (cli_...)."""
         contact: Dict[str, Any] = {"isDefault": True, "isBillingDefault": True,
@@ -962,6 +963,8 @@ class GazelleAPIClient:
         entree: Dict[str, Any] = {"status": statut, "contacts": [contact]}
         if reference:
             entree["referredByNotes"] = reference
+        if localization_id:
+            entree["localizationId"] = localization_id  # langue des courriels et rappels
         mutation = """
         mutation CreateClient($input: PrivateClientInput!) {
             createClient(input: $input) {

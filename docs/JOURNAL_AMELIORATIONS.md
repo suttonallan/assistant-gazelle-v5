@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 20 octobre
+- **Réservation en ligne : le client reste dans Gazelle même si la demande est refusée.** La nouvelle page crée (ou retrouve, par courriel ou téléphone) la fiche du client avant d'envoyer la demande, dans sa langue, et ajoute une note dans sa chronologie avec la plage, le service et le piano demandés.
 - **Numéro client dans Gazelle** : le champ « Numéro client » de chaque fiche est rempli automatiquement (et chaque nuit pour les nouveaux clients). Il servira aux rappels pour envoyer chaque client vers la nouvelle page de réservation, avec son dossier déjà reconnu.
 
 ### 19 octobre
