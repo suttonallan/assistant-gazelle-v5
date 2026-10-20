@@ -1105,7 +1105,7 @@ def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
       allInvoices(first: 100, after: $cursor, filters: $f) {
         edges { node { id allInvoiceItems { nodes { masterServiceItem { id name } } } } }
         pageInfo { hasNextPage endCursor } } }"""
-    filtre: Dict[str, Any] = {"invoiceDateGet": depuis, "archived": False}
+    filtre: Dict[str, Any] = {"invoiceDateGet": depuis}
     if jusqu:
         filtre["invoiceDateLet"] = jusqu
     compte: Dict[str, Dict[str, Any]] = {}
