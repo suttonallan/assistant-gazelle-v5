@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 20 octobre
+- **Numéro client dans Gazelle** : le champ « Numéro client » de chaque fiche est rempli automatiquement (et chaque nuit pour les nouveaux clients). Il servira aux rappels pour envoyer chaque client vers la nouvelle page de réservation, avec son dossier déjà reconnu.
+
 ### 19 octobre
 - **Commentaires sur la réservation en ligne** : les clients qui essaient la nouvelle page de réservation peuvent laisser une note (1 à 5) et un commentaire ; ils arrivent par courriel dans la boîte info de Front.
 - **Résumés d'appels Zoom : numéro retrouvé** : le numéro du client n'était pas fourni avec le résumé, d'où des avis « client introuvable — numéro : inconnu » même pour des clients connus. L'assistant va maintenant chercher le numéro dans l'historique d'appels Zoom, retrouve la fiche Gazelle et y verse la note.
