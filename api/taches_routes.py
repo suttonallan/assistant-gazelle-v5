@@ -1091,3 +1091,45 @@ def schema_type(nom: str = Query(...)):
     from core.gazelle_api_client import GazelleAPIClient
     r = GazelleAPIClient()._execute_query("""query($n:String!){ __type(name:$n){ name fields { name type { name kind ofType { name } } } } }""", {"n": nom})
     return (r.get("data") or {}).get("__type")
+
+
+@router.get("/gazelle/usage-services")
+def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+                   jusqu: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    """LECTURE — Nombre de factures par service du catalogue (MasterServiceItem) sur une période.
+
+    Sert à décider des services offerts (ex. fusionner deux services peu distincts)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    api = GazelleAPIClient()
+    q = """query U($cursor: String, $f: PrivateAllInvoicesFilter) {
+      allInvoices(first: 100, after: $cursor, filters: $f) {
+        edges { node { id invoiceDate allInvoiceItems { nodes { masterServiceItem { id name } } } } }
+        pageInfo { hasNextPage endCursor } } }"""
+    filtre: Dict[str, Any] = {"invoiceDateGet": depuis, "archived": False}
+    if jusqu:
+        filtre["invoiceDateLet"] = jusqu
+    compte: Dict[str, Dict[str, Any]] = {}
+    total, cursor = 0, None
+    for _ in range(300):
+        v: Dict[str, Any] = {"f": filtre}
+        if cursor:
+            v["cursor"] = cursor
+        res = api._execute_query(q, v)
+        if res.get("errors"):
+            raise HTTPException(502, f"Gazelle : {res['errors']}")
+        bloc = (res.get("data") or {}).get("allInvoices") or {}
+        for e in bloc.get("edges") or []:
+            total += 1
+            vus = set()
+            for it in ((e["node"].get("allInvoiceItems") or {}).get("nodes") or []):
+                m = it.get("masterServiceItem")
+                if m and m["id"] not in vus:
+                    vus.add(m["id"])
+                    c = compte.setdefault(m["id"], {"service": _nom_i18n(m.get("name")), "factures": 0})
+                    c["factures"] += 1
+        pi = bloc.get("pageInfo") or {}
+        if not pi.get("hasNextPage"):
+            break
+        cursor = pi.get("endCursor")
+    return {"depuis": depuis, "jusqu": jusqu, "factures": total,
+            "services": sorted(compte.values(), key=lambda c: -c["factures"])}
