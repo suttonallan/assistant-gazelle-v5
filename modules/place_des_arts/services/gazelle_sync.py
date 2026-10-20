@@ -78,6 +78,15 @@ def extract_parking_amount(text: str) -> Optional[str]:
     return None
 
 
+def _note_du_tech(auteur: Optional[str], tech: Optional[str]) -> bool:
+    """Une note de service compte pour le RV du tech si elle est écrite par ce tech,
+    ou par quelqu'un du bureau (ex. Louise) qui n'est pas technicien. Une note d'un
+    AUTRE technicien ne compte jamais (pas de double comptage entre techs)."""
+    if not tech:
+        return True
+    return auteur == tech or auteur not in GAZELLE_IDS
+
+
 class GazelleSyncService:
     """Service de synchronisation Place des Arts avec Gazelle."""
     
@@ -727,10 +736,11 @@ class GazelleSyncService:
                     continue
                 pris.update(p for p in (a.get('piano_ids') or [a.get('piano_external_id')]) if p)
             notes = self.storage.client.table('gazelle_timeline_entries')\
-                .select('title, description, piano_id')\
-                .eq('client_id', client_id).eq('user_id', tech)\
+                .select('title, description, piano_id, user_id')\
+                .eq('client_id', client_id)\
                 .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', debut_utc).lt('occurred_at', fin_utc).execute().data or []
+            notes = [n for n in notes if _note_du_tech(n.get('user_id'), tech)]
             return [n for n in notes if n.get('piano_id') and n['piano_id'] not in pris
                     and n['piano_id'] not in pianos_rv]
         except Exception as e:
@@ -800,19 +810,19 @@ class GazelleSyncService:
             day_end = day_start + timedelta(days=1)
             utc = ZoneInfo("UTC")
             query = self.storage.client.table('gazelle_timeline_entries')\
-                .select('title, description')\
+                .select('title, description, user_id')\
                 .in_('piano_id', pianos)\
                 .in_('entry_type', ['SERVICE_ENTRY_MANUAL', 'SERVICE_ENTRY_AUTOMATED'])\
                 .gte('occurred_at', day_start.astimezone(utc).isoformat())\
                 .lt('occurred_at', day_end.astimezone(utc).isoformat())
 
-            # Chaque tech ne voit que ses propres notes (le stat de Nicolas ne va pas
-            # sur un RV d'Allan).
-            if apt_tech:
-                query = query.eq('user_id', apt_tech)
-
             result = query.execute()
-            entries = list(result.data or [])
+            # Chaque tech ne voit que ses propres notes (le stat de Nicolas ne va pas
+            # sur un RV d'Allan) — MAIS une note saisie par le bureau (Louise, qui
+            # n'est pas technicienne) pour le compte du tech compte aussi
+            # (bug du 16 oct. 2026 : « Stat 13$ » saisi par Louise ignoré).
+            entries = [e for e in (result.data or [])
+                       if _note_du_tech(e.get('user_id'), apt_tech)]
 
             # Repli : un RV de plusieurs salles n'a souvent qu'UN piano attaché
             # dans Gazelle (ex. 2026-09-18 : RV sur le Steinway D New-York, « stat »
