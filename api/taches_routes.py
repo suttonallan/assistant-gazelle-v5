@@ -1103,7 +1103,7 @@ def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     api = GazelleAPIClient()
     q = """query U($cursor: String, $f: PrivateAllInvoicesFilter) {
       allInvoices(first: 100, after: $cursor, filters: $f) {
-        edges { node { id invoiceDate allInvoiceItems { nodes { masterServiceItem { id name } } } } }
+        edges { node { id allInvoiceItems { nodes { masterServiceItem { id name } } } } }
         pageInfo { hasNextPage endCursor } } }"""
     filtre: Dict[str, Any] = {"invoiceDateGet": depuis, "archived": False}
     if jusqu:
@@ -1114,7 +1114,10 @@ def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
         v: Dict[str, Any] = {"f": filtre}
         if cursor:
             v["cursor"] = cursor
-        res = api._execute_query(q, v)
+        try:
+            res = api._execute_query(q, v)
+        except Exception as e:
+            raise HTTPException(502, f"Gazelle : {e}")
         if res.get("errors"):
             raise HTTPException(502, f"Gazelle : {res['errors']}")
         bloc = (res.get("data") or {}).get("allInvoices") or {}
