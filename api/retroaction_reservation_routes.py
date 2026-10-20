@@ -73,11 +73,14 @@ _log = logging.getLogger(__name__)
 _appels_client: deque[float] = deque()
 
 
+# Empreinte SHA-256 du jeton partagé avec le service de réservation (dépôt privé).
+# Le dépôt est public : seule l'empreinte est ici, jamais le jeton lui-même.
+_EMPREINTE_JETON = os.environ.get("RESERVATION_SECRET_SHA256", "4461ac5784a4515f3a5f32958285117c2ef4d42f29db0db85f9b739003f51be8")
+
+
 def _verifier_jeton(jeton: Optional[str]) -> None:
-    attendu = os.environ.get("RESERVATION_SECRET", "")
-    if not attendu:
-        raise HTTPException(503, "Service non configuré")
-    if not jeton or not hmac.compare_digest(jeton, attendu):
+    import hashlib
+    if not jeton or not hmac.compare_digest(hashlib.sha256(jeton.encode()).hexdigest(), _EMPREINTE_JETON):
         raise HTTPException(403, "Accès refusé")
     maintenant = time.time()
     while _appels_client and maintenant - _appels_client[0] > 3600:
