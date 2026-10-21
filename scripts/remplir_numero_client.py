@@ -39,7 +39,7 @@ PAUSE_ENTRE_ECRITURES = 0.25  # secondes : rester poli avec l'API Gazelle
 REQ_LISTE = """
 query Clients($after: String) {
   allClients(first: 100, after: $after) {
-    nodes { id %s }
+    nodes { id status %s }
     pageInfo { hasNextPage endCursor }
   }
 }
@@ -80,21 +80,24 @@ def main() -> int:
     args = ap.parse_args()
 
     api = GazelleAPIClient()
-    total = deja_bons = remplis = 0
+    total = deja_bons = remplis = inactifs = 0
     a_remplir: list[str] = []
     conflits: list[tuple[str, str]] = []
 
     for c in tous_les_clients(api):
         total += 1
         valeur = (c.get(CHAMP) or "").strip()
-        if valeur == c["id"]:
+        if str(c.get("status") or "").upper() == "INACTIVE":
+            inactifs += 1  # Gazelle refuse de modifier un client inactif ; il ne reçoit pas de rappels
+        elif valeur == c["id"]:
             deja_bons += 1
         elif not valeur:
             a_remplir.append(c["id"])
         else:
             conflits.append((c["id"], valeur))
 
-    resume = f"Fiches lues : {total} · déjà remplies : {deja_bons} · à remplir : {len(a_remplir)} · autre valeur : {len(conflits)}"
+    resume = (f"Fiches lues : {total} · déjà remplies : {deja_bons} · à remplir : {len(a_remplir)} · "
+              f"inactives (ignorées) : {inactifs} · autre valeur : {len(conflits)}")
     print(resume)
     annonce("notice", "Avant", resume)
     for cid, val in conflits[:20]:
