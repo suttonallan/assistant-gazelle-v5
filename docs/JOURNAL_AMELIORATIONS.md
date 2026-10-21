@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 21 octobre
+- **Réservation en ligne, clients éloignés** : à plus de 45 km du technicien le plus proche (ex. Saint-Jérôme, Mirabel, Orford), le client voit l'estimation des frais de déplacement et indique ses préférences et indisponibilités au lieu de choisir une plage ; la demande arrive dans Front (info@) pour que la coordonnatrice fixe le rendez-vous.
 - **Chat du site, demandes de rappel** : quand un client demande dans le chat qu'on l'appelle, sa demande (prénom, téléphone, meilleur moment et résumé de la conversation) arrive dans Front, boîte info@. Le client sait qu'on le rappelle d'ici deux jours ouvrables.
 - **Ménage de Front** : les conversations sans activité depuis le 7 octobre dans info@ et asutton@ sont archivées (rien n'est effacé ; une conversation revient d'elle-même si le client réécrit). Combiné au bouton « Send & archive », ce qui reste dans la liste est ce qui demande de l'attention.
 

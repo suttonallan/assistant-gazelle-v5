@@ -159,3 +159,55 @@ def note_reservation(n: NoteReservation, x_reservation_secret: Optional[str] = H
     except Exception as e:
         raise HTTPException(502, f"Note impossible : {e}")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Demande hors zone (plus de 45 km du technicien le plus proche) : pas de plage
+# en ligne, la coordonnatrice fixe le rendez-vous. Le service de réservation
+# relaie la demande ici ; elle part par courriel à info@ (Front).
+# ---------------------------------------------------------------------------
+class DemandeHorsZone(BaseModel):
+    prenom: str = Field(..., max_length=80)
+    nom: str = Field(..., max_length=80)
+    courriel: str = Field(..., max_length=200)
+    telephone: str = Field(..., max_length=40)
+    adresse: str = Field(..., max_length=300)
+    distance_km: Optional[float] = None
+    frais_estimes: Optional[float] = None
+    service: Optional[str] = Field(None, max_length=200)
+    piano: Optional[str] = Field(None, max_length=300)
+    preferences: Optional[str] = Field(None, max_length=1000)
+    indisponibilites: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=2000)
+    client_id: Optional[str] = Field(None, max_length=60)
+    langue: str = "fr"
+
+
+@router.post("/demande-hors-zone")
+def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = Header(None)):
+    _verifier_jeton(x_reservation_secret)
+    e = lambda s: html.escape(str(s) if s not in (None, "") else "—")
+    tel = re.sub(r"\D", "", d.telephone)[-10:]
+    corps = (
+        "<p><b>Demande de rendez-vous hors zone à fixer</b> (plus de 45 km du technicien le plus proche).</p>"
+        f"<p><b>Client :</b> {e(d.prenom)} {e(d.nom)} — <a href='tel:+1{tel}'>{e(d.telephone)}</a> — {e(d.courriel)}<br>"
+        f"<b>Adresse du piano :</b> {e(d.adresse)}<br>"
+        f"<b>Distance :</b> {e(round(d.distance_km) if d.distance_km else None)} km (aller) — "
+        f"<b>frais de déplacement estimés affichés au client :</b> {e(round(d.frais_estimes) if d.frais_estimes else None)} $ + taxes<br>"
+        f"<b>Service :</b> {e(d.service)}<br><b>Piano :</b> {e(d.piano)}<br>"
+        f"<b>Langue :</b> {'anglais' if d.langue == 'en' else 'français'}</p>"
+        f"<p><b>Préférences (jours et moments) :</b><br>{e(d.preferences)}</p>"
+        f"<p><b>Indisponibilités :</b><br>{e(d.indisponibilites).replace(chr(10), '<br>')}</p>"
+        f"<p><b>Note du client :</b><br>{e(d.notes).replace(chr(10), '<br>')}</p>"
+        f"<p>Fiche Gazelle : {e(d.client_id)}</p>"
+        "<p>On a dit au client que l'équipe le contacterait d'ici deux jours ouvrables pour fixer le rendez-vous.</p>"
+        "<p style='color:#777'>Envoyé automatiquement par la page de réservation en ligne.</p>"
+    )
+    ok = get_email_notifier().send_email(
+        to_emails=[DESTINATAIRE],
+        subject=f"Réservation hors zone — à fixer : {d.prenom} {d.nom} ({d.adresse[:60]})",
+        html_content=corps,
+    )
+    if not ok:
+        raise HTTPException(502, "Envoi impossible pour le moment.")
+    return {"ok": True}
