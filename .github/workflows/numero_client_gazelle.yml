@@ -6,6 +6,9 @@ name: Numéro client Gazelle (custom2)
 on:
   schedule:
     - cron: '15 3 * * *'   # chaque nuit, après la synchro complète (02 h 00 UTC)
+  push:
+    branches: [main]
+    paths: ['scripts/remplir_numero_client.py']
   workflow_dispatch:
     inputs:
       mode:
@@ -17,7 +20,7 @@ on:
 jobs:
   remplir:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

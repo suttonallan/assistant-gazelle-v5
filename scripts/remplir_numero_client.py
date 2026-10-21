@@ -67,6 +67,12 @@ def tous_les_clients(api: GazelleAPIClient):
         apres = info.get("endCursor")
 
 
+def annonce(niveau: str, titre: str, message: str) -> None:
+    """Bilan lisible dans les annotations GitHub (consultables par l'API)."""
+    message = message.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+    print(f"::{niveau} title={titre}::{message}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--essai", action="store_true", help="compter seulement, ne rien écrire")
@@ -88,7 +94,9 @@ def main() -> int:
         else:
             conflits.append((c["id"], valeur))
 
-    print(f"Fiches lues : {total} · déjà remplies : {deja_bons} · à remplir : {len(a_remplir)} · autre valeur : {len(conflits)}")
+    resume = f"Fiches lues : {total} · déjà remplies : {deja_bons} · à remplir : {len(a_remplir)} · autre valeur : {len(conflits)}"
+    print(resume)
+    annonce("notice", "Avant", resume)
     for cid, val in conflits[:20]:
         print(f"  ⚠️ {cid} contient déjà « {val} » — laissé tel quel")
 
@@ -98,6 +106,8 @@ def main() -> int:
 
     cibles = a_remplir[: args.limite] if args.limite else a_remplir
     erreurs = 0
+    exemples: list[str] = []
+    arret = False
     for i, cid in enumerate(cibles, 1):
         try:
             res = api._execute_query(REQ_MAJ, {"id": cid, "input": {CHAMP: cid}})
@@ -110,15 +120,22 @@ def main() -> int:
         except Exception as e:  # une fiche en erreur n'arrête pas les autres
             erreurs += 1
             print(f"  ❌ {cid} : {e}")
-            if erreurs >= 20:
+            if len(exemples) < 5:
+                exemples.append(f"{cid} : {str(e)[:300]}")
+            if erreurs >= 20 and remplis < erreurs:  # échec généralisé, pas des fiches isolées
                 print("Trop d'erreurs, arrêt.")
+                arret = True
                 break
         if i % 200 == 0:
             print(f"  … {i}/{len(cibles)}")
         time.sleep(PAUSE_ENTRE_ECRITURES)
 
-    print(f"✅ {remplis} fiche(s) remplie(s), {erreurs} erreur(s).")
-    return 1 if erreurs else 0
+    bilan = f"{remplis} fiche(s) remplie(s), {erreurs} erreur(s) sur {len(cibles)} à traiter."
+    print(("✅ " if not erreurs else "⚠️ ") + bilan)
+    annonce("error" if arret else ("warning" if erreurs else "notice"), "Bilan", bilan)
+    for ex in exemples:
+        annonce("warning", "Fiche refusée", ex)
+    return 1 if arret else 0
 
 
 if __name__ == "__main__":
