@@ -41,6 +41,8 @@ CHEMINS_OUVERTS = (
     "/api/zoom/webhook",
     "/gazelle_oauth_callback",
     "/health",
+    "/api/chat-public/rappel",  # protégé par son propre jeton (X-Chat-Secret)
+    "/chat-public/rappel",
 )
 CHEMINS_OUVERTS_EXACTS = {"/", "/api/health", "/favicon.ico"}
 
