@@ -50,9 +50,10 @@ def _cle_front() -> str:
         if isinstance(v, dict):
             v = v.get("token") or v.get("api_key") or v.get("value")
         if isinstance(v, str) and len(v) > 20:
-            print(f"Clé Front lue dans system_settings ({ligne['key']}).")
+            _avis(f"Clé Front lue dans system_settings ({ligne['key']}).")
             return v.strip()
-    sys.exit("Clé Front introuvable dans system_settings.")
+    _avis("Clé Front introuvable dans system_settings.")
+    sys.exit(1)
 
 
 class Front:
@@ -111,7 +112,7 @@ def menage_boite(front: Front, nom: str, inbox_id: str, debut: float) -> dict:
         data = front.chercher(requete, page_token)
         resultats = data.get("_results", [])
         if page_token is None:
-            print(f"[{nom}] {data.get('_total', '?')} conversations ouvertes avant la limite")
+            _avis(f"[{nom}] {data.get('_total', '?')} trouvées, {len(resultats)} sur la 1re page")
         nouveaux = [c for c in resultats if c["id"] not in vus]
         for conv in nouveaux:
             vus.add(conv["id"])
@@ -142,16 +143,26 @@ def menage_boite(front: Front, nom: str, inbox_id: str, debut: float) -> dict:
     return stats
 
 
+def _avis(msg: str):
+    """Visible dans l'onglet Actions (annotation), même sans accès aux logs."""
+    print(msg, flush=True)
+    if os.getenv("GITHUB_ACTIONS"):
+        print(f"::notice title=Menage Front::{msg}", flush=True)
+
+
 def main():
     front = Front(_cle_front())
+    moi = front._req("GET", f"{BASE}/me")
+    _avis(f"Jeton Front : HTTP {moi.status_code} {moi.text[:120]}")
     debut = time.time()
     print(f"Limite : {LIMITE.isoformat()} — simulation={SIMULATION}")
     for nom, inbox_id in BOITES.items():
         try:
             stats = menage_boite(front, nom, inbox_id, debut)
-            print(f"[{nom}] terminé : {stats}")
+            _avis(f"[{nom}] terminé : {stats}")
         except requests.HTTPError as e:
-            print(f"[{nom}] inaccessible avec cette clé : {e}")
+            corps = e.response.text[:200] if e.response is not None else ""
+            _avis(f"[{nom}] erreur Front : {e} {corps}")
     print(f"Durée : {int(time.time() - debut)} s")
 
 
