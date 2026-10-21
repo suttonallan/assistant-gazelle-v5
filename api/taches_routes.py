@@ -821,11 +821,15 @@ def creer_soumission(s: SoumissionIn):
 
 @router.get("/gazelle/soumissions")
 def soumissions_client(client_id: str = Query(...)):
-    """Soumissions Gazelle récentes d'un client (numéro, date, total, archivée)."""
+    """Soumissions Gazelle récentes d'un client, avec leur contenu complet :
+    notes, options (tiers), lignes groupées et non groupées (nom, description, montant)."""
     from core.gazelle_api_client import GazelleAPIClient
     q = """query($c: String) { allEstimates(first: 20, filters: {clientId: $c}) {
-      nodes { id number estimatedOn isArchived recommendedTierTotal
-        allEstimateTiers { allUngroupedEstimateTierItems { name amount } } } } }"""
+      nodes { id number estimatedOn isArchived recommendedTierTotal notes
+        allEstimateTiers { sequenceNumber isPrimary subtotal taxTotal total
+          allUngroupedEstimateTierItems { name description amount quantity }
+          allEstimateTierGroups { name
+            allEstimateTierItems { name description amount quantity } } } } } }"""
     try:
         res = GazelleAPIClient()._execute_query(q, {"c": client_id})
     except Exception as e:
