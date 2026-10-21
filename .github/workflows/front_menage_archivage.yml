@@ -4,6 +4,7 @@ name: Front - menage des vieilles conversations
 # Archive les conversations ouvertes sans activite depuis cette date dans
 # info@ et asutton@. Archiver n'efface rien. Relance chaque heure jusqu'a ce
 # qu'il ne reste rien ; ensuite ce workflow ne trouve plus rien et peut etre retire.
+# Cle : secret FRONT_API_KEY (jeton « Assistant Gazelle », oct. 2026).
 
 on:
   push:
