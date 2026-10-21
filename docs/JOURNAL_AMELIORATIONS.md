@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 21 octobre
+- **Ménage de Front** : les conversations sans activité depuis le 7 octobre dans info@ et asutton@ sont archivées (rien n'est effacé ; une conversation revient d'elle-même si le client réécrit). Combiné au bouton « Send & archive », ce qui reste dans la liste est ce qui demande de l'attention.
+
 ### 20 octobre
 - **Stationnement PdA saisi par le bureau** : un « stat 13$ » écrit par Louise dans la note d'un technicien (Allan, Margot, Nicolas, Jean-Philippe) est maintenant reporté sur le RV. Une note écrite par un autre technicien ne compte toujours pas, pour éviter les doublons.
 - **Réservation en ligne : le client reste dans Gazelle même si la demande est refusée.** La nouvelle page crée (ou retrouve, par courriel ou téléphone) la fiche du client avant d'envoyer la demande, dans sa langue, et ajoute une note dans sa chronologie avec la plage, le service et le piano demandés.

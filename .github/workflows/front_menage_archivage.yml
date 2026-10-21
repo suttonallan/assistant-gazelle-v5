@@ -1,0 +1,37 @@
+name: Front - menage des vieilles conversations
+
+# Menage UNIQUE (date limite fixe dans le script : 7 oct. 2026).
+# Archive les conversations ouvertes sans activite depuis cette date dans
+# info@ et asutton@. Archiver n'efface rien. Relance chaque heure jusqu'a ce
+# qu'il ne reste rien ; ensuite ce workflow ne trouve plus rien et peut etre retire.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/archiver_vieilles_conversations_front.py
+      - .github/workflows/front_menage_archivage.yml
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: front-menage-archivage
+  cancel-in-progress: false
+
+jobs:
+  archiver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+      - name: Archiver
+        env:
+          FRONT_API_KEY: ${{ secrets.FRONT_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/archiver_vieilles_conversations_front.py
