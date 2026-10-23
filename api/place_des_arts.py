@@ -148,14 +148,9 @@ def normalize_piano_for_comparison(piano: Optional[str]) -> Optional[str]:
     """Normalise un type de piano pour comparaison."""
     if not piano:
         return None
-    # Extraire la marque principale (Steinway, Yamaha, etc.)
-    import re
-    piano_upper = piano.upper()
-    brands = ['STEINWAY', 'YAMAH', 'KAWAI', 'BÖSENDORFER', 'BOSENDORFER', 'FAZIOLI', 'BALDWIN', 'MASON']
-    for brand in brands:
-        if brand in piano_upper:
-            return brand
-    # Si pas de marque claire, retourner le texte normalisé
+    # Comparer la description complète, pas seulement la marque : « Steinway 9' »
+    # et « Steinway 7' » sont deux pianos distincts à accorder (cas Adisq, 2026-10-23 :
+    # réduits tous deux à « STEINWAY », ils étaient fusionnés et le 7' disparaissait).
     return normalize_text_for_comparison(piano)
 
 
