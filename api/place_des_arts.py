@@ -1835,36 +1835,12 @@ async def check_completed_requests():
                             'for_who': request.get('for_who', ''),
                             'current_status': status
                         })
-            else:
-                # Pas de lien, chercher un RV correspondant
-                matched_apt = sync_service._find_matching_appointment(
-                    request,
-                    gazelle_appointments
-                )
-                
-                if matched_apt:
-                    apt_id = matched_apt.get('external_id')
-                    gazelle_status = matched_apt.get('status', '').upper()
-                    
-                    if gazelle_status in ('COMPLETE', 'COMPLETED'):
-                        found_unlinked.append({
-                            'request_id': request_id,
-                            'appointment_id': apt_id,
-                            'appointment_date': request.get('appointment_date', '')[:10],
-                            'room': request.get('room', ''),
-                            'for_who': request.get('for_who', ''),
-                            'current_status': status
-                        })
-                    elif status != 'CREATED_IN_GAZELLE':
-                        found_not_created.append({
-                            'request_id': request_id,
-                            'appointment_id': apt_id,
-                            'appointment_date': request.get('appointment_date', '')[:10],
-                            'room': request.get('room', ''),
-                            'for_who': request.get('for_who', ''),
-                            'current_status': status
-                        })
-        
+            # Demandes non liées : PAS de rattachement ici (bug 2026-10-23).
+            # Le seul endroit qui lie une demande à un RV est
+            # GazelleSyncService.sync_requests_with_gazelle (règle stricte,
+            # RV déjà pris exclus). Ce chemin utilisait l'ancien matcher à
+            # points et recollait 5E/Stella sur le RV de Loreena.
+
         # Mettre à jour les statuts ET les techniciens en base de données
         updated_count = 0
 
@@ -1947,7 +1923,9 @@ async def check_completed_requests():
                         current_tech = request.get('technician_id')
                         gazelle_tech = tech_by_appt_linked.get(appointment_id) if appointment_id else None
                         
-                        if gazelle_tech and current_tech != gazelle_tech:
+                        # Ne remplir que si rien n'est choisi (vide / « À attribuer ») :
+                        # ne jamais écraser un technicien posé à la main.
+                        if gazelle_tech and current_tech != gazelle_tech and current_tech in (None, '', 'usr_HihJsEgkmpTEziJo'):
                             # Incohérence détectée, mettre à jour en base
                             try:
                                 storage.client.table('place_des_arts_requests')\

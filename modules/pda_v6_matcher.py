@@ -64,6 +64,8 @@ def find_best_match(request, gazelle_appointments):
     for apt in gazelle_appointments:
         if _normalize_date(apt.get("appointment_date")) != request_date:
             continue
+        if str(apt.get("status") or "").upper() in _CANCELLED:
+            continue
         if _contradicts(request_room, request_time, apt):
             continue
         compatible.append(apt)
@@ -99,11 +101,17 @@ def find_best_match(request, gazelle_appointments):
     return None
 
 
-PDA_ROOM_CODES = {"MS", "TM", "WP", "5E", "TJD", "SCL", "PN", "SH", "CL"}
+# Ordre : les « SALLE X » d'abord (« TM Salle C » = Salle C).
+PDA_ROOM_CODES = ["SALLE C", "SALLE D", "SALLE E", "SALLE F", "SALLE G",
+                  "MS", "TM", "WP", "5E", "TJD", "SCL", "PN", "SH", "CL"]
+_CANCELLED = ("CANCELLED", "CANCELED", "DELETED")
 MAX_HOUR_GAP_FOR_AI = 3
 
 
 def _room_code(room):
+    room = (room or "").upper().strip()
+    if re.fullmatch(r"[C-G]", room):
+        return "SALLE " + room
     for code in PDA_ROOM_CODES:
         if re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", room or ""):
             return code
@@ -165,9 +173,9 @@ def matches_request(request, gazelle_apt, allow_ai=True):
     request_for_who = (request.get("for_who") or "").upper().strip()
     apt_text = _build_search_text(gazelle_apt)
 
-    if request_room and request_room in apt_text:
+    if request_room and _room_named(request_room, apt_text):
         return True
-    if request_for_who and _for_who_matches(request_for_who, apt_text):
+    if request_for_who and _for_who_score(request_for_who, apt_text) >= 2:
         return True
     if allow_ai:
         return _ai_confirm_match(request, gazelle_apt)

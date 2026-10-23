@@ -198,6 +198,22 @@ class GazelleSyncService:
                 from modules.pda_v6_matcher import find_best_match
                 matched_apt = find_best_match(request, available_apts)
                 
+                # Élimination (RV sans salle ni événement) : refusée si une AUTRE
+                # demande du même jour, encore sans RV, est aussi compatible avec
+                # ce RV — sinon le premier traité « gagne » (revue 2026-10-23, C3).
+                if matched_apt and matched_apt.get('_matched_by') == 'elimination':
+                    from modules.pda_v6_matcher import _contradicts
+                    rivales = [
+                        r for r in requests
+                        if r.get('id') != request_id
+                        and not r.get('appointment_id')
+                        and str(r.get('appointment_date'))[:10] == str(appointment_date)[:10]
+                        and not _contradicts((r.get('room') or '').upper().strip(), r.get('time') or '', matched_apt)
+                    ]
+                    if rivales:
+                        warnings.append(f"Demande {request_id} : RV {matched_apt.get('external_id')} compatible avec plusieurs demandes — à lier à la main")
+                        matched_apt = None
+
                 if matched_apt:
                     matched_count += 1
                     apt_id = matched_apt.get('external_id')
@@ -289,10 +305,16 @@ class GazelleSyncService:
                         # IA à faible confiance.
                         if True:
                             from modules.pda_v6_matcher import find_best_match as _find_best_match
-                            best = _find_best_match(request, gazelle_appointments)
+                            best = _find_best_match(request, [
+                                a for a in gazelle_appointments
+                                if taken_apt_ids.get(a.get('external_id')) in (None, request_id)
+                            ])
                             # Seule une preuve explicite (salle/événement dans le RV)
                             # peut déplacer un lien existant.
+                            from modules.pda_v6_matcher import matches_request as _mr
+                            lien_actuel_prouve = _mr(request, gazelle_by_id.get(apt_id) or {}, allow_ai=False)
                             if (best and best.get('_matched_by') == 'evidence'
+                                    and not lien_actuel_prouve
                                     and best.get('external_id') != apt_id):
                                 new_apt_id = best.get('external_id')
                                 # Ne pas écraser un technicien déjà choisi à la main
@@ -523,6 +545,21 @@ class GazelleSyncService:
             return []
     
     def _find_matching_appointment(
+        self,
+        request: Dict,
+        gazelle_appointments: List[Dict]
+    ) -> Optional[Dict]:
+        """Délègue à la règle stricte (2026-10-23), RV déjà pris exclus.
+        L'ancien matcher à points ci-dessous n'est plus utilisé."""
+        from modules.pda_v6_matcher import find_best_match, matches_request
+        taken = self._get_taken_appointment_ids()
+        rid = request.get('id')
+        dispo = [a for a in gazelle_appointments
+                 if taken.get(a.get('external_id')) in (None, rid)
+                 or matches_request(request, a, allow_ai=False)]
+        return find_best_match(request, dispo)
+
+    def _old_find_matching_appointment(
         self,
         request: Dict,
         gazelle_appointments: List[Dict]
