@@ -1603,6 +1603,125 @@ def sync_manual(payload: SyncManualRequest, background_tasks: BackgroundTasks):
         )
 
 
+# ------------------------------------------------------------
+# « À confirmer » : dans le doute, l'assistant DEMANDE (Allan, 2026-10-23)
+# ------------------------------------------------------------
+
+def _rv_resume(apt: Dict[str, Any]) -> Dict[str, Any]:
+    from modules.pda_v6_matcher import tech_name
+    return {
+        "appointment_id": apt.get("external_id"),
+        "date": str(apt.get("appointment_date") or "")[:10],
+        "heure": str(apt.get("appointment_time") or "")[:5],
+        "titre": (apt.get("title") or "").strip(),
+        "description": ((apt.get("description") or apt.get("notes") or "").strip())[:160],
+        "technicien_id": apt.get("technicien"),
+        "technicien": tech_name(apt.get("technicien")),
+    }
+
+
+@router.get("/requests/a-confirmer")
+async def demandes_a_confirmer():
+    """Demandes dont le RV Gazelle n'est pas prouvé (ni salle ni événement écrit
+    dans le RV) : on montre les RV possibles du jour et la coordonnatrice choisit.
+    - « choisir »  : demande sans RV, mais un ou plusieurs RV possibles ce jour-là
+    - « verifier » : demande déjà liée à un RV qui ne la nomme pas, jamais confirmée"""
+    from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+    from modules.pda_v6_matcher import candidats, preuve
+    storage = get_storage()
+    svc = GazelleSyncService(storage)
+    debut = (aujourdhui_montreal() - timedelta(days=30)).isoformat()
+    demandes = storage.client.table('place_des_arts_requests').select('*')\
+        .neq('status', 'COMPLETED').neq('status', 'BILLED')\
+        .gte('appointment_date', debut).order('appointment_date').execute().data or []
+    rvs = svc._get_gazelle_appointments()
+    rv_par_id = {a.get('external_id'): a for a in rvs}
+    pris = svc._get_taken_appointment_ids()
+    confirmes = svc.get_liens_confirmes()
+
+    items = []
+    for d in demandes:
+        rid = d.get('id')
+        apt_id = d.get('appointment_id')
+        choix = confirmes.get(rid) or {}
+        if apt_id and choix.get('rv') == apt_id:
+            continue  # déjà confirmé par la coordonnatrice
+        rejetes = set(choix.get('rejetes') or [])
+        possibles = [a for a in candidats(d, rvs)
+                     if a.get('external_id') not in rejetes
+                     and pris.get(a.get('external_id')) in (None, rid)]
+        actuel = rv_par_id.get(apt_id) if apt_id else None
+        if apt_id:
+            if actuel and preuve(d, actuel) > 0:
+                continue  # le RV nomme la salle ou l'événement : lien prouvé
+            genre = 'verifier'
+        else:
+            if not possibles:
+                continue  # aucun RV possible : rien à demander (RV pas encore créé)
+            genre = 'choisir'
+        items.append({
+            "request_id": rid,
+            "genre": genre,
+            "demande": {k: d.get(k) for k in ('appointment_date', 'room', 'for_who', 'piano', 'time', 'technician_id')},
+            "rv_actuel": _rv_resume(actuel) if actuel else ({"appointment_id": apt_id} if apt_id else None),
+            "possibles": [_rv_resume(a) for a in possibles if a.get('external_id') != apt_id],
+        })
+    return {"count": len(items), "items": items}
+
+
+class LierDemandeIn(BaseModel):
+    appointment_id: Optional[str] = None   # None = « aucun de ces RV »
+    rejetes: List[str] = []                # RV montrés et écartés
+    par: Optional[str] = None
+    partage: bool = False                  # RV volontairement partagé (2 pianos, même visite)
+
+
+@router.post("/requests/{request_id}/lier")
+async def lier_demande(request_id: str, body: LierDemandeIn):
+    """La coordonnatrice confirme le bon RV (ou « aucun »). Son choix est
+    mémorisé et la synchro ne le défait jamais."""
+    from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+    storage = get_storage()
+    svc = GazelleSyncService(storage)
+    rows = storage.client.table('place_des_arts_requests').select('*').eq('id', request_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    demande = rows[0]
+    maintenant = datetime.now(timezone.utc).isoformat()
+
+    if body.appointment_id:
+        if not body.appointment_id.startswith('evt_'):
+            raise HTTPException(status_code=400, detail="appointment_id doit être un identifiant Gazelle evt_…")
+        apt = (storage.client.table('gazelle_appointments').select('*')
+               .eq('external_id', body.appointment_id).limit(1).execute().data or [None])[0]
+        if not apt:
+            raise HTTPException(status_code=404, detail="RV Gazelle introuvable")
+        autre = svc._get_taken_appointment_ids().get(body.appointment_id)
+        if autre and autre != request_id and not body.partage:
+            raise HTTPException(status_code=409, detail="Ce RV est déjà lié à une autre demande. Confirmer seulement s'il couvre vraiment les deux (même visite).")
+        maj = {'appointment_id': body.appointment_id, 'updated_at': maintenant}
+        if apt.get('technicien'):
+            maj['technician_id'] = apt.get('technicien')
+        if demande.get('status') in (None, '', 'PENDING'):
+            maj['status'] = 'CREATED_IN_GAZELLE'
+        storage.client.table('place_des_arts_requests').update(maj).eq('id', request_id).execute()
+        svc.save_lien_confirme(request_id, {"rv": body.appointment_id, "rejetes": body.rejetes,
+                                            "par": body.par, "le": maintenant})
+        return {"ok": True, "lie_a": body.appointment_id, "technician_id": maj.get('technician_id')}
+
+    # « Aucun de ces RV » : on détache et on mémorise les RV écartés
+    rejetes = set(body.rejetes)
+    if demande.get('appointment_id'):
+        rejetes.add(demande['appointment_id'])
+    maj = {'appointment_id': None, 'technician_id': None, 'updated_at': maintenant}
+    if demande.get('status') == 'CREATED_IN_GAZELLE':
+        maj['status'] = 'PENDING'
+    storage.client.table('place_des_arts_requests').update(maj).eq('id', request_id).execute()
+    svc.save_lien_confirme(request_id, {"rv": None, "rejetes": sorted(rejetes),
+                                        "par": body.par, "le": maintenant})
+    return {"ok": True, "lie_a": None, "rejetes": sorted(rejetes)}
+
+
 @router.post("/requests/{request_id}/verify-technician")
 async def verify_technician_in_gazelle(
     request_id: str,

@@ -37,30 +37,16 @@ def tech_name(tech_id):
     return TECH_NAMES.get(tech_id, tech_id[:15])
 
 
-def find_best_match(request, gazelle_appointments):
-    """Lien demande PdA -> RV Gazelle, SANS devinette (règle d'Allan, 2026-10-23).
-
-    Chaque information garde sa responsabilité :
-      1. Date : obligatoire et identique.
-      2. Aucune contradiction : un RV qui nomme une autre salle, ou dont
-         l'heure ne respecte pas celle de la demande (« avant 9h »,
-         « à 17h30 », « entre 12h et 13h »), est écarté d'office.
-      3. Preuve positive : la salle ou l'événement figure dans le RV.
-         Si plusieurs RV sont aussi bons l'un que l'autre -> AUCUN lien.
-      4. Sans preuve positive : lien seulement s'il ne reste qu'UN seul RV
-         compatible ce jour-là et que l'heure est connue des deux côtés.
-    Pas d'IA. Dans le doute, la demande reste « à lier » plutôt que de
-    recevoir le technicien d'un autre RV.
-    """
+def candidats(request, gazelle_appointments):
+    """RV Gazelle POSSIBLES pour une demande : même date, non annulés, et rien
+    qui contredit la demande (autre salle nommée, heure hors fenêtre).
+    Sert à DEMANDER à la coordonnatrice — jamais à lier tout seul."""
     request_date = _normalize_date(request.get("appointment_date"))
     if not request_date:
-        return None
-
+        return []
     request_room = (request.get("room") or "").upper().strip()
-    request_for_who = (request.get("for_who") or "").upper().strip()
     request_time = request.get("time") or ""
-
-    compatible = []
+    out = []
     for apt in gazelle_appointments:
         if _normalize_date(apt.get("appointment_date")) != request_date:
             continue
@@ -68,37 +54,42 @@ def find_best_match(request, gazelle_appointments):
             continue
         if _contradicts(request_room, request_time, apt):
             continue
-        compatible.append(apt)
+        out.append(apt)
+    return out
 
-    if not compatible:
+
+def preuve(request, apt):
+    """Force de la preuve qu'un RV est CETTE demande : 0 = aucune.
+    Salle nommée (mot entier) = 2 ; événement nommé (en entier ou 2 mots
+    significatifs) = 2-3. Un seul mot commun ne prouve rien."""
+    apt_text = _build_search_text(apt)
+    score = 0
+    if _room_named((request.get("room") or "").upper().strip(), apt_text):
+        score += 2
+    fw = (request.get("for_who") or "").upper().strip()
+    fws = _for_who_score(fw, apt_text) if fw else 0
+    if fws >= 2:
+        score += fws
+    return score
+
+
+def find_best_match(request, gazelle_appointments):
+    """Lien AUTOMATIQUE demande PdA -> RV Gazelle (règle d'Allan, 2026-10-23) :
+    seulement s'il y a une PREUVE (salle ou événement écrit dans le RV), sans
+    contradiction, et un seul meilleur RV. Sinon : None, et la demande est
+    proposée à la coordonnatrice (« À confirmer »). Pas d'IA, pas d'élimination."""
+    scored = [(a, preuve(request, a)) for a in candidats(request, gazelle_appointments)]
+    scored = [x for x in scored if x[1] > 0]
+    if not scored:
         return None
-
-    evidence = []
-    for apt in compatible:
-        apt_text = _build_search_text(apt)
-        room_ok = _room_named(request_room, apt_text)
-        fw = _for_who_score(request_for_who, apt_text) if request_for_who else 0
-        if room_ok or fw:
-            evidence.append((apt, (2 if room_ok else 0) + fw))
-
-    if evidence:
-        evidence.sort(key=lambda x: -x[1])
-        if len(evidence) > 1 and evidence[0][1] == evidence[1][1]:
-            logger.info(f"PdA ambigu ({request_date} {request_room} {request_for_who}) : "
-                        f"{len(evidence)} RV aussi plausibles -> pas de lien")
-            return None
-        best = dict(evidence[0][0])
-        best["_matched_by"] = "evidence"
-        return best
-
-    if len(compatible) == 1:
-        apt = compatible[0]
-        if _hour_bounds(request_time) and _parse_appointment_hour(apt.get("appointment_time")) is not None:
-            best = dict(apt)
-            best["_matched_by"] = "elimination"
-            return best
-
-    return None
+    scored.sort(key=lambda x: -x[1])
+    if len(scored) > 1 and scored[0][1] == scored[1][1]:
+        logger.info(f"PdA ambigu ({request.get('appointment_date')} {request.get('room')} "
+                    f"{request.get('for_who')}) : {len(scored)} RV aussi plausibles -> à confirmer")
+        return None
+    best = dict(scored[0][0])
+    best["_matched_by"] = "evidence"
+    return best
 
 
 # Ordre : les « SALLE X » d'abord (« TM Salle C » = Salle C).
@@ -169,13 +160,7 @@ def matches_request(request, gazelle_apt, allow_ai=True):
     if not request_date or request_date != apt_date:
         return False
 
-    request_room = (request.get("room") or "").upper().strip()
-    request_for_who = (request.get("for_who") or "").upper().strip()
-    apt_text = _build_search_text(gazelle_apt)
-
-    if request_room and _room_named(request_room, apt_text):
-        return True
-    if request_for_who and _for_who_score(request_for_who, apt_text) >= 2:
+    if preuve(request, gazelle_apt) > 0:
         return True
     if allow_ai:
         return _ai_confirm_match(request, gazelle_apt)

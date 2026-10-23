@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+import json
 import logging
 
 # Ajouter le projet au path
@@ -172,6 +173,7 @@ class GazelleSyncService:
             # événement y figure explicitement (vrai RV partagé, ex. 2 pianos
             # dans la même visite).
             taken_apt_ids = self._get_taken_appointment_ids()
+            liens_confirmes = self.get_liens_confirmes()
 
             # 3. Matcher les demandes avec les RV
             matched_count = 0
@@ -188,32 +190,21 @@ class GazelleSyncService:
                 # Chercher un RV correspondant (hors RV déjà pris par une autre demande)
                 from core.feature_flags import is_enabled
                 from modules.pda_v6_matcher import matches_request as _explicit_match
+                choix = liens_confirmes.get(request_id) or {}
+                if choix.get('rv') and choix.get('rv') == request.get('appointment_id'):
+                    continue  # lien confirmé par la coordonnatrice : on n'y touche pas
+                rejetes = set(choix.get('rejetes') or [])
                 available_apts = [
                     a for a in gazelle_appointments
-                    if taken_apt_ids.get(a.get('external_id')) in (None, request_id)
-                    or _explicit_match(request, a, allow_ai=False)
+                    if a.get('external_id') not in rejetes
+                    and (taken_apt_ids.get(a.get('external_id')) in (None, request_id)
+                         or _explicit_match(request, a, allow_ai=False))
                 ]
                 # Règle stricte unique (pas de score, pas d'IA) — voir
                 # modules/pda_v6_matcher.find_best_match.
                 from modules.pda_v6_matcher import find_best_match
                 matched_apt = find_best_match(request, available_apts)
                 
-                # Élimination (RV sans salle ni événement) : refusée si une AUTRE
-                # demande du même jour, encore sans RV, est aussi compatible avec
-                # ce RV — sinon le premier traité « gagne » (revue 2026-10-23, C3).
-                if matched_apt and matched_apt.get('_matched_by') == 'elimination':
-                    from modules.pda_v6_matcher import _contradicts
-                    rivales = [
-                        r for r in requests
-                        if r.get('id') != request_id
-                        and not r.get('appointment_id')
-                        and str(r.get('appointment_date'))[:10] == str(appointment_date)[:10]
-                        and not _contradicts((r.get('room') or '').upper().strip(), r.get('time') or '', matched_apt)
-                    ]
-                    if rivales:
-                        warnings.append(f"Demande {request_id} : RV {matched_apt.get('external_id')} compatible avec plusieurs demandes — à lier à la main")
-                        matched_apt = None
-
                 if matched_apt:
                     matched_count += 1
                     apt_id = matched_apt.get('external_id')
@@ -305,9 +296,12 @@ class GazelleSyncService:
                         # IA à faible confiance.
                         if True:
                             from modules.pda_v6_matcher import find_best_match as _find_best_match
-                            best = _find_best_match(request, [
+                            _choix = liens_confirmes.get(request_id) or {}
+                            _rej = set(_choix.get('rejetes') or [])
+                            best = None if (_choix.get('rv') and _choix.get('rv') == apt_id) else _find_best_match(request, [
                                 a for a in gazelle_appointments
                                 if taken_apt_ids.get(a.get('external_id')) in (None, request_id)
+                                and a.get('external_id') not in _rej
                             ])
                             # Seule une preuve explicite (salle/événement dans le RV)
                             # peut déplacer un lien existant.
@@ -432,6 +426,29 @@ class GazelleSyncService:
                 "warnings": []
             }
     
+    LIENS_CONFIRMES_KEY = 'pda_liens_confirmes'
+
+    def get_liens_confirmes(self) -> Dict[str, Dict]:
+        """Choix de la coordonnatrice : {request_id: {"rv": evt_… ou None,
+        "rejetes": [evt_…], "par": …, "le": …}}. Jamais défait par la synchro."""
+        try:
+            res = self.storage.client.table('system_settings')\
+                .select('value').eq('key', self.LIENS_CONFIRMES_KEY).execute()
+            if res.data and res.data[0].get('value'):
+                v = res.data[0]['value']
+                v = json.loads(v) if isinstance(v, str) else v
+                return v if isinstance(v, dict) else {}
+        except Exception as e:
+            logger.warning(f"Erreur lecture liens confirmés: {e}")
+        return {}
+
+    def save_lien_confirme(self, request_id: str, entree: Dict) -> None:
+        liens = self.get_liens_confirmes()
+        liens[request_id] = entree
+        self.storage.client.table('system_settings')\
+            .upsert({'key': self.LIENS_CONFIRMES_KEY, 'value': json.dumps(liens)}, on_conflict='key')\
+            .execute()
+
     def _get_taken_appointment_ids(self) -> Dict[str, str]:
         """{appointment_id: request_id} pour les RV Gazelle déjà liés à une demande PDA."""
         try:

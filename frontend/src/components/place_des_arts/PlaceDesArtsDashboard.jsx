@@ -60,6 +60,21 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const [infoMessage, setInfoMessage] = useState(null)
   // plus de CSV direct ici
 
+  // « À confirmer » : dans le doute, l'assistant demande au lieu de deviner
+  const [aConfirmer, setAConfirmer] = useState([])
+  const [liant, setLiant] = useState(null) // request_id en cours d'enregistrement
+
+  const fetchAConfirmer = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/a-confirmer`)
+      if (!resp.ok) return
+      const data = await resp.json()
+      setAConfirmer(data?.items || [])
+    } catch (err) {
+      // non bloquant
+    }
+  }, [])
+
   const fetchData = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true)
@@ -76,12 +91,13 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const data = await resp.json()
       setItems(data || [])
+      fetchAConfirmer()
     } catch (err) {
       if (!silent) setError(err.name === 'AbortError' ? 'Le serveur tarde à répondre. Réessayez.' : err.message)
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [])
+  }, [fetchAConfirmer])
 
   const fetchStats = useCallback(async () => {
     try {
@@ -549,6 +565,34 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   const handleExport = () => {
     const params = monthFilter ? `?month=${monthFilter}` : ''
     window.open(`${API_URL}/api/place-des-arts/export${params}`, '_blank')
+  }
+
+  const lierDemande = async (item, appointmentId, partage = false) => {
+    const montres = [item.rv_actuel?.appointment_id, ...(item.possibles || []).map(p => p.appointment_id)].filter(Boolean)
+    const rejetes = montres.filter(id => id !== appointmentId)
+    setLiant(item.request_id)
+    try {
+      const resp = await fetch(`${API_URL}/api/place-des-arts/requests/${item.request_id}/lier`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appointment_id: appointmentId, rejetes, partage, par: currentUser?.email || currentUser?.name || currentUser?.role || null })
+      })
+      if (resp.status === 409) {
+        const err = await resp.json().catch(() => ({}))
+        if (window.confirm(`${err.detail || 'Ce RV est déjà lié à une autre demande.'}\n\nC'est bien la même visite pour les deux demandes ?`)) {
+          setLiant(null)
+          return lierDemande(item, appointmentId, true)
+        }
+        return
+      }
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      setAConfirmer(prev => prev.filter(x => x.request_id !== item.request_id))
+      await fetchData(true)
+    } catch (err) {
+      alert(`Erreur : ${err.message}`)
+    } finally {
+      setLiant(null)
+    }
   }
 
   const handleDismissOrphan = async (orphan) => {
@@ -1337,6 +1381,56 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         {infoMessage && (
           <div className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded">
             {infoMessage}
+          </div>
+        )}
+
+        {aConfirmer.length > 0 && (
+          <div className="bg-orange-50 border border-orange-300 rounded-md px-4 py-3 mt-2">
+            <div className="text-sm font-medium text-orange-900 mb-1">
+              🤔 {aConfirmer.length} demande(s) à confirmer — l'assistant n'est pas certain du rendez-vous Gazelle
+            </div>
+            <div className="text-xs text-orange-800 mb-2">
+              Le rendez-vous ne nomme ni la salle ni l'événement. Choisis le bon, ou « Aucun » s'il n'est pas encore créé.
+            </div>
+            <div className="space-y-2">
+              {aConfirmer.map((it) => {
+                const d = it.demande || {}
+                const options = [
+                  ...(it.rv_actuel?.titre !== undefined ? [{ ...it.rv_actuel, actuel: true }] : []),
+                  ...(it.possibles || [])
+                ]
+                return (
+                  <div key={it.request_id} className="bg-white rounded px-3 py-2 text-sm border border-orange-200">
+                    <div className="font-medium text-gray-900">
+                      {d.appointment_date ? new Date(String(d.appointment_date).slice(0, 10) + 'T12:00:00').toLocaleDateString('fr-CA', { weekday: 'short', day: 'numeric', month: 'short' }) : '—'}
+                      {' · '}{d.room || '?'}{' · '}{d.for_who || '?'}{d.time ? ` · ${d.time}` : ''}
+                      {d.piano ? <span className="text-gray-500 font-normal">{' · '}{d.piano}</span> : null}
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {options.map((o) => (
+                        <button
+                          key={o.appointment_id}
+                          disabled={liant === it.request_id}
+                          onClick={() => lierDemande(it, o.appointment_id)}
+                          className={`text-xs px-2 py-1 rounded border text-left disabled:opacity-50 ${o.actuel ? 'border-orange-400 bg-orange-100 hover:bg-orange-200' : 'border-blue-300 bg-blue-50 hover:bg-blue-100'}`}
+                          title={o.description || ''}
+                        >
+                          {o.actuel ? 'Garder : ' : 'C\'est ce RV : '}
+                          {o.heure ? o.heure.replace(':', 'h') : '?'} · {o.titre || 'sans titre'} · {o.technicien || '-'}
+                        </button>
+                      ))}
+                      <button
+                        disabled={liant === it.request_id}
+                        onClick={() => lierDemande(it, null)}
+                        className="text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                      >
+                        Aucun de ces RV
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
