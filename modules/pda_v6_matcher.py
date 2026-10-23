@@ -38,57 +38,63 @@ def tech_name(tech_id):
 
 
 def find_best_match(request, gazelle_appointments):
+    """Lien demande PdA -> RV Gazelle, SANS devinette (règle d'Allan, 2026-10-23).
+
+    Chaque information garde sa responsabilité :
+      1. Date : obligatoire et identique.
+      2. Aucune contradiction : un RV qui nomme une autre salle, ou dont
+         l'heure ne respecte pas celle de la demande (« avant 9h »,
+         « à 17h30 », « entre 12h et 13h »), est écarté d'office.
+      3. Preuve positive : la salle ou l'événement figure dans le RV.
+         Si plusieurs RV sont aussi bons l'un que l'autre -> AUCUN lien.
+      4. Sans preuve positive : lien seulement s'il ne reste qu'UN seul RV
+         compatible ce jour-là et que l'heure est connue des deux côtés.
+    Pas d'IA. Dans le doute, la demande reste « à lier » plutôt que de
+    recevoir le technicien d'un autre RV.
+    """
     request_date = _normalize_date(request.get("appointment_date"))
     if not request_date:
         return None
 
     request_room = (request.get("room") or "").upper().strip()
     request_for_who = (request.get("for_who") or "").upper().strip()
-    request_hour_limit = _parse_hour_limit(request.get("time") or "")
+    request_time = request.get("time") or ""
 
-    candidates = []
+    compatible = []
     for apt in gazelle_appointments:
-        apt_date = _normalize_date(apt.get("appointment_date"))
-        if apt_date != request_date:
+        if _normalize_date(apt.get("appointment_date")) != request_date:
             continue
+        if _contradicts(request_room, request_time, apt):
+            continue
+        compatible.append(apt)
 
+    if not compatible:
+        return None
+
+    evidence = []
+    for apt in compatible:
         apt_text = _build_search_text(apt)
-        apt_hour = _parse_appointment_hour(apt.get("appointment_time"))
-        has_real_tech = apt.get("technicien") in REAL_TECHNICIAN_IDS
+        room_ok = _room_named(request_room, apt_text)
+        fw = _for_who_score(request_for_who, apt_text) if request_for_who else 0
+        if room_ok or fw:
+            evidence.append((apt, (2 if room_ok else 0) + fw))
 
-        quality = _evaluate_match(
-            request_room, request_for_who, request_hour_limit,
-            apt_text, apt_hour, has_real_tech,
-        )
-        if quality > 0:
-            # Distance horaire, pour departager les egalites : deux RV le meme
-            # jour/salle/client (ex: 9h Margot et 17h Nicolas) obtiennent la meme
-            # qualite (le bonus heure "<= limite" vaut pour les deux), et sans ce
-            # critere le premier trouve gagne et vole l'attribution.
-            if request_hour_limit is not None and apt_hour is not None:
-                hour_distance = abs(apt_hour - request_hour_limit)
-            else:
-                hour_distance = 99
-            candidates.append((apt, quality, hour_distance))
+    if evidence:
+        evidence.sort(key=lambda x: -x[1])
+        if len(evidence) > 1 and evidence[0][1] == evidence[1][1]:
+            logger.info(f"PdA ambigu ({request_date} {request_room} {request_for_who}) : "
+                        f"{len(evidence)} RV aussi plausibles -> pas de lien")
+            return None
+        best = dict(evidence[0][0])
+        best["_matched_by"] = "evidence"
+        return best
 
-    if candidates:
-        # Qualite decroissante, puis l'heure la plus proche de la demande.
-        candidates.sort(key=lambda x: (-x[1], x[2]))
-        return candidates[0][0]
-
-    # Fallback IA — seulement parmi les RV qui ne CONTREDISENT pas la demande
-    # (autre salle nommée, heure trop éloignée). Bug 2026-10-23 : 5E/Stella
-    # 17h30 collée sur le RV MS/Loreena 13h, seul RV PdA du jour.
-    same_day = [
-        a for a in gazelle_appointments
-        if _normalize_date(a.get("appointment_date")) == request_date
-        and not _contradicts(request_room, request_hour_limit, a)
-    ]
-    if same_day:
-        ai_match = _ai_find_match(request, same_day)
-        if ai_match:
-            ai_match["_matched_by"] = "ai"
-            return ai_match
+    if len(compatible) == 1:
+        apt = compatible[0]
+        if _hour_bounds(request_time) and _parse_appointment_hour(apt.get("appointment_time")) is not None:
+            best = dict(apt)
+            best["_matched_by"] = "elimination"
+            return best
 
     return None
 
@@ -104,9 +110,36 @@ def _room_code(room):
     return None
 
 
-def _contradicts(request_room, request_hour_limit, apt):
-    """Vrai si le RV ne peut manifestement pas être cette demande :
-    il nomme une autre salle PdA, ou son heure est à plus de 3 h de la demande."""
+def _room_named(request_room, apt_text):
+    code = _room_code(request_room)
+    if code:
+        return bool(re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", apt_text))
+    return bool(request_room) and request_room in apt_text
+
+
+def _hour_bounds(time_str):
+    """Fenêtre d'heure de DÉBUT acceptable pour le RV, selon la demande.
+    « avant 9h » -> [5, 9] ; « à 17h30 » -> [16, 18] ; « entre 12h et 13h »
+    -> [11, 13] ; « après 18h » -> [18, 23] ; « 18h » -> [15, 19]."""
+    t = (time_str or "").lower().strip()
+    hours = [int(h) for h in re.findall(r"(\d{1,2})\s*h", t)]
+    if not hours:
+        return None
+    h = hours[0]
+    if t.startswith("avant"):
+        return (max(h - 4, 0), h)
+    if t.startswith("entre") and len(hours) >= 2:
+        return (hours[0] - 1, hours[1])
+    if t.startswith("après") or t.startswith("apres"):
+        return (h, 23)
+    if re.match(r"^(a|à)\s", t):
+        return (h - 1, h + 1)
+    return (h - 3, h + 1)
+
+
+def _contradicts(request_room, request_time, apt):
+    """Vrai si le RV ne peut pas être cette demande : il nomme une autre
+    salle PdA, ou son heure de début sort de la fenêtre demandée."""
     apt_text = _build_search_text(apt)
     req_code = _room_code(request_room)
     if req_code:
@@ -115,8 +148,9 @@ def _contradicts(request_room, request_hour_limit, apt):
         if apt_codes and req_code not in apt_codes:
             return True
     apt_hour = _parse_appointment_hour(apt.get("appointment_time"))
-    if request_hour_limit is not None and apt_hour is not None:
-        if abs(apt_hour - request_hour_limit) > MAX_HOUR_GAP_FOR_AI:
+    bounds = _hour_bounds(request_time)
+    if bounds and apt_hour is not None:
+        if not (bounds[0] <= apt_hour <= bounds[1]):
             return True
     return False
 

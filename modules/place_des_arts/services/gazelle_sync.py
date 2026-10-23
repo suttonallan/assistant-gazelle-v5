@@ -193,14 +193,10 @@ class GazelleSyncService:
                     if taken_apt_ids.get(a.get('external_id')) in (None, request_id)
                     or _explicit_match(request, a, allow_ai=False)
                 ]
-                if is_enabled('pda_v6_matcher'):
-                    from modules.pda_v6_matcher import find_best_match
-                    matched_apt = find_best_match(request, available_apts)
-                else:
-                    matched_apt = self._find_matching_appointment(
-                        request,
-                        available_apts
-                    )
+                # Règle stricte unique (pas de score, pas d'IA) — voir
+                # modules/pda_v6_matcher.find_best_match.
+                from modules.pda_v6_matcher import find_best_match
+                matched_apt = find_best_match(request, available_apts)
                 
                 if matched_apt:
                     matched_count += 1
@@ -291,11 +287,12 @@ class GazelleSyncService:
                         # repli IA) pour changer un lien déjà établi, afin de ne
                         # pas faire osciller un lien correct sur une supposition
                         # IA à faible confiance.
-                        from core.feature_flags import is_enabled as _is_enabled
-                        if _is_enabled('pda_v6_matcher'):
+                        if True:
                             from modules.pda_v6_matcher import find_best_match as _find_best_match
                             best = _find_best_match(request, gazelle_appointments)
-                            if (best and best.get('_matched_by') != 'ai'
+                            # Seule une preuve explicite (salle/événement dans le RV)
+                            # peut déplacer un lien existant.
+                            if (best and best.get('_matched_by') == 'evidence'
                                     and best.get('external_id') != apt_id):
                                 new_apt_id = best.get('external_id')
                                 # Ne pas écraser un technicien déjà choisi à la main
