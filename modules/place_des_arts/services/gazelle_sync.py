@@ -163,7 +163,16 @@ class GazelleSyncService:
             gazelle_appointments = self._get_gazelle_appointments()
             
             print(f"📅 {len(gazelle_appointments)} RV Gazelle chargés\n")
-            
+
+            # RV Gazelle déjà liés à une AUTRE demande PDA. Bug du 2026-10-23 :
+            # la demande 5E/Stella (27 oct.) a été collée par le repli IA sur le
+            # seul RV PdA du jour — celui de Loreena McKennitt (MS, 13h, Allan)
+            # — et en a hérité le technicien. Un RV déjà pris n'est plus
+            # proposé à une nouvelle demande, sauf si sa salle ou son
+            # événement y figure explicitement (vrai RV partagé, ex. 2 pianos
+            # dans la même visite).
+            taken_apt_ids = self._get_taken_appointment_ids()
+
             # 3. Matcher les demandes avec les RV
             matched_count = 0
             updated_count = 0
@@ -176,15 +185,21 @@ class GazelleSyncService:
                 room = request.get('room', '')
                 time_str = request.get('time', '')
                 
-                # Chercher un RV correspondant
+                # Chercher un RV correspondant (hors RV déjà pris par une autre demande)
                 from core.feature_flags import is_enabled
+                from modules.pda_v6_matcher import matches_request as _explicit_match
+                available_apts = [
+                    a for a in gazelle_appointments
+                    if taken_apt_ids.get(a.get('external_id')) in (None, request_id)
+                    or _explicit_match(request, a, allow_ai=False)
+                ]
                 if is_enabled('pda_v6_matcher'):
                     from modules.pda_v6_matcher import find_best_match
-                    matched_apt = find_best_match(request, gazelle_appointments)
+                    matched_apt = find_best_match(request, available_apts)
                 else:
                     matched_apt = self._find_matching_appointment(
                         request,
-                        gazelle_appointments
+                        available_apts
                     )
                 
                 if matched_apt:
@@ -221,6 +236,7 @@ class GazelleSyncService:
                             apt_technician
                         )
                         if success:
+                            taken_apt_ids.setdefault(apt_id, request_id)
                             updated_count += 1
                             if is_real_tech:
                                 print(f"   💾 Statut: CREATED_IN_GAZELLE (tech: {apt_technician})")
@@ -397,6 +413,21 @@ class GazelleSyncService:
                 "warnings": []
             }
     
+    def _get_taken_appointment_ids(self) -> Dict[str, str]:
+        """{appointment_id: request_id} pour les RV Gazelle déjà liés à une demande PDA."""
+        try:
+            result = self.storage.client.table('place_des_arts_requests')\
+                .select('id,appointment_id')\
+                .not_.is_('appointment_id', 'null')\
+                .execute()
+            taken = {}
+            for r in (result.data or []):
+                taken.setdefault(r['appointment_id'], r['id'])
+            return taken
+        except Exception as e:
+            logger.warning(f"Erreur récupération RV déjà liés: {e}")
+            return {}
+
     def _get_unlinked_requests(self) -> List[Dict]:
         """Récupère toutes les demandes sans appointment_id."""
         try:

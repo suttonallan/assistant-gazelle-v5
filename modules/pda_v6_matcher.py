@@ -76,10 +76,13 @@ def find_best_match(request, gazelle_appointments):
         candidates.sort(key=lambda x: (-x[1], x[2]))
         return candidates[0][0]
 
-    # Fallback IA
+    # Fallback IA — seulement parmi les RV qui ne CONTREDISENT pas la demande
+    # (autre salle nommée, heure trop éloignée). Bug 2026-10-23 : 5E/Stella
+    # 17h30 collée sur le RV MS/Loreena 13h, seul RV PdA du jour.
     same_day = [
         a for a in gazelle_appointments
         if _normalize_date(a.get("appointment_date")) == request_date
+        and not _contradicts(request_room, request_hour_limit, a)
     ]
     if same_day:
         ai_match = _ai_find_match(request, same_day)
@@ -88,6 +91,34 @@ def find_best_match(request, gazelle_appointments):
             return ai_match
 
     return None
+
+
+PDA_ROOM_CODES = {"MS", "TM", "WP", "5E", "TJD", "SCL", "PN", "SH", "CL"}
+MAX_HOUR_GAP_FOR_AI = 3
+
+
+def _room_code(room):
+    for code in PDA_ROOM_CODES:
+        if re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", room or ""):
+            return code
+    return None
+
+
+def _contradicts(request_room, request_hour_limit, apt):
+    """Vrai si le RV ne peut manifestement pas être cette demande :
+    il nomme une autre salle PdA, ou son heure est à plus de 3 h de la demande."""
+    apt_text = _build_search_text(apt)
+    req_code = _room_code(request_room)
+    if req_code:
+        apt_codes = {c for c in PDA_ROOM_CODES
+                     if re.search(rf"(?<![A-Z0-9]){c}(?![A-Z0-9])", apt_text)}
+        if apt_codes and req_code not in apt_codes:
+            return True
+    apt_hour = _parse_appointment_hour(apt.get("appointment_time"))
+    if request_hour_limit is not None and apt_hour is not None:
+        if abs(apt_hour - request_hour_limit) > MAX_HOUR_GAP_FOR_AI:
+            return True
+    return False
 
 
 def matches_request(request, gazelle_apt, allow_ai=True):

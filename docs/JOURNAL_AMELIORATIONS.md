@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 23 octobre
+- **Place des Arts, mauvais technicien** : une nouvelle demande ne peut plus être rattachée au rendez-vous Gazelle d'une autre demande, ni à un rendez-vous d'une autre salle ou à plus de 3 h d'écart. La demande 5E/Stella du 27 oct. avait hérité d'Allan parce qu'elle avait été collée au rendez-vous de Loreena McKennitt (MS, 13h) ; elle redevient « à attribuer » jusqu'à ce que son vrai rendez-vous existe dans Gazelle.
 - **Place des Arts, demandes à plusieurs pianos** : quand une demande liste deux pianos pour le même événement (ex. Adisq, 8 nov., Steinway 9' et 7'), l'import crée maintenant une ligne par piano au lieu d'en garder une seule — chaque piano est donc facturé.
 - **Place des Arts, doublons** : une demande n'est considérée comme doublon que si tout est identique (date, salle, événement, piano et heure). Avant, deux pianos de même marque, ou « avant 11h » et « après 11h », pouvaient être confondus et l'un des deux disparaissait.
 
