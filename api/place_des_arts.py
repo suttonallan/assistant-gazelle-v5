@@ -159,13 +159,12 @@ def normalize_time_for_comparison(time_value: Optional[str]) -> Optional[str]:
     if not time_value:
         return None
     import re
-    # Extraire l'heure (format HH ou HH:MM)
-    time_match = re.search(r'(\d{1,2})[:h](\d{2})?', str(time_value).lower())
-    if time_match:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2)) if time_match.group(2) else 0
-        return f"{hour:02d}:{minute:02d}"
-    return None
+    # Garder tout le texte (« avant 11h » ≠ « après 11h », « matinée » ≠ « soirée »),
+    # en uniformisant seulement l'écriture de l'heure : 11h = 11:00 = 11h00.
+    def _hh_mm(m):
+        return f"{int(m.group(1)):02d}:{int(m.group(2) or 0):02d}"
+    texte = normalize_text_for_comparison(str(time_value))
+    return re.sub(r'(\d{1,2})\s*[:h]\s*(\d{2})?', _hh_mm, texte)
 
 
 def merge_duplicate_requests(requests: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -212,19 +211,14 @@ def merge_duplicate_requests(requests: List[Dict[str, Any]]) -> List[Dict[str, A
             piano2 = normalize_piano_for_comparison(req2.get('piano'))
             time2 = normalize_time_for_comparison(req2.get('time'))
             
-            # Vérifier si date et room sont identiques
-            if date1 and date2 and date1 == date2 and room1 and room2 and room1 == room2:
-                # Date et lieu identiques → vérifier heure et piano
-                piano_different = piano1 != piano2 and piano1 and piano2
-                time_different = time1 != time2 and time1 and time2
-                
-                if piano_different or time_different:
-                    # Heure ou piano différent → garder séparé (ne pas fusionner)
-                    continue
-                else:
-                    # Même date, même lieu, même heure (ou pas d'heure), même piano (ou pas de piano)
-                    # → C'est un doublon, fusionner
-                    duplicates_to_merge.append(j)
+            # Règle (Allan, 2026-10-23) : c'est un doublon SEULEMENT si tout est
+            # identique — date, salle, événement, piano et heure. Un champ vide ne
+            # correspond qu'à un champ vide. Mieux vaut un doublon visible (facile à
+            # supprimer) qu'un piano perdu (jamais facturé).
+            for1 = normalize_text_for_comparison(req1.get('for_who') or '')
+            for2 = normalize_text_for_comparison(req2.get('for_who') or '')
+            if date1 == date2 and room1 == room2 and for1 == for2 and piano1 == piano2 and time1 == time2:
+                duplicates_to_merge.append(j)
         
         # Si on a trouvé des doublons à fusionner
         if len(duplicates_to_merge) > 1:
@@ -1297,6 +1291,7 @@ async def import_preview(payload: ImportPreviewRequest):
                     f"appointment_date=eq.{row.get('appointment_date')}",
                     f"room=eq.{row.get('room') or ''}",
                     f"for_who=eq.{row.get('for_who') or ''}",
+                    f"piano=eq.{row.get('piano') or ''}",
                     f"time=eq.{row.get('time') or ''}",
                     "select=id",
                     "limit=1"
@@ -1401,6 +1396,7 @@ async def import_email(payload: ImportRequest):
                     f"appointment_date=eq.{row.get('appointment_date')}",
                     f"room=eq.{row.get('room') or ''}",
                     f"for_who=eq.{row.get('for_who') or ''}",
+                    f"piano=eq.{row.get('piano') or ''}",
                     f"time=eq.{row.get('time') or ''}",
                     "select=id",
                     "limit=1"

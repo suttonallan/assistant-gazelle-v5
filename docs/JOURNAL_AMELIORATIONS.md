@@ -8,6 +8,7 @@ l'historique complet reste dans git.
 
 ### 23 octobre
 - **Place des Arts, demandes à plusieurs pianos** : quand une demande liste deux pianos pour le même événement (ex. Adisq, 8 nov., Steinway 9' et 7'), l'import crée maintenant une ligne par piano au lieu d'en garder une seule — chaque piano est donc facturé.
+- **Place des Arts, doublons** : une demande n'est considérée comme doublon que si tout est identique (date, salle, événement, piano et heure). Avant, deux pianos de même marque, ou « avant 11h » et « après 11h », pouvaient être confondus et l'un des deux disparaissait.
 
 ### 21 octobre
 - **Réservation en ligne, clients éloignés** : à plus de 45 km du technicien le plus proche (ex. Saint-Jérôme, Mirabel, Orford), le client voit l'estimation des frais de déplacement et indique ses préférences et indisponibilités au lieu de choisir une plage ; la demande arrive dans Front (info@) pour que la coordonnatrice fixe le rendez-vous.

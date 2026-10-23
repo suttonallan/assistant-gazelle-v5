@@ -377,7 +377,7 @@ class PDAEmailProcessor:
     def _exists_duplicate(self, row: Dict[str, Any]) -> bool:
         """Vrai si une demande IDENTIQUE existe déjà.
 
-        Clé volontairement stricte — date + salle + heure + pour_qui — pour NE
+        Clé volontairement stricte — date + salle + heure + pour_qui + piano — pour NE
         PAS fusionner deux vraies demandes le même jour, même salle, à des
         heures (ou pour qui) différentes. Sert à bloquer les re-parses d'un même
         original cité dans une réponse (« ok pour le … »).
@@ -391,6 +391,7 @@ class PDAEmailProcessor:
                 'appointment_date': f"eq.{appt}",
                 'room': f"eq.{row.get('room') or ''}",
                 'for_who': f"eq.{row.get('for_who') or ''}",
+                'piano': f"eq.{row.get('piano') or ''}",
                 'time': f"eq.{row.get('time') or ''}",
                 'select': 'id',
                 'limit': 1,
