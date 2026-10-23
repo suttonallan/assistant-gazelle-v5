@@ -144,7 +144,7 @@ def _parse_with_ai(text: str) -> list[dict]:
 
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
+            max_tokens=3000,
             system=f"""Tu parses des emails de demande d'accord de piano pour Place des Arts (Montréal).
 Date du jour : {today}.
 
@@ -158,6 +158,14 @@ Chaque demande contient certains de ces champs :
 - time : exigence horaire (avant 12h, avant 9h, etc.)
 
 Un email peut contenir PLUSIEURS demandes (plusieurs dates/salles).
+
+RÈGLE ABSOLUE : chaque ligne du tableau de la demande = UNE demande distincte.
+Deux lignes identiques sauf le piano (ex. même date, même salle, même événement,
+« Steinway 9' » puis « Steinway 7' ») sont DEUX demandes : deux pianos à accorder,
+donc deux éléments dans le JSON. Ne fusionne JAMAIS deux lignes, ne retire jamais
+une ligne que tu crois en double. Compte les lignes du tableau et rends exactement
+autant d'éléments. Le tableau arrive souvent une valeur par ligne (DATE, SALLE,
+Producteur, Type d'accord, Piano, Heure, puis la ligne suivante recommence à DATE).
 
 Retourne UNIQUEMENT un JSON array :
 [{{"appointment_date": "YYYY-MM-DD", "room": "...", "for_who": "...", "diapason": "...", "requester": "...", "piano": "...", "time": "..."}}]

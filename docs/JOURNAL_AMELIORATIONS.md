@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 23 octobre
+- **Place des Arts, demandes à plusieurs pianos** : quand une demande liste deux pianos pour le même événement (ex. Adisq, 8 nov., Steinway 9' et 7'), l'import crée maintenant une ligne par piano au lieu d'en garder une seule — chaque piano est donc facturé.
+
 ### 21 octobre
 - **Réservation en ligne, clients éloignés** : à plus de 45 km du technicien le plus proche (ex. Saint-Jérôme, Mirabel, Orford), le client voit l'estimation des frais de déplacement et indique ses préférences et indisponibilités au lieu de choisir une plage ; la demande arrive dans Front (info@) pour que la coordonnatrice fixe le rendez-vous.
 - **Chat du site, demandes de rappel** : quand un client demande dans le chat qu'on l'appelle, sa demande (prénom, téléphone, meilleur moment et résumé de la conversation) arrive dans Front, boîte info@. Le client sait qu'on le rappelle d'ici deux jours ouvrables.

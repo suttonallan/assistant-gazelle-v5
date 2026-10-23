@@ -39,6 +39,12 @@ from modules.place_des_arts.services.event_manager import EventManager  # noqa: 
 from modules.place_des_arts.services.email_parser import parse_email_text  # noqa: E402
 from modules.place_des_arts.services.concert_search import rechercher_concert  # noqa: E402
 
+
+def _mois_suivant(mois: str) -> str:
+    """'2026-11' -> '2026-12' ; '2026-12' -> '2027-01' (borne de fin de mois valide)."""
+    annee, m = (int(x) for x in mois.split("-")[:2])
+    return f"{annee + 1}-01" if m == 12 else f"{annee}-{m + 1:02d}"
+
 router = APIRouter(prefix="/place-des-arts", tags=["place-des-arts"])
 
 # NOTE: PLACE_DES_ARTS_CLIENT_ID supprimé - Utiliser get_institution_config() depuis api/institutions.py
@@ -614,7 +620,7 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
         params.append(f"room=eq.{room}")
     if month:
         params.append(f"appointment_date=gte.{month}-01")
-        params.append(f"appointment_date=lt.{month}-32")
+        params.append(f"appointment_date=lt.{_mois_suivant(month)}-01")
     params.append("order=appointment_date.desc")
     params.append(f"limit={limit}")
 

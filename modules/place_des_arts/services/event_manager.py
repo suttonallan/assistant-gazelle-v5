@@ -92,6 +92,12 @@ def _parse_decimal(value: str) -> float | None:
         return None
 
 
+
+def _mois_suivant(mois: str) -> str:
+    """'2026-11' -> '2026-12' ; '2026-12' -> '2027-01' (borne de fin de mois valide)."""
+    annee, m = (int(x) for x in mois.split("-")[:2])
+    return f"{annee + 1}-01" if m == 12 else f"{annee}-{m + 1:02d}"
+
 class EventManager:
     """
     Logique Place des Arts (Supabase REST).
@@ -275,7 +281,7 @@ class EventManager:
             params.append(f"room=eq.{room}")
         if month:
             params.append(f"appointment_date=gte.{month}-01")
-            params.append(f"appointment_date=lt.{month}-32")
+            params.append(f"appointment_date=lt.{_mois_suivant(month)}-01")
         params.append("order=appointment_date.desc")
         params.append(f"limit={min(limit, 500)}")
 
