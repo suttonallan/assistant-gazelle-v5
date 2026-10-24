@@ -1048,6 +1048,28 @@ def timeline_piano_gazelle(client_id: str = Query(...), piano_id: str = Query(..
     return {"entrees": out[:limite]}
 
 
+@router.post("/gazelle/test-note-piano")
+def test_note_piano(client_id: str = Query(...), piano_id: str = Query(...),
+                    date: Optional[str] = Query(None)):
+    """DIAGNOSTIC (direction) — écrit une note de test createClientLog sur un piano et
+    compare le piano avant/après (statut, dernier service). La note porte la signature
+    « Saisi par Claude IA » : elle se retire avec DELETE /taches/gazelle/timeline/{id}."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    q = """query($p: String!) { piano(id: $p) { id status calculatedLastService manualLastService } }"""
+
+    def lire():
+        return ((gz._execute_query(q, {"p": piano_id}).get("data") or {}).get("piano")) or {}
+    try:
+        avant = lire()
+        gz.create_client_log(client_id, "TEST de l'assistant — note à supprimer.\n\nSaisi par Claude IA",
+                             piano_id=piano_id, created_at=date)
+        apres = lire()
+    except Exception as e:
+        raise HTTPException(502, f"Gazelle : {e}")
+    return {"avant": avant, "apres": apres}
+
+
 @router.delete("/copie/timeline/{external_id}")
 def retirer_copie_timeline(external_id: str):
     """Retire de la COPIE Supabase une entrée qui n'existe plus dans Gazelle
