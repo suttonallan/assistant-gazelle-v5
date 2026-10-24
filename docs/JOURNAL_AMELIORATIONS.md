@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 24 octobre
+- **Vincent-d'Indy, fin des « accords collectifs » dans l'agenda de Nicolas** : quand on pousse les fiches terminées vers Gazelle, chaque piano reçoit maintenant une simple note dans son historique d'entretien, datée du jour réel du service. Plus aucun rendez-vous n'est créé, donc plus rien n'atterrit dans un agenda. Les pianos inactifs restent inactifs, et la date du dernier service du piano est mise à jour.
+
 ### 23 octobre
 - **Place des Arts, « À confirmer »** : dans le doute, l'assistant demande au lieu de deviner. Une demande n'est rattachée toute seule que si le rendez-vous Gazelle nomme sa salle ou son événement. Sinon, un encadré orange montre les rendez-vous possibles du jour, et on clique sur le bon (ou « Aucun »). Ce choix est mémorisé, et la synchro ne le défait jamais.
 - **Place des Arts, rattachement sans devinette** : le bouton « Synchroniser » ne peut plus coller une demande au rendez-vous d'une autre ni changer un technicien choisi à la main. Un rendez-vous annulé n'est plus jamais rattaché. Quand un rendez-vous Gazelle ne dit ni la salle ni l'événement et pourrait convenir à deux demandes du même jour, aucune des deux n'est rattachée : elles restent « à lier ».

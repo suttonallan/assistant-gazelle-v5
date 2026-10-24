@@ -32,6 +32,51 @@ router = APIRouter(prefix="/service-records", tags=["service-records"])
 CALENDRIER_NON_ASSIGNE_USER_ID = "usr_naFcjSiNRcnqU5mF"  # "Avis système inutiles Piano"
 INSTITUTIONS_PUSH_NON_ASSIGNE = {"orford"}
 
+# Institutions poussées en NOTES D'HISTORIQUE (createClientLog), sans rendez-vous :
+# rien n'atterrit dans un agenda, chaque note garde la date réelle de sa fiche.
+# Validé en prod le 2026-10-24 sur VD404 :
+#   - la note sort en SERVICE_ENTRY_MANUAL, comme une note saisie dans l'app ;
+#   - createdAt antidate bien l'entrée ;
+#   - une note RÉACTIVE un piano inactif → le remettre INACTIVE ensuite ;
+#   - la note ne bouge pas « dernier service » → on avance manualLastService
+#     (Gazelle prend le plus récent des deux). Un piano INACTIF refuse toute
+#     modification : on écrit donc la date APRÈS la note, dans le même appel que
+#     la remise en inactif.
+INSTITUTIONS_PUSH_NOTES = {"vincent-dindy"}
+
+
+def _pousser_fiche_en_note(api_client, client_id: str, record: Dict[str, Any], dt) -> None:
+    """Une fiche → une note d'historique datée du service, piano laissé dans son statut d'origine."""
+    from datetime import datetime as _dt
+    from core.timezone_utils import MONTREAL_TZ
+    pid = record["piano_id"]
+    lire = 'query($id:String!){piano(id:$id){id status calculatedLastService}}'
+    avant = ((api_client._execute_query(lire, {"id": pid}).get("data") or {}).get("piano")) or {}
+    etait_inactif = avant.get("status") == "INACTIVE"
+
+    parts = []
+    if record.get("travail"):
+        parts.append(record["travail"])
+    if record.get("observations"):
+        parts.append(f"Observations: {record['observations']}")
+    note = "\n".join(parts) if parts else "Service effectué"
+    dt = dt or _dt.now(MONTREAL_TZ)
+    api_client.create_client_log(client_id, note, piano_id=pid, created_at=dt.isoformat())
+
+    entree: Dict[str, Any] = {}
+    jour = dt.date().isoformat()
+    if jour > (avant.get("calculatedLastService") or ""):
+        entree["manualLastService"] = jour  # n'avance jamais à reculons
+    if etait_inactif:
+        entree["status"] = "INACTIVE"
+    if entree:
+        res = api_client._execute_query(
+            'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status} mutationErrors{fieldName messages}}}',
+            {"id": pid, "input": entree})
+        err = ((res.get("data") or {}).get("updatePiano") or {}).get("mutationErrors") or res.get("errors")
+        if err:
+            logging.warning(f"Note poussée, mais mise à jour du piano {pid} refusée : {err}")
+
 # ============================================================
 # Helpers Supabase
 # ============================================================
@@ -583,6 +628,36 @@ async def push_validated_to_gazelle(
             group_dts = [d for r in group if (d := _service_dt(r))]
             event_dt = max(group_dts) if group_dts else datetime.now(MONTREAL_TZ)
             event_date = event_dt.isoformat()
+
+            if institution.strip().lower() in INSTITUTIONS_PUSH_NOTES:
+                # Notes d'historique, une par fiche, sans rendez-vous.
+                ok, echecs = 0, []
+                for record in sorted(group, key=lambda r: _service_dt(r) or datetime.now(MONTREAL_TZ)):
+                    try:
+                        _pousser_fiche_en_note(api_client, client_id, record, _service_dt(record))
+                        sb.table(TABLE).update({
+                            "status": "pushed",
+                            "pushed_at": now_iso,
+                            "gazelle_event_id": f"NOTE {day}",
+                            "updated_at": now_iso,
+                        }).eq("id", record["id"]).execute()
+                        ok += 1
+                        pushed_piano_ids.add(record["piano_id"])
+                    except Exception as fe:
+                        sb.table(TABLE).update({
+                            "status": "error",
+                            "push_error": str(fe),
+                            "updated_at": now_iso,
+                        }).eq("id", record["id"]).execute()
+                        echecs.append(str(fe))
+                        logging.error(f"Note Gazelle {record['piano_id']} ({institution}): {fe}")
+                pushed_total += ok
+                if ok:
+                    created_events.append({"event_id": f"NOTE {day}", "event_date": event_date, "day": day,
+                                           "pianos": len(group_piano_ids), "fiches": ok})
+                if echecs:
+                    errors.append({"day": day, "error": "; ".join(echecs)})
+                continue
 
             try:
                 # Activer pianos INACTIVE -> ACTIVE
