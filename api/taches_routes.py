@@ -1061,6 +1061,19 @@ def pianos_statut(client_id: str = Query(...)):
     return {"pianos": ((res.get("data") or {}).get("allPianos") or {}).get("nodes") or [], "erreurs": res.get("errors")}
 
 
+@router.post("/gazelle/piano-inactif")
+def piano_inactif(piano_id: str = Query(...)):
+    """Remet un piano INACTIVE dans Gazelle (une note d'historique le réactive automatiquement)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query(
+        'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status} mutationErrors{fieldName messages}}}',
+        {"id": piano_id, "input": {"status": "INACTIVE"}})
+    data = (res.get("data") or {}).get("updatePiano") or {}
+    if res.get("errors") or data.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or data.get("mutationErrors")))
+    return data.get("piano")
+
+
 @router.post("/gazelle/test-note-piano")
 def test_note_piano(client_id: str = Query(...), piano_id: str = Query(...),
                     date: Optional[str] = Query(None)):
