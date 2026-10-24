@@ -1048,6 +1048,19 @@ def timeline_piano_gazelle(client_id: str = Query(...), piano_id: str = Query(..
     return {"entrees": out[:limite]}
 
 
+@router.get("/gazelle/pianos-statut")
+def pianos_statut(client_id: str = Query(...)):
+    """LECTURE — statut Gazelle (ACTIVE/INACTIVE…) des pianos d'un client."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query("""query($c: String!, $s: [PianoStatus!]) {
+      allPianos(clientId: $c, filters: { status: $s }) { nodes { id status location make calculatedLastService } } }""",
+                                            {"c": client_id, "s": ["ACTIVE", "INACTIVE"]})
+    if res.get("errors"):
+        res = GazelleAPIClient()._execute_query("""query($c: String!) { allPianos(clientId: $c) {
+          nodes { id status location make calculatedLastService } } }""", {"c": client_id})
+    return {"pianos": ((res.get("data") or {}).get("allPianos") or {}).get("nodes") or [], "erreurs": res.get("errors")}
+
+
 @router.post("/gazelle/test-note-piano")
 def test_note_piano(client_id: str = Query(...), piano_id: str = Query(...),
                     date: Optional[str] = Query(None)):
