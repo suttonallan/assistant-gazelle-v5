@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 25 octobre
+- **Inventaire, Margot a maintenant sa colonne** : Margot apparaît dans l'inventaire des techniciens au même titre que Nicolas, Jean-Philippe et Allan, et peut y entrer ses propres quantités.
 - **Calculateur de kilomètres, chaque journée part de la maison** : sur une période (plusieurs jours ou un trimestre), le trajet est maintenant calculé jour par jour : maison → clients → maison. Avant, l'assistant allait directement du dernier client d'une journée au premier client du lendemain, ce qui faussait le total, surtout quand le technicien change de mode de déplacement (auto ou vélo) d'un jour à l'autre. Chaque trajet affiche aussi sa date.
 
 ### 24 octobre

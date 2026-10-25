@@ -92,7 +92,10 @@ const TechniciensInventaireTable = ({ currentUser, allowComment = true }) => {
         'allan@example.com': 'allan',
         'Jean-Philippe': 'jeanphilippe',
         'jeanphilippe': 'jeanphilippe',
-        'jeanphilippe@example.com': 'jeanphilippe'
+        'jeanphilippe@example.com': 'jeanphilippe',
+        'Margot': 'margot',
+        'margot': 'margot',
+        'margotcharignon@gmail.com': 'margot'
       }
 
       // Charger les quantités réelles

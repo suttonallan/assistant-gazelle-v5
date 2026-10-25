@@ -40,6 +40,7 @@ TECHNICIEN_NAME_MAP = {
     "nicolas": "Nicolas",
     "allan": "Allan",
     "jean-philippe": "Jean-Philippe",
+    "margot": "Margot",
 }
 
 def normalize_technicien_name(name: str) -> str:
