@@ -232,6 +232,8 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         date_start = datetime.fromisoformat(date_start_str).date()
         date_end = datetime.fromisoformat(date_end_str).date()
 
+        travel_mode = (request.travel_mode or "DRIVING").upper()
+
         # Si les rendez-vous ne sont pas fournis, les récupérer depuis Supabase
         if not request.appointments:
             storage = SupabaseStorage()
@@ -246,13 +248,13 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                 .lte('appointment_date', date_end_str) \
                 .eq('technicien', request.technician_id)
 
-            # Filtrer par mode de transport (si colonne travel_mode existe)
-            travel_mode = request.travel_mode or "DRIVING"
+            # Filtrer par mode de transport (si colonne travel_mode existe).
+            # Auto = tout ce qui n'est pas vélo, y compris les RV sans mode (NULL).
             try:
                 if travel_mode == "BICYCLING":
                     query = query.eq('travel_mode', 'BICYCLING')
                 else:
-                    query = query.neq('travel_mode', 'BICYCLING')
+                    query = query.or_('travel_mode.is.null,travel_mode.neq.BICYCLING')
             except Exception:
                 pass  # Colonne travel_mode pas encore migrée
 
@@ -338,10 +340,52 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
             # Utiliser les rendez-vous fournis
             appointments = request.appointments
         
-        # Calculer le trajet
+        # Calculer le trajet JOUR PAR JOUR : chaque journée part de la maison et y revient
+        # (Maison → RV1 → ... → Maison), même si le mode de déplacement change d'un jour à l'autre.
         # Mode Google Maps: "driving" ou "bicycling"
         google_mode = "bicycling" if travel_mode == "BICYCLING" else "driving"
-        route = calculate_day_route(appointments, request.technician_id, travel_mode=google_mode)
+
+        def _jour(apt):
+            st = apt.get('start_time')
+            if isinstance(st, str):
+                try:
+                    st = datetime.fromisoformat(st)
+                except ValueError:
+                    return st[:10]
+            if isinstance(st, datetime):
+                if st.tzinfo:
+                    st = st.astimezone(ZoneInfo('America/Montreal'))
+                return st.date().isoformat()
+            return 'inconnu'
+
+        rv_par_jour = {}
+        for apt in appointments:
+            apt = dict(apt)
+            if isinstance(apt.get('start_time'), str):
+                try:
+                    apt['start_time'] = datetime.fromisoformat(apt['start_time'])
+                except ValueError:
+                    pass
+            rv_par_jour.setdefault(_jour(apt), []).append(apt)
+
+        all_segments = []
+        total_km = 0.0
+        total_seconds = 0
+        for jour in sorted(rv_par_jour):
+            rv_jour = rv_par_jour[jour]
+            rv_jour.sort(key=lambda a: str(a.get('start_time', '')))
+            route_jour = calculate_day_route(rv_jour, request.technician_id, travel_mode=google_mode)
+            for seg in route_jour['segments']:
+                seg['date'] = jour
+                all_segments.append(seg)
+            total_km += route_jour['total_km']
+            total_seconds += route_jour['total_duration_seconds']
+
+        route = {
+            'total_km': round(total_km, 1),
+            'total_duration_seconds': total_seconds,
+            'segments': all_segments,
+        }
         
         # Mapper l'ID technicien vers le nom
         technician_names = {

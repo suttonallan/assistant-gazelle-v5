@@ -233,6 +233,9 @@ export default function KilometersCalculator() {
                         <p className="font-semibold text-gray-800">
                           {idx + 1}. {segment.from} → {segment.to}
                         </p>
+                        {segment.date && (
+                          <p className="text-xs text-gray-500">{segment.date}</p>
+                        )}
                       </div>
                       <div className="text-right text-sm text-gray-600">
                         <p><strong>{segment.distance_km} km</strong></p>

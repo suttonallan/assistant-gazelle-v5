@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 25 octobre
+- **Calculateur de kilomètres, chaque journée part de la maison** : sur une période (plusieurs jours ou un trimestre), le trajet est maintenant calculé jour par jour : maison → clients → maison. Avant, l'assistant allait directement du dernier client d'une journée au premier client du lendemain, ce qui faussait le total, surtout quand le technicien change de mode de déplacement (auto ou vélo) d'un jour à l'autre. Chaque trajet affiche aussi sa date.
+
 ### 24 octobre
 - **Vincent-d'Indy, fin des « accords collectifs » dans l'agenda de Nicolas** : quand on pousse les fiches terminées vers Gazelle, chaque piano reçoit maintenant une simple note dans son historique d'entretien, datée du jour réel du service. Plus aucun rendez-vous n'est créé, donc plus rien n'atterrit dans un agenda. Les pianos inactifs restent inactifs, et la date du dernier service du piano est mise à jour.
 
