@@ -914,6 +914,20 @@ def task_rappel_validation():
 # CONFIGURATION DU SCHEDULER
 # ============================================================
 
+def task_lien_reservation_front():
+    """Conversations Front étiquetées « Lien RV » : commentaire interne avec le lien prérempli."""
+    import os
+    if not os.getenv("FRONT_API_KEY"):
+        return {"note": "FRONT_API_KEY absent"}
+    from core.lien_reservation import LienReservation
+    lr = LienReservation()
+    lr.creer_etiquette_si_absente()
+    res = lr.traiter_etiquetees()
+    if res.get("traitees"):
+        print(f"🔗 Lien RV : {res}")
+    return res
+
+
 def configure_jobs(scheduler: BackgroundScheduler):
     """
     Configure toutes les tâches planifiées.
@@ -985,6 +999,19 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   17:30 - Rappel acces Place des Arts (TM/JD) configure")
+
+    # Toutes les 2 min - Étiquette « Lien RV » dans Front → lien de réservation prérempli
+    from apscheduler.triggers.interval import IntervalTrigger
+    scheduler.add_job(
+        task_lien_reservation_front,
+        trigger=IntervalTrigger(minutes=2),
+        id='lien_reservation_front',
+        name='Front « Lien RV » → lien de réservation prérempli (2 min)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
+    )
+    print("   2 min - Front « Lien RV » → lien de réservation configure")
 
     # 07:15 - Rappel diapason Orford (440/442) six jours avant chaque accord
     scheduler.add_job(

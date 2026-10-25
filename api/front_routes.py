@@ -201,3 +201,11 @@ def fils_contact(email: str = Query(..., min_length=5), page: Optional[str] = No
         })
         _t.sleep(0.3)  # ménage la limite de débit Front
     return {"fils": fils, "page_suivante": lot["page_suivante"]}
+
+
+@router.post("/conversations/{conversation_id}/lien-reservation")
+def lien_reservation(conversation_id: str):
+    """Prépare le lien de réservation prérempli et le publie en commentaire interne
+    (même traitement que l'étiquette « Lien RV »). Rien n'est envoyé au client."""
+    from core.lien_reservation import LienReservation
+    return _handle(LienReservation().traiter_conversation, conversation_id)
