@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 25 octobre
+- **Frais de déplacement : une seule règle, la même partout** : les frais d'un client se calculent maintenant depuis un point fixe au centre du territoire (station de métro Outremont), en auto. Aucuns frais si le client est à 20 km ou moins ; au-delà, 0,59 $/km et 57,50 $/h pour la distance et le temps qui dépassent 20 km et 20 minutes (aller et retour). Le montant ne dépend plus du technicien. Le calculateur de l'assistant, la page de réservation, le chat et le site utilisent la même règle.
 - **Écrire à l'assistant par courriel (assistant@piano-tek.com)** : l'équipe peut envoyer une question ou transférer le courriel d'un client avec une consigne (ex. « fais-lui un lien de réservation ») ; l'assistant répond dans le fil en quelques minutes. Il ne répond qu'aux adresses de l'équipe. Actif dès que la boîte « Assistant » existe dans Front.
 - **« Ma Journée » sait préparer un lien de réservation prérempli** : demandez-le à l'assistant avec les coordonnées du client.
 - **Lien de réservation prérempli en un clic dans Front** : ajoutez l'étiquette « Lien RV » à un courriel de client ; en deux minutes, l'assistant ajoute un commentaire interne avec un lien vers la page de réservation où ses coordonnées et son piano sont déjà inscrits (il n'a qu'à ajouter son numéro civique). Si le client est déjà dans Gazelle, c'est son lien personnel. Il suffit de coller le lien dans la réponse.

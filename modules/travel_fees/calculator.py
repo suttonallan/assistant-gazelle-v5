@@ -76,7 +76,17 @@ class TravelFeeCalculator:
     PRICE_PER_KM = 0.59
     PRICE_PER_HOUR = 57.50
 
-    # Techniciens disponibles
+    # ─── Règle client (oct. 2026, décision d'Allan) ───────────────────────────
+    # Les frais des clients se mesurent depuis UN point fixe au centre du territoire
+    # (station de métro Outremont, entre Allan et Nicolas), en auto selon Google.
+    # Gratuit si l'aller fait 20 km ou moins (le temps ne compte pas dans la zone) ;
+    # au-delà : km et temps excédentaires (aller-retour au-delà de 40 km / 40 min).
+    # Source unique : page de réservation, Ma Journée et calculateur du site l'utilisent.
+    POINT_REFERENCE = "Station Outremont, Avenue Van Horne, Outremont, QC"
+    NOM_REFERENCE = "PTM (métro Outremont)"
+    ZONE_GRATUITE_KM = 20.0  # aller simple
+
+    # Techniciens disponibles (tournées partagées seulement — pas pour les frais client)
     TECHNICIANS = [
         Technician("Allan", "H4N 2A1"),
         Technician("Nicolas", "H2X 2L1"),
@@ -353,6 +363,23 @@ class TravelFeeCalculator:
             "degraded_mode": self.degraded_mode,
         }
 
+    def calculer_frais_client(self, destination_address: str) -> TravelFeeResult:
+        """Frais de déplacement d'un client selon la règle officielle (point de référence unique)."""
+        if self.degraded_mode:
+            raise Exception("Clé Google Maps absente : calcul impossible")
+        distance_m, duree_s = self._call_distance_matrix_api(self.POINT_REFERENCE, destination_address)
+        km_ar = distance_m * 2 / 1000.0
+        s_ar = duree_s * 2
+        if distance_m / 1000.0 <= self.ZONE_GRATUITE_KM:
+            frais_km = frais_temps = 0.0
+        else:
+            frais_km, frais_temps, _ = self._fee_from_totals(km_ar, s_ar)
+        total = frais_km + frais_temps
+        return TravelFeeResult(
+            technician_name=self.NOM_REFERENCE, distance_km=km_ar, duration_minutes=s_ar / 60.0,
+            distance_fee=frais_km, time_fee=frais_temps, total_fee=total, is_free=total == 0,
+        )
+
     def calculate_all_technicians(
         self,
         destination_address: str
@@ -366,20 +393,13 @@ class TravelFeeCalculator:
         Returns:
             Liste de TravelFeeResult, triée par coût total (moins cher en premier)
         """
-        results = []
-
-        for technician in self.TECHNICIANS:
-            try:
-                result = self.calculate_fee_for_technician(technician, destination_address)
-                results.append(result)
-            except Exception as e:
-                print(f"⚠️ Erreur calcul pour {technician.name}: {e}")
-                continue
-
-        # Trier par coût total (gratuit en premier, puis par prix croissant)
-        results.sort(key=lambda r: r.total_fee)
-
-        return results
+        # Depuis oct. 2026 : une seule règle client, mesurée depuis le point de référence
+        # (le même montant quel que soit le technicien). Conservé sous ce nom pour les appelants.
+        try:
+            return [self.calculer_frais_client(destination_address)]
+        except Exception as e:
+            print(f"⚠️ Erreur calcul frais client : {e}")
+            return []
 
     def get_cheapest_technician(
         self,
