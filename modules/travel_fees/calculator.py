@@ -17,6 +17,7 @@ Techniciens:
 """
 
 import os
+import re
 import requests
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -177,6 +178,7 @@ class TravelFeeCalculator:
 
         distance_meters = element['distance']['value']
         duration_seconds = element['duration']['value']
+        self._derniere_destination = (data.get('destination_addresses') or [''])[0]
 
         return distance_meters, duration_seconds
 
@@ -363,17 +365,43 @@ class TravelFeeCalculator:
             "degraded_mode": self.degraded_mode,
         }
 
+    # Secteurs toujours gratuits (décision d'Allan, 25 oct. 2026) : l'île de Montréal
+    # (codes postaux H…, sauf H7 = Laval) et la proche Rive-Sud. Laval suit la règle des 20 km.
+    VILLES_EXEMPTEES = ("longueuil", "brossard", "saint-lambert", "st-lambert",
+                        "saint-hubert", "greenfield park", "lemoyne")
+
+    def secteur_exempte(self, *adresses: str) -> bool:
+        for adr in adresses:
+            texte = (adr or "").lower()
+            cp = re.search(r"\b([a-z]\d[a-z])\s?\d[a-z]\d\b|\b([a-z]\d[a-z])\b", texte)
+            if cp:
+                rta = (cp.group(1) or cp.group(2)).upper()
+                if rta.startswith("H") and not rta.startswith("H7"):
+                    return True
+            if any(re.search(rf"\b{re.escape(v)}\b", texte) for v in self.VILLES_EXEMPTEES):
+                return True
+        return False
+
     def calculer_frais_client(self, destination_address: str) -> TravelFeeResult:
-        """Frais de déplacement d'un client selon la règle officielle (point de référence unique)."""
+        """Frais de déplacement d'un client selon la règle officielle (point de référence unique).
+
+        Gratuit : secteurs exemptés, ou 20 km ou moins (aller) du point de référence.
+        Au-delà : seulement la partie du trajet qui dépasse 20 km — kilomètres excédentaires
+        (aller-retour) à 0,59 $, et temps de route au prorata de ce bout de trajet à 57,50 $/h.
+        """
         if self.degraded_mode:
             raise Exception("Clé Google Maps absente : calcul impossible")
+        self._derniere_destination = ""
         distance_m, duree_s = self._call_distance_matrix_api(self.POINT_REFERENCE, destination_address)
-        km_ar = distance_m * 2 / 1000.0
+        km = distance_m / 1000.0
+        km_ar = km * 2
         s_ar = duree_s * 2
-        if distance_m / 1000.0 <= self.ZONE_GRATUITE_KM:
+        if km <= self.ZONE_GRATUITE_KM or self.secteur_exempte(destination_address, self._derniere_destination):
             frais_km = frais_temps = 0.0
         else:
-            frais_km, frais_temps, _ = self._fee_from_totals(km_ar, s_ar)
+            part = (km - self.ZONE_GRATUITE_KM) / km
+            frais_km = (km - self.ZONE_GRATUITE_KM) * 2 * self.PRICE_PER_KM
+            frais_temps = (s_ar * part / 3600.0) * self.PRICE_PER_HOUR
         total = frais_km + frais_temps
         return TravelFeeResult(
             technician_name=self.NOM_REFERENCE, distance_km=km_ar, duration_minutes=s_ar / 60.0,
