@@ -26,7 +26,7 @@ from core.front_client import get_front_client
 PAGE_RESERVATION = os.getenv("PAGE_RESERVATION", "https://reserver.pianotechniquemontreal.com/")
 NOM_ETIQUETTE = "Lien RV"
 AUTEUR_COMMENTAIRE = "info@piano-tek.com"
-CHAMPS = ["prenom", "nom", "courriel", "tel", "ville", "cp", "type", "marque", "annee", "besoin"]
+CHAMPS = ["prenom", "nom", "courriel", "tel", "ville", "cp", "type", "marque", "annee", "lieu", "besoin"]
 
 CONSIGNE = (
     "Tu lis le courriel d'un client de Piano Technique Montréal (accord et entretien de pianos) "
@@ -34,8 +34,8 @@ CONSIGNE = (
     "Réponds UNIQUEMENT par un objet JSON avec ces clés (chaîne vide si inconnu) : "
     "prenom, nom, courriel, tel, ville, cp (code postal canadien, ex. H1M 1E9), "
     "type (UPRIGHT pour un piano droit, GRAND pour un piano à queue, sinon vide), "
-    "marque, annee, besoin (une phrase courte : modèle, numéro de série, emplacement, "
-    "dernier accord, demande particulière). "
+    "marque, annee, lieu (la pièce où se trouve le piano : salon, sous-sol, 2e étage…), "
+    "besoin (une phrase courte : modèle, numéro de série, dernier accord, demande particulière). "
     "ville = la municipalité (un arrondissement ou quartier de Montréal, ex. Plateau, "
     "Mercier–Hochelaga-Maisonneuve, Rosemont, donne « Montréal »). "
     "N'interprète jamais : « S/O », « N/A » ou une case vide veulent dire inconnu, pas « jamais ». "

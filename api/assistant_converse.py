@@ -116,6 +116,7 @@ LIEN_RESERVATION_TOOL = {
             "cp": {"type": "string", "description": "Code postal, ex. H1M 1E9."},
             "type": {"type": "string", "enum": ["UPRIGHT", "GRAND", ""]},
             "marque": {"type": "string"}, "annee": {"type": "string"},
+            "lieu": {"type": "string", "description": "Pièce où se trouve le piano : salon, sous-sol…"},
             "besoin": {"type": "string", "description": "Une phrase : modèle, série, emplacement, demande."},
         },
         "required": ["courriel"],
