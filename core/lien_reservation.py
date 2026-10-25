@@ -35,6 +35,9 @@ CONSIGNE = (
     "type (UPRIGHT pour un piano droit, GRAND pour un piano à queue, sinon vide), "
     "marque, annee, besoin (une phrase courte : modèle, numéro de série, emplacement, "
     "dernier accord, demande particulière). "
+    "ville = la municipalité (un arrondissement ou quartier de Montréal, ex. Plateau, "
+    "Mercier–Hochelaga-Maisonneuve, Rosemont, donne « Montréal »). "
+    "N'interprète jamais : « S/O », « N/A » ou une case vide veulent dire inconnu, pas « jamais ». "
     "Ne mets JAMAIS le numéro civique ni la rue : le client les inscrira lui-même. "
     "Les coordonnées du signataire priment sur celles de l'expéditeur."
 )
