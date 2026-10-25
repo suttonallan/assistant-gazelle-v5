@@ -7,6 +7,8 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 25 octobre
+- **Écrire à l'assistant par courriel (assistant@piano-tek.com)** : l'équipe peut envoyer une question ou transférer le courriel d'un client avec une consigne (ex. « fais-lui un lien de réservation ») ; l'assistant répond dans le fil en quelques minutes. Il ne répond qu'aux adresses de l'équipe. Actif dès que la boîte « Assistant » existe dans Front.
+- **« Ma Journée » sait préparer un lien de réservation prérempli** : demandez-le à l'assistant avec les coordonnées du client.
 - **Lien de réservation prérempli en un clic dans Front** : ajoutez l'étiquette « Lien RV » à un courriel de client ; en deux minutes, l'assistant ajoute un commentaire interne avec un lien vers la page de réservation où ses coordonnées et son piano sont déjà inscrits (il n'a qu'à ajouter son numéro civique). Si le client est déjà dans Gazelle, c'est son lien personnel. Il suffit de coller le lien dans la réponse.
 - **Inventaire, Margot a maintenant sa colonne** : Margot apparaît dans l'inventaire des techniciens au même titre que Nicolas, Jean-Philippe et Allan, et peut y entrer ses propres quantités.
 - **Calculateur de kilomètres, chaque journée part de la maison** : sur une période (plusieurs jours ou un trimestre), le trajet est maintenant calculé jour par jour : maison → clients → maison. Avant, l'assistant allait directement du dernier client d'une journée au premier client du lendemain, ce qui faussait le total, surtout quand le technicien change de mode de déplacement (auto ou vélo) d'un jour à l'autre. Chaque trajet affiche aussi sa date.

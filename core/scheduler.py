@@ -928,6 +928,18 @@ def task_lien_reservation_front():
     return res
 
 
+def task_assistant_courriel():
+    """Répond aux courriels de l'équipe reçus dans la boîte Front « Assistant »."""
+    import os
+    if not os.getenv("FRONT_API_KEY"):
+        return {"note": "FRONT_API_KEY absent"}
+    from core.assistant_courriel import AssistantCourriel
+    res = AssistantCourriel().traiter()
+    if res.get("traitees"):
+        print(f"📧 assistant@ : {res}")
+    return res
+
+
 def configure_jobs(scheduler: BackgroundScheduler):
     """
     Configure toutes les tâches planifiées.
@@ -1012,6 +1024,18 @@ def configure_jobs(scheduler: BackgroundScheduler):
         coalesce=True
     )
     print("   2 min - Front « Lien RV » → lien de réservation configure")
+
+    # Toutes les 2 min - Courriels à assistant@piano-tek.com (boîte Front « Assistant »)
+    scheduler.add_job(
+        task_assistant_courriel,
+        trigger=IntervalTrigger(minutes=2),
+        id='assistant_courriel',
+        name='assistant@piano-tek.com → réponses de l\'assistant (2 min)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
+    )
+    print("   2 min - Courriels à assistant@ configure")
 
     # 07:15 - Rappel diapason Orford (440/442) six jours avant chaque accord
     scheduler.add_job(

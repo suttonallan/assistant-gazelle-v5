@@ -99,7 +99,40 @@ def execute_feature_request(summary: str, original_request: str,
     return {"success": False, "error": f"Envoi impossible : {notifier.last_error}"}
 
 
-TOOLS = [REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+LIEN_RESERVATION_TOOL = {
+    "name": "preparer_lien_reservation",
+    "description": (
+        "Prépare le lien de la page de réservation en ligne de PTM, prérempli avec les "
+        "coordonnées et le piano d'un client (par ex. d'après un courriel de client transféré). "
+        "N'y mets jamais le numéro civique ni la rue : le client les inscrira. Si le courriel "
+        "correspond à un client déjà dans Gazelle, retourne son lien personnel. Rien n'est envoyé."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "prenom": {"type": "string"}, "nom": {"type": "string"},
+            "courriel": {"type": "string"}, "tel": {"type": "string"},
+            "ville": {"type": "string", "description": "Municipalité (un arrondissement de Montréal → Montréal)."},
+            "cp": {"type": "string", "description": "Code postal, ex. H1M 1E9."},
+            "type": {"type": "string", "enum": ["UPRIGHT", "GRAND", ""]},
+            "marque": {"type": "string"}, "annee": {"type": "string"},
+            "besoin": {"type": "string", "description": "Une phrase : modèle, série, emplacement, demande."},
+        },
+        "required": ["courriel"],
+    },
+}
+
+
+def execute_lien_reservation(**champs) -> Dict[str, Any]:
+    from core.lien_reservation import CHAMPS, PAGE_RESERVATION, client_gazelle_par_courriel, construire_lien
+    infos = {c: str(champs.get(c) or "").strip() for c in CHAMPS}
+    connu = client_gazelle_par_courriel(infos["courriel"])
+    if connu:
+        return {"success": True, "lien": PAGE_RESERVATION + connu["external_id"], "client_gazelle": True}
+    return {"success": True, "lien": construire_lien(infos), "client_gazelle": False}
+
+
+TOOLS = [LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL]
 
 
@@ -138,6 +171,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
                 original_request=tool_input.get("original_request", ""),
                 user_first_name=user_first_name,
             )
+        if name == "preparer_lien_reservation":
+            return execute_lien_reservation(**tool_input)
         if name == "reactivate_estimate":
             return duplicate_estimate(
                 int(tool_input["estimate_number"]),
@@ -214,6 +249,8 @@ async def converse(req: ConverseRequest):
         "- list_recent_calls : liste des appels du Call Center Gazelle faits par un "
         "technicien (relances client, avec résultat noté). Si l'utilisateur dit "
         "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n"
+        "- preparer_lien_reservation : lien de réservation en ligne prérempli pour un client "
+        "(coordonnées et piano, jamais le numéro civique) ; donne le lien tel quel.\n"
         "- attach_email_photos_to_piano : ajouter au dossier du piano d'un client les "
         "photos qu'il a envoyées par courriel.\n\n"
         "HEURES : toutes les heures que tu reçois sont déjà en heure de Montréal ; "
