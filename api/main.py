@@ -592,18 +592,18 @@ async def zoom_contacts_etat():
 
 
 @app.post("/api/zoom/contacts/lancer")
-async def zoom_contacts_lancer(background_tasks: BackgroundTasks):
-    """Lance la synchronisation maintenant (au plus une fois par 20 min)."""
+async def zoom_contacts_lancer(background_tasks: BackgroundTasks, maximum: Optional[int] = None):
+    """Lance la synchronisation maintenant (au plus une fois par 20 min ; « maximum » = petit lot d'essai, sans délai)."""
     if _zoom_contacts_etat["en_cours"]:
         return {"lance": False, "raison": "déjà en cours"}
-    if time.time() - _zoom_contacts_etat["lance_a"] < 1200:
+    if maximum is None and time.time() - _zoom_contacts_etat["lance_a"] < 1200:
         return {"lance": False, "raison": "lancée il y a moins de 20 minutes"}
     _zoom_contacts_etat.update(en_cours=True, lance_a=time.time())
 
     def _tache():
         try:
             from core import zoom_contacts
-            print(f"📇 Contacts Zoom : {zoom_contacts.synchroniser()}")
+            print(f"📇 Contacts Zoom : {zoom_contacts.synchroniser(maximum=min(maximum, 10) if maximum else None)}")
         except Exception as e:
             print(f"❌ Contacts Zoom : {e}")
         finally:
