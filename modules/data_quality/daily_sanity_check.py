@@ -125,16 +125,19 @@ def check_pda_parking(storage) -> list:
     if ids:
         rows = http.get(f"{api}/gazelle_appointments",
                         params=[("external_id", f"in.({','.join(ids)})"),
-                                ("select", "external_id,appointment_date,technicien,client_external_id,status")],
+                                ("select", "external_id,appointment_date,technicien,client_external_id,status,piano_external_id")],
                         headers=H, timeout=20).json()
         rv = {a["external_id"]: a for a in (rows if isinstance(rows, list) else [])}
     rapporte = defaultdict(float)
     demandes = defaultdict(list)
     clients = defaultdict(set)  # clients Gazelle des RV liés (ex. Opéra de Montréal : piano PdA prêté)
+    pianos = defaultdict(set)   # pianos des RV liés : servent à retrouver les notes SANS auteur
     for r in reqs:
         a = rv.get(r.get("appointment_id")) or {}
         cle = ((a.get("appointment_date") or r.get("appointment_date") or "")[:10],
                a.get("technicien") or r.get("technician_id"))
+        if a.get("piano_external_id"):
+            pianos[cle].add(a["piano_external_id"])
         rapporte[cle] += float(_norm_amount(r.get("parking")))
         clients[cle].add(a.get("client_external_id") or PDA)
         lien = ("aucun RV Gazelle lié" if not r.get("appointment_id") else
@@ -152,12 +155,28 @@ def check_pda_parking(storage) -> list:
         cl = sorted(clients[(jour, tech)] | {PDA})
         params = [("client_id", f"in.({','.join(cl)})"), ("occurred_at", f"gte.{debut}"), ("occurred_at", f"lt.{fin}"),
                   ("entry_type", "in.(SERVICE_ENTRY_MANUAL,SERVICE_ENTRY_AUTOMATED)"),
-                  ("select", "title,description")]
+                  ("select", "external_id,title,description")]
+        notes = []
         if tech:
-            params.append(("user_id", f"eq.{tech}"))
-        notes = http.get(f"{api}/gazelle_timeline_entries", params=params, headers=H, timeout=20).json()
+            notes = http.get(f"{api}/gazelle_timeline_entries", params=params + [("user_id", f"eq.{tech}")],
+                             headers=H, timeout=20).json()
+            notes = notes if isinstance(notes, list) else []
+            # Notes ajoutées comme note de dossier (ex. par l'assistant) : Gazelle ne leur
+            # donne souvent pas d'auteur. On les compte si elles sont sur le piano du RV lié
+            # (fausse alerte du 2026-10-16 : « Stat 13$ » ignoré faute d'auteur).
+            if pianos[(jour, tech)]:
+                sans_auteur = http.get(f"{api}/gazelle_timeline_entries",
+                                       params=params + [("user_id", "is.null"),
+                                                        ("piano_id", f"in.({','.join(sorted(pianos[(jour, tech)]))})")],
+                                       headers=H, timeout=20).json()
+                vus = {n.get("external_id") for n in notes}
+                notes += [n for n in (sans_auteur if isinstance(sans_auteur, list) else [])
+                          if n.get("external_id") not in vus]
+        else:
+            notes = http.get(f"{api}/gazelle_timeline_entries", params=params, headers=H, timeout=20).json()
+            notes = notes if isinstance(notes, list) else []
         ecrit = 0.0
-        for n in notes if isinstance(notes, list) else []:
+        for n in notes:
             m = extract_parking_amount(n.get("title") or "") or extract_parking_amount(n.get("description") or "")
             if m:
                 ecrit += float(m)
