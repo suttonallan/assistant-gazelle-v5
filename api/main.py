@@ -440,6 +440,11 @@ async def zoom_webhook(request: Request, background_tasks: BackgroundTasks):
                 payload.get('text') or 
                 ''
             )
+            # Zoom envoie parfois les accents sous forme de séquences littérales « \u00E9 » :
+            # on les reconvertit en lettres (é, ê, à…) avant de transférer le texto.
+            if isinstance(content, str) and '\\u' in content:
+                import re as _re
+                content = _re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), content)
             
             # Structure reelle du payload Zoom, relevee dans les logs Render (2026-08-12) :
             #   object = {sender: {phone_number}, owner: {...}, to_members: [{phone_number}],
