@@ -2,6 +2,15 @@
 
 Module Python pour calculer automatiquement les frais de déplacement des techniciens en utilisant Google Maps Distance Matrix API.
 
+## ✅ Règle client en vigueur (26 oct. 2026)
+
+- Mesurée en auto depuis un point fixe : métro Outremont (même montant quel que soit le technicien).
+- **Gratuit** si l'aller fait 20 km ou moins — île de Montréal comprise — et toujours gratuit
+  à Longueuil, Brossard, Saint-Lambert (proche Rive-Sud).
+- **Au-delà de 20 km** (ex. Roxboro, Pierrefonds, Pointe-Claire, Pointe-aux-Trembles, Laval
+  éloigné) : km aller-retour au-delà de 40 km × 0,59 $ + minutes aller-retour au-delà de
+  40 min × 57,50 $/h. Ex. H8Y 3R9 (43 km, 68 min) = 28,38 $.
+
 ## 🎯 Objectif
 
 Calculer les frais de déplacement en fonction de:

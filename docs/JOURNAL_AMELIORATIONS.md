@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 26 octobre
+- **Frais de déplacement, l'île n'est plus gratuite partout** : l'île de Montréal est gratuite jusqu'à 20 km du métro Outremont, comme ailleurs. Plus loin (Roxboro, Pierrefonds, Pointe-Claire, Kirkland, Sainte-Anne-de-Bellevue, Pointe-aux-Trembles…), le temps de route compte de nouveau : kilomètres au-delà de 40 km aller-retour et minutes au-delà de 40 min aller-retour. Exemple : Roxboro (H8Y 3R9) passe de gratuit à 28,38 $. Longueuil, Brossard et Saint-Lambert restent gratuits.
 - **Place des Arts : plus d'alerte « doublon » pour un événement à plusieurs pianos** : quand un même événement demande deux pianos différents (ex. ADISQ, Steinway D + 7') et que le rendez-vous Gazelle les contient tous, le vérificateur du matin ne le signale plus. Un même piano demandé deux fois reste signalé.
 - **Moins de fausses alertes de stationnement (Place des Arts)** : le vérificateur du matin tient maintenant compte des notes « stat » ajoutées sans auteur (par exemple par l'assistant) ou écrites par Louise, sur le piano du rendez-vous.
 - **Place des Arts : liaison des demandes aux rendez-vous plus fiable** : l'assistant reconnaît maintenant un rendez-vous Gazelle même si les accents ou les abréviations diffèrent de la demande (ex. « Opéra de mtl » = « Opera de Montréal »). Les demandes de l'Opéra à l'UQAM, restées « en attente », se lient d'elles-mêmes.
