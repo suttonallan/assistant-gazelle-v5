@@ -13,6 +13,19 @@ from typing import Optional, Dict, List
 
 logger = logging.getLogger("ptm.pda.v6matcher")
 
+# Comparaison sans accents ni abréviations courantes (2026-10-26) : la demande
+# « Opéra de mtl » ne trouvait pas le RV « PDA Opera de Montréal » (é ≠ E,
+# MTL ≠ MONTRÉAL) et restait non liée.
+import unicodedata as _ud
+_ABREVIATIONS = {"MTL": "MONTREAL"}
+
+
+def _norm(texte):
+    t = _ud.normalize("NFD", str(texte or "").upper())
+    t = "".join(c for c in t if _ud.category(c) != "Mn")
+    return re.sub(r"[A-Z0-9]+", lambda m: _ABREVIATIONS.get(m.group(0), m.group(0)), t)
+
+
 A_ATTRIBUER_ID = "usr_HihJsEgkmpTEziJo"
 
 REAL_TECHNICIAN_IDS = {
@@ -110,6 +123,7 @@ def _room_code(room):
 
 
 def _room_named(request_room, apt_text):
+    request_room = _norm(request_room)
     code = _room_code(request_room)
     if code:
         return bool(re.search(rf"(?<![A-Z0-9]){code}(?![A-Z0-9])", apt_text))
@@ -200,6 +214,7 @@ def _for_who_matches(request_for_who, apt_text):
 def _for_who_score(request_for_who, apt_text):
     if not request_for_who:
         return 0
+    request_for_who = _norm(request_for_who)
     if request_for_who in apt_text:
         return 3
     words = [w for w in request_for_who.split() if len(w) >= 2 and w not in STOP_WORDS]
@@ -216,12 +231,12 @@ def _for_who_score(request_for_who, apt_text):
 
 
 def _build_search_text(apt):
-    return " ".join([
+    return _norm(" ".join([
         apt.get("title") or "",
         apt.get("description") or "",
         apt.get("notes") or "",
         apt.get("location") or "",
-    ]).upper()
+    ]))
 
 
 def _normalize_date(date_val):

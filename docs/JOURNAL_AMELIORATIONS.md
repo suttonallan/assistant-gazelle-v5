@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 26 octobre
+- **Place des Arts : liaison des demandes aux rendez-vous plus fiable** : l'assistant reconnaît maintenant un rendez-vous Gazelle même si les accents ou les abréviations diffèrent de la demande (ex. « Opéra de mtl » = « Opera de Montréal »). Les demandes de l'Opéra à l'UQAM, restées « en attente », se lient d'elles-mêmes.
 - **Textos reçus lisibles** : les accents des textos transférés à info@ s'affichent correctement (« parlé », « être ») au lieu de codes comme « \u00E9 ».
 - **Notes d'appels fiables à partir de l'enregistrement** : quand un appel est enregistré, l'assistant lit la transcription complète (et non plus le seul résumé de Zoom) et en tire la note Gazelle : coordonnées, piano, disponibilités du client, accès, et un avertissement si le prix entendu ne correspond pas au tarif. Actif dès que Zoom donne à l'assistant la permission de lire les enregistrements.
 - **Liens de réservation : toujours la bonne adresse** : les liens préparés par l'assistant (Front, courriel, chat) pointent maintenant toujours vers reserver.pianotechniquemontreal.com, jamais vers l'ancienne adresse technique.
