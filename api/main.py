@@ -566,6 +566,48 @@ async def zoom_api_test():
     return res
 
 
+# --- Clients Gazelle → contacts externes Zoom Phone (core/zoom_contacts.py) ---
+_zoom_contacts_etat = {"en_cours": False, "lance_a": 0.0}
+
+
+@app.get("/api/zoom/contacts/etat")
+async def zoom_contacts_etat():
+    """Essai à blanc (aucune écriture) + rapport du dernier passage. Compteurs seulement."""
+    from core import zoom_contacts
+    res: Dict[str, Any] = {"en_cours": _zoom_contacts_etat["en_cours"]}
+    try:
+        res["dernier_passage"] = zoom_contacts.dernier_rapport()
+    except Exception as e:
+        res["dernier_passage"] = {"erreur": str(e)[:200]}
+    try:
+        res["essai_a_blanc"] = await asyncio.to_thread(zoom_contacts.synchroniser, True)
+    except Exception as e:
+        res["essai_a_blanc"] = {"erreur": str(e)[:400]}
+    return res
+
+
+@app.post("/api/zoom/contacts/lancer")
+async def zoom_contacts_lancer(background_tasks: BackgroundTasks):
+    """Lance la synchronisation maintenant (au plus une fois par 20 min)."""
+    if _zoom_contacts_etat["en_cours"]:
+        return {"lance": False, "raison": "déjà en cours"}
+    if time.time() - _zoom_contacts_etat["lance_a"] < 1200:
+        return {"lance": False, "raison": "lancée il y a moins de 20 minutes"}
+    _zoom_contacts_etat.update(en_cours=True, lance_a=time.time())
+
+    def _tache():
+        try:
+            from core import zoom_contacts
+            print(f"📇 Contacts Zoom : {zoom_contacts.synchroniser()}")
+        except Exception as e:
+            print(f"❌ Contacts Zoom : {e}")
+        finally:
+            _zoom_contacts_etat["en_cours"] = False
+
+    background_tasks.add_task(_tache)
+    return {"lance": True, "suivi": "GET /api/zoom/contacts/etat"}
+
+
 @app.get("/api/zoom/webhook/health")
 async def zoom_webhook_health():
     """Health check pour le webhook Zoom."""

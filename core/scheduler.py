@@ -940,6 +940,17 @@ def task_assistant_courriel():
     return res
 
 
+def task_zoom_contacts():
+    """Clients Gazelle (copie Supabase) → contacts externes partagés Zoom Phone."""
+    from core.zoom_resumes_appels import cles_zoom_configurees
+    if not cles_zoom_configurees():
+        return {"note": "clés Zoom absentes"}
+    from core.zoom_contacts import synchroniser
+    res = synchroniser()
+    print(f"📇 Contacts Zoom : {res}")
+    return res
+
+
 def configure_jobs(scheduler: BackgroundScheduler):
     """
     Configure toutes les tâches planifiées.
@@ -967,6 +978,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 03:00 - Backup SQL configurée")
+
+    # 04:30 - Clients Gazelle → contacts Zoom Phone (après la synchro Gazelle de la nuit)
+    scheduler.add_job(
+        task_zoom_contacts,
+        trigger=CronTrigger(hour=4, minute=30, timezone='America/Montreal'),
+        id='zoom_contacts',
+        name='Clients Gazelle → contacts Zoom (04:30)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 04:30 - Contacts Zoom configurée")
 
     # 16:00 - URGENCE TECHNIQUE (J-1)
     scheduler.add_job(

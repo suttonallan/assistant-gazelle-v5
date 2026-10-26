@@ -39,6 +39,7 @@ CHEMINS_OUVERTS = (
     "/api/auth/config",
     "/auth/config",
     "/api/zoom/webhook",
+    "/api/zoom/contacts/",  # compteurs seulement ; lancement limité à 1 fois / 20 min
     "/gazelle_oauth_callback",
     "/health",
     "/api/chat-public/rappel",  # protégé par son propre jeton (X-Chat-Secret)
