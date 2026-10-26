@@ -22,8 +22,10 @@ import requests
 
 from core.front_client import get_front_client
 
-# Adresse publique de la page (domaine PTM dès qu'il est en service : variable PAGE_RESERVATION sur Render)
-PAGE_RESERVATION = os.getenv("PAGE_RESERVATION", "https://reserver.pianotechniquemontreal.com/")
+# Adresse publique de la page de réservation : toujours le domaine PTM.
+# Volontairement fixée dans le code (une ancienne variable PAGE_RESERVATION sur Render
+# pointait encore vers l'adresse technique onrender.com, à ne jamais envoyer aux clients).
+PAGE_RESERVATION = "https://reserver.pianotechniquemontreal.com/"
 NOM_ETIQUETTE = "Lien RV"
 AUTEUR_COMMENTAIRE = "info@piano-tek.com"
 CHAMPS = ["prenom", "nom", "courriel", "tel", "ville", "cp", "type", "marque", "annee", "lieu", "besoin"]

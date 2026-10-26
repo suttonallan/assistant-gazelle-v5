@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 26 octobre
+- **Liens de réservation : toujours la bonne adresse** : les liens préparés par l'assistant (Front, courriel, chat) pointent maintenant toujours vers reserver.pianotechniquemontreal.com, jamais vers l'ancienne adresse technique.
 - **Résumés d'appels Zoom complets** : quand Zoom complète un résumé d'appel quelques minutes après l'appel (préférences du client, détails), la version complète est maintenant traitée à son tour au lieu d'être ignorée.
 - **Le nom du client s'affiche dans Zoom quand il appelle** : chaque nuit, tous les clients Gazelle sont copiés dans les contacts partagés de Zoom Phone (nom et numéros). Louise et les techniciens voient donc qui appelle au lieu d'un simple numéro. Les contacts entrés à la main dans Zoom ne sont pas touchés.
 
