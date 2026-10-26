@@ -36,6 +36,9 @@ NUMEROS_PTM = {"5143448008", "4382285774"}
 CLE_TRAITES = "zoom_resumes_appels_traites"
 COURRIEL_SECOURS = "info@piano-tek.com"
 
+# Tarif de la visite de base (sert à repérer un prix mal entendu ou mal transcrit).
+TARIF_BASE = int(os.getenv("TARIF_VISITE_BASE", "255"))
+
 EQUIPE = (
     "Équipe PTM (orthographe exacte des noms) : Allan Sutton (copropriétaire, technicien), "
     "Nicolas Lessard (copropriétaire, technicien), Jean-Philippe Reny (technicien, « JP »), "
@@ -320,7 +323,7 @@ def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]
     import anthropic
 
     brut = {k: v for k, v in resume_brut.items() if k != "_ids"}
-    texte_brut = json.dumps(brut, ensure_ascii=False)[:15000]
+    texte_brut = (brut["transcription"] if brut.get("transcription") else json.dumps(brut, ensure_ascii=False))[:60000]
     fiche = "Client non identifié dans Gazelle."
     if client:
         fiche = json.dumps({k: client.get(k) for k in (
@@ -329,8 +332,15 @@ def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]
 
     consignes = (
         "Tu rédiges une note de chronologie Gazelle pour Piano Technique Montréal (PTM), "
-        "à partir du résumé automatique d'un appel téléphonique produit par Zoom.\n"
-        "Le résumé Zoom est souvent maladroit et contient des erreurs de transcription "
+        "à partir d'un appel téléphonique : soit la TRANSCRIPTION COMPLÈTE de l'enregistrement "
+        "(source la plus fiable : lis-la en entier), soit le résumé automatique produit par Zoom.\n"
+        "Relève tout ce que l'appelant dit d'utile, même au détour d'une phrase : jours et heures "
+        "où il est disponible ou pas, accès (étage, stationnement, code de porte), animaux, "
+        "marque et âge du piano, dernier accord, qui l'a recommandé.\n"
+        f"Tarif de référence PTM : visite de base (accord) {TARIF_BASE} $ + taxes. Si un autre prix "
+        "est mentionné pour une visite de base, écris le prix exactement tel qu'entendu et ajoute "
+        "« ⚠️ prix à vérifier ».\n"
+        "Une transcription automatique ou un résumé Zoom contiennent des erreurs "
         "(noms déformés, adresses tronquées, termes mal traduits comme « offre de prime » pour soumission, "
         "« réglage » pour accord). Corrige-les avec la fiche du client et la liste de l'équipe ; "
         "en cas de doute, omets le détail plutôt que d'inventer.\n"
@@ -338,24 +348,26 @@ def reecrire_resume(resume_brut: Dict[str, Any], client: Optional[Dict[str, Any]
         "Format exigé, en français, texte brut, sans markdown :\n"
         "Ligne 1 : « 📞 Appel Zoom avec <employé PTM> – <date> (<durée>) » (omets ce qui est inconnu).\n"
         "Puis, seulement si l'info existe, une ligne chacune : « Problème : … », « Solution prévue : … », "
-        "« Service proposé : … » (avec prix et durée), « Contexte : … » (référence, historique du piano), "
+        "« Service proposé : … » (avec prix et durée), « Disponibilités : … » (jours/heures préférés ou exclus), "
+        "« Accès : … », « Contexte : … » (piano, référence, historique), "
         "« Suivi : … » (prochaines étapes concrètes, qui fait quoi).\n"
-        "Maximum 8 lignes. Pas de liens, pas de formules de politesse, pas de numéros de téléphone.\n\n"
+        "Maximum 10 lignes. Pas de liens, pas de formules de politesse, pas de numéros de téléphone.\n\n"
         "Réponds UNIQUEMENT par un objet JSON valide, sans texte autour :\n"
         '{"note": "<la note>", "prenom": "<prénom de l\'appelant ou null>", "nom": "<nom ou null>", '
         '"courriel": "<ou null>", "adresse": {"rue": "<ou null>", "ville": "<ou null>", "code_postal": "<ou null>"}, '
         '"reference": "<qui l\'a recommandé, ou null>", '
         '"demande_client": <true si l\'appelant est un client ou client potentiel qui demande un service de piano ; '
         'false pour un fournisseur, un démarcheur, un faux numéro ou un appel sans contenu>}\n'
-        "N'invente aucune coordonnée : null si l'info n'est pas dans le résumé."
+        "N'invente aucune coordonnée : null si l'info n'est pas dans l'appel. Un courriel épelé lettre par lettre doit être reconstitué fidèlement ; s'il reste un doute, ajoute « (à confirmer) » dans la note et mets null."
     )
-    message = f"FICHE GAZELLE DU CLIENT :\n{fiche}\n\nRÉSUMÉ ZOOM (JSON brut) :\n{texte_brut}"
+    source = "TRANSCRIPTION COMPLÈTE DE L'APPEL" if brut.get("transcription") else "RÉSUMÉ ZOOM (JSON brut)"
+    message = f"FICHE GAZELLE DU CLIENT :\n{fiche}\n\n{source} :\n{texte_brut}"
 
     client_ia = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     derniere_erreur = None
     for modele in ("claude-sonnet-4-5", "claude-haiku-4-5-20251001"):
         try:
-            rep = client_ia.messages.create(model=modele, max_tokens=800, system=consignes,
+            rep = client_ia.messages.create(model=modele, max_tokens=1200, system=consignes,
                                             messages=[{"role": "user", "content": message}])
             texte = "".join(b.text for b in rep.content if getattr(b, "type", "") == "text").strip()
             if texte:
@@ -434,11 +446,48 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
         if _deja_traite(rid):
             return {"ok": True, "raison": "deja_traite"}
 
+        # Appel enregistré : la transcription complète (traitée par core/zoom_transcriptions)
+        # est bien plus fiable que ce résumé IA ; on la laisse faire pour éviter une note en double.
+        if appel_enregistre(resume, payload_objet):
+            _marquer_traite(rid)
+            print("📞 Appel enregistré : la note viendra de la transcription complète")
+            return {"ok": True, "raison": "transcription_a_venir"}
+
         numeros = _numeros(resume) or _numeros(payload_objet) or numeros_par_historique(resume, payload_objet)
         client = trouver_client(numeros)
         r = reecrire_resume(resume, client)
-        note = r["note"]
+        return classer_note(r, numeros, client, rid)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"❌ Résumé d'appel Zoom non traité : {e}")
+        return {"ok": False, "erreur": str(e)}
 
+
+def appel_enregistre(resume: Dict[str, Any], payload_objet: Dict[str, Any]) -> bool:
+    """Vrai si l'appel de ce résumé a un enregistrement Zoom (donc une transcription à venir).
+    Faux si on ne peut pas le savoir (permission d'enregistrements absente, etc.) :
+    le résumé IA reste alors la source, comme avant."""
+    ids = set()
+    for source in (resume, payload_objet):
+        for cle, val in _parcourir(source):
+            derniere = cle.split(".")[-1].split("[")[0].lower()
+            if derniere in ("call_id", "call_log_id", "call_history_id") and val:
+                ids.add(str(val))
+    if not ids:
+        return False
+    try:
+        from core.zoom_transcriptions import enregistrements_recents
+        return any(str(e.get("call_id")) in ids for e in enregistrements_recents(jours=1))
+    except Exception as e:
+        print(f"⚠️ Vérification des enregistrements impossible ({e}) — résumé IA utilisé")
+        return False
+
+
+def classer_note(r: Dict[str, Any], numeros: List[str], client: Optional[Dict[str, Any]], rid: str) -> Dict[str, Any]:
+    """Range la note réécrite par Claude : fiche du client, client potentiel créé, ou courriel à info@."""
+    try:
+        note = r["note"]
         from core.gazelle_api_client import GazelleAPIClient
         gz = GazelleAPIClient()
 
@@ -476,10 +525,10 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
 
         gz.create_client_log(client["external_id"], note)
         _marquer_traite(rid)
-        print(f"✅ Résumé d'appel ajouté à la chronologie de {_nom_client(client)} ({client['external_id']})")
+        print(f"✅ Note d'appel ajoutée à la chronologie de {_nom_client(client)} ({client['external_id']})")
         return {"ok": True, "client": client["external_id"]}
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"❌ Résumé d'appel Zoom non traité : {e}")
+        print(f"❌ Note d'appel non classée : {e}")
         return {"ok": False, "erreur": str(e)}

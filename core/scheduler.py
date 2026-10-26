@@ -951,6 +951,15 @@ def task_zoom_contacts():
     return res
 
 
+def task_zoom_transcriptions():
+    """Appels enregistrés Zoom → note fiable (transcription complète) dans Gazelle."""
+    from core.zoom_transcriptions import traiter
+    res = traiter()
+    if res.get("traites") or res.get("abandonnes") or res.get("erreur"):
+        print(f"🎙️ Transcriptions Zoom : {res}")
+    return res
+
+
 def configure_jobs(scheduler: BackgroundScheduler):
     """
     Configure toutes les tâches planifiées.
@@ -989,6 +998,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 04:30 - Contacts Zoom configurée")
+
+    # Toutes les 10 min - Appels enregistrés Zoom → note Gazelle tirée de la transcription
+    scheduler.add_job(
+        task_zoom_transcriptions,
+        trigger=CronTrigger(minute='*/10', timezone='America/Montreal'),
+        id='zoom_transcriptions',
+        name='Transcriptions d\'appels Zoom → Gazelle (10 min)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ */10 min - Transcriptions d'appels Zoom configurée")
 
     # 16:00 - URGENCE TECHNIQUE (J-1)
     scheduler.add_job(
