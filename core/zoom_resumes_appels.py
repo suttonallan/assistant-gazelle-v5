@@ -378,6 +378,15 @@ def _lire_json(texte: str) -> Dict[str, Any]:
 
 # ---------------------------------------------------------------- Orchestration
 
+def _signature(resume: Dict[str, Any]) -> str:
+    """Identifiant du résumé + empreinte de son contenu (sans les métadonnées)."""
+    import hashlib
+    rid = resume["_ids"]["ai_call_summary_id"]
+    contenu = {k: v for k, v in resume.items() if k != "_ids"}
+    empreinte = hashlib.sha1(json.dumps(contenu, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+    return f"{rid}:{empreinte}"
+
+
 def _deja_traite(resume_id: str) -> bool:
     from core.supabase_storage import SupabaseStorage
     traites = SupabaseStorage().get_system_setting(CLE_TRAITES) or []
@@ -417,7 +426,10 @@ def traiter_evenement_resume(payload_objet: Dict[str, Any]) -> Dict[str, Any]:
             return {"ok": False, "raison": "cles_absentes"}
 
         resume = recuperer_resume(payload_objet)
-        rid = resume["_ids"]["ai_call_summary_id"]
+        # Zoom envoie souvent un premier résumé partiel, puis « Call Summary Changed »
+        # avec le résumé complet. La clé inclut donc une empreinte du contenu : une
+        # version mise à jour est retraitée, un doublon exact ne l'est pas.
+        rid = _signature(resume)
         print(f"📞 Résumé Zoom {rid} reçu : {json.dumps(resume, ensure_ascii=False)[:1500]}")
         if _deja_traite(rid):
             return {"ok": True, "raison": "deja_traite"}
