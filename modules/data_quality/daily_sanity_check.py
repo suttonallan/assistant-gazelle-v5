@@ -322,6 +322,19 @@ def check_pda_coherence(storage) -> list:
     def _norm(v):
         return (v or "").strip().lower().replace(" ", "")
 
+    def _plusieurs_pianos_ok(rs):
+        """Vrai si ces demandes sont un même événement avec PLUSIEURS pianos
+        (ex. ADISQ 8 nov. : Steinway D + 7' en WP), tous reliés au même RV
+        Gazelle qui contient au moins autant de pianos. Pas un doublon (Allan, 2026-10-26)."""
+        pianos = [_norm(x.get("piano")) for x in rs]
+        if not all(pianos) or len(set(pianos)) != len(pianos):
+            return False  # piano manquant ou même piano en double : vrai doublon possible
+        aids = {x.get("appointment_id") for x in rs}
+        if len(aids) != 1 or None in aids:
+            return False
+        rv = appts.get(next(iter(aids))) or {}
+        return len([p for p in (rv.get("piano_ids") or []) if p]) >= len(rs)
+
     groups = defaultdict(list)
     for r in reqs:
         k = (_d10(r.get("appointment_date")), _norm(r.get("room")),
@@ -329,7 +342,7 @@ def check_pda_coherence(storage) -> list:
         if k[0]:
             groups[k].append(r)
     for (date, room, who, tm), rs in groups.items():
-        if len(rs) > 1:
+        if len(rs) > 1 and not _plusieurs_pianos_ok(rs):
             det = " | ".join(
                 f"time='{x.get('time') or ''}' piano='{x.get('piano') or ''}' id={x['id']}" for x in rs)
             anomalies.append({
@@ -355,6 +368,8 @@ def check_pda_coherence(storage) -> list:
                 # Pratique courante à PdA : UN RV Gazelle pour plusieurs salles le
                 # même jour, même technicien. Pas une erreur de liaison.
                 continue
+            if len(rooms) == 1 and _plusieurs_pianos_ok(rs) and dates_ok and tech_ok:
+                continue  # même salle, pianos différents, tous dans le RV : visite à plusieurs pianos
             sev = "error" if len(rooms) > 1 else "warning"
             note = " (salles DIFFÉRENTES → au moins une est mal liée)" if len(rooms) > 1 else ""
             det = ", ".join(f"{_d10(x.get('appointment_date'))}/{x.get('room')}" for x in rs)

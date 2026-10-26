@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 26 octobre
+- **Place des Arts : plus d'alerte « doublon » pour un événement à plusieurs pianos** : quand un même événement demande deux pianos différents (ex. ADISQ, Steinway D + 7') et que le rendez-vous Gazelle les contient tous, le vérificateur du matin ne le signale plus. Un même piano demandé deux fois reste signalé.
 - **Moins de fausses alertes de stationnement (Place des Arts)** : le vérificateur du matin tient maintenant compte des notes « stat » ajoutées sans auteur (par exemple par l'assistant) ou écrites par Louise, sur le piano du rendez-vous.
 - **Place des Arts : liaison des demandes aux rendez-vous plus fiable** : l'assistant reconnaît maintenant un rendez-vous Gazelle même si les accents ou les abréviations diffèrent de la demande (ex. « Opéra de mtl » = « Opera de Montréal »). Les demandes de l'Opéra à l'UQAM, restées « en attente », se lient d'elles-mêmes.
 - **Textos reçus lisibles** : les accents des textos transférés à info@ s'affichent correctement (« parlé », « être ») au lieu de codes comme « \u00E9 ».
