@@ -199,6 +199,21 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
         else:
             numeros_manuels.update(filter(None, (normaliser(n) for n in z.get("phone_numbers") or [])))
 
+    # Diagnostic (compteurs seulement, aucun nom) : d'où viennent les contacts manuels ?
+    from collections import Counter
+    num_gazelle = {normaliser(n) for v in voulus for n in v["phone_numbers"]}
+    ids_gazelle = {v["client_id"] for v in voulus}
+    manuels = [z for z in existants if not (z.get("description") or "").startswith(MARQUEUR)]
+    rapport["manuels_dont_numero_dans_gazelle"] = sum(
+        1 for z in manuels if any(normaliser(n) in num_gazelle for n in z.get("phone_numbers") or []))
+    rapport["manuels_description_avec_id_gazelle"] = sum(
+        1 for z in manuels if re.search(r"cli_[A-Za-z0-9]+", z.get("description") or ""))
+    rapport["manuels_description_id_gazelle_connu"] = sum(
+        1 for z in manuels if any(i in ids_gazelle for i in re.findall(r"cli_[A-Za-z0-9]+", z.get("description") or "")))
+    masque = lambda t: re.sub(r"[0-9]", "9", re.sub(r"[^\W\d_]", "a", t))[:20]
+    rapport["manuels_formes_description"] = Counter(masque(z.get("description") or "") for z in manuels).most_common(5)
+    rapport["manuels_types_numeros"] = Counter(type(n).__name__ for z in manuels[:100] for n in z.get("phone_numbers") or []).most_common()
+
     a_creer: List[Dict[str, Any]] = []
     a_modifier: List[Tuple[str, Dict[str, Any]]] = []
     for v in voulus:
@@ -217,15 +232,6 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
     garde_fou = len(a_nous) > 50 and len(voulus) < 0.7 * len(a_nous)
     if garde_fou:
         a_retirer = []
-
-    # Diagnostic (compteurs seulement) : les contacts manuels ressemblent-ils à un ancien import Gazelle ?
-    num_gazelle = {normaliser(n) for v in voulus for n in v["phone_numbers"]}
-    manuels = [z for z in existants if not (z.get("description") or "").startswith(MARQUEUR)]
-    rapport["manuels_dont_numero_dans_gazelle"] = sum(
-        1 for z in manuels if any(normaliser(n) in num_gazelle for n in z.get("phone_numbers") or []))
-    rapport["manuels_avec_description"] = sum(1 for z in manuels if (z.get("description") or "").strip())
-    rapport["manuels_avec_courriel"] = sum(1 for z in manuels if (z.get("email") or "").strip())
-    rapport["champs_zoom"] = sorted({k for z in existants[:50] for k in z.keys()})
 
     rapport.update({
         "clients_avec_numero": len(voulus),
