@@ -7,7 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 26 octobre
-- **Moins de fausses alertes de stationnement (Place des Arts)** : le vérificateur du matin tient maintenant compte des notes « stat » ajoutées sans auteur (par exemple par l'assistant) sur le piano du rendez-vous.
+- **Moins de fausses alertes de stationnement (Place des Arts)** : le vérificateur du matin tient maintenant compte des notes « stat » ajoutées sans auteur (par exemple par l'assistant) ou écrites par Louise, sur le piano du rendez-vous.
 - **Place des Arts : liaison des demandes aux rendez-vous plus fiable** : l'assistant reconnaît maintenant un rendez-vous Gazelle même si les accents ou les abréviations diffèrent de la demande (ex. « Opéra de mtl » = « Opera de Montréal »). Les demandes de l'Opéra à l'UQAM, restées « en attente », se lient d'elles-mêmes.
 - **Textos reçus lisibles** : les accents des textos transférés à info@ s'affichent correctement (« parlé », « être ») au lieu de codes comme « \u00E9 ».
 - **Notes d'appels fiables à partir de l'enregistrement** : quand un appel est enregistré, l'assistant lit la transcription complète (et non plus le seul résumé de Zoom) et en tire la note Gazelle : coordonnées, piano, disponibilités du client, accès, et un avertissement si le prix entendu ne correspond pas au tarif. Actif dès que Zoom donne à l'assistant la permission de lire les enregistrements.

@@ -98,6 +98,10 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
         return f"(diagnostic indisponible : {e})"
 
 
+# Louise écrit parfois la note « stat » à la demande d'un technicien.
+LOUISE_ID = "usr_tndhXmnT0iakT4HF"
+
+
 def check_pda_parking(storage) -> list:
     """Règle d'Allan : un « stat » écrit ce jour-là = un stationnement rapporté ;
     pas de « stat » = rien. On compare donc, par JOURNÉE (Montréal) et par
@@ -162,11 +166,11 @@ def check_pda_parking(storage) -> list:
                              headers=H, timeout=20).json()
             notes = notes if isinstance(notes, list) else []
             # Notes ajoutées comme note de dossier (ex. par l'assistant) : Gazelle ne leur
-            # donne souvent pas d'auteur. On les compte si elles sont sur le piano du RV lié
+            # donne souvent pas d'auteur ; ou notes écrites par Louise pour le technicien. On les compte si elles sont sur le piano du RV lié
             # (fausse alerte du 2026-10-16 : « Stat 13$ » ignoré faute d'auteur).
             if pianos[(jour, tech)]:
                 sans_auteur = http.get(f"{api}/gazelle_timeline_entries",
-                                       params=params + [("user_id", "is.null"),
+                                       params=params + [("or", f"(user_id.is.null,user_id.eq.{LOUISE_ID})"),
                                                         ("piano_id", f"in.({','.join(sorted(pianos[(jour, tech)]))})")],
                                        headers=H, timeout=20).json()
                 vus = {n.get("external_id") for n in notes}
