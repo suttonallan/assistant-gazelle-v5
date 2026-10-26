@@ -180,6 +180,20 @@ def _corps(v: Dict[str, Any]) -> Dict[str, Any]:
     return corps
 
 
+def _envoyer(zoom: "Zoom", methode: str, chemin: str, v: Dict[str, Any]) -> requests.Response:
+    """Envoie le contact ; si Zoom refuse (400), réessaie sans courriel, puis avec un nom simplifié."""
+    corps = _corps(v)
+    r = zoom.requete(methode, chemin, json=corps)
+    if r.status_code != 400:
+        return r
+    corps.pop("email", None)
+    r = zoom.requete(methode, chemin, json=corps)
+    if r.status_code != 400:
+        return r
+    corps["name"] = (re.sub(r"[^\w\s'&().,-]", " ", corps["name"]).strip() or "Client Gazelle")[:60]
+    return zoom.requete(methode, chemin, json=corps)
+
+
 # ---------------------------------------------------------------- Synchronisation
 
 def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> Dict[str, Any]:
@@ -249,7 +263,7 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
     if not essai_a_blanc:
         limite = maximum if maximum is not None else 10 ** 9
         for v in a_creer[:limite]:
-            r = zoom.requete("POST", "/phone/external_contacts", json=_corps(v))
+            r = _envoyer(zoom, "POST", "/phone/external_contacts", v)
             if r.status_code in (200, 201):
                 crees += 1
             else:
@@ -257,7 +271,7 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
                 if r.status_code in (400, 401, 403) and crees == 0 and len(erreurs) >= 3:
                     break  # permission manquante ou format refusé : inutile d'insister
         for zid, v in a_modifier[:limite]:
-            r = zoom.requete("PATCH", f"/phone/external_contacts/{zid}", json=_corps(v))
+            r = _envoyer(zoom, "PATCH", f"/phone/external_contacts/{zid}", v)
             if r.status_code in (200, 204):
                 modifies += 1
             else:
