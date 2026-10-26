@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from core.zoom_sms import get_zoom_access_token, ZOOM_API_BASE_URL
+from core.timezone_utils import MONTREAL_TZ
 
 MARQUEUR = "Gazelle:"
 NUMEROS_PTM = {"5143448008", "4382285774"}
@@ -183,7 +184,7 @@ def _corps(v: Dict[str, Any]) -> Dict[str, Any]:
 
 def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> Dict[str, Any]:
     debut = time.time()
-    rapport: Dict[str, Any] = {"debut": datetime.now().isoformat(timespec="seconds"),
+    rapport: Dict[str, Any] = {"debut": datetime.now(MONTREAL_TZ).isoformat(timespec="seconds"),
                                "essai_a_blanc": essai_a_blanc}
     voulus = contacts_voulus()
     zoom = Zoom()
@@ -216,6 +217,15 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
     garde_fou = len(a_nous) > 50 and len(voulus) < 0.7 * len(a_nous)
     if garde_fou:
         a_retirer = []
+
+    # Diagnostic (compteurs seulement) : les contacts manuels ressemblent-ils à un ancien import Gazelle ?
+    num_gazelle = {normaliser(n) for v in voulus for n in v["phone_numbers"]}
+    manuels = [z for z in existants if not (z.get("description") or "").startswith(MARQUEUR)]
+    rapport["manuels_dont_numero_dans_gazelle"] = sum(
+        1 for z in manuels if any(normaliser(n) in num_gazelle for n in z.get("phone_numbers") or []))
+    rapport["manuels_avec_description"] = sum(1 for z in manuels if (z.get("description") or "").strip())
+    rapport["manuels_avec_courriel"] = sum(1 for z in manuels if (z.get("email") or "").strip())
+    rapport["champs_zoom"] = sorted({k for z in existants[:50] for k in z.keys()})
 
     rapport.update({
         "clients_avec_numero": len(voulus),
@@ -254,7 +264,7 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
     rapport.update({"crees": crees, "modifies": modifies, "retires": retires,
                     "erreurs": len(erreurs), "exemples_erreurs": erreurs[:5],
                     "appels_zoom": zoom.appels, "duree_s": round(time.time() - debut),
-                    "fin": datetime.now().isoformat(timespec="seconds")})
+                    "fin": datetime.now(MONTREAL_TZ).isoformat(timespec="seconds")})
     if not essai_a_blanc:
         try:
             from core.supabase_storage import SupabaseStorage
