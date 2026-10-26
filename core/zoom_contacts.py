@@ -191,41 +191,43 @@ def synchroniser(essai_a_blanc: bool = False, maximum: Optional[int] = None) -> 
     existants = zoom.lister()
 
     a_nous: Dict[str, Dict[str, Any]] = {}
-    numeros_manuels = set()
+    manuels: List[Dict[str, Any]] = []
     for z in existants:
         desc = z.get("description") or ""
         if desc.startswith(MARQUEUR):
             a_nous[desc[len(MARQUEUR):].strip()] = z
         else:
-            numeros_manuels.update(filter(None, (normaliser(n) for n in z.get("phone_numbers") or [])))
+            manuels.append(z)
 
-    # Diagnostic (compteurs seulement, aucun nom) : d'où viennent les contacts manuels ?
-    from collections import Counter
-    num_gazelle = {normaliser(n) for v in voulus for n in v["phone_numbers"]}
-    ids_gazelle = {v["client_id"] for v in voulus}
-    manuels = [z for z in existants if not (z.get("description") or "").startswith(MARQUEUR)]
-    rapport["manuels_dont_numero_dans_gazelle"] = sum(
-        1 for z in manuels if any(normaliser(n) in num_gazelle for n in z.get("phone_numbers") or []))
-    rapport["manuels_description_avec_id_gazelle"] = sum(
-        1 for z in manuels if re.search(r"cli_[A-Za-z0-9]+", z.get("description") or ""))
-    rapport["manuels_description_id_gazelle_connu"] = sum(
-        1 for z in manuels if any(i in ids_gazelle for i in re.findall(r"cli_[A-Za-z0-9]+", z.get("description") or "")))
-    masque = lambda t: re.sub(r"[0-9]", "9", re.sub(r"[^\W\d_]", "a", t))[:20]
-    rapport["manuels_formes_description"] = Counter(masque(z.get("description") or "") for z in manuels).most_common(5)
-    rapport["manuels_types_numeros"] = Counter(type(n).__name__ for z in manuels[:100] for n in z.get("phone_numbers") or []).most_common()
+    # Reprise de l'ancien import : un contact manuel dont un numéro est celui d'un client
+    # Gazelle (pas encore suivi) est pris en charge par l'assistant — un seul par client.
+    proprio_num = {normaliser(n): v["client_id"] for v in voulus for n in v["phone_numbers"]}
+    repris: Dict[str, Dict[str, Any]] = {}
+    numeros_manuels = set()
+    for z in manuels:
+        nums = [d for d in (normaliser(n) for n in z.get("phone_numbers") or []) if d]
+        cid = next((proprio_num[d] for d in nums if d in proprio_num), None)
+        if cid and cid not in a_nous and cid not in repris:
+            repris[cid] = z
+        else:
+            numeros_manuels.update(nums)  # contact laissé tel quel : ses numéros restent à lui
 
     a_creer: List[Dict[str, Any]] = []
     a_modifier: List[Tuple[str, Dict[str, Any]]] = []
     for v in voulus:
-        if v["client_id"] not in a_nous:
-            # Numéro déjà saisi à la main dans Zoom → on ne crée pas de doublon.
-            v["phone_numbers"] = [n for n in v["phone_numbers"] if normaliser(n) not in numeros_manuels]
-            if v["phone_numbers"]:
-                a_creer.append(v)
+        z = a_nous.get(v["client_id"]) or repris.get(v["client_id"])
+        # Pas de numéro déjà tenu par un contact manuel qu'on ne gère pas (doublon),
+        # sauf si notre contact l'a déjà lui-même.
+        siens = {normaliser(n) for n in (z or {}).get("phone_numbers") or []}
+        v["phone_numbers"] = [n for n in v["phone_numbers"]
+                              if normaliser(n) not in numeros_manuels or normaliser(n) in siens]
+        if not v["phone_numbers"]:
             continue
-        z = a_nous[v["client_id"]]
-        if not _pareil(z, v):
+        if z is None:
+            a_creer.append(v)
+        elif v["client_id"] in repris or not _pareil(z, v):
             a_modifier.append((_id_zoom(z), v))
+    rapport["repris_de_l_ancien_import"] = len(repris)
     ids_voulus = {v["client_id"] for v in voulus}
     a_retirer = [_id_zoom(z) for cid, z in a_nous.items() if cid not in ids_voulus]
 
