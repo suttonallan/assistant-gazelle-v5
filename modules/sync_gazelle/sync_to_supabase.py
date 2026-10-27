@@ -872,8 +872,11 @@ class GazelleToSupabaseSync:
                     user_obj = appt_data.get('user', {})
                     technicien = user_obj.get('id') if user_obj else None
 
-                    # Location (pas disponible simplement)
-                    location = ''
+                    # Lieu de l'event (seulement s'il diffère de l'adresse du client, ex. aéroport)
+                    loc_obj = appt_data.get('location') or {}
+                    location = loc_obj.get('singleLineAddress') or ', '.join(
+                        p for p in (loc_obj.get('street1'), loc_obj.get('municipality'),
+                                    loc_obj.get('region'), loc_obj.get('postalCode')) if p)
 
                     # Notes
                     notes = notes_raw if notes_raw else title

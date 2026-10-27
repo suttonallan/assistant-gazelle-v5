@@ -546,6 +546,7 @@ class GazelleAPIClient:
               confirmedByClient
               source
               travelMode
+              location { street1 municipality region postalCode singleLineAddress }
               allEventPianos(first: 10) {
                 nodes {
                   piano { id }

@@ -331,7 +331,7 @@ class GazelleAPIClientIncremental(GazelleAPIClient):
                         isAllDay
                         confirmedByClient
                         source
-                        travelMode
+                        travelMode location { street1 municipality region postalCode singleLineAddress }
                         createdAt
                         updatedAt
                         client {

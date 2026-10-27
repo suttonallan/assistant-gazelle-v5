@@ -308,6 +308,12 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                 else:
                     full_address = ''
 
+                # Un lieu propre au RV (ex. aéroport, entrepôt) a priorité sur l'adresse du client
+                if (apt.get('location') or '').strip():
+                    full_address = apt['location'].strip()
+                    if 'canada' not in full_address.lower():
+                        full_address += ', Canada'
+
                 if full_address:
                     # FIXED: Créer appointment_datetime depuis appointment_date du RV
                     apt_date = apt.get('appointment_date')
@@ -334,7 +340,7 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                         'start_time': start_time,
                         'duration': apt.get('duration_minutes', 60),
                         'client_address': full_address,
-                        'client_name': client_info.get('name', apt.get('title', 'N/A'))
+                        'client_name': (clients_map.get(client_id) or {}).get('name') or apt.get('title', 'N/A')
                     })
         else:
             # Utiliser les rendez-vous fournis

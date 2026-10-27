@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 27 octobre
+- **Calculateur de kilomètres, lieu propre au rendez-vous** : quand un rendez-vous (ou un bloc perso lié à un client) a son propre lieu dans Gazelle — un aéroport, un entrepôt, une salle — c'est ce lieu qui compte dans les kilomètres, et non l'adresse de la fiche client.
+
 ### 26 octobre
 - **Frais de déplacement, l'île n'est plus gratuite partout** : l'île de Montréal est gratuite jusqu'à 20 km du métro Outremont, comme ailleurs. Plus loin (Roxboro, Pierrefonds, Pointe-Claire, Kirkland, Sainte-Anne-de-Bellevue, Pointe-aux-Trembles…), le temps de route compte de nouveau : kilomètres au-delà de 40 km aller-retour et minutes au-delà de 40 min aller-retour. Exemple : Roxboro (H8Y 3R9) passe de gratuit à 28,38 $. Longueuil, Brossard et Saint-Lambert restent gratuits.
 - **Place des Arts : plus d'alerte « doublon » pour un événement à plusieurs pianos** : quand un même événement demande deux pianos différents (ex. ADISQ, Steinway D + 7') et que le rendez-vous Gazelle les contient tous, le vérificateur du matin ne le signale plus. Un même piano demandé deux fois reste signalé.

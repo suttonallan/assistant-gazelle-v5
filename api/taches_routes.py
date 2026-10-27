@@ -922,6 +922,8 @@ class RendezVousIn(BaseModel):
     notes: Optional[str] = None
     piano_ids: List[str] = []
     accord: bool = True                # isTuning sur les pianos
+    type: str = "APPOINTMENT"          # PERSONAL = bloc perso (aucun avis au client)
+    lieu: Optional[str] = None         # adresse sur une ligne si différente de la fiche client
 
 
 @router.post("/gazelle/rendez-vous")
@@ -945,14 +947,19 @@ def creer_rendez_vous(r: RendezVousIn):
         c = (res.get("data") or {}).get("client") or {}
         dc = c.get("defaultContact") or {}
         titre = c.get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()
-    inp = {"title": titre, "start": start, "duration": r.duree_min, "type": "APPOINTMENT",
+    if r.type not in ("APPOINTMENT", "PERSONAL"):
+        raise HTTPException(400, "type : APPOINTMENT ou PERSONAL")
+    inp = {"title": titre, "start": start, "duration": r.duree_min, "type": r.type,
            "travelMode": "DRIVING", "userId": r.user_id, "clientId": r.client_id}
+    if r.lieu:
+        inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
     if r.notes:
         inp["notes"] = r.notes
     if r.piano_ids:
         inp["pianos"] = [{"pianoId": p, "isTuning": r.accord} for p in r.piano_ids]
     mut = """mutation($input: PrivateEventInput!) { createEvent(input: $input) {
       event { id title start duration type status user { id firstName } client { id }
+              location { singleLineAddress street1 municipality }
               allEventPianos(first: 5) { nodes { piano { id make model } } } }
       mutationErrors { fieldName messages } } }"""
     try:
