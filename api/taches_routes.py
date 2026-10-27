@@ -659,6 +659,27 @@ def ajouter_timeline(t: TimelineIn):
         raise HTTPException(502, f"Gazelle : {e}")
 
 
+class NoteClientIn(BaseModel):
+    client_id: str
+    texte: str
+    piano_id: Optional[str] = None
+    date: Optional[str] = None  # ISO ; défaut : maintenant
+
+
+@router.post("/gazelle/note-client")
+def note_client(n: NoteClientIn):
+    """Note simple (📝) dans la chronologie d'un client Gazelle — jamais comptée comme service."""
+    if not n.client_id.startswith("cli_") or not n.texte.strip():
+        raise HTTPException(400, "client_id ou texte invalide")
+    from core.gazelle_api_client import GazelleAPIClient
+    try:
+        GazelleAPIClient().create_client_log(n.client_id, "📝 " + n.texte.strip(), piano_id=n.piano_id,
+                                             created_at=n.date)
+    except Exception as e:
+        raise HTTPException(502, f"Gazelle : {e}")
+    return {"ok": True}
+
+
 @router.get("/gazelle/schema-mutation")
 def schema_mutation(nom: str = Query(...)):
     """Lecture seule : signature d'une mutation Gazelle et champs de ses types d'entrée."""
