@@ -1,36 +1,43 @@
 #!/usr/bin/env python3
-"""Lecture seule : quelles requêtes/mutations de l'API privée Gazelle touchent
-les rappels (reminders), cycles de vie (lifecycles) et modèles de courriel ?
+"""Lecture seule : structure et contenu des cycles de vie (rappels) Gazelle.
 Aucune écriture. Résultat dans les annotations GitHub."""
-import re, sys
+import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv; load_dotenv()
 from core.gazelle_api_client import GazelleAPIClient
 
-MOTIF = re.compile(r"remind|lifecycle|template|campaign|emailMessage|messageTemplate", re.I)
 api = GazelleAPIClient()
-res = api._execute_query("""{ __schema {
-  queryType { fields { name args { name } } }
-  mutationType { fields { name args { name type { name kind ofType { name } } } } } } }""")
-s = (res.get("data") or {}).get("__schema") or {}
-q = [f["name"] for f in (s.get("queryType") or {}).get("fields") or [] if MOTIF.search(f["name"])]
-m = [f for f in (s.get("mutationType") or {}).get("fields") or [] if MOTIF.search(f["name"])]
-print("REQUETES:", q)
-print("MUTATIONS:", [x["name"] for x in m])
-print(f"::notice title=Requetes::{', '.join(q) or 'aucune'}")
-print(f"::notice title=Mutations::{', '.join(x['name'] for x in m) or 'aucune'}")
-# Types d'entrée des mutations trouvées
-for x in m:
-    for a in x["args"]:
-        t = a["type"].get("name") or (a["type"].get("ofType") or {}).get("name")
-        if t and t.endswith("Input"):
-            r = api._execute_query('query($n:String!){ __type(name:$n){ inputFields { name } } }', {"n": t})
-            champs = [f["name"] for f in ((r.get("data") or {}).get("__type") or {}).get("inputFields") or []]
-            print(f"::notice title={x['name']} {t}::{', '.join(champs)}")
-# Champs des types rappel/cycle de vie
-for nom in ["PrivateReminder", "PrivateReminderTemplate", "PrivateLifecycle", "PrivateLifecycleReminder", "PrivateEmailTemplate"]:
-    r = api._execute_query('query($n:String!){ __type(name:$n){ fields { name } } }', {"n": nom})
-    t = (r.get("data") or {}).get("__type")
-    if t:
-        print(f"::notice title=Type {nom}::{', '.join(f['name'] for f in t.get('fields') or [])}")
+def q(t, v=None): return api._execute_query(t, v or {})
+
+def type_de(nom_champ):
+    r = q("""{ __schema { queryType { fields { name type { name kind ofType { name kind ofType { name kind ofType { name } } } } } } } }""")
+    for f in r["data"]["__schema"]["queryType"]["fields"]:
+        if f["name"] == nom_champ:
+            t = f["type"]
+            while t.get("ofType"): t = t["ofType"] if t.get("name") is None else t
+            if t.get("name"): return t["name"]
+            return None
+def champs(t):
+    r = q('query($n:String!){ __type(name:$n){ fields { name type { name kind ofType { name kind ofType { name kind ofType { name } } } } } } }', {"n": t})
+    return ((r.get("data") or {}).get("__type") or {}).get("fields") or []
+def nom_type(t):
+    while t and not t.get("name"): t = t.get("ofType")
+    return t.get("name") if t else None
+
+lignes = []
+tl = type_de("allLifecycles"); lignes.append(f"allLifecycles -> {tl}")
+for f in champs(tl): lignes.append(f"  {tl}.{f['name']}: {nom_type(f['type'])}")
+noeud = next((nom_type(f["type"]) for f in champs(tl) if f["name"] == "nodes"), tl)
+if noeud and noeud != tl:
+    for f in champs(noeud):
+        lignes.append(f"  {noeud}.{f['name']}: {nom_type(f['type'])}")
+        if "essage" in f["name"]:
+            mt = nom_type(f["type"])
+            for g in champs(mt):
+                lignes.append(f"    {mt}.{g['name']}: {nom_type(g['type'])}")
+                if g["name"] == "nodes":
+                    for h in champs(nom_type(g["type"])):
+                        lignes.append(f"      {nom_type(g['type'])}.{h['name']}: {nom_type(h['type'])}")
+txt = "\n".join(lignes); print(txt)
+print("::notice title=Structure::" + txt.replace("%", "%25").replace("\n", "%0A"))
