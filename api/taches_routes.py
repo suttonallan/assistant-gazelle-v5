@@ -1250,8 +1250,8 @@ def rapport_doublons(tous: bool = Query(False)):
 
 
 @router.post("/gazelle/fusionner-doublons-approuves")
-def fusionner_doublons_approuves():
+def fusionner_doublons_approuves(limite: int = Query(0, ge=0, le=50)):
     """Exécute UNIQUEMENT la liste de fusions décidée par Allan (FUSIONS_APPROUVEES,
     dans le code). Idempotent : une fusion déjà faite est passée."""
     from modules.alerts.clients_doublons import fusionner_approuves
-    return fusionner_approuves()
+    return fusionner_approuves(limite)

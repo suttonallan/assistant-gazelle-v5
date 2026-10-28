@@ -164,7 +164,7 @@ def rapport_hebdomadaire() -> Dict[str, Any]:
     return {"groupes": len(groupes), "envoye": bool(ok)}
 
 
-def fusionner_approuves() -> Dict[str, Any]:
+def fusionner_approuves(limite: int = 0) -> Dict[str, Any]:
     """Exécute FUSIONS_APPROUVEES dans Gazelle (mergeClients). Idempotent : une fiche
     déjà absorbée (introuvable) est passée. IRRÉVERSIBLE — décidé par Allan."""
     from core.gazelle_api_client import GazelleAPIClient
@@ -180,6 +180,9 @@ def fusionner_approuves() -> Dict[str, Any]:
             if cle in faits:
                 bilan["deja_faites"].append(cle)
                 continue
+            if limite and len(bilan["fusionnees"]) + len(bilan["erreurs"]) >= limite:
+                bilan["restantes"] = bilan.get("restantes", 0) + 1
+                continue
             try:
                 r = gz._execute_query(m, {"input": {"sourceClientId": source, "targetClientId": cible}})
                 p = (r.get("data") or {}).get("mergeClients") or {}
@@ -187,6 +190,7 @@ def fusionner_approuves() -> Dict[str, Any]:
                 if err:
                     bilan["erreurs"].append({"fusion": cle, "erreur": str(err)[:300]})
                     continue
+                bilan.setdefault("gardees", []).append((p.get("client") or {}).get("id"))
                 faits.add(cle)
                 db.save_system_setting("clients_fusions_faites", sorted(faits))
                 bilan["fusionnees"].append(cle)
