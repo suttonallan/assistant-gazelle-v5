@@ -220,7 +220,10 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
 # Plafond séparé de _verifier_jeton : un afflux d'étapes ne doit jamais bloquer
 # la création des fiches clients.
 # ---------------------------------------------------------------------------
-_appels_evenements: deque[float] = deque()
+# Plafonds séparés : un afflux d'étapes (anonymes, publiques) ne peut pas
+# empêcher l'enregistrement des vraies demandes et abandons.
+_appels_evenements: dict[str, deque] = {"etape": deque(), "autre": deque()}
+_PLAFONDS_EVENEMENTS = {"etape": 2000, "autre": 300}
 _TYPES_EVENEMENTS = {"etape", "reservation", "abandon", "hors_zone", "refus"}
 
 
@@ -243,11 +246,13 @@ def evenement_reservation(ev: EvenementReservation, x_reservation_secret: Option
     if len(json.dumps(ev.details, default=str)) > 2000:
         raise HTTPException(422, "Détails trop longs")
     maintenant = time.time()
-    while _appels_evenements and maintenant - _appels_evenements[0] > 3600:
-        _appels_evenements.popleft()
-    if len(_appels_evenements) >= 2000:
+    groupe = "etape" if ev.type == "etape" else "autre"
+    file = _appels_evenements[groupe]
+    while file and maintenant - file[0] > 3600:
+        file.popleft()
+    if len(file) >= _PLAFONDS_EVENEMENTS[groupe]:
         raise HTTPException(429, "Trop d'événements")
-    _appels_evenements.append(maintenant)
+    file.append(maintenant)
     from datetime import datetime
     from core.supabase_storage import SupabaseStorage
     from core.timezone_utils import MONTREAL_TZ

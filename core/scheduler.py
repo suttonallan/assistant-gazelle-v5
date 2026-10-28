@@ -942,9 +942,9 @@ def task_assistant_courriel():
 
 def task_bilan_reservation_en_ligne():
     """Bilan de la veille de la page de réservation en ligne → info@ (Front)."""
-    from modules.alerts.bilan_reservation_en_ligne import envoyer_bilan
-    res = envoyer_bilan()
-    print(f"📊 Bilan réservation en ligne : { {k: v for k, v in res.items() if k != 'apercu'} }")
+    from modules.alerts.bilan_reservation_en_ligne import envoyer_bilans_en_attente
+    res = envoyer_bilans_en_attente()
+    print(f"📊 Bilan réservation en ligne : {res}")
     return res
 
 
@@ -1069,7 +1069,9 @@ def configure_jobs(scheduler: BackgroundScheduler):
         id='bilan_reservation_en_ligne',
         name='Bilan réservation en ligne de la veille → info@ (07:45)',
         replace_existing=True,
-        max_instances=1
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600
     )
     print("   ✅ 07:45 - Bilan réservation en ligne configuré")
 
