@@ -84,20 +84,6 @@ def rv_client(c: RvClient, x_reservation_secret: Optional[str] = Header(None)):
     return {"rendez_vous": trouves}
 
 
-class Requete(BaseModel):
-    """Requête GraphQL en LECTURE seule (aucune mutation acceptée)."""
-    query: str = Field(..., max_length=4000)
-    variables: Optional[dict] = None
-
-
-@router.post("/lecture")
-def lecture(r: Requete, x_reservation_secret: Optional[str] = Header(None)):
-    _verifier_jeton(x_reservation_secret)
-    if "mutation" in r.query.lower():
-        raise HTTPException(400, "Lecture seulement")
-    return _gz()._execute_query(r.query, r.variables or {})
-
-
 class Annulation(BaseModel):
     event_id: str = Field(..., pattern=r"^evt_[A-Za-z0-9]{6,40}$")
     client_id: str = Field(..., pattern=r"^cli_[A-Za-z0-9]{6,40}$")
@@ -114,12 +100,11 @@ def annuler_rv(a: Annulation, x_reservation_secret: Optional[str] = Header(None)
     if not e or (e.get("client") or {}).get("id") != a.client_id:
         raise HTTPException(404, "Rendez-vous introuvable pour ce client")
     res = gz._execute_query(
-        "mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) "
-        "{ event { id status } mutationErrors { fieldName messages } } }",
-        {"id": a.event_id, "input": {"status": "CANCELED"}})
+        "mutation($id: String!) { cancelEvent(eventId: $id) { event { id status } mutationErrors { fieldName messages } } }",
+        {"id": a.event_id})
     if res.get("errors"):
         raise HTTPException(502, str(res["errors"])[:800])
-    sortie = (res.get("data") or {}).get("updateEvent") or {}
+    sortie = (res.get("data") or {}).get("cancelEvent") or {}
     if sortie.get("mutationErrors"):
         raise HTTPException(502, str(sortie["mutationErrors"])[:800])
     if a.note:
