@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 28 octobre
+- **Rapport hebdomadaire des fiches clients en double** : chaque lundi matin, info@ reçoit la liste des nouvelles fiches qui semblent en double (même téléphone ou même courriel), avec la fiche à garder suggérée et le lien Gazelle de chacune. Les groupes déjà revus par Allan ne reviennent pas. Pas de courriel s'il n'y a rien de nouveau.
 - **Bilan quotidien de la réservation en ligne** : chaque matin à 7 h 45, info@ reçoit un message résumant la veille sur la nouvelle page de réservation — combien de visiteurs à chaque étape, les demandes envoyées, et les personnes parties sans envoyer après avoir laissé leurs coordonnées. Les chiffres ne se perdent plus quand le service redémarre.
 - **Fini les fiches clients en double après un message vocal** : quand un client laisse un message vocal, rappelle, ou que Zoom complète son résumé, l'assistant ajoute la note à la fiche déjà créée au lieu d'en créer une nouvelle. Avant de créer une fiche, il vérifie maintenant directement dans Gazelle (téléphone et courriel), et non plus seulement dans sa copie de la veille.
 

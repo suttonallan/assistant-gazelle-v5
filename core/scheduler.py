@@ -795,6 +795,19 @@ def task_factures_doublons():
         traceback.print_exc()
 
 
+def task_clients_doublons_hebdo():
+    """Lundi matin : nouvelles fiches clients en double → courriel à info@ (Front)."""
+    try:
+        from modules.alerts.clients_doublons import rapport_hebdomadaire
+        res = rapport_hebdomadaire()
+        print(f"👥 Fiches clients en double (hebdo) : {res}")
+        return res
+    except Exception as e:
+        print(f"❌ Erreur rapport fiches en double : {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def task_sync_call_center_sheet():
     """
     Compile les nouveaux appels du Call Center Gazelle (relances client par
@@ -1221,6 +1234,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ Aux 15 min (7h-21h) - Factures en double configurée")
+
+    # Lundi 7:50 - Fiches clients en double (nouveaux groupes seulement) -> info@
+    scheduler.add_job(
+        task_clients_doublons_hebdo,
+        trigger=CronTrigger(day_of_week='mon', hour=7, minute=50, timezone='America/Montreal'),
+        id='clients_doublons_hebdo',
+        name='Fiches clients en double -> info@ (lundi 7h50)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ Lundi 7h50 - Fiches clients en double configurée")
 
     # 19:00 - Sync Call Center vers Google Sheet
     scheduler.add_job(
