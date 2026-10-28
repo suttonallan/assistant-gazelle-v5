@@ -95,9 +95,8 @@ def annuler_rv(a: Annulation, x_reservation_secret: Optional[str] = Header(None)
     """Annule (sans supprimer) un rendez-vous du client : il reste une trace dans sa chronologie."""
     _verifier_jeton(x_reservation_secret)
     gz = _gz()
-    ev = gz._execute_query("query($id: String!) { event(id: $id) { id status client { id } } }", {"id": a.event_id})
-    e = (ev.get("data") or {}).get("event")
-    if not e or (e.get("client") or {}).get("id") != a.client_id:
+    a_venir = rv_client(RvClient(client_id=a.client_id, jours=180), x_reservation_secret)["rendez_vous"]
+    if not any(r["id"] == a.event_id for r in a_venir):
         raise HTTPException(404, "Rendez-vous introuvable pour ce client")
     res = gz._execute_query(
         "mutation($id: String!) { cancelEvent(eventId: $id) { event { id status } mutationErrors { fieldName messages } } }",
