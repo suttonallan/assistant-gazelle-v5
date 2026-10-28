@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 28 octobre
+- **Fini les fiches clients en double après un message vocal** : quand un client laisse un message vocal, rappelle, ou que Zoom complète son résumé, l'assistant ajoute la note à la fiche déjà créée au lieu d'en créer une nouvelle. Avant de créer une fiche, il vérifie maintenant directement dans Gazelle (téléphone et courriel), et non plus seulement dans sa copie de la veille.
+
 ### 27 octobre
 - **Calculateur de kilomètres, lieu propre au rendez-vous** : quand un rendez-vous (ou un bloc perso lié à un client) a son propre lieu dans Gazelle — un aéroport, un entrepôt, une salle — c'est ce lieu qui compte dans les kilomètres, et non l'adresse de la fiche client.
 

@@ -23,6 +23,7 @@ est volontairement tolérante (parcours récursif du JSON) et le JSON brut est j
 import json
 import os
 import re
+import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -414,6 +415,27 @@ def _marquer_traite(resume_id: str) -> None:
         db.save_system_setting(CLE_TRAITES, traites)
 
 
+_VERROU_CREATION = threading.Lock()
+CLE_FICHES_CREEES = "zoom_fiches_creees_par_numero"
+
+
+def _fiche_deja_creee(numeros: List[str]) -> Optional[str]:
+    """Fiche que l'assistant a déjà créée pour l'un de ces numéros (mémoire Supabase)."""
+    from core.supabase_storage import SupabaseStorage
+    fiches = SupabaseStorage().get_system_setting(CLE_FICHES_CREEES) or {}
+    return next((fiches[d] for d in numeros if d in fiches), None)
+
+
+def _memoriser_fiche(numeros: List[str], client_id: str) -> None:
+    from core.supabase_storage import SupabaseStorage
+    db = SupabaseStorage()
+    fiches = db.get_system_setting(CLE_FICHES_CREEES) or {}
+    for d in numeros:
+        fiches.pop(d, None)
+        fiches[d] = client_id
+    db.save_system_setting(CLE_FICHES_CREEES, dict(list(fiches.items())[-2000:]))
+
+
 def _courriel_secours(note: str, numeros: List[str], raison: str) -> None:
     from core.email_notifier import EmailNotifier
     n = EmailNotifier()
@@ -510,11 +532,24 @@ def classer_note(r: Dict[str, Any], numeros: List[str], client: Optional[Dict[st
             # Personne de connu : fiche créée comme client potentiel, seulement si
             # l'appel est une vraie demande de service et qu'on a au moins un nom.
             if r.get("demande_client") and numeros and (r.get("prenom") or r.get("nom")):
-                d = numeros[0]
-                cid = gz.create_client(r.get("prenom"), r.get("nom"),
-                                       telephone=f"({d[0:3]}) {d[3:6]}-{d[6:]}",
-                                       courriel=r.get("courriel"), adresse=r.get("adresse") or {},
-                                       reference=r.get("reference"))
+                # Anti-doublon : un même appelant produit souvent plusieurs événements
+                # (message vocal, résumé complété, transcription, rappel le lendemain)
+                # alors que la copie Supabase n'a pas encore la fiche créée. Sous verrou :
+                # fiche déjà créée par l'assistant pour ce numéro → Gazelle en direct → création.
+                with _VERROU_CREATION:
+                    existant = _fiche_deja_creee(numeros) or gz.trouver_client_existant(numeros, r.get("courriel"))
+                    if existant:
+                        _memoriser_fiche(numeros, existant)
+                        gz.create_client_log(existant, note)
+                        _marquer_traite(rid)
+                        print(f"✅ Appelant déjà dans Gazelle ({existant}) : note ajoutée, aucune fiche créée")
+                        return {"ok": True, "client": existant, "doublon_evite": True}
+                    d = numeros[0]
+                    cid = gz.create_client(r.get("prenom"), r.get("nom"),
+                                           telephone=f"({d[0:3]}) {d[3:6]}-{d[6:]}",
+                                           courriel=r.get("courriel"), adresse=r.get("adresse") or {},
+                                           reference=r.get("reference"))
+                    _memoriser_fiche(numeros, cid)
                 gz.create_client_log(cid, note)
                 _marquer_traite(rid)
                 print(f"✅ Client potentiel créé ({cid}) avec le résumé d'appel")

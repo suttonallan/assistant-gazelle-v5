@@ -944,6 +944,37 @@ class GazelleAPIClient:
             raise ValueError("; ".join(f"{e.get('fieldName')}: {', '.join(e.get('messages') or [])}" for e in erreurs))
         return payload
 
+    def trouver_client_existant(self, telephones: Optional[List[str]] = None,
+                                courriel: Optional[str] = None) -> Optional[str]:
+        """Cherche EN DIRECT dans Gazelle (pas dans la copie Supabase, qui a jusqu'à
+        24 h de retard) un client qui a ce numéro ou ce courriel. Retourne son id ou None.
+        Sert à ne jamais recréer une fiche qui existe déjà (ex. client potentiel créé
+        une heure plus tôt à partir d'un message vocal)."""
+        import re as _re
+        chiffres = lambda t: _re.sub(r"\D", "", t or "")[-10:]
+        cibles = {chiffres(t) for t in (telephones or []) if len(chiffres(t)) == 10}
+        courriel = (courriel or "").strip().lower()
+        q = """query($s: String) { allClients(first: 25, filters: {search: $s}) { nodes { id
+          defaultContact { defaultEmail { email } defaultPhone { phoneNumber } } } } }"""
+        termes = []
+        if courriel and "@" in courriel:
+            termes.append(courriel)
+        for d in cibles:
+            termes += [f"({d[0:3]}) {d[3:6]}-{d[6:]}", d, f"{d[3:6]}-{d[6:]}"]
+        for terme in termes:
+            try:
+                res = self._execute_query(q, {"s": terme})
+            except Exception as e:
+                print(f"⚠️ Recherche de doublon Gazelle ({terme[:4]}…) : {e}")
+                continue
+            for n in (((res.get("data") or {}).get("allClients") or {}).get("nodes") or []):
+                dc = n.get("defaultContact") or {}
+                tel = chiffres((dc.get("defaultPhone") or {}).get("phoneNumber"))
+                mel = ((dc.get("defaultEmail") or {}).get("email") or "").strip().lower()
+                if (tel and tel in cibles) or (courriel and mel == courriel):
+                    return n["id"]
+        return None
+
     def create_client(self, prenom: Optional[str], nom: Optional[str], telephone: Optional[str] = None,
                       courriel: Optional[str] = None, adresse: Optional[Dict[str, str]] = None,
                       statut: str = "PROSPECT", reference: Optional[str] = None,
