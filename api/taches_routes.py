@@ -1247,3 +1247,11 @@ def rapport_doublons(tous: bool = Query(False)):
     if not ok:
         raise HTTPException(502, "Courriel non envoyé")
     return {"ok": True, "groupes": len(groupes)}
+
+
+@router.post("/gazelle/fusionner-doublons-approuves")
+def fusionner_doublons_approuves():
+    """Exécute UNIQUEMENT la liste de fusions décidée par Allan (FUSIONS_APPROUVEES,
+    dans le code). Idempotent : une fusion déjà faite est passée."""
+    from modules.alerts.clients_doublons import fusionner_approuves
+    return fusionner_approuves()

@@ -32,7 +32,8 @@ GROUPES_DISTINCTS = [
     frozenset(["cli_3HyEFPaeNgWHntw5", "cli_RMe7Ou9JqVfmJMPi"]),
 ]
 
-# (fiche à garder, [fiches à fusionner dedans]) — décidé par Allan le 2026-10-28.
+# (fiche à garder, [fiches à fusionner dedans]) — décidé par Allan le 2026-10-28
+# (groupes Dina/Zartspace et Saine retirés à sa demande : restent à vérifier).
 FUSIONS_APPROUVEES = [
     ("cli_Xwffc3j1E8eKlDjl", ["cli_dPAfQXHsH6da4FkA"]),
     ("cli_YXobayGcV22z1R4q", ["cli_NWLXSCnmE1Pucisi"]),
@@ -47,12 +48,10 @@ FUSIONS_APPROUVEES = [
     ("cli_vqnSc1mZdaImmKCC", ["cli_82hHnciOEuIlcGZk"]),
     ("cli_mZUh9huQ5eSNHQK5", ["cli_xg42tfJ3xGxFKoDQ"]),
     ("cli_AcJbLJF2AvqS2n0m", ["cli_QVQCQXlgcc2KShwp"]),
-    ("cli_Q0SyBZrdncKETeZ3", ["cli_R3BwUavur3KVb3UR"]),
     ("cli_ggCLlJVtIIVHz93N", ["cli_JiDSwuHb7rqNwNVR"]),
     ("cli_ZPkSGCM1V2EA4XFz", ["cli_7B1YCz3sLXFQTs6u"]),
     ("cli_h668GORRlcFbvNvW", ["cli_ceBhXZD9m1rMVAKE"]),
     ("cli_E1vx00hP2oCW88Ss", ["cli_NjiS8KeVz3bHiJKF"]),
-    ("cli_2awXRVQ0BtoqMeoj", ["cli_lISkw6wJoMZbPOxo"]),
     ("cli_53QMZWoYqU0xCds0", ["cli_2YXDj10qWMGxQRkz"]),
     ("cli_ljISEzEJB5sKXpdK", ["cli_JPGmQTZdkJHsNwEq"]),
     ("cli_YAMhe6RrYuQdnOU0", ["cli_FqCVEAFrmm8Jlz35"]),
