@@ -940,6 +940,14 @@ def task_assistant_courriel():
     return res
 
 
+def task_bilan_reservation_en_ligne():
+    """Bilan de la veille de la page de réservation en ligne → info@ (Front)."""
+    from modules.alerts.bilan_reservation_en_ligne import envoyer_bilan
+    res = envoyer_bilan()
+    print(f"📊 Bilan réservation en ligne : { {k: v for k, v in res.items() if k != 'apercu'} }")
+    return res
+
+
 def task_zoom_contacts():
     """Clients Gazelle (copie Supabase) → contacts externes partagés Zoom Phone."""
     from core.zoom_resumes_appels import cles_zoom_configurees
@@ -1053,6 +1061,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   17:30 - Rappel acces Place des Arts (TM/JD) configure")
+
+    # 07:45 - Bilan de la veille de la réservation en ligne → info@
+    scheduler.add_job(
+        task_bilan_reservation_en_ligne,
+        trigger=CronTrigger(hour=7, minute=45, timezone='America/Montreal'),
+        id='bilan_reservation_en_ligne',
+        name='Bilan réservation en ligne de la veille → info@ (07:45)',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 07:45 - Bilan réservation en ligne configuré")
 
     # Toutes les 2 min - Étiquette « Lien RV » dans Front → lien de réservation prérempli
     from apscheduler.triggers.interval import IntervalTrigger

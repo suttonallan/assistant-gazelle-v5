@@ -211,3 +211,52 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
     if not ok:
         raise HTTPException(502, "Envoi impossible pour le moment.")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Journal des événements de la page (étapes anonymes, réservations, abandons…)
+# conservé dans Supabase : survit aux redémarrages du service de réservation.
+# Bilan quotidien : modules/alerts/bilan_reservation_en_ligne.py.
+# Plafond séparé de _verifier_jeton : un afflux d'étapes ne doit jamais bloquer
+# la création des fiches clients.
+# ---------------------------------------------------------------------------
+_appels_evenements: deque[float] = deque()
+_TYPES_EVENEMENTS = {"etape", "reservation", "abandon", "hors_zone", "refus"}
+
+
+class EvenementReservation(BaseModel):
+    type: str = Field(..., max_length=20)
+    cle: Optional[str] = Field(None, max_length=60)
+    client_id: Optional[str] = Field(None, max_length=60)
+    details: dict = Field(default_factory=dict)
+
+
+@router.post("/evenement")
+def evenement_reservation(ev: EvenementReservation, x_reservation_secret: Optional[str] = Header(None)):
+    import hashlib
+    import json
+    if not x_reservation_secret or not hmac.compare_digest(
+            hashlib.sha256(x_reservation_secret.encode()).hexdigest(), _EMPREINTE_JETON):
+        raise HTTPException(403, "Accès refusé")
+    if ev.type not in _TYPES_EVENEMENTS:
+        raise HTTPException(422, "Type inconnu")
+    if len(json.dumps(ev.details, default=str)) > 2000:
+        raise HTTPException(422, "Détails trop longs")
+    maintenant = time.time()
+    while _appels_evenements and maintenant - _appels_evenements[0] > 3600:
+        _appels_evenements.popleft()
+    if len(_appels_evenements) >= 2000:
+        raise HTTPException(429, "Trop d'événements")
+    _appels_evenements.append(maintenant)
+    from datetime import datetime
+    from core.supabase_storage import SupabaseStorage
+    from core.timezone_utils import MONTREAL_TZ
+    try:
+        SupabaseStorage(silent=True).client.table("reservation_en_ligne_evenements").insert({
+            "jour": datetime.now(MONTREAL_TZ).date().isoformat(),
+            "type": ev.type, "cle": ev.cle, "client_id": ev.client_id, "details": ev.details,
+        }).execute()
+    except Exception as e:
+        _log.warning("Événement réservation en ligne non enregistré : %s", e)
+        raise HTTPException(502, "Enregistrement impossible")
+    return {"ok": True}
