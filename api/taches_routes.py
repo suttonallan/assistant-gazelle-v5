@@ -1224,3 +1224,95 @@ def usage_services(depuis: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
         cursor = pi.get("endCursor")
     return {"depuis": depuis, "jusqu": jusqu, "factures": total,
             "services": sorted(compte.values(), key=lambda c: -c["factures"])}
+
+
+# --- Rapport des fiches clients en double (lecture seule) ---
+_dernier_rapport_doublons = [0.0]
+
+
+def _tout_lire(table: str, select: str) -> List[Dict[str, Any]]:
+    h = dict(_db()._get_headers())
+    lignes, debut = [], 0
+    while True:
+        h["Range"] = f"{debut}-{debut + 999}"
+        r = requests.get(f"{_db().api_url}/{table}?select={select}&order=external_id", headers=h, timeout=30)
+        bloc = r.json() if r.status_code in (200, 206) else []
+        lignes += bloc
+        if len(bloc) < 1000:
+            return lignes
+        debut += 1000
+
+
+def trouver_doublons_prospects() -> List[List[Dict[str, Any]]]:
+    """Groupes de fiches Gazelle qui partagent un téléphone ou un courriel, dont au
+    moins une est un client potentiel (PROSPECT) — la signature des fiches créées en
+    double à partir des appels et messages vocaux Zoom."""
+    chiffres = lambda t: _re.sub(r"\D", "", t or "")[-10:]
+    clients = {c["external_id"]: c for c in _tout_lire(
+        "gazelle_clients", "external_id,company_name,first_name,last_name,status,email,phone,city,created_at")}
+    cles: Dict[str, set] = {}
+
+    def ajouter(cle, cid):
+        if cid in clients and cle:
+            cles.setdefault(cle, set()).add(cid)
+
+    for c in clients.values():
+        d = chiffres(c.get("phone"))
+        if len(d) == 10:
+            ajouter("t:" + d, c["external_id"])
+        if (c.get("email") or "").strip():
+            ajouter("m:" + c["email"].strip().lower(), c["external_id"])
+    for ct in _tout_lire("gazelle_contacts", "client_external_id,email,phone"):
+        d = chiffres(ct.get("phone"))
+        if len(d) == 10:
+            ajouter("t:" + d, ct.get("client_external_id"))
+        if (ct.get("email") or "").strip():
+            ajouter("m:" + ct["email"].strip().lower(), ct.get("client_external_id"))
+
+    # Regroupe les ensembles qui se chevauchent (même téléphone OU même courriel).
+    groupes: List[set] = []
+    for ids in cles.values():
+        if len(ids) < 2:
+            continue
+        lies = [g for g in groupes if g & ids]
+        nouveau = set(ids).union(*lies) if lies else set(ids)
+        groupes = [g for g in groupes if g not in lies] + [nouveau]
+    resultat = []
+    for g in groupes:
+        fiches = sorted((clients[i] for i in g), key=lambda c: c.get("created_at") or "")
+        if any(str(c.get("status") or "").upper() == "PROSPECT" for c in fiches):
+            resultat.append(fiches)
+    return sorted(resultat, key=lambda f: f[-1].get("created_at") or "", reverse=True)
+
+
+@router.post("/gazelle/rapport-doublons")
+def rapport_doublons():
+    """Envoie à asutton@ la liste des fiches en double (rien n'est modifié dans Gazelle).
+    La réponse ne contient aucune donnée personnelle : seulement le nombre de groupes."""
+    if time.time() - _dernier_rapport_doublons[0] < 600:
+        raise HTTPException(429, "Rapport déjà envoyé il y a moins de 10 minutes")
+    _dernier_rapport_doublons[0] = time.time()
+    import html as _html
+    from core.email_notifier import get_email_notifier
+    groupes = trouver_doublons_prospects()
+    e = lambda s: _html.escape(str(s or "—"))
+    lien = lambda i: f"<a href='https://gazelleapp.io/app/v2/clients/x/{i}'>{i}</a>"
+    blocs = []
+    for fiches in groupes:
+        lignes = "".join(
+            f"<tr><td>{'⭐ garder' if n == 0 else 'fusionner'}</td><td>{lien(c['external_id'])}</td>"
+            f"<td>{e(c.get('company_name') or ((c.get('first_name') or '') + ' ' + (c.get('last_name') or '')))}</td>"
+            f"<td>{e(c.get('status'))}</td><td>{e(c.get('phone'))}</td><td>{e(c.get('email'))}</td>"
+            f"<td>{e((c.get('created_at') or '')[:10])}</td></tr>" for n, c in enumerate(fiches))
+        blocs.append(f"<table border='1' cellpadding='4' style='border-collapse:collapse;margin-bottom:14px'>{lignes}</table>")
+    corps = (f"<p><b>{len(groupes)} groupe(s) de fiches en double</b> (même téléphone ou même courriel, "
+             "au moins une fiche « client potentiel »). La plus ancienne est proposée comme fiche à garder ; "
+             "les autres sont à fusionner dans Gazelle.</p>" + "".join(blocs) +
+             "<p style='color:#777'>Rapport de l'assistant — rien n'a été modifié dans Gazelle. "
+             "Les fiches créées aujourd'hui apparaîtront après la synchro de cette nuit.</p>")
+    ok = get_email_notifier().send_email(to_emails=["asutton@piano-tek.com"],
+                                         subject=f"Fiches clients en double — {len(groupes)} groupe(s)",
+                                         html_content=corps)
+    if not ok:
+        raise HTTPException(502, "Courriel non envoyé")
+    return {"ok": True, "groupes": len(groupes)}
