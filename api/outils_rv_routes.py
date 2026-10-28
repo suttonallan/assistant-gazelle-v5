@@ -68,8 +68,10 @@ def rv_client(c: RvClient, x_reservation_secret: Optional[str] = Header(None)):
           location { singleLineAddress }
           allEventPianos(first: 10) { nodes { piano { id make model type } } } }
         pageInfo { hasNextPage endCursor } } }"""
-    debut = datetime.now().strftime("%Y-%m-%d")
-    fin = (datetime.now() + timedelta(days=c.jours)).strftime("%Y-%m-%d")
+    from core.timezone_utils import aujourdhui_montreal
+    jour = aujourdhui_montreal()  # serveur en UTC : la journée est celle de Montréal
+    debut = jour.isoformat()
+    fin = (jour + timedelta(days=c.jours)).isoformat()
     filtres = {"startOn": debut, "endOn": fin, "type": ["APPOINTMENT"]}
     trouves, apres = [], None
     for _ in range(30):
