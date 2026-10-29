@@ -22,7 +22,10 @@ Anti-doublons (2026-10-29, cas Salle Tudor) : Front scinde parfois un même
 ex. « [EXT] »). On ne commente donc :
   - que si le dernier message de la conversation vient du CLIENT (si l'équipe
     a déjà répondu, quelqu'un s'en occupe : l'avis n'apporte rien) ;
-  - qu'une seule conversation par client à chaque passage (la plus récente).
+  - qu'une seule conversation par client à chaque passage (la plus récente) ;
+  - jamais sur une RÉPONSE (sujet « Re: ») : le client répond à un échange
+    déjà en cours avec l'équipe, qui connaît le RV. L'avis vise les NOUVEAUX
+    messages (vocal, texto, nouveau courriel).
 """
 import re
 import time
@@ -177,6 +180,8 @@ def verifier_messages() -> Dict[str, int]:
     clients_vus = set()
     for conv in convs:
         stats["conversations"] += 1
+        if re.match(r"\s*(re|r[ée]f?)\s*:", conv.get("subject") or "", re.I):
+            continue  # réponse dans un échange déjà en cours avec l'équipe
         dernier = conv.get("last_message") or {}
         if dernier and dernier.get("is_inbound") is False:
             continue  # l'équipe a déjà répondu : pas besoin de l'avis
