@@ -1980,6 +1980,15 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         </span>
                       )}
                     </div>
+                    {!it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
+                      <button
+                        onClick={() => setCreationRv(it)}
+                        className="mt-1 whitespace-nowrap rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                        title="Créer le RV dans Gazelle au technicien et à l'heure confirmés"
+                      >
+                        📅 Créer le RV
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {renderEditableCell(it, 'notes')}
@@ -2005,15 +2014,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                       <option value="COMPLETED">Complété</option>
                       <option value="BILLED">Facturé</option>
                     </select>
-                    {!it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
-                      <button
-                        onClick={() => setCreationRv(it)}
-                        className="mt-1 block w-full rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                        title="Créer le RV dans Gazelle au technicien et à l'heure confirmés"
-                      >
-                        📅 Créer le RV
-                      </button>
-                    )}
                   </td>
                 </tr>
                 )
