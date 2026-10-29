@@ -18,10 +18,19 @@ def q(t, v=None):
         print(f"::error title=Gazelle::{str(r['errors'])[:1500]}"); sys.exit(1)
     return r["data"]
 
-c = q('query($id:String!){ client(id:$id){ id custom2 defaultContact { defaultEmail { email } } } }', {"id": CLIENT_ALLAN})["client"]
-courriel = ((c.get("defaultContact") or {}).get("defaultEmail") or {}).get("email", "")
-if courriel.lower() != "asutton@piano-tek.com":
-    print("::error title=Securite::La fiche ne correspond pas au courriel d'Allan, rien envoye"); sys.exit(1)
+# Fiche d'Allan : celle dont le courriel par défaut est une de ses adresses
+ADRESSES_ALLAN = {"asutton@piano-tek.com", "suttonallan@gmail.com"}
+noeuds = q('{ allClients(first: 10, filters: {search: "Sutton"}) { nodes { id custom2 status defaultContact { firstName lastName defaultEmail { email } } } } }')["allClients"]["nodes"]
+masque = lambda e: (e[:2] + "***@" + e.split("@")[-1]) if "@" in (e or "") else "aucun"
+for n in noeuds:
+    ct = n.get("defaultContact") or {}
+    print(f"::notice title=Fiche {n['id'][-4:]}::{(ct.get('firstName') or '')[:1]}. {ct.get('lastName') or ''} | {masque((ct.get('defaultEmail') or {}).get('email'))} | numero client {'rempli' if n.get('custom2') else 'vide'} | {n['status']}")
+cible = next((n for n in noeuds if ((((n.get("defaultContact") or {}).get("defaultEmail") or {}).get("email") or "").lower() in ADRESSES_ALLAN)
+              and n.get("custom2") and n["status"] == "ACTIVE"), None)
+if not cible:
+    print("::error title=Securite::Aucune fiche active d'Allan avec numero client, rien envoye"); sys.exit(1)
+CLIENT_ALLAN = cible["id"]
+print(f"::notice title=Fiche retenue::{CLIENT_ALLAN[-4:]} ({masque(cible['defaultContact']['defaultEmail']['email'])})")
 types = [e["name"] for e in q('{ __type(name:"ScheduledMessageType"){ enumValues { name } } }')["__type"]["enumValues"]]
 type_courriel = next(t for t in types if "EMAIL" in t.upper())
 
