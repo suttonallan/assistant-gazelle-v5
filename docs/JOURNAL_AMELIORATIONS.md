@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 29 octobre
+- **Fin des avis « on a reçu une demande Place des Arts »** : redondants, puisque le courriel d'Isabelle arrive déjà dans info@ avec l'étiquette Place des Arts. La vérification de chaque matin de semaine reste en place : elle signale dans Front toute demande sans réponse, absente de l'assistant ou sans RV dans Gazelle.
 - **Une demande Place des Arts = une seule conversation dans Front** : l'assistant n'envoie plus d'avis séparé « [PDA — à réviser] » ; il écrit sa détection en commentaire directement sur le courriel d'Isabelle (l'avis séparé ne sert plus qu'en secours si le courriel n'est pas encore dans Front). La fenêtre « Créer le RV » est aussi allégée : la disponibilité se vérifie dans Gazelle avant de répondre, la fenêtre ne la répète plus.
 - **Place des Arts : Gazelle fait foi pour les RV créés** : on change le technicien, le jour ou l'heure, ou on annule, directement dans Gazelle — l'assistant suit tout seul. Le menu « Qui le fait » est verrouillé dès qu'un RV existe (« 🔒 changer dans Gazelle »), l'heure réelle du RV s'affiche sous l'heure demandée, et un RV annulé dans Gazelle remet la demande à « Nouveau » (le bouton « Créer le RV » réapparaît).
 - **Bouton « Créer le RV » toujours visible** : il est maintenant au début de chaque ligne du tableau Place des Arts, et reste collé à gauche quand on fait défiler le tableau, sur cellulaire comme sur ordinateur.

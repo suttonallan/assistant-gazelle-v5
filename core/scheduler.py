@@ -1182,16 +1182,13 @@ def configure_jobs(scheduler: BackgroundScheduler):
     # (unique, pas couvert par Actions).
     print("   (retire) horaire 7h-21h - Sync Appointments -> deleguee a GitHub Actions")
 
-    # Toutes les heures (heures ouvrables 8h-18h) - Scan Gmail pour demandes PDA
-    scheduler.add_job(
-        task_scan_pda_emails,
-        trigger=CronTrigger(hour='8-18', minute=30, timezone='America/Montreal'),
-        id='scan_pda_emails_hourly',
-        name='Scan Gmail PDA (horaire 8h30-18h30)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ Toutes les heures (8h30-18h30) - Scan Gmail PDA configurée")
+    # RETIRÉ le 29 oct. 2026 (décision d'Allan) : scan Gmail PDA horaire.
+    # Il ne faisait qu'annoncer « on a reçu une demande d'Isabelle » — redondant :
+    # le courriel arrive déjà dans info@ (Front) avec l'étiquette Place des Arts, et
+    # la tâche planifiée « Surveillance demandes Place des Arts » (chaque matin de
+    # semaine) vérifie que chaque demande est répondue, dans l'assistant et dans Gazelle.
+    # Pour le remettre : réenregistrer task_scan_pda_emails (CronTrigger hour='8-18', minute=30).
+    print("   (retire) Scan Gmail PDA horaire -> redondant avec Front + surveillance du matin")
 
     # Toutes les 2 heures (8h-18h) - Scan Spam pour vrais messages clients
     scheduler.add_job(
