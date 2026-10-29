@@ -1795,7 +1795,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-2 py-2">
+                <th className="sticky left-0 z-20 bg-gray-50 px-2 py-2">
                   <input
                     type="checkbox"
                     className="h-4 w-4"
@@ -1858,13 +1858,25 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
                 return (
                 <tr key={it.id} className={rowClass}>
-                  <td className="px-2 py-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={selectedIds.includes(it.id)}
-                      onChange={() => toggleSelect(it.id)}
-                    />
+                  {/* Colonne collée à gauche : reste visible quand on fait défiler le tableau (cellulaire ou ordi) */}
+                  <td className={`sticky left-0 z-10 px-2 py-2 shadow-[2px_0_3px_-2px_rgba(0,0,0,0.15)] ${rowClass || 'bg-white'}`}>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={selectedIds.includes(it.id)}
+                        onChange={() => toggleSelect(it.id)}
+                      />
+                      {!it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
+                        <button
+                          onClick={() => setCreationRv(it)}
+                          className="whitespace-nowrap rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white shadow hover:bg-blue-700"
+                          title="Créer le RV dans Gazelle au technicien et à l'heure confirmés"
+                        >
+                          📅 Créer le RV
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {renderEditableCell(it, 'request_date', { type: 'date', display: it.request_date ? it.request_date.slice(0, 10) : '—' })}
@@ -1980,15 +1992,6 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         </span>
                       )}
                     </div>
-                    {!it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
-                      <button
-                        onClick={() => setCreationRv(it)}
-                        className="mt-1 whitespace-nowrap rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                        title="Créer le RV dans Gazelle au technicien et à l'heure confirmés"
-                      >
-                        📅 Créer le RV
-                      </button>
-                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {renderEditableCell(it, 'notes')}
