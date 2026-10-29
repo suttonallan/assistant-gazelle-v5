@@ -19,7 +19,7 @@ TEXTE = """Bonjour {{client.first_name}},
 
 Selon nos dossiers, votre piano pourrait avoir besoin d’un accord dans un proche avenir.
 
-Comme votre piano se trouve à une certaine distance de Montréal, il n’était pas toujours possible de prendre rendez-vous en ligne avec nous. C’est maintenant chose faite : notre nouvelle page de réservation vous montre les plages disponibles et les frais de déplacement applicables avant que vous confirmiez.
+Comme votre piano se trouve à une certaine distance de Montréal, il n’était pas toujours possible de prendre rendez-vous en ligne avec nous. C’est maintenant chose faite : notre nouvelle page de réservation vous montre les plages disponibles et les frais de déplacement avant que vous confirmiez. Ces frais sont simples : 4,50 $ par kilomètre au-delà de 20 km du métro Outremont.
 
 **[Prendre rendez-vous](https://reserver.pianotechniquemontreal.com/{{client.custom2}})**
 
