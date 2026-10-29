@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 29 octobre
+- **Un seul avis par rendez-vous** : les avis « Nouveau rendez-vous » mis en attente pendant la nuit arrivaient parfois en plusieurs exemplaires à 7 h 05. Chaque avis n'est maintenant envoyé qu'une seule fois.
+
 ### 28 octobre
 - **Créer le RV Gazelle directement depuis une demande Place des Arts** : un bouton « 📅 Créer le RV » sur chaque demande sans rendez-vous ouvre une petite fenêtre — on choisit le technicien, on voit sa journée pour confirmer qu'il est libre, on inscrit l'heure confirmée, et un clic crée le RV dans Gazelle (titre habituel, diapason, piano lié) et relie la demande. Plus besoin de ressaisir dans Gazelle.
 - **Calculateur de frais plus clair pour Louise** : il affiche la distance et le temps aller, le calcul du tarif (4,50 $ × km au-delà de 20 km) et, au-delà de 45 km, un montant suggéré pour un déplacement seul, avec un renvoi au calculateur de tournée pour répartir les frais quand on regroupe des visites.

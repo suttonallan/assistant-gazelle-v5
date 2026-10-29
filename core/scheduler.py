@@ -1140,16 +1140,8 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 17:00 - Digest fiches a valider (info@, tous les jours) configurée")
 
-    # 07:05 - Traitement file d'attente Late Assignment (alertes mises en attente pendant la nuit)
-    scheduler.add_job(
-        task_process_late_assignment_queue,
-        trigger=CronTrigger(hour=7, minute=5, timezone='America/Montreal'),
-        id='late_assignment_morning',
-        name='Traitement Late Assignment (07:05)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ 07:05 - Traitement Late Assignment (matin) configurée")
+    # (07:05 couvert par la tâche */5 ci-dessous — l'ancienne tâche 07:05 séparée
+    #  démarrait en même temps et envoyait les avis de nuit en double.)
 
     # Toutes les 5 minutes - Traitement file d'attente Late Assignment (buffer 5 min)
     scheduler.add_job(

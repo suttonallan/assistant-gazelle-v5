@@ -248,15 +248,15 @@ class GazelleToSupabaseSync:
                 f"&technician_id=eq.{technician_id}"
                 f"&appointment_date=eq.{appointment_date}"
                 f"&change_type=eq.{change_type}"
-                f"&status=in.(pending,sent)"
+                f"&status=in.(pending,sending,sent)"
             )
             check_response = requests.get(check_url, headers=self.storage._get_headers())
 
             if check_response.status_code == 200:
                 existing = check_response.json()
                 if existing and len(existing) > 0:
-                    # Si une entrée sent existe, c'est un doublon complet
-                    sent_entries = [e for e in existing if e.get('status') == 'sent']
+                    # Si une entrée sent (ou en cours d'envoi) existe, c'est un doublon complet
+                    sent_entries = [e for e in existing if e.get('status') in ('sent', 'sending')]
                     if sent_entries:
                         print(f"⏭️  Alerte déjà envoyée pour RV {appointment_external_id} → tech {technician_id} → doublon ignoré")
                         return

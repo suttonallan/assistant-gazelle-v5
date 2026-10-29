@@ -75,6 +75,12 @@ class LateAssignmentNotifier:
             stats = {'processed': 0, 'sent': 0, 'failed': 0, 'errors': []}
             
             for item in queue_items:
+                # Verrou atomique : on "réclame" l'item (pending -> sending) avant
+                # d'envoyer. Si une autre tâche/instance l'a déjà pris, on saute.
+                # Évite les avis envoyés en double/triple/quadruple.
+                if not self._claim(item['id']):
+                    print(f"   Item {item['id']} déjà pris par un autre traitement -> ignoré")
+                    continue
                 stats['processed'] += 1
                 # Reset avant l'envoi : ne capture que l'erreur de CET item (pas une périmée)
                 self.email_notifier.last_error = None
@@ -647,6 +653,28 @@ class LateAssignmentNotifier:
             traceback.print_exc()
             return False
     
+    def _claim(self, queue_id: str) -> bool:
+        """
+        Réclame atomiquement un item : UPDATE ... WHERE id=? AND status='pending'.
+        Retourne True seulement si CE processus a fait la transition.
+        """
+        try:
+            url = (
+                f"{self.storage.api_url}/late_assignment_queue"
+                f"?id=eq.{queue_id}&status=eq.pending"
+            )
+            headers = self.storage._get_headers()
+            headers["Prefer"] = "return=representation"
+            data = {
+                'status': 'sending',
+                'updated_at': datetime.now(MONTREAL_TZ).isoformat()
+            }
+            resp = requests.patch(url, headers=headers, json=data)
+            return resp.status_code in (200, 201) and bool(resp.json())
+        except Exception as e:
+            print(f"   Erreur réclamation {queue_id}: {e}")
+            return False
+
     def _mark_as_sent(self, queue_id: str):
         """Marque un item de la queue comme envoyé."""
         try:
