@@ -26,10 +26,12 @@ if cid:
         break
     kinds = {f["name"]: (f["type"]["kind"], (f["type"].get("ofType") or {}).get("kind")) for f in r["__type"]["fields"]}
     scal = [u for u in simples if kinds[u][0] in ("SCALAR", "ENUM") or kinds[u][1] in ("SCALAR", "ENUM")]
-    p = q('query($c:String!){ allPianos(first: 10, filters: {clientId: $c}) { nodes { id type %s } } }' % " ".join(scal), {"c": c})
+    p = q('query($c:String!){ allPianos(first: 10, filters: {clientId: $c}) { nodes { id type createdAt status make model %s } } }' % " ".join(scal), {"c": c})
+    for n in (p.get("allPianos") or {}).get("nodes") or []:
+        n["make"] = bool(n.get("make")); n["model"] = bool(n.get("model"))
     note("Pianos", [{k: v for k, v in n.items() if k != "id"} for n in (p.get("allPianos") or {}).get("nodes") or []])
     e = q("""query($f: PrivateAllEventsFilter) { allEventsBatched(first: 50, filters: $f) { nodes {
-      start status type confirmedByClient isAllDay client { id } user { firstName } } } }""",
+      start createdAt status type confirmedByClient isAllDay client { id } user { firstName } } } }""",
       {"f": {"startOn": "2026-10-20", "endOn": "2026-11-05", "type": ["APPOINTMENT"]}})
     ev = [{k: v for k, v in n.items() if k != "client"} for n in (e.get("allEventsBatched") or {}).get("nodes") or [] if (n.get("client") or {}).get("id") == c]
     note("Rendez-vous 20 oct.-5 nov.", ev)
