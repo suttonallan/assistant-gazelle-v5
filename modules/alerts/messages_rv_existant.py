@@ -16,6 +16,13 @@ jugement, elle a seulement l'information au bon endroit.
 La vérification tourne à intervalles réguliers (pas seulement à l'arrivée du
 message) : un RV pris APRÈS le message est donc signalé au passage suivant.
 Un même RV n'est signalé qu'une fois par conversation.
+
+Anti-doublons (2026-10-29, cas Salle Tudor) : Front scinde parfois un même
+échange en plusieurs conversations (sujet modifié par la passerelle du client,
+ex. « [EXT] »). On ne commente donc :
+  - que si le dernier message de la conversation vient du CLIENT (si l'équipe
+    a déjà répondu, quelqu'un s'en occupe : l'avis n'apporte rien) ;
+  - qu'une seule conversation par client à chaque passage (la plus récente).
 """
 import re
 import time
@@ -161,10 +168,18 @@ def verifier_messages() -> Dict[str, int]:
     convs = front._get(f"/conversations/search/{quote(requete, safe='')}",
                        params={"limit": 100}).get("_results", [])
     convs = [c for c in convs if (c.get("created_at") or 0) >= depuis]
+    # La plus récente d'abord : c'est elle qui reçoit l'avis si le même client
+    # apparaît dans plusieurs conversations (échange scindé par Front).
+    convs.sort(key=lambda c: (c.get("last_message") or {}).get("created_at")
+               or c.get("created_at") or 0, reverse=True)
 
     nouveaux = []
+    clients_vus = set()
     for conv in convs:
         stats["conversations"] += 1
+        dernier = conv.get("last_message") or {}
+        if dernier and dernier.get("is_inbound") is False:
+            continue  # l'équipe a déjà répondu : pas besoin de l'avis
         tel = telephone_du_sujet(conv.get("subject", ""))
         client_id = _client_par_telephone(tel) if tel else None
         par = f"le numéro ({tel[:3]}) {tel[3:6]}-{tel[6:]}" if client_id else ""
@@ -174,6 +189,9 @@ def verifier_messages() -> Dict[str, int]:
             par = f"le courriel {courriel}" if client_id else ""
         if not client_id:
             continue
+        if client_id in clients_vus:
+            continue  # déjà traité dans une conversation plus récente
+        clients_vus.add(client_id)
         stats["clients_trouves"] += 1
 
         rv = prochain_rv(client_id)
