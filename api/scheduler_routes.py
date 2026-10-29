@@ -235,6 +235,16 @@ async def run_messages_rv():
         raise HTTPException(status_code=500, detail=f"Erreur messages/RV : {e}")
 
 
+@router.post("/run/archives-silencieuses")
+async def run_archives_silencieuses():
+    """Désabonne tout de suite l'équipe des conversations info@ archivées récemment."""
+    from modules.alerts.front_archives_silencieuses import desabonner_archives
+    try:
+        return {"success": True, "stats": desabonner_archives()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur archives Front : {e}")
+
+
 @router.post("/run/factures-doublons")
 async def run_factures_doublons(envoyer: bool = False):
     """Cherche les factures en double. Par défaut, affiche seulement (n'envoie rien)."""
