@@ -1940,13 +1940,22 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {renderEditableCell(it, 'time')}
+                    {it.appointment_id && it.rv_heure && (
+                      <div
+                        className={`mt-0.5 whitespace-nowrap text-xs ${it.rv_annule ? 'text-red-600 line-through' : 'text-blue-700'}`}
+                        title="Heure réelle du RV dans Gazelle"
+                      >
+                        RV : {it.rv_date && it.rv_date !== (it.appointment_date || '').slice(0, 10) ? `${it.rv_date.slice(8, 10)}/${it.rv_date.slice(5, 7)} ` : ''}{it.rv_heure}{it.rv_annule ? ' (annulé)' : ''}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     <div className="flex items-center gap-1">
                       <select
                         value={it.technician_id || ''}
+                        disabled={!!it.appointment_id}
                         onChange={(e) => handleCellUpdate(it.id, 'technician_id', e.target.value)}
-                        className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer ${
+                        className={`w-full border border-gray-200 rounded px-1 py-1 text-xs font-medium hover:bg-gray-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-80 ${
                           isAAttribuer(it.technician_id) 
                             ? 'bg-yellow-50 border-yellow-300 text-yellow-700'  // Jaune pour attirer l'attention qu'il faut assigner un technicien
                             : it.technician_mismatch
@@ -1954,7 +1963,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                               : 'bg-white'
                         }`}
                         title={
-                          it.technician_mismatch 
+                          it.appointment_id
+                            ? `${techMap[it.technician_id] || 'À attribuer'} — pour changer le technicien, le jour, l'heure ou annuler : faire le changement dans Gazelle (l'assistant suivra).`
+                            : it.technician_mismatch 
                             ? `⚠️ Incohérence: PDA=${techMap[it.technician_id] || it.technician_id}, Gazelle=${techMap[it.gazelle_technician_id] || it.gazelle_technician_id || 'À attribuer'}`
                             : techMap[it.technician_id] || 'Choisir technicien'
                         }
@@ -1992,6 +2003,9 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                         </span>
                       )}
                     </div>
+                    {it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
+                      <div className="mt-0.5 whitespace-nowrap text-[10px] text-gray-500">🔒 changer dans Gazelle</div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
                     {renderEditableCell(it, 'notes')}

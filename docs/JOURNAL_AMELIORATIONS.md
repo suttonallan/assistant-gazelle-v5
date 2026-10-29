@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 29 octobre
+- **Place des Arts : Gazelle fait foi pour les RV créés** : on change le technicien, le jour ou l'heure, ou on annule, directement dans Gazelle — l'assistant suit tout seul. Le menu « Qui le fait » est verrouillé dès qu'un RV existe (« 🔒 changer dans Gazelle »), l'heure réelle du RV s'affiche sous l'heure demandée, et un RV annulé dans Gazelle remet la demande à « Nouveau » (le bouton « Créer le RV » réapparaît).
 - **Bouton « Créer le RV » toujours visible** : il est maintenant au début de chaque ligne du tableau Place des Arts, et reste collé à gauche quand on fait défiler le tableau, sur cellulaire comme sur ordinateur.
 - **Demandes Place des Arts marquées « traité » dans Front** : quand on crée le RV depuis l'assistant, un commentaire interne « ✅ Traité » (technicien, date, heure) s'ajoute tout seul au courriel de la demande et à l'avis « à réviser » de l'assistant. Toute l'équipe voit d'un coup d'œil que c'est réglé.
 - **Un seul avis par rendez-vous** : les avis « Nouveau rendez-vous » mis en attente pendant la nuit arrivaient parfois en plusieurs exemplaires à 7 h 05. Chaque avis n'est maintenant envoyé qu'une seule fois.

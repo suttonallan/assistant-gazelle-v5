@@ -333,6 +333,38 @@ class GazelleSyncService:
                         if gazelle_apt:
                             gazelle_status = gazelle_apt.get('status', '').upper()
                             gazelle_tech = gazelle_apt.get('technicien')
+
+                            # Lien CONFIRMÉ (RV créé avec le bouton, ou choisi par la
+                            # coordonnatrice) : Gazelle fait foi (oct. 2026, Allan).
+                            _lien = liens_confirmes.get(request_id) or {}
+                            if _lien.get('rv') and _lien.get('rv') == apt_id:
+                                if gazelle_status in ('CANCELLED', 'CANCELED'):
+                                    # RV annulé → la demande redevient « Nouveau » (le bouton
+                                    # « Créer le RV » réapparaît) ; le RV annulé est écarté.
+                                    print(f"🚫 RV annulé dans Gazelle : {appointment_date} - {room} → demande remise à « Nouveau »")
+                                    if not dry_run:
+                                        try:
+                                            self.storage.client.table('place_des_arts_requests').update({
+                                                'appointment_id': None, 'technician_id': None,
+                                                'status': 'PENDING', 'updated_at': datetime.now().isoformat()
+                                            }).eq('id', request_id).execute()
+                                            self.save_lien_confirme(request_id, {
+                                                "rv": None, "rejetes": sorted(set(_lien.get('rejetes') or []) | {apt_id}),
+                                                "par": "synchro (RV annulé)", "le": datetime.now().isoformat()})
+                                        except Exception as e:
+                                            logger.warning(f"Remise à Nouveau impossible ({request_id}): {e}")
+                                    continue
+                                if gazelle_tech and gazelle_tech != current_tech:
+                                    print(f"🔄 Technicien suivi depuis Gazelle (lien confirmé) : {appointment_date} - {room}")
+                                    if not dry_run:
+                                        try:
+                                            self.storage.client.table('place_des_arts_requests').update({
+                                                'technician_id': gazelle_tech, 'updated_at': datetime.now().isoformat()
+                                            }).eq('id', request_id).execute()
+                                            tech_sync_count += 1
+                                        except Exception as e:
+                                            logger.warning(f"Suivi technicien impossible ({request_id}): {e}")
+                                    current_tech = gazelle_tech
                             
                             # Remplir depuis Gazelle SEULEMENT si rien n'a encore été
                             # choisi côté PDA (vide ou "À attribuer"). Écraser un

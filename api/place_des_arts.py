@@ -630,7 +630,7 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
         try:
             # Récupérer les RV Gazelle correspondants (inclure description/notes pour parking)
             gazelle_appts = storage.client.table('gazelle_appointments')\
-                .select('external_id,technicien,description,notes')\
+                .select('external_id,technicien,description,notes,appointment_date,appointment_time,status')\
                 .in_('external_id', appointment_ids)\
                 .execute()
 
@@ -640,6 +640,13 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
             appt_by_id = {apt.get('external_id'): apt for apt in (gazelle_appts.data or [])}
             # Liste des appointment_id trouvés dans Gazelle (même sans technicien)
             found_appt_ids = {apt.get('external_id') for apt in (gazelle_appts.data or [])}
+            # Liens confirmés (RV créé avec le bouton, ou choisi par la coordonnatrice) :
+            # pour ceux-là, Gazelle fait foi pour le technicien.
+            try:
+                from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+                _liens_confirmes = GazelleSyncService(storage).get_liens_confirmes()
+            except Exception:
+                _liens_confirmes = {}
             
             # Enrichir les demandes
             for request in requests_data:
@@ -659,6 +666,17 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                     # Toujours inclure le technicien de Gazelle pour comparaison
                     if tech_from_gazelle:
                         request["gazelle_technician_id"] = tech_from_gazelle
+
+                    _rv = appt_by_id.get(appointment_id) or {}
+                    request["rv_date"] = str(_rv.get('appointment_date') or '')[:10] or None
+                    request["rv_heure"] = str(_rv.get('appointment_time') or '')[:5] or None
+                    request["rv_annule"] = (_rv.get('status') or '').upper() in ('CANCELLED', 'CANCELED')
+                    _confirme = (_liens_confirmes.get(request.get('id')) or {}).get('rv') == appointment_id
+                    request["lien_confirme"] = _confirme
+                    if _confirme and tech_from_gazelle:
+                        request["technician_id"] = tech_from_gazelle
+                        request["technician_from_gazelle"] = True
+                        current_tech = tech_from_gazelle
                     
                     # Vérifier incohérence : technicien PDA différent de Gazelle
                     # IMPORTANT: "À attribuer" = "À attribuer" n'est PAS une incohérence, c'est un état normal
@@ -1912,32 +1930,22 @@ def _conversations_de_la_demande(front, demande: Dict[str, Any], dates: List[str
     return list(trouvees.values())
 
 
-def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
-                            ev: Dict[str, Any], tech_nom: str) -> Dict[str, Any]:
-    """Ajoute un commentaire interne « ✅ Traité » sur le courriel de la demande et sur
-    l'avis « à réviser ». N'empêche jamais la création du RV : en cas d'échec, on le dit."""
+def _commenter_front(demande: Dict[str, Any], dates: List[str], texte: str,
+                     par: Optional[str]) -> Dict[str, Any]:
+    """Commentaire interne sur le courriel de la demande et l'avis « à réviser ».
+    Ne bloque jamais l'action Gazelle : en cas d'échec, on le dit."""
     try:
         from core.front_client import get_front_client
         front = get_front_client()
     except Exception as e:
         return {"commentees": [], "erreur": f"Front indisponible : {e}"}
-
-    dates = sorted({str(demande.get('appointment_date') or '')[:10], body.date[:10]} - {''})
+    dates = sorted({str(d or '')[:10] for d in dates} - {''})
     try:
         convs = _conversations_de_la_demande(front, demande, dates)
     except Exception as e:
         logging.warning(f"Recherche Front (demande {demande.get('id')}) : {e}")
         return {"commentees": [], "erreur": f"Recherche Front impossible : {e}"}
-
-    try:
-        jour = datetime.fromisoformat(body.date[:10]).strftime('%d/%m')
-    except ValueError:
-        jour = body.date[:10]
-    texte = (f"✅ Traité — RV créé dans Gazelle pour {tech_nom or 'le technicien'} "
-             f"le {jour} à {body.heure[:5].replace(':', ' h ')} ({ev.get('title')}). "
-             f"Demande reliée dans l'assistant. (Assistant Gazelle)")
-    auteur = body.par if (body.par or '').lower() in PTM_EQUIPE else 'asutton@piano-tek.com'
-
+    auteur = par if (par or '').lower() in PTM_EQUIPE else 'asutton@piano-tek.com'
     commentees = []
     for c in convs:
         try:
@@ -1946,6 +1954,22 @@ def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
         except Exception as e:
             logging.warning(f"Commentaire Front impossible ({c['id']}) : {e}")
     return {"commentees": commentees}
+
+
+def _quand(date_iso: str, heure: str) -> str:
+    try:
+        jour = datetime.fromisoformat(date_iso[:10]).strftime('%d/%m')
+    except ValueError:
+        jour = date_iso[:10]
+    return f"le {jour} à {heure[:5].replace(':', ' h ')}"
+
+
+def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
+                            ev: Dict[str, Any], tech_nom: str) -> Dict[str, Any]:
+    texte = (f"✅ Traité — RV créé dans Gazelle pour {tech_nom or 'le technicien'} "
+             f"{_quand(body.date, body.heure)} ({ev.get('title')}). "
+             f"Demande reliée dans l'assistant. (Assistant Gazelle)")
+    return _commenter_front(demande, [demande.get('appointment_date'), body.date], texte, body.par)
 
 
 @router.post("/requests/{request_id}/verify-technician")
