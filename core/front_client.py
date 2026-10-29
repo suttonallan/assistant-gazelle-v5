@@ -132,20 +132,6 @@ class FrontClient:
             self._post(f"/conversations/{conversation_id}/followers",
                        {"teammate_ids": [f"alt:email:{e}" for e in emails]})
 
-    def lister_abonnes(self, conversation_id: str) -> List[Dict]:
-        """Coéquipiers abonnés (followers) à une conversation."""
-        return self._get(f"/conversations/{conversation_id}/followers").get("_results", [])
-
-    def retirer_abonnes(self, conversation_id: str, teammate_ids: List[str]) -> None:
-        """Désabonne des coéquipiers : la conversation ne remonte plus dans leur boîte perso."""
-        if not teammate_ids:
-            return
-        resp = requests.delete(f"{self.BASE_URL}/conversations/{conversation_id}/followers",
-                               headers={**self._headers(), "Content-Type": "application/json"},
-                               json={"teammate_ids": teammate_ids}, timeout=self.timeout)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
-
     def create_discussion(self, subject: str, body: str, author_email: str,
                           teammate_emails: List[str]) -> Dict:
         """Discussion INTERNE (conversation d'équipe, pas un courriel) avec un premier commentaire."""

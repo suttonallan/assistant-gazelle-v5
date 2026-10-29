@@ -235,14 +235,36 @@ async def run_messages_rv():
         raise HTTPException(status_code=500, detail=f"Erreur messages/RV : {e}")
 
 
-@router.post("/run/archives-silencieuses")
-async def run_archives_silencieuses():
-    """Désabonne tout de suite l'équipe des conversations info@ archivées récemment."""
-    from modules.alerts.front_archives_silencieuses import desabonner_archives
-    try:
-        return {"success": True, "stats": desabonner_archives()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur archives Front : {e}")
+@router.get("/diag/zoom-file-messagerie")
+async def diag_zoom_file_messagerie():
+    """TEMPORAIRE (lecture seule) : réglages de la file d'appels 804 et avis
+    courriel de messagerie de ses membres, pour savoir qui reçoit les avis."""
+    import requests as rq
+    from core.zoom_sms import get_zoom_access_token
+    base = "https://api.zoom.us/v2"
+    h = {"Authorization": f"Bearer {get_zoom_access_token()}"}
+    def g(c):
+        r = rq.get(base + c, headers=h, timeout=20)
+        return r.status_code, (r.json() if r.text else {})
+    out = {}
+    code, files = g("/phone/call_queues?page_size=100")
+    out["files"] = [{k: f.get(k) for k in ("id", "name", "extension_number")}
+                    for f in (files.get("call_queues") or [])] or {"code": code, "rep": files}
+    for f in files.get("call_queues") or []:
+        if str(f.get("extension_number")) != "804":
+            continue
+        code, d = g(f"/phone/call_queues/{f['id']}")
+        out["file_804"] = {"code": code, "policy": d.get("policy"), "cles": list(d.keys())}
+        code, m = g(f"/phone/call_queues/{f['id']}/members?page_size=100")
+        out["membres"] = []
+        for u in (m.get("call_queue_members") or []):
+            info = {"nom": (u.get("name") or "").split(" ")[0], "niveau": u.get("level"), "type": u.get("type")}
+            if u.get("id") and u.get("level") == "user" or u.get("type") == "user":
+                c2, st = g(f"/phone/users/{u['id']}/settings")
+                info["settings_code"] = c2
+                info["voicemail"] = {k: v for k, v in (st or {}).items() if "voice" in k.lower() or "notif" in k.lower()}
+            out["membres"].append(info)
+    return out
 
 
 @router.post("/run/factures-doublons")

@@ -781,20 +781,6 @@ def task_messages_rv_existant():
         traceback.print_exc()
 
 
-def task_front_archives_silencieuses():
-    """Conversations info@ archivées : désabonner l'équipe pour qu'elles ne
-    remontent plus dans les boîtes personnelles (cas du 2026-10-29)."""
-    try:
-        from modules.alerts.front_archives_silencieuses import desabonner_archives
-        stats = desabonner_archives()
-        print(f"🔕 Archives Front désabonnées : {stats}")
-        return stats
-    except Exception as e:
-        print(f"❌ Erreur désabonnement archives Front : {e}")
-        import traceback
-        traceback.print_exc()
-
-
 def task_factures_doublons():
     """Factures Gazelle possiblement en double (même client, montants semblables,
     créées à moins de 3 semaines d'écart) → courriel à info@ pour Louise."""
@@ -1226,16 +1212,6 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ Aux 15 min (7h-21h) - Messages ↔ RV existants configurée")
 
-    # Aux 15 min (7h-22h) - Conversations info@ archivées : ne plus remonter chez l'équipe
-    scheduler.add_job(
-        task_front_archives_silencieuses,
-        trigger=CronTrigger(hour='7-22', minute='5,20,35,50', timezone='America/Montreal'),
-        id='front_archives_silencieuses',
-        name='Front : désabonner les conversations archivées (aux 15 min, 7h-22h)',
-        replace_existing=True,
-        max_instances=1
-    )
-    print("   ✅ Aux 15 min (7h-22h) - Archives Front silencieuses configurée")
 
     # Aux 15 min (7h-21h) - Factures Gazelle en double (quasi temps réel :
     # Louise est avertie peu après qu'un technicien crée une 2e facture)
