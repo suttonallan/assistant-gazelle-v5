@@ -243,6 +243,10 @@ export default function TravelFeeCalculator() {
             {results.results.map((tech, idx) => {
               const isCheapest = tech.technician_name === results.cheapest_technician
               const isFree = tech.is_free
+              // Règle du 28 oct. 2026 : gratuit ≤ 20 km (aller) ; 4,50 $/km au-delà jusqu'à 45 km ;
+              // plus de 45 km : frais suggérés (avec le temps de route), fixés par la coordonnatrice.
+              const kmAller = tech.distance_km / 2
+              const tresLoin = !isFree && kmAller > 45
 
               return (
                 <div
@@ -276,19 +280,33 @@ export default function TravelFeeCalculator() {
                     ) : (
                       <div className="text-3xl font-bold text-orange-600">
                         {tech.total_fee.toFixed(2)}$
+                        {tresLoin && <span className="block text-sm font-semibold text-amber-700">frais suggérés</span>}
                       </div>
                     )}
                   </div>
 
+                  {!isFree && !tresLoin && (
+                    <p className="mb-3 text-xs text-gray-600">
+                      4,50 $ × {(kmAller - 20).toFixed(1)} km au-delà de 20 km
+                    </p>
+                  )}
+                  {tresLoin && (
+                    <div className="mb-3 rounded-md bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
+                      Plus de 45 km : montant suggéré pour un déplacement seul (calculé avec le temps de route,
+                      jamais moins de 112,50 $). Si vous regroupez plusieurs visites du secteur, utilisez le
+                      calculateur de tournée pour répartir les frais entre les clients.
+                    </div>
+                  )}
+
                   {/* Détails */}
                   <div className="space-y-2 text-sm text-gray-600">
                     <div className="flex justify-between">
-                      <span>📏 Distance:</span>
-                      <span className="font-semibold">{tech.distance_km} km</span>
+                      <span>📏 Distance (aller):</span>
+                      <span className="font-semibold">{kmAller.toFixed(1)} km</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>⏱️ Temps:</span>
-                      <span className="font-semibold">{tech.duration_minutes.toFixed(0)} min</span>
+                      <span>⏱️ Temps (aller):</span>
+                      <span className="font-semibold">{(tech.duration_minutes / 2).toFixed(0)} min</span>
                     </div>
 
                     {/* Breakdown */}
