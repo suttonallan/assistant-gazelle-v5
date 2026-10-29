@@ -47,6 +47,13 @@ def _sujet_hors_perimetre(subject: str) -> bool:
     return any(motif in sujet for motif in _SUJETS_HORS_PERIMETRE)
 
 
+def _est_un_rappel_outlook(subject: str) -> bool:
+    """« Rappel : … » = tentative de RAPPEL d'un message par Outlook (recall).
+    Ne contient jamais de demande ; le traiter créait un doublon vide (29 oct. 2026)."""
+    import re
+    return bool(re.match(r"\s*(rappel|recall)\s*:", (subject or '').lower()))
+
+
 def _est_une_reponse(subject: str) -> bool:
     """Vrai si le sujet est une réponse ou un transfert (RE:, TR:, Fwd:…)."""
     import re
@@ -180,6 +187,11 @@ class PDAEmailProcessor:
         subject = email_data.get('subject', '')
 
         logger.info(f"Traitement email: {subject} (de {sender})")
+
+        if _est_un_rappel_outlook(subject):
+            logger.info(f"Rappel de message Outlook ignoré : {subject}")
+            self._record_processed_email(email_data, status='out_of_scope', error_message='Rappel Outlook')
+            return {'requests_created': 0, 'confirmation_sent': False}
 
         if not body_text.strip():
             logger.warning(f"Email vide: {gmail_id}")
@@ -412,7 +424,7 @@ class PDAEmailProcessor:
                     if unicodedata.category(c) != 'Mn')
         t = re.sub(r"\[externe\]", " ", t)
         while True:
-            t2 = re.sub(r"^\s*(re|tr|fw|fwd|rep)\s*:\s*", "", t)
+            t2 = re.sub(r"^\s*(re|tr|fw|fwd|rep|rappel)\s*:\s*", "", t)
             if t2 == t:
                 break
             t = t2
