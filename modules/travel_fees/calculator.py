@@ -87,6 +87,12 @@ class TravelFeeCalculator:
     POINT_REFERENCE = "Station Outremont, Avenue Van Horne, Outremont, QC"
     NOM_REFERENCE = "PTM (métro Outremont)"
     ZONE_GRATUITE_KM = 20.0  # aller simple
+    # Tarif graduel (décision d'Allan, 28 oct. 2026) : 4,50 $ par km de route (aller) au-delà
+    # de 20 km, jusqu'à 45 km. Pas de composante de temps : même adresse = même prix.
+    # Au-delà de 45 km, la coordonnatrice fixe le RV et les frais (visites regroupées) :
+    # l'ancienne formule ne sert plus que d'estimation affichée.
+    TARIF_KM_GRADUEL = 4.50
+    LIMITE_TARIF_GRADUEL_KM = 45.0
 
     # Techniciens disponibles (tournées partagées seulement — pas pour les frais client)
     TECHNICIANS = [
@@ -384,9 +390,9 @@ class TravelFeeCalculator:
         """Frais de déplacement d'un client selon la règle officielle (point de référence unique).
 
         Gratuit : proche Rive-Sud, ou 20 km ou moins (aller) du point de référence.
-        Au-delà de 20 km (décision d'Allan, 26 oct. 2026) : ancienne formule où le temps compte —
-        kilomètres aller-retour au-delà de 40 km à 0,59 $, et minutes aller-retour au-delà
-        de 40 min à 57,50 $/h.
+        De 20 à 45 km (décision d'Allan, 28 oct. 2026) : 4,50 $ par km (aller) au-delà de 20 km.
+        Au-delà de 45 km : estimation par l'ancienne formule (km aller-retour au-delà de 40 km
+        à 0,59 $ + minutes au-delà de 40 min à 57,50 $/h) ; la coordonnatrice fixe les frais.
         """
         if self.degraded_mode:
             raise Exception("Clé Google Maps absente : calcul impossible")
@@ -397,8 +403,14 @@ class TravelFeeCalculator:
         s_ar = duree_s * 2
         if km <= self.ZONE_GRATUITE_KM or self.secteur_exempte(destination_address, self._derniere_destination):
             frais_km = frais_temps = 0.0
+        elif km <= self.LIMITE_TARIF_GRADUEL_KM:
+            frais_km, frais_temps = round((km - self.ZONE_GRATUITE_KM) * self.TARIF_KM_GRADUEL, 2), 0.0
         else:
             frais_km, frais_temps = self._fee_from_totals(km_ar, s_ar)[:2]
+            # Jamais moins qu'à 45 km : les frais ne baissent pas en s'éloignant.
+            plancher = (self.LIMITE_TARIF_GRADUEL_KM - self.ZONE_GRATUITE_KM) * self.TARIF_KM_GRADUEL
+            if frais_km + frais_temps < plancher:
+                frais_km, frais_temps = plancher, 0.0
         total = frais_km + frais_temps
         return TravelFeeResult(
             technician_name=self.NOM_REFERENCE, distance_km=km_ar, duration_minutes=s_ar / 60.0,

@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 28 octobre
+- **Nouveau tarif de déplacement, simple et graduel** : 4,50 $ par kilomètre au-delà de 20 km du métro Outremont, jusqu'à 45 km. Plus de saut à la sortie de la zone gratuite, et le même prix pour la même adresse à chaque fois (le temps de route n'entre plus en compte). Au-delà de 45 km, la coordonnatrice fixe le rendez-vous et les frais. La page de réservation, Ma Journée et le calculateur du site appliquent la règle automatiquement.
 - **Rapport hebdomadaire des fiches clients en double** : chaque lundi matin, info@ reçoit la liste des nouvelles fiches qui semblent en double (même téléphone ou même courriel), avec la fiche à garder suggérée et le lien Gazelle de chacune. Les groupes déjà revus par Allan ne reviennent pas. Pas de courriel s'il n'y a rien de nouveau.
 - **Bilan quotidien de la réservation en ligne** : chaque matin à 7 h 45, info@ reçoit un message résumant la veille sur la nouvelle page de réservation — combien de visiteurs à chaque étape, les demandes envoyées, et les personnes parties sans envoyer après avoir laissé leurs coordonnées. Les chiffres ne se perdent plus quand le service redémarre.
 - **Fini les fiches clients en double après un message vocal** : quand un client laisse un message vocal, rappelle, ou que Zoom complète son résumé, l'assistant ajoute la note à la fiche déjà créée au lieu d'en créer une nouvelle. Avant de créer une fiche, il vérifie maintenant directement dans Gazelle (téléphone et courriel), et non plus seulement dans sa copie de la veille.

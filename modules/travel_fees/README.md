@@ -1,3 +1,5 @@
+> **Règle en vigueur depuis le 28 oct. 2026** — gratuit à 20 km ou moins (aller) du métro Outremont et dans la proche Rive-Sud ; de 20 à 45 km : **4,50 $ par km au-delà de 20 km** (sans composante de temps) ; au-delà de 45 km : frais fixés par la coordonnatrice (l'ancienne formule ci-dessous sert d'estimation).
+
 # 💰 Calculateur de Frais de Déplacement Piano-Tek
 
 Module Python pour calculer automatiquement les frais de déplacement des techniciens en utilisant Google Maps Distance Matrix API.
