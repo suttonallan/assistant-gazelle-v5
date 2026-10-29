@@ -24,7 +24,7 @@ function heureProposee(texte) {
   return `${String(h).padStart(2, '0')}:${min}`
 }
 
-export default function CreerRvModal({ demande, onClose, onCreated }) {
+export default function CreerRvModal({ demande, onClose, onCreated, par }) {
   const techInitial = TECHS.some((t) => t.id === demande.technician_id) ? demande.technician_id : ''
   const [tech, setTech] = useState(techInitial)
   const [date, setDate] = useState((demande.appointment_date || '').slice(0, 10))
@@ -62,7 +62,7 @@ export default function CreerRvModal({ demande, onClose, onCreated }) {
     try {
       const resp = await fetch(`${API_URL}/api/place-des-arts/requests/${demande.id}/creer-rv-gazelle`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technician_id: tech, date, heure, duree_min: Number(duree), piano_id: pianoId || null }),
+        body: JSON.stringify({ technician_id: tech, date, heure, duree_min: Number(duree), piano_id: pianoId || null, par: par || null }),
       })
       const d = await resp.json().catch(() => ({}))
       if (!resp.ok) throw new Error(d.detail || `Erreur ${resp.status}`)

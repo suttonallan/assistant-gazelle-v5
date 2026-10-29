@@ -2038,13 +2038,21 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       {creationRv && (
         <CreerRvModal
           demande={creationRv}
+          par={currentUser?.email || null}
           onClose={() => setCreationRv(null)}
           onCreated={(res, nomTech) => {
             const ev = res.evenement || {}
             setItems((prev) => prev.map((x) => x.id === creationRv.id
               ? { ...x, appointment_id: ev.id, technician_id: (ev.user && ev.user.id) || x.technician_id, status: 'CREATED_IN_GAZELLE' }
               : x))
-            setInfoMessage(`✅ RV créé dans Gazelle pour ${nomTech} : ${ev.title || ''}${res.avertissement ? `\n⚠️ ${res.avertissement}` : ''}${res.piano_id ? '' : '\n⚠️ Aucun piano lié — à ajouter dans Gazelle.'}`)
+            const fr = res.front || {}
+            const nbFront = (fr.commentees || []).length
+            const ligneFront = fr.erreur
+              ? `\n⚠️ Front : ${fr.erreur} — marquer « traité » à la main.`
+              : nbFront
+                ? `\n💬 Marqué « traité » dans Front (${nbFront} conversation${nbFront > 1 ? 's' : ''}).`
+                : `\n⚠️ Courriel de la demande introuvable dans Front — marquer « traité » à la main.`
+            setInfoMessage(`✅ RV créé dans Gazelle pour ${nomTech} : ${ev.title || ''}${res.avertissement ? `\n⚠️ ${res.avertissement}` : ''}${res.piano_id ? '' : '\n⚠️ Aucun piano lié — à ajouter dans Gazelle.'}${ligneFront}`)
             setCreationRv(null)
           }}
         />

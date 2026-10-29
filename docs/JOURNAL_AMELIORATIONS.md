@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 29 octobre
+- **Demandes Place des Arts marquées « traité » dans Front** : quand on crée le RV depuis l'assistant, un commentaire interne « ✅ Traité » (technicien, date, heure) s'ajoute tout seul au courriel de la demande et à l'avis « à réviser » de l'assistant. Toute l'équipe voit d'un coup d'œil que c'est réglé.
 - **Un seul avis par rendez-vous** : les avis « Nouveau rendez-vous » mis en attente pendant la nuit arrivaient parfois en plusieurs exemplaires à 7 h 05. Chaque avis n'est maintenant envoyé qu'une seule fois.
 
 ### 28 octobre

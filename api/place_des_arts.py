@@ -1845,9 +1845,107 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
         avertissement = f"RV créé dans Gazelle ({ev['id']}) mais la demande n'a pas pu être mise à jour : {e}"
         logging.error(avertissement)
 
+    # Marquer « traité » dans Front : le courriel d'Isabelle et l'avis « à réviser »
+    tech_nom = (ev.get('user') or {}).get('firstName') or ''
+    front = _commenter_traite_front(demande, body, ev, tech_nom)
+
     # Rafraîchir la copie locale des RV Gazelle en arrière-plan (Ma journée, liens)
     background_tasks.add_task(_pull_live_appointments, storage)
-    return {"ok": True, "evenement": ev, "piano_id": piano_id, "avertissement": avertissement}
+    return {"ok": True, "evenement": ev, "piano_id": piano_id, "avertissement": avertissement,
+            "front": front}
+
+
+# --- Commentaire « traité » dans Front ---
+# Les courriels d'Isabelle ont pour objet « Accord Piano AAAA-MM-JJ SALLE POUR-QUI » et
+# l'avis « [PDA — à réviser] » de l'assistant cite cet objet (« Email source: … »).
+# On cherche donc par la date dans la boîte info@, puis on garde les conversations
+# qui nomment aussi le « pour qui » (ou la salle) de la demande.
+FRONT_INBOX_INFO = 'inb_342mn'
+PTM_EQUIPE = {'asutton@piano-tek.com', 'nlessard@piano-tek.com', 'info@piano-tek.com'}
+
+
+def _sans_accents(t: str) -> str:
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', (t or '').lower())
+                   if unicodedata.category(c) != 'Mn')
+
+
+def _mots_cles_demande(demande: Dict[str, Any]) -> List[str]:
+    """Mots distinctifs du « pour qui » (≥ 3 lettres) ; à défaut, la salle."""
+    import re
+    mots = [m for m in re.findall(r"[a-z0-9]+", _sans_accents(demande.get('for_who') or ''))
+            if len(m) >= 3 and m not in ('les', 'des', 'the', 'and', 'pour')]
+    if mots:
+        return mots
+    salle = _sans_accents(demande.get('room') or '').strip()
+    return [salle] if salle else []
+
+
+def _conversations_de_la_demande(front, demande: Dict[str, Any], dates: List[str]) -> List[Dict]:
+    from urllib.parse import quote
+    mots = _mots_cles_demande(demande)
+    trouvees: Dict[str, Dict] = {}
+    for d in dates:
+        # L'avis « à réviser » écrit la date en JJ/MM/AAAA dans son tableau
+        formes = [d, f"{d[8:10]}/{d[5:7]}/{d[0:4]}"]
+        convs = []
+        for f_ in formes:
+            requete = f'"{f_}" inbox:{FRONT_INBOX_INFO}'
+            convs += front._get(f"/conversations/search/{quote(requete, safe='')}",
+                                params={"limit": 50}).get("_results", [])
+        for c in convs:
+            if c['id'] in trouvees:
+                continue
+            sujet = _sans_accents(c.get('subject') or '')
+            # Seulement le courriel de demande (« Accord piano … ») et l'avis « à réviser »
+            if 'accord piano' not in sujet and 'a reviser' not in sujet:
+                continue
+            # La recherche Front est approximative : on relit le contenu avant de commenter
+            try:
+                msgs = front.list_messages(c['id'], limit=10)
+            except Exception:
+                msgs = []
+            corps = ' '.join(f"{m.get('subject') or ''} {m.get('text') or m.get('blurb') or ''}" for m in msgs)
+            texte = f"{sujet} {_sans_accents(corps)}"
+            if any(f_ in texte for f_ in formes) and (not mots or all(m in texte for m in mots[:2])):
+                trouvees[c['id']] = c
+    return list(trouvees.values())
+
+
+def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
+                            ev: Dict[str, Any], tech_nom: str) -> Dict[str, Any]:
+    """Ajoute un commentaire interne « ✅ Traité » sur le courriel de la demande et sur
+    l'avis « à réviser ». N'empêche jamais la création du RV : en cas d'échec, on le dit."""
+    try:
+        from core.front_client import get_front_client
+        front = get_front_client()
+    except Exception as e:
+        return {"commentees": [], "erreur": f"Front indisponible : {e}"}
+
+    dates = sorted({str(demande.get('appointment_date') or '')[:10], body.date[:10]} - {''})
+    try:
+        convs = _conversations_de_la_demande(front, demande, dates)
+    except Exception as e:
+        logging.warning(f"Recherche Front (demande {demande.get('id')}) : {e}")
+        return {"commentees": [], "erreur": f"Recherche Front impossible : {e}"}
+
+    try:
+        jour = datetime.fromisoformat(body.date[:10]).strftime('%d/%m')
+    except ValueError:
+        jour = body.date[:10]
+    texte = (f"✅ Traité — RV créé dans Gazelle pour {tech_nom or 'le technicien'} "
+             f"le {jour} à {body.heure[:5].replace(':', ' h ')} ({ev.get('title')}). "
+             f"Demande reliée dans l'assistant. (Assistant Gazelle)")
+    auteur = body.par if (body.par or '').lower() in PTM_EQUIPE else 'asutton@piano-tek.com'
+
+    commentees = []
+    for c in convs:
+        try:
+            front.add_comment(c['id'], texte, auteur)
+            commentees.append({"id": c['id'], "sujet": c.get('subject')})
+        except Exception as e:
+            logging.warning(f"Commentaire Front impossible ({c['id']}) : {e}")
+    return {"commentees": commentees}
 
 
 @router.post("/requests/{request_id}/verify-technician")
