@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
 import PDAInventoryTable from './PDAInventoryTable'
+import CreerRvModal from './CreerRvModal'
 
 import { API_URL } from '../../utils/apiConfig'
 
@@ -63,6 +64,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
   // « À confirmer » : dans le doute, l'assistant demande au lieu de deviner
   const [aConfirmer, setAConfirmer] = useState([])
   const [liant, setLiant] = useState(null) // request_id en cours d'enregistrement
+  const [creationRv, setCreationRv] = useState(null) // demande pour laquelle on crée le RV Gazelle
 
   const fetchAConfirmer = useCallback(async () => {
     try {
@@ -2003,6 +2005,15 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                       <option value="COMPLETED">Complété</option>
                       <option value="BILLED">Facturé</option>
                     </select>
+                    {!it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
+                      <button
+                        onClick={() => setCreationRv(it)}
+                        className="mt-1 block w-full rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                        title="Créer le RV dans Gazelle au technicien et à l'heure confirmés"
+                      >
+                        📅 Créer le RV
+                      </button>
+                    )}
                   </td>
                 </tr>
                 )
@@ -2024,6 +2035,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           </div>
         )}
       </main>
+      {creationRv && (
+        <CreerRvModal
+          demande={creationRv}
+          onClose={() => setCreationRv(null)}
+          onCreated={(res, nomTech) => {
+            const ev = res.evenement || {}
+            setItems((prev) => prev.map((x) => x.id === creationRv.id
+              ? { ...x, appointment_id: ev.id, technician_id: (ev.user && ev.user.id) || x.technician_id, status: 'CREATED_IN_GAZELLE' }
+              : x))
+            setInfoMessage(`✅ RV créé dans Gazelle pour ${nomTech} : ${ev.title || ''}${res.avertissement ? `\n⚠️ ${res.avertissement}` : ''}${res.piano_id ? '' : '\n⚠️ Aucun piano lié — à ajouter dans Gazelle.'}`)
+            setCreationRv(null)
+          }}
+        />
+      )}
     </div>
   )
 }

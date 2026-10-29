@@ -1722,6 +1722,134 @@ async def lier_demande(request_id: str, body: LierDemandeIn):
     return {"ok": True, "lie_a": None, "rejetes": sorted(rejetes)}
 
 
+# --- Créer le RV Gazelle directement depuis une demande (oct. 2026, demande d'Allan) ---
+# Flux : Isabelle envoie une demande → elle entre dans l'assistant (aucun technicien).
+# On vérifie la dispo du technicien, on lui dit oui, puis UN clic crée le RV dans
+# Gazelle au format habituel PdA et relie la demande. Rien n'est créé sans clic humain.
+PDA_CLIENT_ID = 'cli_HbEwl9rN11pSuDEU'
+A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
+
+
+def _libelle_heure_pda(heure: Optional[str]) -> str:
+    """« Avant 7h30 » → « avant 7h30 » ; « 18h » / « A 18h » → « à 18h » (format des titres existants)."""
+    h = (heure or '').strip()
+    if not h:
+        return ''
+    bas = h[0].lower() + h[1:]
+    if bas[:2].lower() in ('a ', 'à '):
+        return 'à ' + bas[2:].strip()
+    if bas[0].isdigit():
+        return 'à ' + bas
+    return bas
+
+
+def _titre_rv_pda(demande: Dict[str, Any]) -> str:
+    pour_qui = (demande.get('for_who') or '').strip()
+    heure = _libelle_heure_pda(demande.get('time'))
+    titre = f"Place des Arts {pour_qui}".strip()
+    return f"{titre} ({heure})" if heure else titre
+
+
+@router.get("/journee-technicien")
+def journee_technicien(technicien: str = Query(...), date: str = Query(...)):
+    """LECTURE SEULE — RV déjà au calendrier d'un technicien ce jour-là (heure de Montréal),
+    pour confirmer la disponibilité avant de créer le RV."""
+    storage = get_storage()
+    try:
+        rows = (storage.client.table('gazelle_appointments')
+                .select('external_id,title,appointment_time,duration_minutes,status,event_type')
+                .eq('technicien', technicien).eq('appointment_date', date[:10])
+                .order('appointment_time').execute().data or [])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Lecture du calendrier impossible : {e}")
+    rv = [{"id": r.get('external_id'), "titre": r.get('title'),
+           "heure": (r.get('appointment_time') or '')[:5], "duree": r.get('duration_minutes'),
+           "perso": r.get('event_type') == 'PERSONAL'}
+          for r in rows if (r.get('status') or '').upper() not in ('CANCELED', 'CANCELLED')]
+    return {"technicien": technicien, "date": date[:10], "rendez_vous": rv}
+
+
+class CreerRvGazelleIn(BaseModel):
+    technician_id: str
+    date: str                       # AAAA-MM-JJ (heure de Montréal)
+    heure: str                      # HH:MM — heure confirmée, Montréal
+    duree_min: int = 60
+    piano_id: Optional[str] = None  # défaut : piano trouvé pour la demande
+    par: Optional[str] = None
+
+
+@router.post("/requests/{request_id}/creer-rv-gazelle")
+async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_tasks: BackgroundTasks):
+    """Crée le RV dans Gazelle pour une demande PdA, au technicien et à l'heure confirmés,
+    puis relie la demande (statut « Créé Gazelle », lien mémorisé que la synchro ne défait pas)."""
+    from core.timezone_utils import MONTREAL_TZ
+    from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+
+    storage = get_storage()
+    rows = storage.client.table('place_des_arts_requests').select('*').eq('id', request_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    demande = rows[0]
+    if demande.get('appointment_id'):
+        raise HTTPException(status_code=409, detail="Cette demande a déjà un RV Gazelle — rien n'a été créé.")
+    if not body.technician_id or body.technician_id == A_ATTRIBUER_ID:
+        raise HTTPException(status_code=400, detail="Choisis le technicien qui fera le RV.")
+    if not (5 <= body.duree_min <= 600):
+        raise HTTPException(status_code=400, detail="Durée invalide.")
+    try:
+        local = datetime.fromisoformat(f"{body.date[:10]}T{body.heure[:5]}").replace(tzinfo=MONTREAL_TZ)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date ou heure invalide (AAAA-MM-JJ et HH:MM).")
+    start = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    piano_id = body.piano_id
+    if not piano_id:
+        trouve = await get_gazelle_piano_id(request_id)
+        piano_id = (trouve or {}).get('piano_id')
+
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Connexion Gazelle indisponible.")
+
+    inp = {"title": _titre_rv_pda(demande), "start": start, "duration": body.duree_min,
+           "type": "APPOINTMENT", "travelMode": "DRIVING",
+           "userId": body.technician_id, "clientId": PDA_CLIENT_ID}
+    if (demande.get('diapason') or '').strip():
+        inp["notes"] = demande['diapason'].strip()
+    if piano_id:
+        inp["pianos"] = [{"pianoId": piano_id, "isTuning": True}]
+
+    mut = """mutation($input: PrivateEventInput!) { createEvent(input: $input) {
+      event { id title start duration status user { id firstName } }
+      mutationErrors { fieldName messages } } }"""
+    try:
+        res = api_client._execute_query(mut, {"input": inp})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gazelle n'a pas répondu : {e}")
+    payload = ((res or {}).get("data") or {}).get("createEvent") or {}
+    ev = payload.get("event")
+    if not ev:
+        raise HTTPException(status_code=502, detail=f"Gazelle a refusé le RV : {payload.get('mutationErrors') or res.get('errors')}")
+
+    maintenant = datetime.now(timezone.utc).isoformat()
+    maj = {'appointment_id': ev['id'], 'technician_id': body.technician_id,
+           'status': 'CREATED_IN_GAZELLE', 'updated_at': maintenant}
+    if body.date[:10] != str(demande.get('appointment_date') or '')[:10]:
+        maj['appointment_date'] = body.date[:10]
+    avertissement = None
+    try:
+        storage.client.table('place_des_arts_requests').update(maj).eq('id', request_id).execute()
+        GazelleSyncService(storage).save_lien_confirme(
+            request_id, {"rv": ev['id'], "rejetes": [], "par": body.par or "creer-rv", "le": maintenant})
+    except Exception as e:
+        avertissement = f"RV créé dans Gazelle ({ev['id']}) mais la demande n'a pas pu être mise à jour : {e}"
+        logging.error(avertissement)
+
+    # Rafraîchir la copie locale des RV Gazelle en arrière-plan (Ma journée, liens)
+    background_tasks.add_task(_pull_live_appointments, storage)
+    return {"ok": True, "evenement": ev, "piano_id": piano_id, "avertissement": avertissement}
+
+
 @router.post("/requests/{request_id}/verify-technician")
 async def verify_technician_in_gazelle(
     request_id: str,
