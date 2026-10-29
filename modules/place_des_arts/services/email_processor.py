@@ -22,11 +22,6 @@ logger = logging.getLogger(__name__)
 # Email de confirmation (destinataire)
 INFO_EMAIL = os.getenv('LOUISE_EMAIL', 'info@piano-tek.com')
 
-# Plane integration
-PLANE_API_KEY = os.getenv('PLANE_API_KEY', '')
-PLANE_WORKSPACE = 'ptm'
-PLANE_PROJECT_ID = '1693adca-e78e-44dd-b1c0-9050e608dac8'
-PLANE_ASSIGNEE_NICOLAS = 'bf1a3c47-390f-4fe2-9bff-0ef198da3e16'
 
 # Cle Supabase (system_settings) ou sont memorisees les demandes deja signalees.
 CLE_SIGNATURES = 'pda_demandes_signalees'
@@ -116,7 +111,6 @@ class PDAEmailProcessor:
             'emails_processed': 0,
             'requests_created': 0,
             'confirmations_sent': 0,
-            'plane_tasks_created': 0,
             'errors': [],
         }
 
@@ -149,8 +143,6 @@ class PDAEmailProcessor:
                     result['requests_created'] += email_result.get('requests_created', 0)
                     if email_result.get('confirmation_sent'):
                         result['confirmations_sent'] += 1
-                    if email_result.get('plane_issue_id'):
-                        result['plane_tasks_created'] += 1
                 except Exception as e:
                     error_msg = f"Erreur traitement email {email_data.get('gmail_message_id', '?')}: {e}"
                     result['errors'].append(error_msg)
@@ -261,7 +253,11 @@ class PDAEmailProcessor:
         # des faux positifs (accusés de réception, réponses citant l'original…)
         # qu'un humain devait nettoyer. Le scanner DÉTECTE et envoie un résumé
         # « à réviser » ; Louise importe ce qui est réel via l'outil manuel.
-        review_sent = self._send_review_email(email_data, parsed_requests)
+        # Oct. 2026 (Allan) : une demande = une conversation. On signale la détection
+        # en commentaire interne SUR le courriel d'origine dans Front ; l'avis séparé
+        # « [PDA — à réviser] » n'est envoyé qu'en repli (courriel pas encore dans Front).
+        review_sent = (self._signaler_dans_front(email_data, parsed_requests)
+                       or self._send_review_email(email_data, parsed_requests))
 
         # Memoriser les demandes signalees pour ne jamais les rejouer.
         if review_sent:
@@ -408,6 +404,58 @@ class PDAEmailProcessor:
             logger.warning(f"Erreur vérification doublon PDA: {e}")
             return False
 
+    @staticmethod
+    def _sujet_normalise(sujet: str) -> str:
+        import re
+        import unicodedata
+        t = ''.join(c for c in unicodedata.normalize('NFD', (sujet or '').lower())
+                    if unicodedata.category(c) != 'Mn')
+        t = re.sub(r"\[externe\]", " ", t)
+        while True:
+            t2 = re.sub(r"^\s*(re|tr|fw|fwd|rep)\s*:\s*", "", t)
+            if t2 == t:
+                break
+            t = t2
+        return re.sub(r"\s+", " ", t).strip()
+
+    def _signaler_dans_front(self, email_data: Dict, parsed_requests: List[Dict]) -> bool:
+        """Commentaire interne sur la conversation Front du courriel d'origine.
+        Retourne False si la conversation est introuvable (=> repli sur l'avis courriel)."""
+        try:
+            from core.front_client import get_front_client
+            front = get_front_client()
+            expediteur = (email_data.get('sender_email') or '').strip()
+            cible = self._sujet_normalise(email_data.get('subject') or '')
+            if not expediteur or not cible:
+                return False
+            convs = front.conversations_contact(expediteur, limit=25).get('conversations', [])
+            conv = next((c for c in convs
+                         if cible in self._sujet_normalise(c.get('subject') or '')
+                         or self._sujet_normalise(c.get('subject') or '') in cible), None)
+            if not conv:
+                logger.info(f"Courriel pas (encore) dans Front, repli sur l'avis : {email_data.get('subject')}")
+                return False
+
+            lignes = []
+            for req in parsed_requests:
+                d = req.get('date')
+                d = d.strftime('%d/%m/%Y') if isinstance(d, datetime) else (str(d) if d else '?')
+                morceaux = [d, req.get('room'), req.get('for_who'), req.get('piano'),
+                            req.get('diapason'), req.get('time')]
+                ligne = ' · '.join(str(m) for m in morceaux if m)
+                avert = '; '.join(req.get('warnings') or [])
+                lignes.append(f"• {ligne}" + (f" (⚠️ {avert})" if avert else ""))
+            n = len(parsed_requests)
+            texte = (f"🔎 Assistant : {n} demande{'s' if n > 1 else ''} détectée{'s' if n > 1 else ''} "
+                     f"dans ce courriel — rien n'est créé automatiquement.\n" + "\n".join(lignes) +
+                     "\nÀ importer dans l'assistant, puis « 📅 Créer le RV » une fois la disponibilité confirmée.")
+            front.add_comment(conv['id'], texte, INFO_EMAIL)
+            logger.info(f"Détection PDA signalée dans Front ({conv['id']}) : {email_data.get('subject')}")
+            return True
+        except Exception as e:
+            logger.warning(f"Signalement Front impossible, repli sur l'avis courriel : {e}")
+            return False
+
     def _send_review_email(
         self,
         email_data: Dict,
@@ -520,75 +568,6 @@ class PDAEmailProcessor:
         except Exception as e:
             logger.error(f"Erreur envoi confirmation: {e}", exc_info=True)
             return False
-
-    def _should_create_plane_task(self, email_data: Dict[str, Any]) -> bool:
-        """Création de tâches Plane DÉSACTIVÉE : PTM n'utilise pas Plane.
-
-        Ça générait des avis inopportuns à Nicolas (assigné par défaut) à chaque
-        email PDA. Laisser return False. (Remettre la logique d'origine si un jour
-        Plane est réellement adopté.)
-        """
-        return False
-
-    def _create_plane_task(self, email_data: Dict[str, Any]) -> Optional[str]:
-        """Crée une tâche dans Plane pour un email PDA.
-
-        Returns:
-            L'ID de l'issue Plane créée, ou None si échec.
-        """
-        try:
-            import requests as req
-
-            subject = email_data.get('subject', '(sans objet)')
-            body_text = email_data.get('body_text', '')
-            sender = email_data.get('sender_name') or email_data.get('sender_email', '')
-
-            # Construire la description HTML
-            body_preview = body_text[:1000].replace('\n', '<br>')
-            description_html = (
-                f"<p><strong>De:</strong> {sender}</p>"
-                f"<p><strong>Email reçu le:</strong> "
-                f"{email_data.get('received_at', '')}</p>"
-                f"<hr><p>{body_preview}</p>"
-            )
-
-            payload = {
-                "name": f"Place des Arts : {subject}",
-                "description_html": description_html,
-                "assignees": [PLANE_ASSIGNEE_NICOLAS],
-                "priority": "medium",
-            }
-
-            url = (
-                f"https://api.plane.so/api/v1/workspaces/{PLANE_WORKSPACE}"
-                f"/projects/{PLANE_PROJECT_ID}/issues/"
-            )
-
-            resp = req.post(
-                url,
-                headers={
-                    "X-API-Key": PLANE_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=15,
-            )
-
-            if resp.status_code in (200, 201):
-                issue_data = resp.json()
-                issue_id = issue_data.get('id', '')
-                logger.info(f"Tâche Plane créée: {issue_id} — {subject}")
-                return issue_id
-            else:
-                logger.error(
-                    f"Erreur création tâche Plane: {resp.status_code} — "
-                    f"{resp.text[:200]}"
-                )
-                return None
-
-        except Exception as e:
-            logger.error(f"Exception création tâche Plane: {e}", exc_info=True)
-            return None
 
     def _get_processed_email_ids(self) -> set:
         """Récupère les IDs Gmail déjà traités depuis Supabase."""

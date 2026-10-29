@@ -51,7 +51,7 @@ backend tourne 24/7 en prod → il **a forcément** les secrets dont son code a 
 vérification définitive de parité (est-ce que Render a bien Anthropic / Plane / Zoom /
 DB password ?) se fait en **30 s dans le dashboard Render** : Settings → Environment.
 
-**À vérifier dans Render (4)** : `ANTHROPIC_API_KEY`, `PLANE_API_KEY`, `ZOOM_SECRET_TOKEN`,
+**À vérifier dans Render (3)** : `ANTHROPIC_API_KEY`, `ZOOM_SECRET_TOKEN`,
 `SUPABASE_DB_PASSWORD`. Si présents → parité complète, `.env` = simple copie locale.
 
 ---

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { API_URL } from '../../utils/apiConfig'
 
 // Fenêtre « Créer le RV dans Gazelle » pour une demande Place des Arts.
-// On choisit le technicien, on voit sa journée (dispo), on confirme l'heure → un clic crée le RV.
+// La disponibilité a déjà été vérifiée dans Gazelle : on choisit le technicien, l'heure confirmée → un clic crée le RV.
 const TECHS = [
   { id: 'usr_HcCiFk7o0vZ9xAI0', label: 'Nick' },
   { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' },
@@ -32,7 +32,6 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
   const [duree, setDuree] = useState(60)
   const [pianos, setPianos] = useState([])
   const [pianoId, setPianoId] = useState('')
-  const [journee, setJournee] = useState(null)
   const [envoi, setEnvoi] = useState(false)
   const [erreur, setErreur] = useState(null)
 
@@ -43,16 +42,6 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
     fetch(`${API_URL}/api/place-des-arts/requests/${demande.id}/gazelle-piano-id`).then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d && d.piano_id) setPianoId(d.piano_id) }).catch(() => {})
   }, [demande.id])
-
-  // Journée du technicien choisi
-  useEffect(() => {
-    if (!tech || !date) { setJournee(null); return }
-    setJournee('chargement')
-    fetch(`${API_URL}/api/place-des-arts/journee-technicien?technicien=${tech}&date=${date}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => setJournee(d ? d.rendez_vous : []))
-      .catch(() => setJournee([]))
-  }, [tech, date])
 
   const nomTech = (TECHS.find((t) => t.id === tech) || {}).label
   const pret = tech && date && /^\d{2}:\d{2}$/.test(heure) && duree > 0 && !envoi
@@ -113,20 +102,6 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
             </select>
           </label>
         </div>
-
-        {tech && date && (
-          <div className="mt-3 rounded border border-gray-200 p-2 text-xs">
-            <div className="mb-1 font-medium text-gray-700">Journée de {nomTech} le {date}</div>
-            {journee === 'chargement' && <div className="text-gray-500">Chargement…</div>}
-            {Array.isArray(journee) && journee.length === 0 && <div className="text-green-700">Rien au calendrier ce jour-là.</div>}
-            {Array.isArray(journee) && journee.map((r) => (
-              <div key={r.id} className="text-gray-700">
-                {r.heure || '—'}{r.duree ? ` (${r.duree} min)` : ''} · {r.perso ? '🔒 ' : ''}{r.titre}
-              </div>
-            ))}
-            <div className="mt-1 text-gray-400">Copie de Gazelle mise à jour chaque heure.</div>
-          </div>
-        )}
 
         {erreur && <div className="mt-3 rounded bg-red-50 p-2 text-xs text-red-700">{erreur}</div>}
 

@@ -1768,25 +1768,6 @@ def _titre_rv_pda(demande: Dict[str, Any]) -> str:
     return f"{titre} ({heure})" if heure else titre
 
 
-@router.get("/journee-technicien")
-def journee_technicien(technicien: str = Query(...), date: str = Query(...)):
-    """LECTURE SEULE — RV déjà au calendrier d'un technicien ce jour-là (heure de Montréal),
-    pour confirmer la disponibilité avant de créer le RV."""
-    storage = get_storage()
-    try:
-        rows = (storage.client.table('gazelle_appointments')
-                .select('external_id,title,appointment_time,duration_minutes,status,event_type')
-                .eq('technicien', technicien).eq('appointment_date', date[:10])
-                .order('appointment_time').execute().data or [])
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Lecture du calendrier impossible : {e}")
-    rv = [{"id": r.get('external_id'), "titre": r.get('title'),
-           "heure": (r.get('appointment_time') or '')[:5], "duree": r.get('duration_minutes'),
-           "perso": r.get('event_type') == 'PERSONAL'}
-          for r in rows if (r.get('status') or '').upper() not in ('CANCELED', 'CANCELLED')]
-    return {"technicien": technicien, "date": date[:10], "rendez_vous": rv}
-
-
 class CreerRvGazelleIn(BaseModel):
     technician_id: str
     date: str                       # AAAA-MM-JJ (heure de Montréal)
