@@ -2,7 +2,8 @@
 """Envoie à la fiche Gazelle d'Allan (et à elle seule) les rappels modifiés, en
 message ponctuel Gazelle, pour tester les liens avec ses vraies données de fusion.
 Objet préfixé [TEST]. Aucune autre fiche n'est touchée."""
-import sys
+import sys, traceback
+sys.excepthook = lambda t, e, tb: print("::error title=Plantage::" + "".join(traceback.format_exception(t, e, tb))[-1500:].replace("\n", " | "))
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
