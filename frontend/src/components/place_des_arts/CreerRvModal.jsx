@@ -9,6 +9,7 @@ const TECHS = [
   { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' },
   { id: 'usr_bbt59aCUqUaDWA8n', label: 'Margot' },
   { id: 'usr_ofYggsCDt2JAVeNP', label: 'Allan' },
+  { id: 'usr_HihJsEgkmpTEziJo', label: 'À attribuer' },
 ]
 
 // Pré-remplit l'heure seulement si la demande donne une heure précise (« 18h », « à 13h30 »).
@@ -41,7 +42,7 @@ function JourneeTechniciens({ journee, tech, setTech, heure, duree }) {
   return (
     <div className="mt-3">
       <div className="mb-1 text-xs font-medium text-gray-700">Journée des techniciens — {journee.date} <span className="font-normal text-gray-500">(clic = choisir)</span></div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {journee.techniciens.map((t) => {
           const choisi = t.id === tech
           const c = conflits(t.rendez_vous, heure, duree)
@@ -62,9 +63,6 @@ function JourneeTechniciens({ journee, tech, setTech, heure, duree }) {
           )
         })}
       </div>
-      {journee.a_attribuer && journee.a_attribuer.length > 0 && (
-        <div className="mt-1 text-[11px] text-gray-500">À attribuer ce jour-là : {journee.a_attribuer.map((r) => `${r.heure} ${r.titre}`).join(' · ')}</div>
-      )}
     </div>
   )
 }

@@ -1773,6 +1773,7 @@ _TECHS_JOURNEE = {
     "usr_ReUSmIJmBF86ilY1": "JP",
     "usr_bbt59aCUqUaDWA8n": "Margot",
     "usr_ofYggsCDt2JAVeNP": "Allan",
+    "usr_HihJsEgkmpTEziJo": "À attribuer",
 }
 
 
@@ -1780,7 +1781,7 @@ _TECHS_JOURNEE = {
 def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de Montréal)")):
     """LECTURE SEULE — la journée de TOUS les techniciens ce jour-là, lue en direct dans Gazelle
     (RV + blocs perso, heure de Montréal), pour choisir qui fait l'accord avant de créer le RV.
-    Inclut aussi les RV « À attribuer » du même jour."""
+    « À attribuer » est une colonne comme les autres."""
     from core.timezone_utils import MONTREAL_TZ
     jour = date[:10]
     try:
@@ -1797,7 +1798,6 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
         raise HTTPException(status_code=502, detail=f"Lecture du calendrier Gazelle impossible : {e}")
 
     colonnes = {uid: [] for uid in _TECHS_JOURNEE}
-    a_attribuer = []
     for e in evs:
         if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED"):
             continue
@@ -1817,14 +1817,11 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
             uid = "usr_ReUSmIJmBF86ilY1"
         if uid in colonnes:
             colonnes[uid].append(rv)
-        elif uid == "usr_HihJsEgkmpTEziJo":
-            a_attribuer.append(rv)
-    for liste in list(colonnes.values()) + [a_attribuer]:
+    for liste in colonnes.values():
         liste.sort(key=lambda r: (not r["journee"], r["heure"]))
     return {"date": jour,
             "techniciens": [{"id": uid, "nom": nom, "rendez_vous": colonnes[uid]}
-                            for uid, nom in _TECHS_JOURNEE.items()],
-            "a_attribuer": a_attribuer}
+                            for uid, nom in _TECHS_JOURNEE.items()]}
 
 
 class CreerRvGazelleIn(BaseModel):
@@ -1850,8 +1847,8 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
     demande = rows[0]
     if demande.get('appointment_id'):
         raise HTTPException(status_code=409, detail="Cette demande a déjà un RV Gazelle — rien n'a été créé.")
-    if not body.technician_id or body.technician_id == A_ATTRIBUER_ID:
-        raise HTTPException(status_code=400, detail="Choisis le technicien qui fera le RV.")
+    if not body.technician_id:
+        raise HTTPException(status_code=400, detail="Choisis le technicien (ou « À attribuer »).")
     if not (5 <= body.duree_min <= 600):
         raise HTTPException(status_code=400, detail="Durée invalide.")
     try:
