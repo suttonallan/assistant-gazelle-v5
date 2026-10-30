@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 29 octobre
+- **Demandes de RV hors zone : impossibles à oublier** : chaque demande reçue par la réservation en ligne pour un client à plus de 45 km devient une tâche « RV hors zone à fixer » assignée à Louise dans le volet Tâches, avec les coordonnées, les frais affichés au client, ses préférences et une échéance à deux jours ouvrables (ce qu'on lui promet). Le courriel dans info@ continue d'arriver ; si l'un des deux échoue, la demande n'est plus perdue.
 - **Avis « a déjà un rendez-vous » : fini les répétitions** : l'avis n'apparaît plus que sur un nouveau message d'un client (message vocal, texto, nouveau courriel), une seule fois par client, et jamais quand l'équipe est déjà en échange avec lui (réponse « Re: » ou dernier message venant de nous).
 - **Fin des avis « on a reçu une demande Place des Arts »** : redondants, puisque le courriel d'Isabelle arrive déjà dans info@ avec l'étiquette Place des Arts. La vérification de chaque matin de semaine reste en place : elle signale dans Front toute demande sans réponse, absente de l'assistant ou sans RV dans Gazelle.
 - **Une demande Place des Arts = une seule conversation dans Front** : l'assistant n'envoie plus d'avis séparé « [PDA — à réviser] » ; il écrit sa détection en commentaire directement sur le courriel d'Isabelle (l'avis séparé ne sert plus qu'en secours si le courriel n'est pas encore dans Front). La fenêtre « Créer le RV » est aussi allégée : la disponibilité se vérifie dans Gazelle avant de répondre, la fenêtre ne la répète plus.

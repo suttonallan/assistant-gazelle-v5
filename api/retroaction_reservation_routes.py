@@ -162,9 +162,11 @@ def note_reservation(n: NoteReservation, x_reservation_secret: Optional[str] = H
 
 
 # ---------------------------------------------------------------------------
-# Demande hors zone (plus de 45 km du technicien le plus proche) : pas de plage
-# en ligne, la coordonnatrice fixe le rendez-vous. Le service de réservation
-# relaie la demande ici ; elle part par courriel à info@ (Front).
+# Demande hors zone (plus de 45 km du métro Outremont) : pas de plage en ligne,
+# la coordonnatrice fixe le rendez-vous. Le service de réservation relaie la
+# demande ici. Elle devient une TÂCHE assignée à Louise (volet Tâches : elle ne
+# peut pas être oubliée) et part aussi par courriel à info@ (Front). La demande
+# est acceptée dès que l'un des deux réussit.
 # ---------------------------------------------------------------------------
 class DemandeHorsZone(BaseModel):
     prenom: str = Field(..., max_length=80)
@@ -189,7 +191,7 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
     e = lambda s: html.escape(str(s) if s not in (None, "") else "—")
     tel = re.sub(r"\D", "", d.telephone)[-10:]
     corps = (
-        "<p><b>Demande de rendez-vous hors zone à fixer</b> (plus de 45 km du technicien le plus proche).</p>"
+        "<p><b>Demande de rendez-vous hors zone à fixer</b> (plus de 45 km du métro Outremont).</p>"
         f"<p><b>Client :</b> {e(d.prenom)} {e(d.nom)} — <a href='tel:+1{tel}'>{e(d.telephone)}</a> — {e(d.courriel)}<br>"
         f"<b>Adresse du piano :</b> {e(d.adresse)}<br>"
         f"<b>Distance :</b> {e(round(d.distance_km) if d.distance_km else None)} km (aller) — "
@@ -203,14 +205,76 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
         "<p>On a dit au client que l'équipe le contacterait d'ici deux jours ouvrables pour fixer le rendez-vous.</p>"
         "<p style='color:#777'>Envoyé automatiquement par la page de réservation en ligne.</p>"
     )
-    ok = get_email_notifier().send_email(
-        to_emails=[DESTINATAIRE],
-        subject=f"Réservation hors zone — à fixer : {d.prenom} {d.nom} ({d.adresse[:60]})",
-        html_content=corps,
-    )
-    if not ok:
+    tache_ok = _tache_hors_zone(d)
+    try:
+        courriel_ok = get_email_notifier().send_email(
+            to_emails=[DESTINATAIRE],
+            subject=f"Réservation hors zone — à fixer : {d.prenom} {d.nom} ({d.adresse[:60]})",
+            html_content=corps + ("" if tache_ok else
+                                  "<p><b>⚠️ La tâche n'a pas pu être créée dans le volet Tâches : à ajouter à la main.</b></p>"),
+        )
+    except Exception as ex:  # noqa: BLE001
+        logging.getLogger(__name__).error("Courriel hors zone : %s", ex)
+        courriel_ok = False
+    if not (tache_ok or courriel_ok):
         raise HTTPException(502, "Envoi impossible pour le moment.")
-    return {"ok": True}
+    return {"ok": True, "tache": tache_ok, "courriel": courriel_ok}
+
+
+def _echeance_ouvrable(jours: int = 2) -> str:
+    """Date AAAA-MM-JJ à N jours ouvrables (heure de Montréal) : ce qu'on promet au client."""
+    from datetime import timedelta
+    from core.timezone_utils import aujourdhui_montreal
+    d = aujourdhui_montreal()
+    restant = jours
+    while restant:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            restant -= 1
+    return d.isoformat()
+
+
+def _tache_hors_zone(d: "DemandeHorsZone") -> bool:
+    """Tâche « RV hors zone à fixer » pour Louise, échéance à deux jours ouvrables."""
+    import requests
+    from api.taches_routes import _db, _url
+    km = f"{round(d.distance_km)} km" if d.distance_km else "distance inconnue"
+    frais = f"{round(d.frais_estimes)} $ + taxes" if d.frais_estimes else "à calculer"
+    lignes = [
+        f"Client : {d.prenom} {d.nom} — {d.telephone} — {d.courriel}",
+        f"Adresse : {d.adresse} ({km} du métro Outremont)",
+        f"Frais de déplacement estimés affichés au client : {frais}",
+        f"Service : {d.service or '—'}",
+        f"Piano : {d.piano or '—'}",
+        f"Préférences : {d.preferences or '—'}",
+        f"Indisponibilités : {d.indisponibilites or '—'}",
+        f"Note du client : {d.notes or '—'}",
+        f"Langue : {'anglais' if d.langue == 'en' else 'français'}",
+        f"Fiche Gazelle : {d.client_id or '—'}",
+        "Promis au client : un appel d'ici deux jours ouvrables pour fixer le rendez-vous.",
+    ]
+    ville = d.adresse.split(",")[1].strip() if "," in d.adresse else d.adresse[:40]
+    data = {
+        "titre": f"RV hors zone à fixer : {d.prenom} {d.nom} ({ville})",
+        "contexte": "\n".join(lignes),
+        "statut": "a_faire",
+        "assigne": "louise",
+        "echeance": _echeance_ouvrable(2),
+        "source": "reservation-en-ligne",
+        "cree_par": "reservation-en-ligne",
+        "client": "prive",
+        "etapes": [{"texte": "Appeler le client et fixer le RV", "fait": False},
+                   {"texte": "Créer le RV dans Gazelle (frais de déplacement inclus)", "fait": False}],
+    }
+    try:
+        r = requests.post(_url(), headers=_db()._get_headers(), json=data, timeout=15)
+        if r.status_code >= 400:
+            logging.getLogger(__name__).error("Tâche hors zone refusée : %s %s", r.status_code, r.text[:300])
+            return False
+        return True
+    except Exception as ex:  # noqa: BLE001
+        logging.getLogger(__name__).error("Tâche hors zone : %s", ex)
+        return False
 
 
 # ---------------------------------------------------------------------------
