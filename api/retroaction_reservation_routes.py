@@ -106,16 +106,40 @@ def _chiffres(t: str) -> str:
     return re.sub(r"\D", "", t or "")[-10:]
 
 
+def _plie(t: Optional[str]) -> str:
+    """Nom comparable : sans accents, casse, tirets ni espaces (« Côté-Roy » = « cote roy »)."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", t or "")
+    return re.sub(r"[^a-z]", "", "".join(ch for ch in t if not unicodedata.combining(ch)).lower())
+
+
+def _cp(t: Optional[str]) -> str:
+    return re.sub(r"\s", "", t or "").upper()
+
+
 @router.post("/client")
 def client_pour_reservation(c: ClientReservation, x_reservation_secret: Optional[str] = Header(None)):
-    """Retrouve le client par courriel ou téléphone, sinon le crée (client potentiel)."""
+    """Retrouve le client par courriel ou téléphone, sinon le crée (client potentiel).
+
+    Courriel identique : on rattache (un courriel désigne une personne ou un foyer).
+    Téléphone identique : on rattache SEULEMENT si le nom de famille ou le code postal
+    correspond aussi — un numéro partagé (école, bureau, ancien numéro réattribué)
+    ne doit jamais coller une demande sur la fiche de quelqu'un d'autre. Dans le doute,
+    on crée une nouvelle fiche : un doublon se fusionne, une mauvaise fiche se voit mal."""
     _verifier_jeton(x_reservation_secret)
     from core.gazelle_api_client import GazelleAPIClient
     gz = GazelleAPIClient()
     q = """query($s: String) { allClients(first: 10, filters: {search: $s}) { nodes { id
-      defaultContact { defaultEmail { email } defaultPhone { phoneNumber } } } } }"""
-    for terme, egal in ((c.courriel.strip(), lambda n: ((n.get("defaultContact") or {}).get("defaultEmail") or {}).get("email", "").strip().lower() == c.courriel.strip().lower()),
-                        (_chiffres(c.telephone), lambda n: _chiffres(((n.get("defaultContact") or {}).get("defaultPhone") or {}).get("phoneNumber", "")) == _chiffres(c.telephone))):
+      defaultContact { lastName defaultEmail { email } defaultPhone { phoneNumber }
+        defaultLocation { postalCode } } } } }"""
+    ct = lambda n: n.get("defaultContact") or {}
+    meme_courriel = lambda n: ((ct(n).get("defaultEmail") or {}).get("email") or "").strip().lower() == c.courriel.strip().lower()
+    meme_tel = lambda n: _chiffres((ct(n).get("defaultPhone") or {}).get("phoneNumber") or "") == _chiffres(c.telephone)
+    meme_foyer = lambda n: (_plie(ct(n).get("lastName")) and _plie(ct(n).get("lastName")) == _plie(c.nom)) or (
+        _cp(((ct(n).get("defaultLocation") or {}).get("postalCode"))) and
+        _cp(((ct(n).get("defaultLocation") or {}).get("postalCode"))) == _cp(c.code_postal))
+    for terme, egal in ((c.courriel.strip(), meme_courriel),
+                        (_chiffres(c.telephone), lambda n: meme_tel(n) and meme_foyer(n))):
         if not terme or len(terme) < 6:
             continue
         try:

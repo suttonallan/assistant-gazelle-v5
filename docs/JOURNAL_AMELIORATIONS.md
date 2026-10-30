@@ -6,6 +6,8 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 30 octobre
+- **Réservation en ligne : plus de demande rattachée à la mauvaise fiche** : quand un client est reconnu seulement par son numéro de téléphone, la demande n'est rattachée à sa fiche que si le nom de famille ou le code postal correspond aussi. Un numéro partagé (école, bureau, numéro réattribué) crée désormais une nouvelle fiche plutôt que de se coller sur celle de quelqu'un d'autre.
 ### 29 octobre
 - **Demandes de RV hors zone : impossibles à oublier** : chaque demande reçue par la réservation en ligne pour un client à plus de 45 km devient une tâche « RV hors zone à fixer » dans le volet Tâches (assignée à Allan pendant l'absence de Louise), avec les coordonnées, les frais affichés au client, ses préférences et une échéance interne à deux jours ouvrables. Aucun délai n'est promis au client. Le courriel dans info@ continue d'arriver ; si l'un des deux échoue, la demande n'est plus perdue.
 - **Avis « a déjà un rendez-vous » : fini les répétitions** : l'avis n'apparaît plus que sur un nouveau message d'un client (message vocal, texto, nouveau courriel), une seule fois par client, et jamais quand l'équipe est déjà en échange avec lui (réponse « Re: » ou dernier message venant de nous).
