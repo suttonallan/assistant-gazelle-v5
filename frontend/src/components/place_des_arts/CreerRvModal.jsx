@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { API_URL } from '../../utils/apiConfig'
 
 // Fenêtre « Créer le RV dans Gazelle » pour une demande Place des Arts.
-// La disponibilité a déjà été vérifiée dans Gazelle : on choisit le technicien, l'heure confirmée → un clic crée le RV.
+// On voit la journée de TOUS les techniciens ce jour-là (lue en direct dans Gazelle), on choisit qui le fait
+// (clic sur sa colonne ou menu), on inscrit l'heure confirmée → un clic crée le RV.
 const TECHS = [
   { id: 'usr_HcCiFk7o0vZ9xAI0', label: 'Nick' },
   { id: 'usr_ReUSmIJmBF86ilY1', label: 'JP' },
@@ -24,6 +25,50 @@ function heureProposee(texte) {
   return `${String(h).padStart(2, '0')}:${min}`
 }
 
+const enMin = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return h * 60 + (m || 0) }
+
+// Conflit si le nouveau RV [heure, heure+durée] chevauche un RV existant (journée entière = conflit).
+function conflits(rvs, heure, duree) {
+  if (!/^\d{2}:\d{2}$/.test(heure)) return []
+  const a = enMin(heure), b = a + Number(duree || 60)
+  return (rvs || []).filter((r) => r.journee || (enMin(r.heure) < b && a < enMin(r.heure) + Number(r.duree || 60)))
+}
+
+function JourneeTechniciens({ journee, tech, setTech, heure, duree }) {
+  if (journee === 'chargement') return <div className="mt-3 text-xs text-gray-500">Chargement de la journée des techniciens…</div>
+  if (!journee) return null
+  if (journee.erreur) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Journée des techniciens indisponible : {journee.erreur}</div>
+  return (
+    <div className="mt-3">
+      <div className="mb-1 text-xs font-medium text-gray-700">Journée des techniciens — {journee.date} <span className="font-normal text-gray-500">(clic = choisir)</span></div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {journee.techniciens.map((t) => {
+          const choisi = t.id === tech
+          const c = conflits(t.rendez_vous, heure, duree)
+          return (
+            <button type="button" key={t.id} onClick={() => setTech(t.id)}
+              className={`rounded border p-1.5 text-left text-[11px] leading-tight ${choisi ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+              <div className="mb-1 flex items-center justify-between font-semibold text-gray-800">
+                <span>{t.nom}</span>
+                {heure && <span className={c.length ? 'text-red-600' : 'text-green-600'}>{c.length ? '⚠︎' : '✓'}</span>}
+              </div>
+              {t.rendez_vous.length === 0 && <div className="text-gray-400">Libre</div>}
+              {t.rendez_vous.map((r) => (
+                <div key={r.id} className={`mb-0.5 break-words ${c.includes(r) ? 'text-red-600' : r.perso ? 'text-gray-500 italic' : 'text-gray-700'}`} title={r.titre}>
+                  {r.journee ? 'Journée' : `${r.heure}–${r.fin}`} {r.titre}
+                </div>
+              ))}
+            </button>
+          )
+        })}
+      </div>
+      {journee.a_attribuer && journee.a_attribuer.length > 0 && (
+        <div className="mt-1 text-[11px] text-gray-500">À attribuer ce jour-là : {journee.a_attribuer.map((r) => `${r.heure} ${r.titre}`).join(' · ')}</div>
+      )}
+    </div>
+  )
+}
+
 export default function CreerRvModal({ demande, onClose, onCreated, par }) {
   const techInitial = TECHS.some((t) => t.id === demande.technician_id) ? demande.technician_id : ''
   const [tech, setTech] = useState(techInitial)
@@ -34,6 +79,7 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
   const [pianoId, setPianoId] = useState('')
   const [envoi, setEnvoi] = useState(false)
   const [erreur, setErreur] = useState(null)
+  const [journee, setJournee] = useState(null)
 
   // Pianos PdA + piano suggéré pour cette demande
   useEffect(() => {
@@ -42,6 +88,18 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
     fetch(`${API_URL}/api/place-des-arts/requests/${demande.id}/gazelle-piano-id`).then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d && d.piano_id) setPianoId(d.piano_id) }).catch(() => {})
   }, [demande.id])
+
+  // Journée de tous les techniciens à la date choisie (Gazelle en direct)
+  useEffect(() => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setJournee(null); return }
+    let annule = false
+    setJournee('chargement')
+    fetch(`${API_URL}/api/place-des-arts/journee-techniciens?date=${date}`)
+      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`); return d })
+      .then((d) => { if (!annule) setJournee(d) })
+      .catch((e) => { if (!annule) setJournee({ erreur: e.message }) })
+    return () => { annule = true }
+  }, [date])
 
   const nomTech = (TECHS.find((t) => t.id === tech) || {}).label
   const pret = tech && date && /^\d{2}:\d{2}$/.test(heure) && duree > 0 && !envoi
@@ -66,13 +124,15 @@ export default function CreerRvModal({ demande, onClose, onCreated, par }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-h-[92vh] max-w-2xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-gray-900">Créer le RV dans Gazelle</h3>
         <div className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-700">
           <div><b>{demande.for_who || '—'}</b> · {demande.room || '—'}</div>
           <div>Demandé : {(demande.appointment_date || '').slice(0, 10)} — <b>{demande.time || 'heure non précisée'}</b></div>
           <div>Piano demandé : {demande.piano || '—'}{demande.diapason ? ` · ${demande.diapason}` : ''}</div>
         </div>
+
+        <JourneeTechniciens journee={journee} tech={tech} setTech={setTech} heure={heure} duree={duree} />
 
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
           <label className="col-span-2">

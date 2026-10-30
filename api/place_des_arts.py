@@ -1768,6 +1768,65 @@ def _titre_rv_pda(demande: Dict[str, Any]) -> str:
     return f"{titre} ({heure})" if heure else titre
 
 
+_TECHS_JOURNEE = {
+    "usr_HcCiFk7o0vZ9xAI0": "Nick",
+    "usr_ReUSmIJmBF86ilY1": "JP",
+    "usr_bbt59aCUqUaDWA8n": "Margot",
+    "usr_ofYggsCDt2JAVeNP": "Allan",
+}
+
+
+@router.get("/journee-techniciens")
+def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de Montréal)")):
+    """LECTURE SEULE — la journée de TOUS les techniciens ce jour-là, lue en direct dans Gazelle
+    (RV + blocs perso, heure de Montréal), pour choisir qui fait l'accord avant de créer le RV.
+    Inclut aussi les RV « À attribuer » du même jour."""
+    from core.timezone_utils import MONTREAL_TZ
+    jour = date[:10]
+    try:
+        d0 = datetime.strptime(jour, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date attendue au format AAAA-MM-JJ")
+    client = get_api_client()
+    if client is None:
+        raise HTTPException(status_code=502, detail="Client Gazelle indisponible")
+    try:
+        evs = client.get_appointments(start_date_override=jour,
+                                      end_date_override=(d0 + timedelta(days=1)).strftime("%Y-%m-%d")) or []
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Lecture du calendrier Gazelle impossible : {e}")
+
+    colonnes = {uid: [] for uid in _TECHS_JOURNEE}
+    a_attribuer = []
+    for e in evs:
+        if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED"):
+            continue
+        try:
+            debut = datetime.fromisoformat(e["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+        except Exception:
+            continue
+        if debut.strftime("%Y-%m-%d") != jour:
+            continue
+        duree = e.get("duration") or 60
+        fin = debut + timedelta(minutes=int(duree))
+        rv = {"id": e.get("id"), "titre": (e.get("title") or "").strip(),
+              "heure": debut.strftime("%H:%M"), "fin": fin.strftime("%H:%M"), "duree": duree,
+              "journee": bool(e.get("isAllDay")), "perso": (e.get("type") or "").upper() == "PERSONAL"}
+        uid = (e.get("user") or {}).get("id")
+        if uid == "usr_QmEpdeM2xMgZVkDS":  # 2e compte Gazelle de JP
+            uid = "usr_ReUSmIJmBF86ilY1"
+        if uid in colonnes:
+            colonnes[uid].append(rv)
+        elif uid == "usr_HihJsEgkmpTEziJo":
+            a_attribuer.append(rv)
+    for liste in list(colonnes.values()) + [a_attribuer]:
+        liste.sort(key=lambda r: (not r["journee"], r["heure"]))
+    return {"date": jour,
+            "techniciens": [{"id": uid, "nom": nom, "rendez_vous": colonnes[uid]}
+                            for uid, nom in _TECHS_JOURNEE.items()],
+            "a_attribuer": a_attribuer}
+
+
 class CreerRvGazelleIn(BaseModel):
     technician_id: str
     date: str                       # AAAA-MM-JJ (heure de Montréal)

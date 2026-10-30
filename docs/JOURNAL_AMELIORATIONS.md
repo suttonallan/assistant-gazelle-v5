@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 30 octobre
+- **« Créer le RV » Place des Arts : la journée de tous les techniciens** : la fenêtre affiche côte à côte la journée de Nick, JP, Margot et Allan à la date demandée, lue en direct dans Gazelle (RV et blocs perso), plus les RV « À attribuer » du jour. On clique sur la colonne du technicien pour le choisir ; dès que l'heure est inscrite, un ✓ ou un ⚠︎ indique qui est libre, et le RV en conflit s'affiche en rouge.
 - **Réservation en ligne : plus de demande rattachée à la mauvaise fiche** : quand un client est reconnu seulement par son numéro de téléphone, la demande n'est rattachée à sa fiche que si le nom de famille ou le code postal correspond aussi. Un numéro partagé (école, bureau, numéro réattribué) crée désormais une nouvelle fiche plutôt que de se coller sur celle de quelqu'un d'autre.
 ### 29 octobre
 - **Demandes de RV hors zone : impossibles à oublier** : chaque demande reçue par la réservation en ligne pour un client à plus de 45 km devient une tâche « RV hors zone à fixer » dans le volet Tâches (assignée à Allan pendant l'absence de Louise), avec les coordonnées, les frais affichés au client, ses préférences et une échéance interne à deux jours ouvrables. Aucun délai n'est promis au client. Le courriel dans info@ continue d'arriver ; si l'un des deux échoue, la demande n'est plus perdue.
