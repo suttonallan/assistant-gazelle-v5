@@ -1842,7 +1842,8 @@ def _source_front(demande: Dict[str, Any], jour: str):
     from modules.place_des_arts.services import verification_source as vs
     front = get_front_client()
     mots = _mots_cles_demande(demande)
-    requetes = [f'"{jour}"'] + [f'"{m}"' for m in mots[:2]]
+    # Le nom de l'événement d'abord (plus sélectif), la date ensuite
+    requetes = [f'"{m}"' for m in mots[:2]] + [f'"{jour}"']
     convs: Dict[str, Dict] = {}
     for q in requetes:
         try:
@@ -1856,7 +1857,7 @@ def _source_front(demande: Dict[str, Any], jour: str):
                 convs.setdefault(c['id'], c)
     reference = datetime.fromisoformat(jour).date()
     meilleurs = []
-    for c in list(convs.values())[:12]:
+    for c in list(convs.values())[:20]:
         try:
             msgs = front.list_messages(c['id'], limit=20)
         except Exception:

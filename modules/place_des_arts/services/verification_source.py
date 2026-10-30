@@ -309,8 +309,9 @@ def associer(lignes: List[Dict[str, str]], demandes: List[Dict[str, Any]],
         scores = []
         for l in lignes:
             c = comparer(d, l, contexte) if l.get('date') == jour else None
-            # Même date ET même événement ou même piano (pas seulement la même salle)
-            if c and (c['pour_qui']['statut'] == 'ok' or c['piano']['statut'] == 'ok'):
+            # Même date ET même événement (ou, à défaut, même piano dans la même salle)
+            if c and (c['pour_qui']['statut'] == 'ok'
+                      or (c['piano']['statut'] == 'ok' and c['salle']['statut'] == 'ok')):
                 scores.append(score(d, l, contexte))
             else:
                 scores.append(-1)
