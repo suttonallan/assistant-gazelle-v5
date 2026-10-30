@@ -85,8 +85,22 @@ function Icone({ statut }) {
   return <span className="text-gray-400">?</span>
 }
 
+// Indicateur de chargement : roue + secondes écoulées, et un mot rassurant si Gazelle/Front est lent.
+function Attente({ texte, lent = 8 }) {
+  const [sec, setSec] = useState(0)
+  useEffect(() => { const t = setInterval(() => setSec((s) => s + 1), 1000); return () => clearInterval(t) }, [])
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-gray-600">
+      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+      <span>{texte}… {sec > 0 && <span className="tabular-nums text-gray-400">{sec} s</span>}
+        {sec >= lent && <span className="text-gray-500"> — ça vient, {sec >= 20 ? 'Gazelle est lent en ce moment' : 'encore quelques secondes'}.</span>}
+      </span>
+    </span>
+  )
+}
+
 function Verification({ verif, demandeId }) {
-  if (verif === 'chargement') return <div className="mt-3 text-xs text-gray-500">Recherche du courriel d'origine…</div>
+  if (verif === 'chargement') return <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-2"><Attente texte="1. Vérifier — recherche du courriel d'origine dans Front" /></div>
   if (!verif) return null
   if (verif.erreurReseau) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Vérification indisponible : {verif.erreurReseau}</div>
   const champs = verif.champs || {}
@@ -158,7 +172,20 @@ function Verification({ verif, demandeId }) {
 }
 
 function JourneeTechniciens({ journee, tech, setTech, heure, duree, rvActuelId }) {
-  if (journee === 'chargement') return <div className="mt-3 text-xs text-gray-500">Chargement de la journée des techniciens…</div>
+  if (journee === 'chargement') return (
+    <div className="mt-3">
+      <div className="mb-1"><Attente texte="2. Choisir — lecture des calendriers de tous les techniciens dans Gazelle" /></div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {TECHS.map((t) => (
+          <div key={t.id} className="animate-pulse rounded border border-gray-200 bg-white p-1.5 text-[11px]">
+            <div className="mb-1 font-semibold text-gray-400">{t.label}</div>
+            <div className="mb-1 h-2 w-4/5 rounded bg-gray-200" />
+            <div className="h-2 w-3/5 rounded bg-gray-200" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
   if (!journee) return null
   if (journee.erreur) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Journée des techniciens indisponible : {journee.erreur}</div>
   return (
@@ -294,7 +321,7 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
 
         {modifier && (
           <div className="mt-2 rounded bg-blue-50 p-2 text-xs text-blue-900">
-            {rvActuel === 'chargement' && 'Lecture du RV dans Gazelle…'}
+            {rvActuel === 'chargement' && <Attente texte="Lecture du RV dans Gazelle" />}
             {rvActuel && rvActuel.erreur && <span className="text-red-700">RV illisible dans Gazelle : {rvActuel.erreur}</span>}
             {rvActuel && rvActuel.id && (
               <>
@@ -351,7 +378,7 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
         {!modifier && (
           <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-2 text-xs">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-gray-600">Phrase de confirmation pour Isabelle (mêmes infos que le RV) :</span>
+              <span className="text-gray-600">Phrase de confirmation pour la PdA (mêmes infos que le RV) :</span>
               <button type="button" onClick={copier} className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-100">{copie ? 'Copié ✓' : 'Copier'}</button>
             </div>
             <div className="text-gray-900">{phrase}</div>

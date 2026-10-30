@@ -1780,6 +1780,9 @@ _TECHS_JOURNEE = {
 }
 
 
+_cache_journee: Dict[str, Any] = {}
+
+
 @router.get("/journee-techniciens")
 def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de Montréal)")):
     """LECTURE SEULE — la journée de TOUS les techniciens ce jour-là, lue en direct dans Gazelle
@@ -1787,6 +1790,9 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
     « À attribuer » est une colonne comme les autres."""
     from core.timezone_utils import MONTREAL_TZ
     jour = date[:10]
+    ent = _cache_journee.get(jour)
+    if ent and time.time() - ent[0] < 90:   # Gazelle peut prendre 3 à 20 s : on garde 90 s
+        return ent[1]
     try:
         d0 = datetime.strptime(jour, "%Y-%m-%d")
     except ValueError:
@@ -1822,9 +1828,11 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
             colonnes[uid].append(rv)
     for liste in colonnes.values():
         liste.sort(key=lambda r: (not r["journee"], r["heure"]))
-    return {"date": jour,
-            "techniciens": [{"id": uid, "nom": nom, "rendez_vous": colonnes[uid]}
-                            for uid, nom in _TECHS_JOURNEE.items()]}
+    res = {"date": jour,
+           "techniciens": [{"id": uid, "nom": nom, "rendez_vous": colonnes[uid]}
+                           for uid, nom in _TECHS_JOURNEE.items()]}
+    _cache_journee[jour] = (time.time(), res)
+    return res
 
 
 # --- Contre-vérification : ce que l'assistant a compris vs le courriel d'origine ---
@@ -2051,6 +2059,7 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
     tech_nom = (ev.get('user') or {}).get('firstName') or ''
     front = _commenter_traite_front(demande, body, ev, tech_nom)
 
+    _cache_journee.clear()
     # Rafraîchir la copie locale des RV Gazelle en arrière-plan (Ma journée, liens)
     background_tasks.add_task(_pull_live_appointments, storage)
     return {"ok": True, "evenement": ev, "piano_id": piano_id, "avertissement": avertissement,
@@ -2321,6 +2330,7 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
              f"({rv.get('titre')}). (Assistant Gazelle)")
     front = _commenter_front(demande, [demande.get('appointment_date'), rv['date']], texte, body.par)
     _cache_verif.pop(request_id, None)
+    _cache_journee.clear()
     background_tasks.add_task(_pull_live_appointments, storage)
     return {"ok": True, "change": True, "rv": rv, "avertissements": avert, "front": front,
             "nom_technicien": nom}
