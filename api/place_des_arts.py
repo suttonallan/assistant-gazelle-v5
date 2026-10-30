@@ -1289,6 +1289,7 @@ async def preview_email(payload: PreviewRequest):
 
 class ImportPreviewRequest(BaseModel):
     items: List[Dict[str, Any]]
+    raw_text: Optional[str] = None  # courriel collé : gardé pour la contre-vérification
 
 
 @router.post("/import-preview")
@@ -1355,6 +1356,8 @@ async def import_preview(payload: ImportPreviewRequest):
                     "status": "PENDING",
                     "notes": item.get("notes") or "",
                 }
+                if (payload.raw_text or '').strip():
+                    row["original_raw_text"] = payload.raw_text[:20000]
 
                 if exists_duplicate(row):
                     duplicates.append(row)
@@ -1824,6 +1827,133 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
                             for uid, nom in _TECHS_JOURNEE.items()]}
 
 
+# --- Contre-vérification : ce que l'assistant a compris vs le courriel d'origine ---
+_cache_verif: Dict[str, Any] = {}
+
+
+def _source_front(demande: Dict[str, Any], jour: str):
+    """Courriel d'origine dans Front : (texte, sujet, conversation_id) ou (None, None, None).
+    On cherche par la date ET par le nom de l'événement (le sujet peut porter une autre date
+    que le tableau : « Accord Piano 2026-11-08 … (Ajouts pour le 6 et 7 nov) »), puis on garde
+    le message entrant le plus récent qui contient une ligne à la date de la demande et qui
+    nomme l'événement (une demande peut avoir été corrigée par un courriel plus récent)."""
+    from urllib.parse import quote
+    from core.front_client import get_front_client
+    from modules.place_des_arts.services import verification_source as vs
+    front = get_front_client()
+    mots = _mots_cles_demande(demande)
+    requetes = [f'"{jour}"'] + [f'"{m}"' for m in mots[:2]]
+    convs: Dict[str, Dict] = {}
+    for q in requetes:
+        try:
+            res = front._get(f"/conversations/search/{quote(q + ' inbox:' + FRONT_INBOX_INFO, safe='')}",
+                             params={"limit": 25}).get("_results", [])
+        except Exception as e:
+            logging.warning(f"Recherche Front « {q} » : {e}")
+            continue
+        for c in res:
+            if 'a reviser' not in _sans_accents(c.get('subject') or ''):
+                convs.setdefault(c['id'], c)
+    reference = datetime.fromisoformat(jour).date()
+    meilleurs = []
+    for c in list(convs.values())[:12]:
+        try:
+            msgs = front.list_messages(c['id'], limit=20)
+        except Exception:
+            continue
+        for m in msgs:
+            texte = m.get('text') or ''
+            if not m.get('is_inbound') or not texte.strip():
+                continue
+            lignes, contexte = vs.analyser(texte, reference)
+            ligne = vs.choisir_ligne(demande, lignes, contexte)
+            if ligne is None:
+                continue
+            sc = vs.score(demande, ligne, contexte)
+            if sc >= 8:   # date + au moins l'événement ou le piano
+                meilleurs.append((sc, m.get('created_at') or 0, texte, m.get('subject') or c.get('subject'), c['id']))
+    if not meilleurs:
+        return None, None, None
+    meilleurs.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    _, _, texte, sujet, cid = meilleurs[0]
+    return texte, sujet, cid
+
+
+@router.get("/requests/{request_id}/verification")
+def verification_demande(request_id: str, rafraichir: bool = False):
+    """LECTURE SEULE — compare, champ par champ, la demande telle que comprise par l'assistant
+    avec la ligne correspondante du courriel d'origine (texte collé à l'import, sinon courriel
+    retrouvé dans Front). Donne aussi toutes les lignes du courriel et les demandes de
+    l'assistant qui y correspondent, pour repérer un piano oublié ou en double."""
+    from modules.place_des_arts.services import verification_source as vs
+    if not rafraichir and request_id in _cache_verif and time.time() - _cache_verif[request_id][0] < 300:
+        return _cache_verif[request_id][1]
+    storage = get_storage()
+    rows = storage.client.table('place_des_arts_requests').select('*').eq('id', request_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    demande = rows[0]
+    jour = str(demande.get('appointment_date') or '')[:10]
+
+    texte, sujet, conv_id, origine, erreur = demande.get('original_raw_text'), None, None, 'import', None
+    if not texte and jour:
+        origine = 'front'
+        try:
+            texte, sujet, conv_id = _source_front(demande, jour)
+        except Exception as e:
+            erreur = f"Recherche du courriel dans Front impossible : {e}"
+            logging.warning(f"Vérification {request_id} : {erreur}")
+    if not texte:
+        res = {"trouve": False, "erreur": erreur or "Courriel d'origine introuvable (ni texte collé à l'import, "
+               "ni courriel « Accord piano » à cette date dans Front).",
+               "champs": vs.comparer(demande, None), "lignes": []}
+        _cache_verif[request_id] = (time.time(), res)
+        return res
+
+    reference = datetime.fromisoformat(jour).date() if jour else None
+    lignes, contexte = vs.analyser(texte, reference)
+    ligne = vs.choisir_ligne(demande, lignes, contexte)
+
+    # Les autres demandes de l'assistant aux dates du courriel
+    dates = sorted({l['date'] for l in lignes})
+    voisines: List[Dict[str, Any]] = []
+    if dates:
+        try:
+            voisines = (storage.client.table('place_des_arts_requests')
+                        .select('id,appointment_date,room,for_who,piano,diapason,time,technician_id,appointment_id,status')
+                        .gte('appointment_date', dates[0]).lte('appointment_date', f"{dates[-1]}T23:59:59")
+                        .execute().data or [])
+        except Exception as e:
+            logging.warning(f"Vérification {request_id} : lecture des demandes voisines : {e}")
+    voisines = [v for v in voisines if str(v.get('appointment_date') or '')[:10] in dates]
+    if not any(v.get('id') == demande['id'] for v in voisines):
+        voisines.append(demande)
+    assoc = vs.associer(lignes, voisines, contexte)
+    par_id = {v['id']: v for v in voisines}
+
+    sujet_date = vs.date_du_sujet(sujet or '')
+    alerte_sujet = None
+    if sujet_date and dates and sujet_date not in dates:
+        alerte_sujet = (f"Le sujet du courriel parle du {sujet_date}, mais le tableau ne contient pas cette date "
+                        f"— le tableau fait foi.")
+    res = {
+        "trouve": True,
+        "origine": origine,
+        "sujet": sujet,
+        "front_url": f"https://app.frontapp.com/open/{conv_id}" if conv_id else None,
+        "ligne": ligne,
+        "contexte": contexte[:600],
+        "champs": vs.comparer(demande, ligne, contexte),
+        "alerte_sujet": alerte_sujet,
+        "lignes": [{"date": l['date'], "texte": l['texte'], "est_cette_demande": l is ligne,
+                    "demandes": [{"id": i, "piano": par_id[i].get('piano'), "heure": par_id[i].get('time'),
+                                  "rv": bool(par_id[i].get('appointment_id'))} for i in ids]}
+                   for l, ids in zip(lignes, assoc)],
+    }
+    _cache_verif[request_id] = (time.time(), res)
+    return res
+
+
 class CreerRvGazelleIn(BaseModel):
     technician_id: str
     date: str                       # AAAA-MM-JJ (heure de Montréal)
@@ -2007,6 +2137,138 @@ def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
              f"{_quand(body.date, body.heure)} ({ev.get('title')}). "
              f"Demande reliée dans l'assistant. (Assistant Gazelle)")
     return _commenter_front(demande, [demande.get('appointment_date'), body.date], texte, body.par)
+
+
+# --- Réassigner / déplacer un RV déjà créé, depuis la même fenêtre (oct. 2026, Allan) ---
+_Q_RV = """query($id: String!) { event(eventId: $id) { id title start duration status
+  user { id firstName } allEventPianos(first: 10) { nodes { piano { id } } } } }"""
+
+
+def _lire_rv(api_client, eid: str) -> Dict[str, Any]:
+    res = api_client._execute_query(_Q_RV, {"id": eid})
+    if res.get("errors"):
+        raise HTTPException(status_code=502, detail=f"Gazelle : {res['errors']}")
+    ev = (res.get("data") or {}).get("event")
+    if not ev:
+        raise HTTPException(status_code=404, detail="RV introuvable dans Gazelle")
+    return ev
+
+
+def _rv_pour_ecran(ev: Dict[str, Any]) -> Dict[str, Any]:
+    from core.timezone_utils import MONTREAL_TZ
+    debut = datetime.fromisoformat(ev['start'].replace('Z', '+00:00')).astimezone(MONTREAL_TZ)
+    return {"id": ev['id'], "titre": ev.get('title'), "date": debut.strftime('%Y-%m-%d'),
+            "heure": debut.strftime('%H:%M'), "duree": ev.get('duration') or 60,
+            "statut": ev.get('status'), "technician_id": (ev.get('user') or {}).get('id'),
+            "technicien": (ev.get('user') or {}).get('firstName'),
+            "pianos": [n['piano']['id'] for n in ((ev.get('allEventPianos') or {}).get('nodes') or [])]}
+
+
+@router.get("/requests/{request_id}/rv-actuel")
+def rv_actuel(request_id: str):
+    """LECTURE SEULE — le RV Gazelle relié à la demande, tel qu'il est maintenant dans Gazelle."""
+    storage = get_storage()
+    rows = storage.client.table('place_des_arts_requests').select('id,appointment_id').eq('id', request_id).limit(1).execute().data or []
+    if not rows or not rows[0].get('appointment_id'):
+        raise HTTPException(status_code=404, detail="Cette demande n'a pas de RV Gazelle")
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Connexion Gazelle indisponible.")
+    autres = storage.client.table('place_des_arts_requests').select('id').eq(
+        'appointment_id', rows[0]['appointment_id']).execute().data or []
+    return {**_rv_pour_ecran(_lire_rv(api_client, rows[0]['appointment_id'])), "nb_demandes": len(autres)}
+
+
+@router.post("/requests/{request_id}/reassigner-rv")
+def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: BackgroundTasks):
+    """Change le technicien et/ou l'heure (et la durée) du RV Gazelle déjà relié à la demande.
+    Seuls les champs modifiés sont envoyés à Gazelle ; on vérifie ensuite que les pianos du RV
+    sont intacts. Toutes les demandes reliées à ce même RV suivent (ex. Adisq : 2 pianos, 1 RV)."""
+    from core.timezone_utils import MONTREAL_TZ
+    storage = get_storage()
+    rows = storage.client.table('place_des_arts_requests').select('*').eq('id', request_id).limit(1).execute().data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    demande = rows[0]
+    eid = demande.get('appointment_id')
+    if not eid:
+        raise HTTPException(status_code=400, detail="Cette demande n'a pas encore de RV — utilise « Créer le RV ».")
+    if not body.technician_id:
+        raise HTTPException(status_code=400, detail="Choisis le technicien (ou « À attribuer »).")
+    if not (5 <= body.duree_min <= 600):
+        raise HTTPException(status_code=400, detail="Durée invalide.")
+    try:
+        local = datetime.fromisoformat(f"{body.date[:10]}T{body.heure[:5]}").replace(tzinfo=MONTREAL_TZ)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date ou heure invalide (AAAA-MM-JJ et HH:MM).")
+    start = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    api_client = get_api_client()
+    if not api_client:
+        raise HTTPException(status_code=500, detail="Connexion Gazelle indisponible.")
+    avant = _lire_rv(api_client, eid)
+    if (avant.get('status') or '').upper() in ('CANCELLED', 'CANCELED', 'COMPLETE', 'COMPLETED'):
+        raise HTTPException(status_code=409, detail=f"Ce RV est « {avant.get('status')} » dans Gazelle — rien n'a été changé.")
+    debut_avant = datetime.fromisoformat(avant['start'].replace('Z', '+00:00'))
+
+    inp: Dict[str, Any] = {}
+    if body.technician_id != (avant.get('user') or {}).get('id'):
+        inp['userId'] = body.technician_id
+    if abs((debut_avant - local.astimezone(timezone.utc)).total_seconds()) >= 60:
+        inp['start'] = start
+    if int(body.duree_min) != int(avant.get('duration') or 0):
+        inp['duration'] = int(body.duree_min)
+    if not inp:
+        return {"ok": True, "change": False, "message": "Rien à changer : le RV est déjà comme ça.",
+                "rv": _rv_pour_ecran(avant)}
+
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id } mutationErrors { fieldName messages } } }"""
+    try:
+        res = api_client._execute_query(mut, {"id": eid, "input": inp})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gazelle n'a pas répondu : {e}")
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if not payload.get("event"):
+        raise HTTPException(status_code=502, detail=f"Gazelle a refusé le changement : {payload.get('mutationErrors') or res.get('errors')}")
+
+    apres = _lire_rv(api_client, eid)
+    rv = _rv_pour_ecran(apres)
+    avert = []
+    pianos_avant = sorted(n['piano']['id'] for n in ((avant.get('allEventPianos') or {}).get('nodes') or []))
+    if sorted(rv['pianos']) != pianos_avant and pianos_avant:
+        # Filet : si Gazelle a retiré les pianos, on les remet tels qu'ils étaient
+        try:
+            api_client._execute_query(mut, {"id": eid, "input": {
+                "pianos": [{"pianoId": p, "isTuning": True} for p in pianos_avant]}})
+            apres = _lire_rv(api_client, eid)
+            rv = _rv_pour_ecran(apres)
+        except Exception as e:
+            logging.error(f"Réassignation {eid} : remise des pianos impossible : {e}")
+    if sorted(rv['pianos']) != pianos_avant:
+        avert.append(f"Les pianos du RV ont changé dans Gazelle ({len(pianos_avant)} → {len(rv['pianos'])}) — à vérifier dans Gazelle.")
+        logging.error(f"Réassignation {eid} : pianos {pianos_avant} → {rv['pianos']}")
+    if rv['technician_id'] != body.technician_id or rv['date'] != body.date[:10] or rv['heure'] != body.heure[:5]:
+        avert.append("Gazelle n'affiche pas exactement le changement demandé — à vérifier dans Gazelle.")
+
+    # Toutes les demandes reliées à ce RV suivent
+    maj = {'technician_id': rv['technician_id'], 'updated_at': datetime.now(timezone.utc).isoformat()}
+    if rv['date'] != str(demande.get('appointment_date') or '')[:10]:
+        maj['appointment_date'] = rv['date']
+    try:
+        storage.client.table('place_des_arts_requests').update(maj).eq('appointment_id', eid).execute()
+    except Exception as e:
+        avert.append(f"RV changé dans Gazelle, mais l'assistant n'a pas pu être mis à jour : {e}")
+
+    # Trace dans Front (courriel de la demande)
+    nom = _TECHS_JOURNEE.get(rv['technician_id']) or rv.get('technicien') or 'le technicien'
+    texte = (f"🔁 RV modifié dans Gazelle : {nom} {_quand(rv['date'], rv['heure'])} "
+             f"({rv.get('titre')}). (Assistant Gazelle)")
+    front = _commenter_front(demande, [demande.get('appointment_date'), rv['date']], texte, body.par)
+    _cache_verif.pop(request_id, None)
+    background_tasks.add_task(_pull_live_appointments, storage)
+    return {"ok": True, "change": True, "rv": rv, "avertissements": avert, "front": front,
+            "nom_technicien": nom}
 
 
 @router.post("/requests/{request_id}/verify-technician")

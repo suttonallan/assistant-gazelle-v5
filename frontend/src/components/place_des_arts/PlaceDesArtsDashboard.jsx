@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import EditablePreviewItem from './EditablePreviewItem'
 import PDAInventoryTable from './PDAInventoryTable'
 import CreerRvModal from './CreerRvModal'
@@ -55,6 +55,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
 
   // Import email
   const [rawText, setRawText] = useState('')
+  const texteSourceRef = useRef('')
   const [preview, setPreview] = useState([])
   const [previewLoading, setPreviewLoading] = useState(false)
   const [importLoading, setImportLoading] = useState(false)
@@ -893,6 +894,8 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       console.log('⚠️ rawText vide, retour')
       return
     }
+    // Courriel tel que collé (avant reformatage) : gardé avec la demande pour la contre-vérification
+    texteSourceRef.current = rawText
     try {
       setPreviewLoading(true)
       setInfoMessage(null)
@@ -1010,7 +1013,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
         resp = await fetch(`${API_URL}/api/place-des-arts/import-preview`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items: preview })
+          body: JSON.stringify({ items: preview, raw_text: texteSourceRef.current || rawText || null })
         })
       } else {
         // Import direct sans preview
@@ -1029,6 +1032,7 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
       setInfoMessage(data.message || `Importé: ${data.imported || 0}`)
       setPreview([])
       setRawText('')
+      texteSourceRef.current = ''
       await fetchData()
     } catch (err) {
       setError(err.message)
@@ -2004,7 +2008,14 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
                       )}
                     </div>
                     {it.appointment_id && !['COMPLETED', 'BILLED'].includes(it.status) && (
-                      <div className="mt-0.5 whitespace-nowrap text-[10px] text-gray-500">🔒 changer dans Gazelle</div>
+                      <button
+                        type="button"
+                        onClick={() => setCreationRv(it)}
+                        className="mt-0.5 whitespace-nowrap rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-700 hover:bg-gray-50"
+                        title="Changer le technicien, le jour ou l'heure du RV (avec la journée des techniciens)"
+                      >
+                        🔁 Modifier le RV
+                      </button>
                     )}
                   </td>
                   <td className="px-3 py-2 text-gray-800">
@@ -2057,6 +2068,20 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
           demande={creationRv}
           par={currentUser?.email || null}
           onClose={() => setCreationRv(null)}
+          onReassigned={(res, nomTech) => {
+            const rv = res.rv || {}
+            if (res.change) {
+              setItems((prev) => prev.map((x) => x.appointment_id && x.appointment_id === creationRv.appointment_id
+                ? { ...x, technician_id: rv.technician_id || x.technician_id, gazelle_technician_id: rv.technician_id || x.gazelle_technician_id,
+                    rv_date: rv.date || x.rv_date, rv_heure: rv.heure || x.rv_heure, technician_mismatch: false }
+                : x))
+            }
+            const avert = (res.avertissements || []).map((a) => `\n⚠️ ${a}`).join('')
+            setInfoMessage(res.change
+              ? `🔁 RV modifié dans Gazelle : ${res.nom_technicien || nomTech}, ${rv.date} à ${rv.heure}.${avert}`
+              : (res.message || 'Rien à changer.'))
+            setCreationRv(null)
+          }}
           onCreated={(res, nomTech) => {
             const ev = res.evenement || {}
             setItems((prev) => prev.map((x) => x.id === creationRv.id
