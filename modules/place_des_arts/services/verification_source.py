@@ -189,6 +189,15 @@ def _jetons_piano(piano: str) -> List[str]:
     return tailles + ['ny' if m == 'new york' else m for m in mots]
 
 
+_MODELE_RE = re.compile(r"steinway\s*[-–(]?\s*(?:\d+\s*'\s*)?\(?\s*([bdmosk])\b")
+
+
+def lettre_modele(t: str) -> Optional[str]:
+    """Lettre du modèle Steinway (« Steinway D - Ham », « Steinway 9' D NY », « Steinway B ») ou None."""
+    m = _MODELE_RE.search(sans_accents(t))
+    return m.group(1) if m else None
+
+
 def _norm_heures(t: str) -> str:
     """« 9h00 » / « 9:00 » → « 9h », sans espaces."""
     t = re.sub(r"\s+", '', t)
@@ -237,7 +246,9 @@ def _statut_champ(cle: str, val: str, ligne: Dict[str, str]) -> bool:
                     return False
             elif not _contient(t, j):
                 return False
-        return True
+        # Steinway B ≠ Steinway D : la lettre du modèle compte quand les deux la donnent
+        lv, lt = lettre_modele(val), lettre_modele(t)
+        return not (lv and lt and lv != lt)
     if cle == 'diapason':
         return re.sub(r"\D", '', val) in re.findall(r"\d{3}", t)
     if cle == 'heure':

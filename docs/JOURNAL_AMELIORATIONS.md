@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Octobre 2026
 
 ### 30 octobre
+- **« Modifier le RV » plus sûr** : après chaque changement, l'assistant vérifie dans Gazelle que le titre, les notes, le client et les pianos du RV n'ont pas bougé, et les remet tout seul sinon ; s'il n'y arrive pas, il le dit clairement avec la valeur d'avant. La vérification du piano distingue aussi le modèle Steinway (B, D, M…), pas seulement la marque et la taille.
 - **« Créer le RV » Place des Arts : on vérifie ce que l'assistant a compris** : la fenêtre affiche la ligne du courriel d'Isabelle à côté de chaque détail retenu (date, salle, pour qui, piano, diapason, heure) ; un détail absent de la ligne du courriel est surligné en jaune, avec un lien pour ouvrir le courriel dans Front. Elle compte aussi les pianos du courriel et signale une ligne absente de l'assistant ou entrée deux fois. Le courriel collé à l'import est maintenant gardé avec la demande.
 - **Heure et piano contrôlés avant de créer le RV** : la fenêtre dit si l'heure choisie respecte la demande (« avant 8h », « entre 13h et 14h », « à 18h ») et si le piano Gazelle choisi a la même marque et la même taille que le piano demandé. Elle propose aussi la phrase de confirmation pour Isabelle, avec les mêmes infos que le RV (bouton Copier).
 - **« À attribuer » se choisit comme un technicien** : on peut créer le RV sans technicien (colonne et menu « À attribuer »), et l'attribuer plus tard.

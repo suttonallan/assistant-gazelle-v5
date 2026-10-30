@@ -52,7 +52,8 @@ function jetonsPiano(t) {
   const n = normaliser(t)
   const tailles = [...n.matchAll(/(\d+)\s*'/g)].map((m) => `${m[1]}'`)
   const marques = [...n.matchAll(/steinway|baldwin|yamaha|fazioli|kawai|mason/g)].map((m) => m[0])
-  return { tailles, marques }
+  const lm = n.match(/steinway\s*[-–(]?\s*(?:\d+\s*'\s*)?\(?\s*([bdmosk])\b/)
+  return { tailles, marques, modele: lm ? lm[1] : null }
 }
 function verifierPiano(demande, libelle) {
   if (!demande || !libelle) return null
@@ -60,7 +61,8 @@ function verifierPiano(demande, libelle) {
   const ecarts = []
   if (a.marques.length && b.marques.length && !a.marques.some((m) => b.marques.includes(m))) ecarts.push('marque')
   if (a.tailles.length && b.tailles.length && !a.tailles.some((m) => b.tailles.includes(m))) ecarts.push('taille')
-  return ecarts.length ? `⚠︎ ${ecarts.join(' et ')} différente${ecarts.length > 1 ? 's' : ''} du piano demandé` : null
+  if (a.modele && b.modele && a.modele !== b.modele) ecarts.push(`modèle (${a.modele.toUpperCase()} demandé, ${b.modele.toUpperCase()} choisi)`)
+  return ecarts.length ? `⚠︎ ${ecarts.join(', ')} : différent du piano demandé` : null
 }
 
 const jourLong = (iso) => {

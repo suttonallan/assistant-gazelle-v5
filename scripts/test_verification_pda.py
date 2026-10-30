@@ -37,4 +37,6 @@ assert c['piano']['statut'] == 'ecart', c
 date_fausse = dict(bonne, id='c', appointment_date='2026-11-09')
 assert vs.choisir_ligne(date_fausse, lignes, ctx) is None
 assert [len(x) for x in vs.associer(lignes, [bonne], ctx)] == [1, 0]
+assert vs._statut_champ('piano', 'Steinway B', {'texte': "TM Steinway D 9'"}) is False
+assert vs._statut_champ('piano', "Steinway 9' D NY", {'texte': "Salle D Steinway 9' D - New York"}) is True
 print("OK — contre-vérification PdA")

@@ -1831,48 +1831,64 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
 _cache_verif: Dict[str, Any] = {}
 
 
+_cache_front_msgs: Dict[str, Any] = {}
+
+
+def _messages_front(front, conv_id: str) -> List[Dict]:
+    """Messages d'une conversation, gardés 10 min (plusieurs demandes viennent souvent du même courriel)."""
+    ent = _cache_front_msgs.get(conv_id)
+    if ent and time.time() - ent[0] < 600:
+        return ent[1]
+    msgs = front.list_messages(conv_id, limit=15)
+    _cache_front_msgs[conv_id] = (time.time(), msgs)
+    return msgs
+
+
 def _source_front(demande: Dict[str, Any], jour: str):
     """Courriel d'origine dans Front : (texte, sujet, conversation_id) ou (None, None, None).
-    On cherche par la date ET par le nom de l'événement (le sujet peut porter une autre date
-    que le tableau : « Accord Piano 2026-11-08 … (Ajouts pour le 6 et 7 nov) »), puis on garde
-    le message entrant le plus récent qui contient une ligne à la date de la demande et qui
-    nomme l'événement (une demande peut avoir été corrigée par un courriel plus récent)."""
+    On cherche d'abord par le nom de l'événement (le sujet peut porter une autre date que le
+    tableau), puis par la date seulement si rien n'est trouvé. On garde le message entrant qui
+    contient une ligne à la date de la demande et nomme l'événement ; à égalité, le plus récent
+    (une demande peut avoir été corrigée par un courriel plus récent).
+    Économe : ≤ 2 recherches et ≤ 8 conversations lues par demande, messages gardés en cache."""
     from urllib.parse import quote
     from core.front_client import get_front_client
     from modules.place_des_arts.services import verification_source as vs
     front = get_front_client()
+    reference = datetime.fromisoformat(jour).date()
     mots = _mots_cles_demande(demande)
-    # Le nom de l'événement d'abord (plus sélectif), la date ensuite
-    requetes = [f'"{m}"' for m in mots[:2]] + [f'"{jour}"']
-    convs: Dict[str, Dict] = {}
+    requetes = ([' '.join(f'"{m}"' for m in mots[:2])] if mots else []) + [f'"{jour}"']
+
+    meilleurs = []
+    lues = set()
     for q in requetes:
         try:
             res = front._get(f"/conversations/search/{quote(q + ' inbox:' + FRONT_INBOX_INFO, safe='')}",
-                             params={"limit": 25}).get("_results", [])
+                             params={"limit": 15}).get("_results", [])
         except Exception as e:
             logging.warning(f"Recherche Front « {q} » : {e}")
             continue
-        for c in res:
-            if 'a reviser' not in _sans_accents(c.get('subject') or ''):
-                convs.setdefault(c['id'], c)
-    reference = datetime.fromisoformat(jour).date()
-    meilleurs = []
-    for c in list(convs.values())[:20]:
-        try:
-            msgs = front.list_messages(c['id'], limit=20)
-        except Exception:
-            continue
-        for m in msgs:
-            texte = m.get('text') or ''
-            if not m.get('is_inbound') or not texte.strip():
+        convs = [c for c in res if 'a reviser' not in _sans_accents(c.get('subject') or '')
+                 and c['id'] not in lues][:8]
+        for c in convs:
+            lues.add(c['id'])
+            try:
+                msgs = _messages_front(front, c['id'])
+            except Exception:
                 continue
-            lignes, contexte = vs.analyser(texte, reference)
-            ligne = vs.choisir_ligne(demande, lignes, contexte)
-            if ligne is None:
-                continue
-            sc = vs.score(demande, ligne, contexte)
-            if sc >= 8:   # date + au moins l'événement ou le piano
-                meilleurs.append((sc, m.get('created_at') or 0, texte, m.get('subject') or c.get('subject'), c['id']))
+            for m in msgs:
+                texte = m.get('text') or ''
+                if not m.get('is_inbound') or not texte.strip():
+                    continue
+                lignes, contexte = vs.analyser(texte, reference)
+                ligne = vs.choisir_ligne(demande, lignes, contexte)
+                if ligne is None:
+                    continue
+                sc = vs.score(demande, ligne, contexte)
+                if sc >= 8:   # date + au moins l'événement ou le piano
+                    meilleurs.append((sc, m.get('created_at') or 0, texte, m.get('subject') or c.get('subject'), c['id']))
+        if meilleurs:
+            break   # trouvé par le nom : pas besoin de chercher par la date
     if not meilleurs:
         return None, None, None
     meilleurs.sort(key=lambda x: (x[0], x[1]), reverse=True)
@@ -2142,7 +2158,37 @@ def _commenter_traite_front(demande: Dict[str, Any], body: 'CreerRvGazelleIn',
 
 # --- Réassigner / déplacer un RV déjà créé, depuis la même fenêtre (oct. 2026, Allan) ---
 _Q_RV = """query($id: String!) { event(eventId: $id) { id title start duration status
-  user { id firstName } allEventPianos(first: 10) { nodes { piano { id } } } } }"""
+  type isAllDay buffer tags travelMode notes client { id }
+  user { id firstName } allEventPianos(first: 20) { nodes { isTuning piano { id } } } } }"""
+
+# Champs du RV qu'une réassignation ne doit JAMAIS changer. On ne les envoie pas à Gazelle,
+# mais on vérifie après coup qu'ils sont intacts, et on les remet sinon.
+_CHAMPS_PRESERVES = ('title', 'notes', 'type', 'isAllDay', 'buffer', 'tags', 'travelMode', 'client', 'pianos')
+
+
+def _instantane_rv(ev: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'title': ev.get('title') or '', 'notes': ev.get('notes') or '', 'type': ev.get('type'),
+        'isAllDay': bool(ev.get('isAllDay')), 'buffer': ev.get('buffer'),
+        'tags': sorted(ev.get('tags') or []), 'travelMode': ev.get('travelMode'),
+        'client': (ev.get('client') or {}).get('id'),
+        'pianos': sorted((n['piano']['id'], bool(n.get('isTuning')))
+                         for n in ((ev.get('allEventPianos') or {}).get('nodes') or [])),
+    }
+
+
+def _input_remise(inst: Dict[str, Any], champs: List[str]) -> Dict[str, Any]:
+    """Input Gazelle qui remet ces champs à leur valeur d'avant."""
+    inp: Dict[str, Any] = {}
+    for c in champs:
+        if c == 'client':
+            if inst['client']:
+                inp['clientId'] = inst['client']
+        elif c == 'pianos':
+            inp['pianos'] = [{"pianoId": pid, "isTuning": tuning} for pid, tuning in inst['pianos']]
+        elif inst.get(c) is not None:
+            inp[c] = inst[c]
+    return inp
 
 
 def _lire_rv(api_client, eid: str) -> Dict[str, Any]:
@@ -2234,21 +2280,29 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
         raise HTTPException(status_code=502, detail=f"Gazelle a refusé le changement : {payload.get('mutationErrors') or res.get('errors')}")
 
     apres = _lire_rv(api_client, eid)
-    rv = _rv_pour_ecran(apres)
     avert = []
-    pianos_avant = sorted(n['piano']['id'] for n in ((avant.get('allEventPianos') or {}).get('nodes') or []))
-    if sorted(rv['pianos']) != pianos_avant and pianos_avant:
-        # Filet : si Gazelle a retiré les pianos, on les remet tels qu'ils étaient
+    # Filet : tout ce qui ne devait pas bouger (titre, notes, client, pianos…) est-il intact ?
+    inst_avant = _instantane_rv(avant)
+    for tentative in range(2):
+        inst_apres = _instantane_rv(apres)
+        changes = [c for c in _CHAMPS_PRESERVES if inst_apres[c] != inst_avant[c]]
+        if not changes:
+            break
+        logging.error(f"Réassignation {eid} : champs modifiés par Gazelle {changes} — remise (essai {tentative + 1})")
+        if tentative == 1:
+            noms = {'title': 'titre', 'notes': 'notes', 'client': 'client', 'pianos': 'pianos',
+                    'type': 'type', 'isAllDay': 'journée entière', 'buffer': 'battement',
+                    'tags': 'étiquettes', 'travelMode': 'mode de déplacement'}
+            avert.append("⚠️ Gazelle a modifié " + ", ".join(noms[c] for c in changes) +
+                         " du RV et la remise automatique n'a pas fonctionné — corriger dans Gazelle. "
+                         f"Avant : {json.dumps({c: inst_avant[c] for c in changes}, ensure_ascii=False)[:500]}")
+            break
         try:
-            api_client._execute_query(mut, {"id": eid, "input": {
-                "pianos": [{"pianoId": p, "isTuning": True} for p in pianos_avant]}})
+            api_client._execute_query(mut, {"id": eid, "input": _input_remise(inst_avant, changes)})
             apres = _lire_rv(api_client, eid)
-            rv = _rv_pour_ecran(apres)
         except Exception as e:
-            logging.error(f"Réassignation {eid} : remise des pianos impossible : {e}")
-    if sorted(rv['pianos']) != pianos_avant:
-        avert.append(f"Les pianos du RV ont changé dans Gazelle ({len(pianos_avant)} → {len(rv['pianos'])}) — à vérifier dans Gazelle.")
-        logging.error(f"Réassignation {eid} : pianos {pianos_avant} → {rv['pianos']}")
+            logging.error(f"Réassignation {eid} : remise impossible : {e}")
+    rv = _rv_pour_ecran(apres)
     if rv['technician_id'] != body.technician_id or rv['date'] != body.date[:10] or rv['heure'] != body.heure[:5]:
         avert.append("Gazelle n'affiche pas exactement le changement demandé — à vérifier dans Gazelle.")
 
