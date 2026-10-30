@@ -29,6 +29,24 @@ function heureProposee(texte) {
   return `${String(h).padStart(2, '0')}:${min}`
 }
 
+// fetch JSON avec délai maximal : jamais de roue qui tourne sans fin (Render ou Gazelle peut bloquer).
+async function fetchJson(url, ms = 45000, options = {}) {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try {
+    const r = await fetch(url, { ...options, signal: ctrl.signal })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`)
+    return d
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error(`pas de réponse après ${Math.round(ms / 1000)} s (le serveur ou Gazelle est lent)`)
+    if (e.message === 'Failed to fetch') throw new Error('serveur injoignable (il redémarre peut-être, réessaie dans une minute)')
+    throw e
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 const enMin = (hhmm) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return h * 60 + (m || 0) }
 const versHHMM = (min) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 const heuresDuTexte = (t) => [...(t || '').toLowerCase().matchAll(/(\d{1,2})\s*(?:h|:)\s*(\d{2})?/g)].map((m) => parseInt(m[1], 10) * 60 + (m[2] ? parseInt(m[2], 10) : 0))
@@ -99,10 +117,10 @@ function Attente({ texte, lent = 8 }) {
   )
 }
 
-function Verification({ verif, demandeId }) {
+function Verification({ verif, demandeId, reessayer }) {
   if (verif === 'chargement') return <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-2"><Attente texte="1. Vérifier — recherche du courriel d'origine dans Front" /></div>
   if (!verif) return null
-  if (verif.erreurReseau) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Vérification indisponible : {verif.erreurReseau}</div>
+  if (verif.erreurReseau) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Vérification indisponible : {verif.erreurReseau}<button type="button" onClick={reessayer} className="ml-2 rounded border border-amber-400 bg-white px-2 py-0.5 text-amber-800 hover:bg-amber-100">Réessayer</button></div>
   const champs = verif.champs || {}
   const nbEcarts = Object.values(champs).filter((c) => c.statut === 'ecart' || c.statut === 'vide').length
   const lignes = verif.lignes || []
@@ -171,7 +189,7 @@ function Verification({ verif, demandeId }) {
   )
 }
 
-function JourneeTechniciens({ journee, tech, setTech, heure, duree, rvActuelId }) {
+function JourneeTechniciens({ journee, tech, setTech, heure, duree, rvActuelId, reessayer }) {
   if (journee === 'chargement') return (
     <div className="mt-3">
       <div className="mb-1"><Attente texte="2. Choisir — lecture des calendriers de tous les techniciens dans Gazelle" /></div>
@@ -187,7 +205,7 @@ function JourneeTechniciens({ journee, tech, setTech, heure, duree, rvActuelId }
     </div>
   )
   if (!journee) return null
-  if (journee.erreur) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Journée des techniciens indisponible : {journee.erreur}</div>
+  if (journee.erreur) return <div className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">Journée des techniciens indisponible : {journee.erreur}<button type="button" onClick={reessayer} className="ml-2 rounded border border-amber-400 bg-white px-2 py-0.5 text-amber-800 hover:bg-amber-100">Réessayer</button></div>
   return (
     <div className="mt-3">
       <div className="mb-1 text-xs font-semibold text-gray-800">2. Choisir — journée des techniciens, {jourLong(journee.date)} <span className="font-normal text-gray-500">(clic = choisir)</span></div>
@@ -231,6 +249,8 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
   const [verif, setVerif] = useState(null)
   const [rvActuel, setRvActuel] = useState(modifier ? 'chargement' : null)
   const [copie, setCopie] = useState(false)
+  const [essai, setEssai] = useState(0)   // « Réessayer » relance les lectures
+  const reessayer = () => setEssai((n) => n + 1)
 
   // Pianos PdA + piano suggéré (création seulement : en modification, les pianos du RV ne bougent pas)
   useEffect(() => {
@@ -244,34 +264,32 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
   // Modification : le RV tel qu'il est maintenant dans Gazelle
   useEffect(() => {
     if (!modifier) return
-    fetch(`${API_URL}/api/place-des-arts/requests/${demande.id}/rv-actuel`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`); return d })
+    setRvActuel('chargement')
+    fetchJson(`${API_URL}/api/place-des-arts/requests/${demande.id}/rv-actuel`)
       .then((rv) => { setRvActuel(rv); setTech(rv.technician_id || ''); setDate(rv.date); setHeure(rv.heure); setDuree(rv.duree || 60) })
       .catch((e) => setRvActuel({ erreur: e.message }))
-  }, [demande.id, modifier])
+  }, [demande.id, modifier, essai])
 
   // Contre-vérification contre le courriel d'origine
   useEffect(() => {
     let annule = false
     setVerif('chargement')
-    fetch(`${API_URL}/api/place-des-arts/requests/${demande.id}/verification`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`); return d })
+    fetchJson(`${API_URL}/api/place-des-arts/requests/${demande.id}/verification`)
       .then((d) => { if (!annule) setVerif(d) })
       .catch((e) => { if (!annule) setVerif({ erreurReseau: e.message }) })
     return () => { annule = true }
-  }, [demande.id])
+  }, [demande.id, essai])
 
   // Journée de tous les techniciens à la date choisie (Gazelle en direct)
   useEffect(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setJournee(null); return }
     let annule = false
     setJournee('chargement')
-    fetch(`${API_URL}/api/place-des-arts/journee-techniciens?date=${date}`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`); return d })
+    fetchJson(`${API_URL}/api/place-des-arts/journee-techniciens?date=${date}`)
       .then((d) => { if (!annule) setJournee(d) })
       .catch((e) => { if (!annule) setJournee({ erreur: e.message }) })
     return () => { annule = true }
-  }, [date])
+  }, [date, essai])
 
   const nomTech = (TECHS.find((t) => t.id === tech) || {}).label
   const rvPret = !modifier || (rvActuel && rvActuel !== 'chargement' && !rvActuel.erreur)
@@ -293,12 +311,19 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
       const url = modifier
         ? `${API_URL}/api/place-des-arts/requests/${demande.id}/reassigner-rv`
         : `${API_URL}/api/place-des-arts/requests/${demande.id}/creer-rv-gazelle`
-      const resp = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ technician_id: tech, date, heure, duree_min: Number(duree), piano_id: pianoId || null, par: par || null }),
-      })
-      const d = await resp.json().catch(() => ({}))
-      if (!resp.ok) throw new Error(d.detail || `Erreur ${resp.status}`)
+      let d
+      try {
+        d = await fetchJson(url, 90000, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ technician_id: tech, date, heure, duree_min: Number(duree), piano_id: pianoId || null, par: par || null }),
+        })
+      } catch (e) {
+        // Sans réponse, le changement a peut-être quand même été fait : on ne propose pas de recliquer à l'aveugle
+        if (/pas de réponse|injoignable/.test(e.message)) {
+          throw new Error(`${e.message}. Le RV a peut-être quand même été ${modifier ? 'modifié' : 'créé'} : vérifie dans Gazelle avant de réessayer.`)
+        }
+        throw e
+      }
       if (modifier) (onReassigned || onClose)(d, nomTech)
       else onCreated(d, nomTech)
     } catch (e) {
@@ -322,7 +347,7 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
         {modifier && (
           <div className="mt-2 rounded bg-blue-50 p-2 text-xs text-blue-900">
             {rvActuel === 'chargement' && <Attente texte="Lecture du RV dans Gazelle" />}
-            {rvActuel && rvActuel.erreur && <span className="text-red-700">RV illisible dans Gazelle : {rvActuel.erreur}</span>}
+            {rvActuel && rvActuel.erreur && <span className="text-red-700">RV illisible dans Gazelle : {rvActuel.erreur}<button type="button" onClick={reessayer} className="ml-2 rounded border border-amber-400 bg-white px-2 py-0.5 text-amber-800 hover:bg-amber-100">Réessayer</button></span>}
             {rvActuel && rvActuel.id && (
               <>
                 RV actuel : <b>{(TECHS.find((t) => t.id === rvActuel.technician_id) || {}).label || rvActuel.technicien || '?'}</b>, {jourLong(rvActuel.date)} à {rvActuel.heure} ({rvActuel.duree} min).
@@ -333,9 +358,9 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
           </div>
         )}
 
-        <Verification verif={verif} demandeId={demande.id} />
+        <Verification verif={verif} demandeId={demande.id} reessayer={reessayer} />
 
-        <JourneeTechniciens journee={journee} tech={tech} setTech={setTech} heure={heure} duree={duree} rvActuelId={modifier && rvActuel ? rvActuel.id : null} />
+        <JourneeTechniciens journee={journee} tech={tech} setTech={setTech} heure={heure} duree={duree} rvActuelId={modifier && rvActuel ? rvActuel.id : null} reessayer={reessayer} />
 
         <div className="mt-3 text-xs font-semibold text-gray-800">3. Confirmer</div>
         <div className="mt-1 grid grid-cols-2 gap-3 text-sm">

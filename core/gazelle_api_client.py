@@ -24,6 +24,9 @@ env_path = os.path.join(PROJECT_ROOT, '.env')
 load_dotenv(env_path)
 
 API_URL = "https://gazelleapp.io/graphql/private/"
+# Délai maximal d'une requête Gazelle (connexion, lecture) : sans lui, une requête bloquée
+# fait tourner l'écran sans fin et occupe le serveur.
+GAZELLE_TIMEOUT = (10, 120)
 OAUTH_TOKEN_URL = "https://gazelleapp.io/developer/oauth/token"
 
 
@@ -151,7 +154,7 @@ class GazelleAPIClient:
         }
         
         try:
-            response = requests.post(OAUTH_TOKEN_URL, data=payload)
+            response = requests.post(OAUTH_TOKEN_URL, data=payload, timeout=GAZELLE_TIMEOUT)
             response.raise_for_status()
             
             new_token_data = response.json()
@@ -210,7 +213,7 @@ class GazelleAPIClient:
         }
 
         try:
-            response = requests.post(API_URL, json=payload, headers=headers)
+            response = requests.post(API_URL, json=payload, headers=headers, timeout=GAZELLE_TIMEOUT)
 
             # AUTO-REFRESH: Si 401, tenter de rafraîchir automatiquement
             if response.status_code == 401:
@@ -235,7 +238,7 @@ class GazelleAPIClient:
                         headers['Authorization'] = f"Bearer {new_access_token}"
 
                     # Retry la requête
-                    response = requests.post(API_URL, json=payload, headers=headers)
+                    response = requests.post(API_URL, json=payload, headers=headers, timeout=GAZELLE_TIMEOUT)
 
                 except Exception as refresh_error:
                     print(f"❌ Échec du refresh automatique: {refresh_error}")
