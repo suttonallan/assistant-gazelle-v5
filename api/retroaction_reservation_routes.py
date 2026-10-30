@@ -202,7 +202,7 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
         f"<p><b>Indisponibilités :</b><br>{e(d.indisponibilites).replace(chr(10), '<br>')}</p>"
         f"<p><b>Note du client :</b><br>{e(d.notes).replace(chr(10), '<br>')}</p>"
         f"<p>Fiche Gazelle : {e(d.client_id)}</p>"
-        "<p>On a dit au client que l'équipe le contacterait d'ici deux jours ouvrables pour fixer le rendez-vous.</p>"
+        "<p>On a dit au client que l'équipe communiquerait avec lui pour fixer le rendez-vous (aucun délai promis).</p>"
         "<p style='color:#777'>Envoyé automatiquement par la page de réservation en ligne.</p>"
     )
     tache_ok = _tache_hors_zone(d)
@@ -222,7 +222,7 @@ def demande_hors_zone(d: DemandeHorsZone, x_reservation_secret: Optional[str] = 
 
 
 def _echeance_ouvrable(jours: int = 2) -> str:
-    """Date AAAA-MM-JJ à N jours ouvrables (heure de Montréal) : ce qu'on promet au client."""
+    """Date AAAA-MM-JJ à N jours ouvrables (heure de Montréal) : échéance interne, jamais promise au client."""
     from datetime import timedelta
     from core.timezone_utils import aujourdhui_montreal
     d = aujourdhui_montreal()
@@ -234,8 +234,21 @@ def _echeance_ouvrable(jours: int = 2) -> str:
     return d.isoformat()
 
 
+def _assigne_hors_zone() -> str:
+    try:
+        from core.supabase_storage import SupabaseStorage
+        v = SupabaseStorage(silent=True).get_system_setting("hors_zone_assigne")
+        v = (v or "").strip().strip('"').lower() if isinstance(v, str) else ""
+        if v in ("allan", "nicolas", "louise", "margot", "jp"):
+            return v
+    except Exception:  # noqa: BLE001
+        pass
+    return "allan"
+
+
 def _tache_hors_zone(d: "DemandeHorsZone") -> bool:
-    """Tâche « RV hors zone à fixer » pour Louise, échéance à deux jours ouvrables."""
+    """Tâche « RV hors zone à fixer », échéance interne à deux jours ouvrables (rappel, pas une promesse au client).
+    Assignée à Allan pendant l'absence de Louise (system_settings « hors_zone_assigne » pour changer sans déploiement)."""
     import requests
     from api.taches_routes import _db, _url
     km = f"{round(d.distance_km)} km" if d.distance_km else "distance inconnue"
@@ -251,14 +264,14 @@ def _tache_hors_zone(d: "DemandeHorsZone") -> bool:
         f"Note du client : {d.notes or '—'}",
         f"Langue : {'anglais' if d.langue == 'en' else 'français'}",
         f"Fiche Gazelle : {d.client_id or '—'}",
-        "Promis au client : un appel d'ici deux jours ouvrables pour fixer le rendez-vous.",
+        "Dit au client : on communiquera avec lui pour fixer le RV (aucun délai promis).",
     ]
     ville = d.adresse.split(",")[1].strip() if "," in d.adresse else d.adresse[:40]
     data = {
         "titre": f"RV hors zone à fixer : {d.prenom} {d.nom} ({ville})",
         "contexte": "\n".join(lignes),
         "statut": "a_faire",
-        "assigne": "louise",
+        "assigne": _assigne_hors_zone(),
         "echeance": _echeance_ouvrable(2),
         "source": "reservation-en-ligne",
         "cree_par": "reservation-en-ligne",
