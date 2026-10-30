@@ -24,7 +24,7 @@ noeuds = q('{ allClients(first: 10, filters: {search: "Sutton"}) { nodes { id cu
 masque = lambda e: (e[:2] + "***@" + e.split("@")[-1]) if "@" in (e or "") else "aucun"
 for n in noeuds:
     ct = n.get("defaultContact") or {}
-    print(f"::notice title=Fiche {n['id'][-4:]}::{(ct.get('firstName') or '')[:1]}. {ct.get('lastName') or ''} | {masque((ct.get('defaultEmail') or {}).get('email'))} | numero client {'rempli' if n.get('custom2') else 'vide'} | {n['status']}")
+    print(f"Fiche {n['id'][-4:]} : {(ct.get('firstName') or '')[:1]}. {ct.get('lastName') or ''} | {masque((ct.get('defaultEmail') or {}).get('email'))} | numero client {'rempli' if n.get('custom2') else 'vide'} | {n['status']}")
 cible = next((n for n in noeuds if ((((n.get("defaultContact") or {}).get("defaultEmail") or {}).get("email") or "").lower() in ADRESSES_ALLAN)
               and n.get("custom2") and n["status"] == "ACTIVE"), None)
 if not cible:
