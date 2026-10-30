@@ -9,6 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv; load_dotenv()
 from core.gazelle_api_client import GazelleAPIClient
+import os
+_k = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+print("::notice title=Cle Supabase GitHub::" + ("ANCIENNE cle JWT (desactivee le 29 oct.)" if _k.startswith("eyJ") else "nouvelle cle sb_secret" if _k.startswith("sb_secret_") else "vide ou inconnue"))
 
 CLIENT_ALLAN = "cli_Wzmj2Va3ODoxDoQr"   # fiche d'Allan (asutton@piano-tek.com)
 MESSAGES = [("lcy_VEOrJHKlyLhGaNa4", "lcm_oYKZhzjTW6WzXNH2", "Cycle Français — À accorder bientôt")]
