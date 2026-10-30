@@ -14,6 +14,7 @@ import re
 import unicodedata
 from datetime import date
 from typing import Any, Dict, List, Optional
+from core.timezone_utils import aujourdhui_montreal
 
 MOIS = {
     'jan': 1, 'janv': 1, 'janvier': 1, 'january': 1,
@@ -79,7 +80,7 @@ def nettoyer_corps(texte: str) -> str:
 
 
 def _annee_proche(jour: int, mois: int, reference: Optional[date]) -> Optional[str]:
-    ref = reference or date.today()
+    ref = reference or aujourdhui_montreal()
     meilleure = None
     for an in (ref.year - 1, ref.year, ref.year + 1):
         try:
