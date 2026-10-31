@@ -1853,7 +1853,13 @@ def _messages_front(front, conv_id: str) -> List[Dict]:
 
 
 def _source_front(demande: Dict[str, Any], jour: str):
-    """Courriel d'origine dans Front : (texte, sujet, conversation_id) ou (None, None, None).
+    """Courriel d'origine dans Front : (texte, sujet, conversation_id) ou (None, None, None)."""
+    src = _trouver_source_front(demande, jour)
+    return (src['texte'], src['sujet'], src['conv_id']) if src else (None, None, None)
+
+
+def _trouver_source_front(demande: Dict[str, Any], jour: str) -> Optional[Dict[str, Any]]:
+    """Message d'origine de la demande dans Front : texte, sujet, conversation, expéditeur.
     On cherche d'abord par le nom de l'événement (le sujet peut porter une autre date que le
     tableau), puis par la date seulement si rien n'est trouvé. On garde le message entrant qui
     contient une ligne à la date de la demande et nomme l'événement ; à égalité, le plus récent
@@ -1894,14 +1900,16 @@ def _source_front(demande: Dict[str, Any], jour: str):
                     continue
                 sc = vs.score(demande, ligne, contexte)
                 if sc >= 8:   # date + au moins l'événement ou le piano
-                    meilleurs.append((sc, m.get('created_at') or 0, texte, m.get('subject') or c.get('subject'), c['id']))
+                    meilleurs.append((sc, m.get('created_at') or 0, texte, m.get('subject') or c.get('subject'), c['id'], m))
         if meilleurs:
             break   # trouvé par le nom : pas besoin de chercher par la date
     if not meilleurs:
-        return None, None, None
+        return None
     meilleurs.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    _, _, texte, sujet, cid = meilleurs[0]
-    return texte, sujet, cid
+    _, _, texte, sujet, cid, msg = meilleurs[0]
+    exp = next((r for r in (msg.get('recipients') or []) if r.get('role') == 'from'), {}) or {}
+    return {"texte": texte, "sujet": sujet, "conv_id": cid,
+            "expediteur_email": exp.get('handle'), "expediteur_nom": exp.get('name')}
 
 
 @router.get("/requests/{request_id}/verification")
@@ -2055,15 +2063,36 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
         avertissement = f"RV créé dans Gazelle ({ev['id']}) mais la demande n'a pas pu être mise à jour : {e}"
         logging.error(avertissement)
 
-    # Marquer « traité » dans Front : le courriel d'Isabelle et l'avis « à réviser »
+    # Brouillon de confirmation au demandeur + commentaire « traité » dans le fil Front de la demande
     tech_nom = (ev.get('user') or {}).get('firstName') or ''
-    front = _commenter_traite_front(demande, body, ev, tech_nom)
+    src = None
+    try:
+        src = _trouver_source_front(demande, str(demande.get('appointment_date') or '')[:10])
+    except Exception as e:
+        logging.warning(f"Recherche du courriel de la demande {request_id} : {e}")
+    brouillon = _brouillon_confirmation(demande, body.date, body.par, src)
+    if src:
+        front = {"commentees": []}
+        suite = (f"Brouillon de confirmation à {brouillon.get('a')} prêt dans ce fil : à vérifier, puis Envoyer."
+                 if brouillon.get('cree') or brouillon.get('existe')
+                 else f"Pas de brouillon de confirmation ({brouillon.get('raison')}) : répondre à la main.")
+        try:
+            from core.front_client import get_front_client
+            texte = (f"✅ Traité — RV créé dans Gazelle pour {tech_nom or 'le technicien'} "
+                     f"{_quand(body.date, body.heure)} ({ev.get('title')}). Demande reliée dans l'assistant. "
+                     f"{suite} (Assistant Gazelle)")
+            get_front_client().add_comment(src['conv_id'], texte, _auteur_front(body.par))
+            front["commentees"].append({"id": src['conv_id'], "sujet": src.get('sujet')})
+        except Exception as e:
+            front["erreur"] = f"Commentaire Front impossible : {e}"
+    else:
+        front = _commenter_traite_front(demande, body, ev, tech_nom)
 
     _cache_journee.clear()
     # Rafraîchir la copie locale des RV Gazelle en arrière-plan (Ma journée, liens)
     background_tasks.add_task(_pull_live_appointments, storage)
     return {"ok": True, "evenement": ev, "piano_id": piano_id, "avertissement": avertissement,
-            "front": front}
+            "front": front, "brouillon": brouillon}
 
 
 # --- Commentaire « traité » dans Front ---
@@ -2334,6 +2363,69 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
     background_tasks.add_task(_pull_live_appointments, storage)
     return {"ok": True, "change": True, "rv": rv, "avertissements": avert, "front": front,
             "nom_technicien": nom}
+
+
+# --- Brouillon de confirmation au demandeur, créé avec le RV (oct. 2026, Allan) ---
+# Toujours : depuis info@ (canal de la boîte info), adressé SEULEMENT à la personne qui a
+# fait la demande, partagé, JAMAIS envoyé. Les mêmes infos que le RV : pas d'erreur de recopie.
+_JOURS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche']
+_MOIS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août',
+            'septembre', 'octobre', 'novembre', 'décembre']
+
+
+def _phrase_confirmation(demande: Dict[str, Any], date_iso: str) -> str:
+    try:
+        d = datetime.fromisoformat(date_iso[:10])
+        quand = f"le {_JOURS[d.weekday()]} {d.day}{'er' if d.day == 1 else ''} {_MOIS_FR[d.month - 1]}"
+    except ValueError:
+        quand = f"le {date_iso[:10]}"
+    piano = (demande.get('piano') or '').strip()
+    if demande.get('diapason'):
+        piano = f"{piano} à {demande['diapason']}".strip()
+    heure = (demande.get('time') or '').strip()
+    heure = heure[:1].lower() + heure[1:] if heure else ''
+    morceaux = [quand, (demande.get('room') or '').strip(), piano, (demande.get('for_who') or '').strip(), heure]
+    return "C'est d'accord pour " + ", ".join(m for m in morceaux if m) + "."
+
+
+def _auteur_front(par: Optional[str]) -> str:
+    p = (par or '').lower().strip()
+    return p if p.endswith('@piano-tek.com') and p != 'info@piano-tek.com' else 'asutton@piano-tek.com'
+
+
+def _brouillon_confirmation(demande: Dict[str, Any], date_iso: str, par: Optional[str],
+                            src: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Crée (ou complète) le brouillon de réponse dans la conversation Front de la demande."""
+    import html as _html
+    if not src or not src.get('conv_id'):
+        return {"cree": False, "raison": "courriel de la demande introuvable dans Front"}
+    dest = (src.get('expediteur_email') or '').strip()
+    if not dest or dest.lower().endswith('@piano-tek.com'):
+        return {"cree": False, "raison": "expéditeur de la demande introuvable", "conv_id": src['conv_id']}
+    from core.front_client import get_front_client
+    front = get_front_client()
+    phrase = _phrase_confirmation(demande, date_iso)
+    prenom = ((src.get('expediteur_nom') or '').split() or [''])[0].strip(' ,"')
+    try:
+        # Un brouillon de confirmation existe déjà (autre piano du même courriel) : on y ajoute la ligne
+        for dr in front.list_drafts(src['conv_id']):
+            corps = dr.get('body') or ''
+            if "C'est d'accord pour" in _html.unescape(corps) or "C&#39;est d&#39;accord pour" in corps:
+                if _html.escape(phrase, quote=False) in corps or phrase in _html.unescape(corps):
+                    return {"cree": False, "existe": True, "conv_id": src['conv_id'], "a": dest}
+                nouveau = corps.replace('<p>Bonne journée,</p>', f'<p>{_html.escape(phrase, quote=False)}</p><p>Bonne journée,</p>', 1)
+                if nouveau == corps:
+                    nouveau = corps + f'<p>{_html.escape(phrase, quote=False)}</p>'
+                front.edit_draft(dr['id'], dr.get('version'), nouveau,
+                                 front._channel_de_conversation(src['conv_id']), to=[dest])
+                return {"cree": True, "complete": True, "conv_id": src['conv_id'], "a": dest, "phrase": phrase}
+        corps = (f"<p>Bonjour{(' ' + _html.escape(prenom, quote=False)) if prenom else ''},</p>"
+                 f"<p>{_html.escape(phrase, quote=False)}</p><p>Bonne journée,</p>")
+        front.create_draft_reply(src['conv_id'], corps, _auteur_front(par), to=[dest], mode="shared")
+        return {"cree": True, "conv_id": src['conv_id'], "a": dest, "phrase": phrase}
+    except Exception as e:
+        logging.warning(f"Brouillon de confirmation PdA ({demande.get('id')}) : {e}")
+        return {"cree": False, "raison": f"Front a refusé le brouillon : {e}", "conv_id": src['conv_id']}
 
 
 @router.post("/requests/{request_id}/verify-technician")

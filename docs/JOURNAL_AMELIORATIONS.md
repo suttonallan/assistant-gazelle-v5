@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Octobre 2026
 
+### 31 octobre
+- **« Créer le RV » prépare la réponse à la PdA** : en créant le RV, l'assistant prépare dans le fil Front de la demande un brouillon de confirmation (depuis info@, adressé seulement à la personne qui a fait la demande, avec les mêmes infos que le RV) et ajoute le commentaire « ✅ Traité ». Il reste à le relire et à cliquer Envoyer. Plusieurs pianos d'un même courriel s'ajoutent au même brouillon.
+
 ### 30 octobre
 - **Fini la roue qui tourne sans fin dans « Créer / Modifier le RV »** : si le serveur ou Gazelle ne répond pas, la fenêtre le dit après 45 secondes avec un bouton « Réessayer » ; à l'enregistrement, elle prévient de vérifier dans Gazelle avant de recliquer (le changement a peut-être été fait). Côté serveur, une requête à Gazelle ne peut plus bloquer plus de deux minutes.
 - **Fenêtre « Créer le RV » : on voit que ça charge** : pendant que l'assistant lit les calendriers dans Gazelle et cherche le courriel dans Front, une roue tourne avec les secondes écoulées et les colonnes des techniciens s'affichent en attente ; si c'est lent, un message rassure que ça vient. La journée d'une date déjà consultée s'affiche aussitôt pendant 90 secondes.

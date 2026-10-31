@@ -403,7 +403,7 @@ export default function CreerRvModal({ demande, onClose, onCreated, onReassigned
         {!modifier && (
           <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-2 text-xs">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-gray-600">Phrase de confirmation pour la PdA (mêmes infos que le RV) :</span>
+              <span className="text-gray-600">À la création, un <b>brouillon de réponse</b> avec cette phrase sera préparé dans le fil Front de la demande (depuis info@, seulement pour la personne qui a fait la demande). Tu le vérifies puis tu cliques Envoyer.</span>
               <button type="button" onClick={copier} className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-100">{copie ? 'Copié ✓' : 'Copier'}</button>
             </div>
             <div className="text-gray-900">{phrase}</div>

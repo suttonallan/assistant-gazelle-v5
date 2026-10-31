@@ -2094,7 +2094,11 @@ export default function PlaceDesArtsDashboard({ currentUser }) {
               : nbFront
                 ? `\n💬 Marqué « traité » dans Front (${nbFront} conversation${nbFront > 1 ? 's' : ''}).`
                 : `\n⚠️ Courriel de la demande introuvable dans Front — marquer « traité » à la main.`
-            setInfoMessage(`✅ RV créé dans Gazelle pour ${nomTech} : ${ev.title || ''}${res.avertissement ? `\n⚠️ ${res.avertissement}` : ''}${res.piano_id ? '' : '\n⚠️ Aucun piano lié — à ajouter dans Gazelle.'}${ligneFront}`)
+            const br = res.brouillon || {}
+            const ligneBrouillon = br.cree || br.existe
+              ? `\n📝 Brouillon de confirmation à ${br.a} prêt dans Front (depuis info@) : ouvre le fil, vérifie, puis Envoyer.`
+              : `\n⚠️ Pas de brouillon de confirmation (${br.raison || 'raison inconnue'}) : répondre à la main, seulement à la personne qui a fait la demande.`
+            setInfoMessage(`✅ RV créé dans Gazelle pour ${nomTech} : ${ev.title || ''}${res.avertissement ? `\n⚠️ ${res.avertissement}` : ''}${res.piano_id ? '' : '\n⚠️ Aucun piano lié — à ajouter dans Gazelle.'}${ligneFront}${ligneBrouillon}`)
             setCreationRv(null)
           }}
         />
