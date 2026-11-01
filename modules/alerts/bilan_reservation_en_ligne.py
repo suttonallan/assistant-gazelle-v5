@@ -59,6 +59,20 @@ def _heure(iso: str) -> str:
         return ""
 
 
+# Ce que la visite n'a pas fait quand elle quitte entre l'étape n et n+1
+BLOCAGES = {1: "au choix du piano", 2: "au choix du moment", 3: "aux coordonnées (sans envoyer)"}
+
+
+def _ou_ca_bloque(etapes: Counter) -> str:
+    """Une phrase : l'étape où le plus de visites sont parties."""
+    pertes = {n: etapes.get(n, 0) - etapes.get(n + 1, 0) for n in BLOCAGES}
+    n, perdu = max(pertes.items(), key=lambda x: x[1])
+    if perdu <= 0:
+        return ""
+    return (f"<p><b>Où ça bloque :</b> {BLOCAGES[n]} — {perdu} visite(s) sur "
+            f"{etapes.get(n, 0)} sont parties à cette étape.</p>")
+
+
 def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str, str]]:
     """Retourne {sujet, html} ou None s'il n'y a rien à signaler."""
     if not evts:
@@ -96,7 +110,8 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
                        "Chaque ligne compte les visites qui se sont rendues au moins jusque-là : "
                        "elle comprend celles des lignes du dessous.</p>"
                        f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>"
-                       "<p style='color:#777'>Une page rechargée compte comme une nouvelle visite.</p>")
+                       + _ou_ca_bloque(etapes)
+                       + "<p style='color:#777'>Une page rechargée compte comme une nouvelle visite.</p>")
 
     def liste(titre: str, items: List[Dict[str, Any]], ligne) -> None:
         if items:
