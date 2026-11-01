@@ -20,8 +20,9 @@ TABLE = "reservation_en_ligne_evenements"
 CLE_ENVOYES = "bilan_reservation_en_ligne_envoyes"
 
 # Libellés des étapes, dans l'ordre de la page (voir static/index.html de ptm-reservation)
-ETAPES = {1: "Ont ouvert la page (choix du piano)", 2: "Sont passés au choix du moment",
-          3: "Sont arrivés aux coordonnées", 4: "Ont envoyé leur demande"}
+# Chaque libellé décrit ce que la visite a FAIT pour atteindre l'étape (étape 2 = piano choisi, etc.)
+ETAPES = {1: "Ont ouvert la page", 2: "… puis ont choisi leur piano",
+          3: "… puis ont choisi un moment", 4: "… puis ont envoyé leur demande"}
 RATTRAPAGE_JOURS = 7      # un bilan manqué (redéploiement, échec d'envoi) part le lendemain
 CONSERVATION_JOURS = 60   # Loi 25 : coordonnées effacées du journal après ce délai (restent dans Gazelle)
 MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
@@ -91,8 +92,11 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
     if etapes:
         lignes = "".join(f"<tr><td>{e(ETAPES[n])}</td><td style='text-align:right'><b>{etapes.get(n, 0)}</b></td></tr>"
                          for n in sorted(ETAPES))
-        parties.append("<p><b>Parcours des visiteurs</b> (anonyme)</p>"
-                       f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>")
+        parties.append("<p><b>Parcours des visiteurs</b> (anonyme)<br>"
+                       "Chaque ligne compte les visites qui se sont rendues au moins jusque-là : "
+                       "elle comprend celles des lignes du dessous.</p>"
+                       f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>"
+                       "<p style='color:#777'>Une page rechargée compte comme une nouvelle visite.</p>")
 
     def liste(titre: str, items: List[Dict[str, Any]], ligne) -> None:
         if items:

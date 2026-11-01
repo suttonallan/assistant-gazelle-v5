@@ -4,6 +4,11 @@ Une ligne par amélioration, en langage clair, la plus récente en haut.
 Les modifications purement techniques (diagnostics, nettoyage) n'y figurent pas ;
 l'historique complet reste dans git.
 
+## Novembre 2026
+
+### 1er novembre
+- **Bilan de la réservation en ligne plus clair** : le parcours des visiteurs décrit maintenant ce que chacun a fait (ouvert la page, puis choisi son piano, puis un moment, puis envoyé sa demande) et précise que chaque ligne comprend celles du dessous.
+
 ## Octobre 2026
 
 ### 31 octobre
