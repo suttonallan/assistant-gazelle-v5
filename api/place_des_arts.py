@@ -2249,6 +2249,27 @@ def _rv_pour_ecran(ev: Dict[str, Any]) -> Dict[str, Any]:
             "pianos": [n['piano']['id'] for n in ((ev.get('allEventPianos') or {}).get('nodes') or [])]}
 
 
+def _aligner_assistant_sur_rv(storage, eid: str, rv: Dict[str, Any], demande: Dict[str, Any]) -> Optional[str]:
+    """Met l'assistant au diapason du RV Gazelle, tout de suite (sans attendre la synchro de
+    3-5 min) : technicien et date de toutes les demandes reliées, et la copie locale du RV
+    (table gazelle_appointments) qu'affiche le tableau PdA. Retourne une erreur ou None."""
+    maj = {'technician_id': rv['technician_id'], 'updated_at': datetime.now(timezone.utc).isoformat()}
+    if rv['date'] != str(demande.get('appointment_date') or '')[:10]:
+        maj['appointment_date'] = rv['date']
+    try:
+        storage.client.table('place_des_arts_requests').update(maj).eq('appointment_id', eid).execute()
+    except Exception as e:
+        return f"l'assistant n'a pas pu être mis à jour : {e}"
+    try:
+        storage.client.table('gazelle_appointments').update({
+            'technicien': rv['technician_id'], 'appointment_date': rv['date'],
+            'appointment_time': f"{rv['heure']}:00", 'duration_minutes': rv['duree'],
+        }).eq('external_id', eid).execute()
+    except Exception as e:
+        logging.warning(f"Copie locale du RV {eid} non mise à jour (la synchro le fera) : {e}")
+    return None
+
+
 @router.get("/requests/{request_id}/rv-actuel")
 def rv_actuel(request_id: str):
     """LECTURE SEULE — le RV Gazelle relié à la demande, tel qu'il est maintenant dans Gazelle."""
@@ -2304,8 +2325,15 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
     if int(body.duree_min) != int(avant.get('duration') or 0):
         inp['duration'] = int(body.duree_min)
     if not inp:
-        return {"ok": True, "change": False, "message": "Rien à changer : le RV est déjà comme ça.",
-                "rv": _rv_pour_ecran(avant)}
+        # Gazelle est déjà comme demandé (souvent : changé directement dans Gazelle). On aligne
+        # quand même l'assistant, sinon il continue d'afficher l'ancien technicien.
+        rv0 = _rv_pour_ecran(avant)
+        err = _aligner_assistant_sur_rv(storage, eid, rv0, demande)
+        _cache_verif.pop(request_id, None)
+        _cache_journee.clear()
+        return {"ok": True, "change": True, "rv": rv0, "nom_technicien": _TECHS_JOURNEE.get(rv0['technician_id']) or rv0.get('technicien'),
+                "avertissements": [f"Gazelle était déjà à jour ; {err}"] if err else [],
+                "message": "Gazelle était déjà à jour : l'assistant est maintenant aligné."}
 
     mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
       event { id } mutationErrors { fieldName messages } } }"""
@@ -2344,14 +2372,10 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
     if rv['technician_id'] != body.technician_id or rv['date'] != body.date[:10] or rv['heure'] != body.heure[:5]:
         avert.append("Gazelle n'affiche pas exactement le changement demandé — à vérifier dans Gazelle.")
 
-    # Toutes les demandes reliées à ce RV suivent
-    maj = {'technician_id': rv['technician_id'], 'updated_at': datetime.now(timezone.utc).isoformat()}
-    if rv['date'] != str(demande.get('appointment_date') or '')[:10]:
-        maj['appointment_date'] = rv['date']
-    try:
-        storage.client.table('place_des_arts_requests').update(maj).eq('appointment_id', eid).execute()
-    except Exception as e:
-        avert.append(f"RV changé dans Gazelle, mais l'assistant n'a pas pu être mis à jour : {e}")
+    # Toutes les demandes reliées à ce RV suivent, et la copie locale affichée dans le tableau
+    err = _aligner_assistant_sur_rv(storage, eid, rv, demande)
+    if err:
+        avert.append(f"RV changé dans Gazelle, mais {err}")
 
     # Trace dans Front (courriel de la demande)
     nom = _TECHS_JOURNEE.get(rv['technician_id']) or rv.get('technicien') or 'le technicien'
