@@ -649,6 +649,8 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                 _liens_confirmes = {}
             
             # Enrichir les demandes
+            a_enregistrer: List[Any] = []
+            A_ATTRIBUER = 'usr_HihJsEgkmpTEziJo'
             for request in requests_data:
                 appointment_id = request.get("appointment_id")
                 if appointment_id:
@@ -681,7 +683,10 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                     # Vérifier incohérence : technicien PDA différent de Gazelle
                     # IMPORTANT: "À attribuer" = "À attribuer" n'est PAS une incohérence, c'est un état normal
                     A_ATTRIBUER_ID = 'usr_HihJsEgkmpTEziJo'
-                    if current_tech and tech_from_gazelle and current_tech != tech_from_gazelle:
+                    # Un « À attribuer » (ou vide) qu'on a attribué dans Gazelle n'est PAS un écart :
+                    # l'assistant le suit (plus bas). Seuls deux vrais noms différents sont discordants.
+                    if (current_tech and current_tech != A_ATTRIBUER_ID and tech_from_gazelle
+                            and current_tech != tech_from_gazelle):
                         # Ne pas marquer comme incohérence si les deux sont "À attribuer"
                         if not (current_tech == A_ATTRIBUER_ID and tech_from_gazelle == A_ATTRIBUER_ID):
                             # Incohérence détectée : PDA a un technicien mais Gazelle en a un autre
@@ -699,6 +704,9 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                     if tech_from_gazelle and current_tech in (None, "", A_ATTRIBUER_ID):
                         request["technician_id"] = tech_from_gazelle
                         request["technician_from_gazelle"] = True
+                        if tech_from_gazelle != current_tech and tech_from_gazelle != A_ATTRIBUER_ID:
+                            # On l'enregistre aussi (sinon le contrôle quotidien voit encore « À attribuer »)
+                            a_enregistrer.append((request.get('id'), tech_from_gazelle))
                         logging.debug(f"Enrichi demande {request.get('id')} avec technicien {tech_from_gazelle} depuis RV Gazelle")
                     elif tech_from_gazelle and current_tech == tech_from_gazelle:
                         request["technician_from_gazelle"] = True
@@ -707,6 +715,17 @@ def list_requests(  # sync volontaire: I/O bloquant -> threadpool, boucle libre
                     # de service (timeline entries), pas depuis description/notes du RV.
                     # L'extraction se fait dans _extract_parking_from_appointment()
                     # lors de la sync (pas ici en lecture).
+            # « À attribuer » attribué dans Gazelle : on enregistre le technicien de Gazelle
+            for rid, tech in a_enregistrer:
+                try:
+                    storage.client.table('place_des_arts_requests').update(
+                        {'technician_id': tech, 'updated_at': datetime.now(timezone.utc).isoformat()}
+                    ).eq('id', rid).in_('technician_id', [A_ATTRIBUER]).execute()
+                    storage.client.table('place_des_arts_requests').update(
+                        {'technician_id': tech, 'updated_at': datetime.now(timezone.utc).isoformat()}
+                    ).eq('id', rid).is_('technician_id', 'null').execute()
+                except Exception as e:
+                    logging.warning(f"Technicien de Gazelle non enregistré pour {rid} : {e}")
         except Exception as e:
             logging.warning(f"Erreur enrichissement technicien depuis Gazelle: {e}")
     

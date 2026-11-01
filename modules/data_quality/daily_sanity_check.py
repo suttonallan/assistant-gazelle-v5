@@ -413,7 +413,8 @@ def check_pda_coherence(storage) -> list:
                 "detail": f"Demande {_d10(r.get('appointment_date'))} vs RV {_d10(apt.get('appointment_date'))}. RV déplacé, demande pas suivie ?",
             })
         rt, at = r.get("technician_id"), apt.get("technicien")
-        if rt and at and rt != at:
+        # Un « À attribuer » qu'on a attribué dans Gazelle n'est pas discordant : l'assistant le suit.
+        if rt and at and rt != at and rt != "usr_HihJsEgkmpTEziJo":
             anomalies.append({
                 "check": "pda_tech_discordant", "severity": "warning",
                 "title": f"Technicien discordant — {_d10(r.get('appointment_date'))} {r.get('room')}",

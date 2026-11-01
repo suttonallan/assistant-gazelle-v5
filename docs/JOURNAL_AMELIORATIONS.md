@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 1er novembre
+- **Un RV « À attribuer » attribué dans Gazelle n'est plus signalé comme discordant** : l'assistant reprend et enregistre tout seul le technicien choisi dans Gazelle, sans menu jaune ni alerte du vérificateur quotidien. Seuls deux noms vraiment différents (ex. Nick dans l'assistant, Margot dans Gazelle) restent signalés.
 - **« Modifier le RV » suit aussi un changement fait dans Gazelle** : si le technicien a déjà été changé directement dans Gazelle, « Modifier le RV » met maintenant l'assistant à jour au lieu de répondre « rien à changer » ; et après chaque modification, le tableau Place des Arts affiche le bon technicien tout de suite, sans attendre la synchro de quelques minutes.
 - **Réservation en ligne : des visites mieux comptées** : quelqu'un qui recharge la page n'est plus compté comme une nouvelle visite dans le bilan quotidien. Le suivi reste anonyme.
 - **Bilan de la réservation en ligne plus clair** : le parcours des visiteurs montre maintenant où chaque visite s'est arrêtée (partie sans poursuivre, rendue jusqu'au choix du moment, jusqu'aux coordonnées, ou demande complétée). Chaque visite compte une seule fois, et le total donne le nombre de visites.
