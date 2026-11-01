@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 1er novembre
+- **Réservation en ligne : des visites mieux comptées** : quelqu'un qui recharge la page n'est plus compté comme une nouvelle visite dans le bilan quotidien. Le suivi reste anonyme.
 - **Bilan de la réservation en ligne plus clair** : le parcours des visiteurs décrit maintenant ce que chacun a fait (ouvert la page, puis choisi son piano, puis un moment, puis envoyé sa demande) et précise que chaque ligne comprend celles du dessous ; une phrase dit aussi à quelle étape le plus de visiteurs sont partis.
 
 ## Octobre 2026

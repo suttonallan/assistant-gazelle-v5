@@ -111,7 +111,7 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
                        "elle comprend celles des lignes du dessous.</p>"
                        f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>"
                        + _ou_ca_bloque(etapes)
-                       + "<p style='color:#777'>Une page rechargée compte comme une nouvelle visite.</p>")
+                       + "<p style='color:#777'>Depuis le 1er nov., recharger la page ne compte pas comme une nouvelle visite (même onglet).</p>")
 
     def liste(titre: str, items: List[Dict[str, Any]], ligne) -> None:
         if items:
