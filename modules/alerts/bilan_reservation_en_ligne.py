@@ -19,10 +19,12 @@ DESTINATAIRE = "info@piano-tek.com"
 TABLE = "reservation_en_ligne_evenements"
 CLE_ENVOYES = "bilan_reservation_en_ligne_envoyes"
 
-# Libellés des étapes, dans l'ordre de la page (voir static/index.html de ptm-reservation)
-# Chaque libellé décrit ce que la visite a FAIT pour atteindre l'étape (étape 2 = piano choisi, etc.)
-ETAPES = {1: "Ont ouvert la page", 2: "… puis ont choisi leur piano",
-          3: "… puis ont choisi un moment", 4: "… puis ont envoyé leur demande"}
+# Où chaque visite s'est arrêtée, dans l'ordre de la page (voir static/index.html de ptm-reservation).
+# Chaque visite est comptée sur UNE seule ligne : le total des lignes = nombre de visites.
+ARRETS = {1: "Ont ouvert la page sans poursuivre",
+          2: "Se sont rendus jusqu'au choix du moment",
+          3: "Se sont rendus jusqu'aux coordonnées",
+          4: "Ont complété leur demande"}
 RATTRAPAGE_JOURS = 7      # un bilan manqué (redéploiement, échec d'envoi) part le lendemain
 CONSERVATION_JOURS = 60   # Loi 25 : coordonnées effacées du journal après ce délai (restent dans Gazelle)
 MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
@@ -59,18 +61,9 @@ def _heure(iso: str) -> str:
         return ""
 
 
-# Ce que la visite n'a pas fait quand elle quitte entre l'étape n et n+1
-BLOCAGES = {1: "au choix du piano", 2: "au choix du moment", 3: "aux coordonnées (sans envoyer)"}
-
-
-def _ou_ca_bloque(etapes: Counter) -> str:
-    """Une phrase : l'étape où le plus de visites sont parties."""
-    pertes = {n: etapes.get(n, 0) - etapes.get(n + 1, 0) for n in BLOCAGES}
-    n, perdu = max(pertes.items(), key=lambda x: x[1])
-    if perdu <= 0:
-        return ""
-    return (f"<p><b>Où ça bloque :</b> {BLOCAGES[n]} — {perdu} visite(s) sur "
-            f"{etapes.get(n, 0)} sont parties à cette étape.</p>")
+def _arrets(etapes: Counter) -> Dict[int, int]:
+    """Visites arrêtées à chaque étape (atteinte de n moins atteinte de n+1)."""
+    return {n: max(etapes.get(n, 0) - (etapes.get(n + 1, 0) if n < 4 else 0), 0) for n in ARRETS}
 
 
 def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str, str]]:
@@ -104,14 +97,13 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
                "(page reserver.pianotechniquemontreal.com)</p>"]
 
     if etapes:
-        lignes = "".join(f"<tr><td>{e(ETAPES[n])}</td><td style='text-align:right'><b>{etapes.get(n, 0)}</b></td></tr>"
-                         for n in sorted(ETAPES))
-        parties.append("<p><b>Parcours des visiteurs</b> (anonyme)<br>"
-                       "Chaque ligne compte les visites qui se sont rendues au moins jusque-là : "
-                       "elle comprend celles des lignes du dessous.</p>"
+        arrets = _arrets(etapes)
+        lignes = "".join(f"<tr><td>{e(ARRETS[n])}</td><td style='text-align:right'><b>{arrets[n]}</b></td></tr>"
+                         for n in sorted(ARRETS))
+        parties.append(f"<p><b>Parcours des visiteurs</b> (anonyme) — {etapes.get(1, 0)} visite(s)<br>"
+                       "Chaque visite est comptée une seule fois, à l'étape où elle s'est arrêtée.</p>"
                        f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>"
-                       + _ou_ca_bloque(etapes)
-                       + "<p style='color:#777'>Depuis le 1er nov., recharger la page ne compte pas comme une nouvelle visite (même onglet).</p>")
+                       "<p style='color:#777'>Depuis le 1er nov., recharger la page ne compte pas comme une nouvelle visite (même onglet).</p>")
 
     def liste(titre: str, items: List[Dict[str, Any]], ligne) -> None:
         if items:
