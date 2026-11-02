@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 2 novembre
+- **Ma Journée ne présente plus une soumission déjà réalisée comme « à faire »** : une soumission archivée dans Gazelle, ou dont les travaux apparaissent sur une facture (ex. réparation du pédalier et du banc de la PdA, facturée en juillet), est maintenant reconnue comme faite. Les lignes de soumission qui n'étaient pas lues sont aussi prises en compte.
 - **Ma Journée : les notes du bon piano seulement** : pour un client qui a plusieurs pianos (Place des Arts, Vincent-d'Indy…), le briefing ne montre plus que l'historique et les notes du ou des pianos du RV, sans les mélanger avec ceux des autres pianos. Une note ne disparaît plus au bout d'une semaine sous les accords des autres salles, et ce qui a été promis à un pianiste pour la prochaine fois (ex. laine d'acier sur les touches du Baldwin de la 5e salle) devient un point à faire.
 - **Les RV créés par l'assistant envoient la confirmation au client** : le client reçoit le même courriel de confirmation Gazelle que lorsqu'un RV est créé à la main dans Gazelle.
 - **L'assistant sait maintenant créer un rendez-vous** : écrivez par exemple « mets un RV de 60 minutes pour Allan chez Tavia Tolleson demain à 14h30, mesurer les chevilles ». L'assistant montre d'abord un aperçu (client, pianos, technicien, date et heure) et ne crée le RV dans Gazelle qu'après votre « oui ».

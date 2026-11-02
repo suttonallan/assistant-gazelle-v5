@@ -76,6 +76,7 @@ NE JAMAIS INVENTER:
 
 RÈGLES CRITIQUES:
 - Utilise la DESCRIPTION DU RV pour identifier le bon piano (numéro de série, salle). Ne pas deviner.
+- SOUMISSIONS : seule la section soumissions dit si une soumission reste à faire. Une soumission mentionnée dans les notes de service ne prouve PAS qu'elle est en attente ; si elle est listée comme fermée ou réalisée, ne la présente jamais comme à faire.
 - DIAPASON — deux cas très différents:
   * INSTITUTION (PDA, OSM, UQAM, etc.) : le diapason est une RÈGLE FIXE par salle. Lis les préférences client. Dire "Accord à 440Hz" ou "Accord à 442Hz" selon la salle.
   * CLIENT PRIVÉ : si un diapason apparaît dans l'historique (timeline), c'est une OBSERVATION, pas une exigence. Dire "Dernier accord à 441.25Hz" — jamais "Accord à 441.25Hz" comme si c'était une instruction.
@@ -567,7 +568,8 @@ class NarrativeBriefingService:
                 "estimate_items": estimate_items,
                 "gazelle_estimates": gazelle_estimates_enriched,
                 "critical_estimates": [
-                    e for e in gazelle_estimates_enriched if e.get("is_critical")
+                    e for e in gazelle_estimates_enriched
+                    if e.get("is_critical") and not e.get("is_completed")
                 ],
                 "generated_at": datetime.now().isoformat(),
             }
@@ -722,7 +724,7 @@ class NarrativeBriefingService:
                                      key=lambda e: e.get("estimated_on") or "", reverse=True)[:2]
                 comp_lines = [_format_est_line(e, include_completion=True) for e in comp_sorted]
                 sections.append(
-                    "Soumissions réalisées (travaux détectés ou facturés, pas besoin d'en parler sauf si pertinent):\n"
+                    "Soumissions FERMÉES ou RÉALISÉES (archivées, facturées ou travaux faits) — NE JAMAIS les présenter comme à faire ; n'en parler que comme travaux déjà faits, et seulement si c'est utile:\n"
                     + "\n".join(comp_lines)
                 )
 
@@ -992,6 +994,100 @@ class NarrativeBriefingService:
         except Exception:
             return None
 
+    # Mots trop généraux pour prouver qu'un travail précis a été fait
+    _GENERIC_WORK_WORDS = {
+        'reparation', 'reparations', 'remplacement', 'ajustement', 'ajustements',
+        'traitement', 'reglage', 'reglages', 'service', 'services', 'piano', 'pianos',
+        'accord', 'accords', 'entretien', 'travail', 'travaux', 'pieces', 'piece',
+        'main', 'oeuvre', 'frais', 'deplacement', 'stationnement', 'avec', 'pour',
+        'dans', 'plus', 'mise', 'tuning', 'repair', 'replacement', 'complet', 'complete',
+        'general', 'generale', 'leger', 'legere', 'petit', 'petite', 'nouveau', 'nouvelle',
+    }
+
+    @classmethod
+    def _work_stems(cls, text: str) -> set:
+        import unicodedata
+        t = unicodedata.normalize('NFKD', (text or '').lower())
+        t = ''.join(c for c in t if not unicodedata.combining(c))
+        return {w[:6] for w in re.findall(r'[a-z]{4,}', t) if w not in cls._GENERIC_WORK_WORDS}
+
+    @classmethod
+    def _work_items_covered(cls, work_items: List[str], text: str) -> bool:
+        """Vrai si la plupart des lignes de travail de la soumission se retrouvent
+        dans le texte (facture ou note de service). Une ligne compte si au moins
+        la moitié de ses mots distinctifs y sont (« pédalier » ✓ ; « cordelettes
+        de ressorts de marteaux » ✗ si seul « marteaux » apparaît)."""
+        found = cls._work_stems(text)
+        lignes = [s for s in (cls._work_stems(w) for w in work_items) if s]
+        if not lignes or not found:
+            return False
+        couvertes = sum(1 for s in lignes if len(s & found) * 2 >= len(s))
+        return couvertes * 2 >= len(lignes)
+
+    def _fetch_client_invoices(self, client_id: str) -> List[Dict]:
+        """Factures Gazelle du client (en direct), mises en cache pour la génération en cours."""
+        import time
+        cache = self.__dict__.setdefault('_invoices_cache', {})
+        hit = cache.get(client_id)
+        if hit and time.time() - hit[0] < 600:  # 10 min : une génération, pas plus
+            return hit[1]
+        q_full = """query($c: String) { allInvoices(first: 100, filters: {clientId: $c}) {
+          nodes { number status createdAt total estimateTier { id }
+            allInvoiceItems { nodes { description piano { id } } } } } }"""
+        q_simple = q_full.replace("estimateTier { id }", "")
+        nodes = []
+        try:
+            from core.gazelle_api_client import GazelleAPIClient
+            gz = GazelleAPIClient()
+        except Exception as exc:
+            print(f"⚠️ Factures Gazelle pour {client_id}: {exc}")
+            return []
+        for q in (q_full, q_simple):
+            try:
+                r = gz._execute_query(q, {"c": client_id}) or {}
+            except Exception as exc:
+                print(f"⚠️ Factures Gazelle pour {client_id}: {exc}")
+                continue
+            if not r.get("errors"):
+                nodes = ((r.get("data") or {}).get("allInvoices") or {}).get("nodes") or []
+                break
+        cache[client_id] = (time.time(), nodes)
+        return nodes
+
+    @classmethod
+    def _estimate_done_by_invoice(cls, est: Dict, invoices: List[Dict]) -> Optional[str]:
+        """Retourne le signal (texte) si une facture montre que la soumission est faite."""
+        est_date = est.get('estimated_on') or ''
+        tier_ids = set(est.get('tier_ids') or [])
+        est_piano = est.get('piano_id')
+        work = est.get('work_items') or []
+        total = est.get('total_cents') or 0
+        for inv in invoices or []:
+            status = (inv.get('status') or '').upper()
+            if status in ('CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'DELETED'):
+                continue
+            num = inv.get('number')
+            # 1. Facture créée à partir de cette soumission
+            if tier_ids and ((inv.get('estimateTier') or {}).get('id') in tier_ids):
+                return f"facturée (facture #{num})"
+            inv_date = (inv.get('createdAt') or '')[:10]
+            if est_date and inv_date and inv_date < est_date:
+                continue
+            # 2. Facture qui décrit les mêmes travaux (même piano si connu)
+            if work:
+                texte = " ".join(
+                    (it.get('description') or '')
+                    for it in ((inv.get('allInvoiceItems') or {}).get('nodes') or [])
+                    if not (est_piano and (it.get('piano') or {}).get('id')
+                            and (it.get('piano') or {}).get('id') != est_piano)
+                )
+                if texte and cls._work_items_covered(work, texte):
+                    return f"travaux facturés (facture #{num})"
+            # 3. Facture payée du même montant (±5 %)
+            if total > 0 and status == 'PAID' and abs((inv.get('total') or 0) - total) <= total * 0.05:
+                return f"facture payée du même montant (#{num})"
+        return None
+
     def _enrich_estimates_completion(
         self, client_id: str, estimates: List[Dict], timeline: List[Dict]
     ) -> List[Dict]:
@@ -1050,11 +1146,36 @@ class NarrativeBriefingService:
         except Exception:
             pass
 
+        # --- Signaux fiables d'abord : archivée, facture liée, facture qui
+        # décrit les mêmes travaux, facture payée du même montant ---
+        pending = [e for e in estimates if not e.get('is_archived')]
+        invoices = self._fetch_client_invoices(client_id) if pending else []
+        for est in estimates:
+            if est.get('is_archived'):
+                est['is_completed'] = True
+                est['completion_signal'] = 'archivée dans Gazelle (fermée)'
+                continue
+            signal = self._estimate_done_by_invoice(est, invoices)
+            if signal:
+                est['is_completed'] = True
+                est['completion_signal'] = signal
+
         # --- Enrich each estimate ---
         for est in estimates:
+            if est.get('is_completed'):
+                continue
             est_date = est.get('estimated_on', '')
             est_number = est.get('number')
             items = est.get('main_items', [])
+
+            # Lignes de travail décrites dans une note de service après la soumission
+            work = est.get('work_items') or []
+            if est_date and work:
+                later = " ".join(t for d, t in service_texts_by_date.items() if d >= est_date)
+                if later and self._work_items_covered(work, later):
+                    est['is_completed'] = True
+                    est['completion_signal'] = 'travaux décrits dans une note de service'
+                    continue
             est_id_prefix = f"est_"  # Gazelle IDs start with est_
 
             # Check signal 1: invoice link via estimate_id
@@ -1358,12 +1479,16 @@ class NarrativeBriefingService:
                     recommendedTierTotal
                     piano { id }
                     allEstimateTiers {
-                        sequenceNumber isPrimary subtotal
+                        id sequenceNumber isPrimary subtotal
                         allEstimateTierGroups {
                             allEstimateTierItems {
-                                name amount
+                                name amount isTuning
                                 masterServiceItem { id }
                             }
+                        }
+                        allUngroupedEstimateTierItems {
+                            name amount isTuning
+                            masterServiceItem { id }
                         }
                     }
                 }
@@ -1435,12 +1560,17 @@ class NarrativeBriefingService:
             return None
         primary = next((t for t in tiers if t.get("isPrimary")), tiers[0])
         all_items = []
-        for group in primary.get("allEstimateTierGroups") or []:
-            for item in group.get("allEstimateTierItems") or []:
-                amt = item.get("amount") or 0
-                name = (item.get("name") or "").strip()
-                if amt > 0 and name:
-                    all_items.append({"name": name, "amount": amt})
+        # Lignes groupées ET non groupées (avant : les non groupées étaient
+        # ignorées → soumission « contenu non détaillé », jamais reconnue comme faite).
+        raw_items = [it for g in (primary.get("allEstimateTierGroups") or [])
+                     for it in (g.get("allEstimateTierItems") or [])]
+        raw_items += list(primary.get("allUngroupedEstimateTierItems") or [])
+        for item in raw_items:
+            amt = item.get("amount") or 0
+            name = (item.get("name") or "").strip()
+            if amt > 0 and name:
+                all_items.append({"name": name, "amount": amt,
+                                  "is_tuning": bool(item.get("isTuning"))})
         all_items.sort(key=lambda i: i["amount"], reverse=True)
         top_items = [i["name"] for i in all_items[:3]]
         total_cents = est.get("recommendedTierTotal") or 0
@@ -1452,6 +1582,9 @@ class NarrativeBriefingService:
             "total_cents": total_cents,
             "total_dollars": f"{total_cents/100:,.0f}".replace(",", " "),
             "main_items": top_items,
+            # Lignes de travail (hors accord) — servent à détecter si c'est fait
+            "work_items": [i["name"] for i in all_items if not i["is_tuning"]],
+            "tier_ids": [t.get("id") for t in tiers if t.get("id")],
             "piano_id": (est.get("piano") or {}).get("id"),
             "is_critical": is_critical,
         }
