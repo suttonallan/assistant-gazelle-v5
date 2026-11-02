@@ -37,7 +37,7 @@ WHERE key = 'gazelle_oauth_token';
 **Structure du token :**
 ```json
 {
-  "access_token": "EkS12hs61KsedjtN7t2TuCcCV9hpc6vo",  // Token court = API Key
+  "access_token": "<jeton>",  // Token court = API Key
   "refresh_token": "manual_override",                 // Pour auto-refresh
   "expires_at": 1999999999,                           // Timestamp Unix
   "created_at": 0                                     // Timestamp création
@@ -88,12 +88,12 @@ python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload &
 ```bash
 # Supabase
 SUPABASE_URL=https://beblgzvmjqkcillmcavk.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SUPABASE_SERVICE_ROLE_KEY=<dans Render / Supabase, jamais dans le dépôt>
+SUPABASE_ANON_KEY=<dans Render / Supabase, jamais dans le dépôt>
 
 # Gazelle API (OAuth - legacy, non utilisé si token dans Supabase)
-GAZELLE_CLIENT_ID=yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE
-GAZELLE_CLIENT_SECRET=CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc
+GAZELLE_CLIENT_ID=<dans Render / Supabase, jamais dans le dépôt>
+GAZELLE_CLIENT_SECRET=<dans Render / Supabase, jamais dans le dépôt>
 
 # Google Sheets (pour rapports)
 GOOGLE_CREDENTIALS_PATH=config/google-credentials.json

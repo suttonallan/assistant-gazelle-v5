@@ -240,7 +240,7 @@ DÉMARRAGE API
 ┌────────────────────────────────────────────┐
 │  Token récupéré:                           │
 │  {                                         │
-│    "access_token": "EkS12hs61...",         │
+│    "access_token": "<jeton>",         │
 │    "refresh_token": "manual_override",     │
 │    "expires_at": 1999999999                │
 │  }                                         │
