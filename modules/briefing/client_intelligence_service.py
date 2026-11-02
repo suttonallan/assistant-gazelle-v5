@@ -58,6 +58,7 @@ CONCENTRE-TOI SUR:
 POUR LES INSTITUTIONS (Place des Arts, UQAM, Vincent-d'Indy, Orford, OSM, etc.):
 - NE PAS suggérer de faire des travaux de réglage/réparation. Le RV est un accord standard.
 - Si des choses ont été notées lors de visites précédentes, les mentionner simplement : "Des choses ont été notées : [liste]" — sans dire de les corriger.
+- EXCEPTION : si une note précédente PROMET ou DEMANDE explicitement quelque chose pour la prochaine visite (ex. « pour la prochaine fois », « je lui ai promis », demande du pianiste ou du client), en faire un action item clair (ex. "Promis à la pianiste : passer une laine d'acier sur les touches").
 - NE PAS mentionner le nombre total de pianos du client.
 - "avant Xh" signifie que l'accord doit être TERMINÉ à cette heure, pas qu'il faut arriver avant.
 
@@ -449,6 +450,36 @@ class NarrativeBriefingService:
                 cid, list(gazelle_estimates or []), timeline
             )
 
+            # ── Historique limité au(x) piano(s) du RV (client à plusieurs pianos) ──
+            # Avant : les 15 notes les plus récentes de TOUT le client (PdA = 16
+            # pianos) → la note d'un piano disparaissait en une semaine, noyée
+            # sous celles des autres. Si le RV nomme ses pianos (lien Gazelle),
+            # on ne garde que l'historique de ces pianos. Sinon : comportement
+            # inchangé (on ne sait pas de quel piano il s'agit).
+            history_timeline = timeline
+            history_past_appts = past_appointments
+            piano_notes_txt = piano.get('notes', '') or ''
+            rv_pids = self._rv_piano_ids(appt) if len(pianos) > 1 else set()
+            if rv_pids:
+                history_timeline = self._scope_entries_to_pianos(timeline, rv_pids)
+                if len(history_timeline) < 15:
+                    extra = self._fetch_timeline_for_pianos(rv_pids)
+                    history_timeline = self._scope_entries_to_pianos(
+                        self._merge_entries(history_timeline, extra), rv_pids)
+                history_past_appts = [
+                    pa for pa in past_appointments
+                    if self._rv_piano_ids(pa) & rv_pids
+                ]
+                notes_rv = []
+                for p in pianos:
+                    if p.get('external_id') in rv_pids and (p.get('notes') or '').strip():
+                        notes_rv.append((p.get('notes') or '').strip())
+                piano_notes_txt = "\n---\n".join(notes_rv)
+            elif len(pianos) > 1 and not matched_confidently:
+                # Piano deviné (pas certain) : ne pas afficher les notes d'un
+                # piano qui n'est peut-être pas le bon.
+                piano_notes_txt = ''
+
             # ── Generate narrative via AI ──
             narrative = "Aucune info particulière à signaler."
             action_items = []
@@ -466,13 +497,13 @@ class NarrativeBriefingService:
                     client_name=client_name,
                     client_since=client_since or "nouveau client",
                     piano_summary=piano_detail,
-                    timeline=timeline,
-                    past_appointments=past_appointments,
+                    timeline=history_timeline,
+                    past_appointments=history_past_appts,
                     appt=appt,
                     feedback_notes=self.feedback_rules.get('__GLOBAL__', []) + self.feedback_rules.get(cid, []),
                     personal_notes=client.get('personal_notes', '') or '',
                     preference_notes=client.get('preference_notes', '') or '',
-                    piano_notes=piano.get('notes', '') or '',
+                    piano_notes=piano_notes_txt,
                     all_pianos=all_pianos_list,
                     gazelle_estimates=gazelle_estimates_enriched,
                 )
@@ -1449,6 +1480,58 @@ class NarrativeBriefingService:
     # ═══════════════════════════════════════════════════════════════
     # PIANO MATCHING
     # ═══════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _rv_piano_ids(appt: Dict) -> set:
+        """Pianos liés à un RV dans Gazelle (piano_ids = tous, piano_external_id = le 1er)."""
+        ids = set()
+        raw = appt.get('piano_ids')
+        if isinstance(raw, str):
+            raw = [x.strip(' "{}') for x in raw.strip('[]{}').split(',')]
+        if isinstance(raw, (list, tuple)):
+            ids.update(x for x in raw if isinstance(x, str) and x.strip())
+        if appt.get('piano_external_id'):
+            ids.add(appt['piano_external_id'])
+        return ids
+
+    @staticmethod
+    def _scope_entries_to_pianos(entries: List[Dict], piano_ids: set) -> List[Dict]:
+        """Garde les notes de ces pianos + les notes générales du client (sans piano).
+        Les notes des AUTRES pianos du client sont retirées."""
+        return [e for e in (entries or [])
+                if not e.get('piano_id') or e.get('piano_id') in piano_ids]
+
+    @staticmethod
+    def _merge_entries(a: List[Dict], b: List[Dict]) -> List[Dict]:
+        """Fusionne deux listes de notes sans doublon, plus récentes en premier."""
+        seen, out = set(), []
+        for e in list(a or []) + list(b or []):
+            key = e.get('external_id') or id(e)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(e)
+        out.sort(key=lambda e: e.get('occurred_at', '') or '', reverse=True)
+        return out
+
+    def _fetch_timeline_for_pianos(self, piano_ids: set) -> List[Dict]:
+        """Historique propre aux pianos du RV (au-delà de la limite client-wide)."""
+        if not piano_ids:
+            return []
+        try:
+            types_csv = ",".join(USEFUL_ENTRY_TYPES)
+            piano_csv = ",".join(quote(pid) for pid in sorted(piano_ids))
+            url = (
+                f"{self.storage.api_url}/gazelle_timeline_entries?select=*"
+                f"&piano_id=in.({piano_csv})"
+                f"&entry_type=in.({types_csv})"
+                f"&order=occurred_at.desc"
+                f"&limit=40"
+            )
+            return self._supabase_get(url) or []
+        except Exception as e:
+            print(f"⚠️ Historique piano non récupéré: {e}")
+            return []
 
     def _match_piano_from_context(self, pianos: List[Dict], appt: Dict):
         """Retourne (piano, matched_confidently).
