@@ -945,6 +945,7 @@ class RendezVousIn(BaseModel):
     accord: bool = True                # isTuning sur les pianos
     type: str = "APPOINTMENT"          # PERSONAL = bloc perso (aucun avis au client)
     lieu: Optional[str] = None         # adresse sur une ligne si différente de la fiche client
+    confirmation_client: bool = True   # courriel de confirmation Gazelle au client (comme dans l'appli)
 
 
 @router.post("/gazelle/rendez-vous")
@@ -978,6 +979,8 @@ def creer_rendez_vous(r: RendezVousIn):
         inp["notes"] = r.notes
     if r.piano_ids:
         inp["pianos"] = [{"pianoId": p, "isTuning": r.accord} for p in r.piano_ids]
+    if r.type == "APPOINTMENT" and r.confirmation_client:
+        inp["isConfirmationEmailWanted"] = True
     mut = """mutation($input: PrivateEventInput!) { createEvent(input: $input) {
       event { id title start duration type status user { id firstName } client { id }
               location { singleLineAddress street1 municipality }
@@ -993,6 +996,25 @@ def creer_rendez_vous(r: RendezVousIn):
         raise HTTPException(502, f"Gazelle a refusé le rendez-vous : {payload.get('mutationErrors')} "
                                  f"{res.get('errors') if isinstance(res, dict) else ''}")
     return {"evenement": ev, "start_utc": start}
+
+
+@router.post("/gazelle/rendez-vous/{eid}/confirmation")
+def envoyer_confirmation(eid: str):
+    """Envoie au client le courriel de confirmation Gazelle d'un RV déjà créé
+    (même courriel que la case « Envoyer une confirmation » de l'appli)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id title start } mutationErrors { fieldName messages } } }"""
+    try:
+        res = GazelleAPIClient()._execute_query(mut, {"id": eid, "input": {"isConfirmationEmailWanted": True}})
+    except Exception as e:
+        raise HTTPException(502, f"updateEvent : {e}")
+    if isinstance(res, dict) and res.get("errors"):
+        raise HTTPException(502, str(res["errors"]))
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if payload.get("mutationErrors"):
+        raise HTTPException(502, str(payload["mutationErrors"]))
+    return {"envoye": True, "evenement": payload.get("event")}
 
 
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---

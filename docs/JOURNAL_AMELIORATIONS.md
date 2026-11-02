@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 2 novembre
+- **Les RV créés par l'assistant envoient la confirmation au client** : le client reçoit le même courriel de confirmation Gazelle que lorsqu'un RV est créé à la main dans Gazelle.
 - **L'assistant sait maintenant créer un rendez-vous** : écrivez par exemple « mets un RV de 60 minutes pour Allan chez Tavia Tolleson demain à 14h30, mesurer les chevilles ». L'assistant montre d'abord un aperçu (client, pianos, technicien, date et heure) et ne crée le RV dans Gazelle qu'après votre « oui ».
 
 ### 1er novembre
