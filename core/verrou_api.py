@@ -266,9 +266,53 @@ def _cles_toutes() -> list:
     return [v for v in {os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""), os.getenv("SUPABASE_KEY", "")} if v]
 
 
-def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fournie: str = "") -> None:
-    """Compte les appels sans jeton (mode observation), par route."""
+_journal_etat: Dict[str, Any] = {"charge": False, "sauve": 0.0}
+
+
+def _charger_journal() -> None:
+    """Reprend le journal sauvegardé (system_settings « journal_sans_jeton ») après un redémarrage."""
+    if _journal_etat["charge"]:
+        return
+    _journal_etat["charge"] = True
+    try:
+        stocke = _storage().get_system_setting("journal_sans_jeton") or {}
+        if isinstance(stocke, str):
+            stocke = json.loads(stocke)
+        for cle, v in (stocke.get("routes") or {}).items():
+            e = _journal.setdefault(cle, {"n": 0, "agents": set(), "origines": set()})
+            e["n"] += int(v.get("n") or 0)
+            e["agents"].update(v.get("agents") or [])
+            e["origines"].update(v.get("origines") or [])
+            for k in ("dernier", "premier", "jeton_refuse", "cle_refusee"):
+                if v.get(k) and not e.get(k):
+                    e[k] = v[k]
+        _journal_etat["depuis"] = stocke.get("depuis")
+    except Exception:
+        pass
+
+
+def _sauver_journal_si_du() -> None:
+    """Sauvegarde le journal au plus une fois toutes les 10 min (en tâche de fond)."""
+    maintenant = time.time()
+    if maintenant - _journal_etat["sauve"] < 600:
+        return
+    _journal_etat["sauve"] = maintenant
+    contenu = {"depuis": _journal_etat.get("depuis") or time.strftime("%Y-%m-%d %H:%M:%S"), "routes": journal()}
+    _journal_etat["depuis"] = contenu["depuis"]
+
+    def _ecrire():
+        try:
+            _storage().save_system_setting("journal_sans_jeton", contenu)
+        except Exception:
+            pass
+    threading.Thread(target=_ecrire, daemon=True).start()
+
+
+def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fournie: str = "",
+                     jeton_refuse: bool = False) -> None:
+    """Compte les appels sans jeton valide (mode observation), par route. Le journal survit aux redémarrages."""
     import re
+    _charger_journal()
     motif = re.sub(r"/(ins|cli|cnv|usr|evt|tea|com|msg)_[A-Za-z0-9]+", r"/\1_…", chemin)
     motif = re.sub(r"/[0-9a-f-]{20,}", "/…", motif)
     cle = f"{methode} {motif}"
@@ -281,9 +325,14 @@ def noter_sans_jeton(chemin: str, methode: str, agent: str, origine: str, cle_fo
         e["origines"].add(origine or "")
     if cle_fournie:  # clé service envoyée mais refusée : on note sa forme (jamais la clé)
         e["cle_refusee"] = f"reçue {_empreinte(cle_fournie)} ; connues {[_empreinte(a) for a in _cles_toutes()]}"
+    if jeton_refuse:  # un jeton était envoyé mais expiré ou invalide
+        e["jeton_refuse"] = e.get("jeton_refuse", 0) + 1
+    e.setdefault("premier", e["dernier"])
+    _sauver_journal_si_du()
 
 
 def journal() -> Dict[str, Any]:
+    _charger_journal()
     return {k: {**v, "agents": sorted(v["agents"]), "origines": sorted(v["origines"])}
             for k, v in sorted(_journal.items(), key=lambda kv: -kv[1]["n"])}
 

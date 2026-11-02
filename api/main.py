@@ -195,7 +195,8 @@ async def verrou_api_middleware(request, call_next):
     if verrouille:
         return _JSONResponse({"detail": "Connexion requise"}, status_code=401)
     verrou_api.noter_sans_jeton(chemin, request.method, request.headers.get("user-agent", ""),
-                                request.headers.get("origin", ""), request.headers.get("x-cle-service", ""))
+                                request.headers.get("origin", ""), request.headers.get("x-cle-service", ""),
+                                jeton_refuse=auth.lower().startswith("bearer "))
     return await call_next(request)
 
 

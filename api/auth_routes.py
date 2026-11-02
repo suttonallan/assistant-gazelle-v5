@@ -54,11 +54,13 @@ def changer_pin(c: ChangerPinIn, request: Request):
 
 @router.get("/journal")
 def journal(request: Request):
-    """Appels reçus sans jeton depuis le dernier démarrage (mode observation)."""
+    """Appels reçus sans jeton valide (mode observation), cumulés même après un redémarrage."""
     if _qui(request) != "allan":
         raise HTTPException(403, "Réservé à Allan")
     from core.feature_flags import is_enabled
-    return {"verrou_actif": is_enabled("api_verrou", default=False), "sans_jeton": verrou_api.journal()}
+    routes = verrou_api.journal()
+    return {"verrou_actif": is_enabled("api_verrou", default=False),
+            "depuis": verrou_api._journal_etat.get("depuis"), "sans_jeton": routes}
 
 
 
