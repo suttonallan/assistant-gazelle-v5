@@ -133,8 +133,91 @@ def execute_lien_reservation(**champs) -> Dict[str, Any]:
     return {"success": True, "lien": construire_lien(infos), "client_gazelle": False}
 
 
+# ── Créer un rendez-vous Gazelle (en 2 temps : aperçu, puis création sur confirmation) ──
+TECHNICIENS = {
+    "allan": "usr_ofYggsCDt2JAVeNP",
+    "nicolas": "usr_HcCiFk7o0vZ9xAI0", "nick": "usr_HcCiFk7o0vZ9xAI0",
+    "jp": "usr_ReUSmIJmBF86ilY1", "jean-philippe": "usr_ReUSmIJmBF86ilY1",
+    "margot": "usr_bbt59aCUqUaDWA8n",
+}
+
+CREER_RV_TOOL = {
+    "name": "creer_rendez_vous",
+    "description": (
+        "Crée un rendez-vous dans Gazelle pour un client et un technicien. "
+        "TOUJOURS en deux temps : appelle d'abord avec confirme=false (aucune création, "
+        "renvoie un aperçu : client trouvé, pianos, technicien, date et heure), montre "
+        "l'aperçu à l'utilisateur et demande « Je le crée ? ». Rappelle l'outil avec "
+        "confirme=true SEULEMENT après un oui explicite. Si la date n'est pas donnée, "
+        "demande-la (ne devine jamais le jour)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "client": {"type": "string", "description": "Nom du client tel que dit par l'utilisateur."},
+            "client_id": {"type": "string", "description": "ID Gazelle (cli_…) si connu (ex. après un aperçu à plusieurs choix)."},
+            "technicien": {"type": "string", "description": "Prénom : Allan, Nicolas, JP, Margot."},
+            "date": {"type": "string", "description": "AAAA-MM-JJ (heure de Montréal)."},
+            "heure": {"type": "string", "description": "HH:MM, 24 h (ex. 14:30)."},
+            "duree_min": {"type": "integer", "description": "Durée en minutes (défaut 120)."},
+            "notes": {"type": "string", "description": "Ce qu'il faut faire, tel que demandé."},
+            "accord": {"type": "boolean", "description": "true si c'est un accord (défaut true ; false pour mesures, estimation, réparation)."},
+            "confirme": {"type": "boolean", "description": "false = aperçu seulement ; true = créer (après oui de l'utilisateur)."},
+        },
+        "required": ["technicien", "date", "heure", "confirme"],
+    },
+}
+
+
+def execute_creer_rv(**t) -> Dict[str, Any]:
+    from api.taches_routes import chercher_clients, creer_rendez_vous, RendezVousIn
+    tech = (t.get("technicien") or "").strip().lower()
+    user_id = TECHNICIENS.get(tech)
+    if not user_id:
+        return {"success": False, "error": f"Technicien inconnu : {t.get('technicien')!r} (Allan, Nicolas, JP, Margot)."}
+    client_id = t.get("client_id")
+    trouves = []
+    if not client_id:
+        nom = (t.get("client") or "").strip()
+        if len(nom) < 2:
+            return {"success": False, "error": "Nom du client manquant."}
+        trouves = chercher_clients(q=nom)["clients"]
+        if not trouves:
+            return {"success": False, "error": f"Aucun client « {nom} » dans Gazelle."}
+        if len(trouves) > 1:
+            return {"success": False, "plusieurs_clients": [
+                {"client_id": c["external_id"], "nom": c["company_name"],
+                 "pianos": [f"{p.get('make') or ''} {p.get('model') or ''}".strip() for p in c["pianos"]]}
+                for c in trouves],
+                "message": "Plusieurs clients correspondent : demande lequel, puis repasse son client_id."}
+        client_id = trouves[0]["external_id"]
+    if trouves:
+        client = trouves[0]
+    else:
+        client = next((c for c in chercher_clients(q=(t.get("client") or "").strip() or client_id)["clients"]
+                       if c["external_id"] == client_id), {"external_id": client_id, "pianos": []})
+    pianos = client.get("pianos", [])
+    debut = f"{t['date']}T{t['heure']}"
+    apercu = {
+        "client": client.get("company_name") or client_id, "client_id": client_id,
+        "technicien": t.get("technicien"), "debut_montreal": debut,
+        "duree_min": int(t.get("duree_min") or 120), "notes": t.get("notes") or "",
+        "accord": bool(t.get("accord", True)),
+        "pianos": [f"{p.get('make') or ''} {p.get('model') or ''}".strip() for p in pianos],
+    }
+    if not t.get("confirme"):
+        return {"success": True, "apercu": apercu, "cree": False,
+                "message": "Aperçu seulement : rien n'est créé. Demande confirmation."}
+    res = creer_rendez_vous(RendezVousIn(
+        client_id=client_id, user_id=user_id, debut_montreal=debut,
+        duree_min=apercu["duree_min"], notes=apercu["notes"] or None,
+        piano_ids=[p["external_id"] for p in pianos], accord=apercu["accord"]))
+    return {"success": True, "cree": True, "apercu": apercu,
+            "evenement_id": (res.get("evenement") or {}).get("id")}
+
+
 TOOLS = [LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
-         JOINT_APPOINTMENT_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL]
+         JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL]
 
 
 # ── Garde-fou heures ─────────────────────────────────────────────────
@@ -192,6 +275,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             )
         if name == "create_joint_appointment":
             return execute_joint_appointment(**tool_input)
+        if name == "creer_rendez_vous":
+            return execute_creer_rv(**tool_input)
         if name == "attach_email_photos_to_piano":
             return execute_attach_photos(
                 client_name=tool_input.get("client_name", ""),
@@ -205,6 +290,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
                 hours_back=tool_input.get("hours_back"),
             )
         return {"success": False, "error": f"Outil inconnu : {name}"}
+    except HTTPException as exc:
+        return {"success": False, "error": f"{name} : {exc.detail}"}
     except Exception as exc:  # noqa: BLE001
         import traceback
         traceback.print_exc()
@@ -247,6 +334,9 @@ async def converse(req: ConverseRequest):
         "- review_estimate : analyser/réviser une soumission existante.\n"
         "- search_events_by_keyword : retrouver des rendez-vous par mot-clé.\n"
         "- create_joint_appointment : créer un RV conjoint.\n"
+        "- creer_rendez_vous : créer un rendez-vous pour un client (aperçu d'abord avec "
+        "confirme=false, puis confirme=true seulement après un oui). « Demain », « jeudi » : "
+        "calcule la date à partir d'aujourd'hui et montre-la dans l'aperçu.\n"
         "- list_recent_calls : liste des appels du Call Center Gazelle faits par un "
         "technicien (relances client, avec résultat noté). Si l'utilisateur dit "
         "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n"
@@ -261,7 +351,7 @@ async def converse(req: ConverseRequest):
         "action que tu viens de proposer, exécute-la avec l'outil. Si une demande est "
         "ambiguë (numéro ou client manquant), pose UNE question courte au lieu de deviner.\n"
         "IMPORTANT : si AUCUN outil ne correspond à une vraie demande d'action (ex. déplacer / "
-        "replanifier un rendez-vous, changer son lieu, modifier un client), n'utilise JAMAIS "
+        "replanifier un rendez-vous existant, changer son lieu, modifier un client), n'utilise JAMAIS "
         "un outil qui ne convient pas : appelle request_new_feature pour transmettre la "
         "demande à l'administrateur, puis dis à l'utilisateur que tu ne sais pas encore le "
         "faire et que sa demande a été envoyée à l'administrateur (Allan). Ne promets "

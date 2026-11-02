@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 2 novembre
+- **L'assistant sait maintenant créer un rendez-vous** : écrivez par exemple « mets un RV de 60 minutes pour Allan chez Tavia Tolleson demain à 14h30, mesurer les chevilles ». L'assistant montre d'abord un aperçu (client, pianos, technicien, date et heure) et ne crée le RV dans Gazelle qu'après votre « oui ».
+
 ### 1er novembre
 - **Un RV « À attribuer » attribué dans Gazelle n'est plus signalé comme discordant** : l'assistant reprend et enregistre tout seul le technicien choisi dans Gazelle, sans menu jaune ni alerte du vérificateur quotidien. Seuls deux noms vraiment différents (ex. Nick dans l'assistant, Margot dans Gazelle) restent signalés.
 - **« Modifier le RV » suit aussi un changement fait dans Gazelle** : si le technicien a déjà été changé directement dans Gazelle, « Modifier le RV » met maintenant l'assistant à jour au lieu de répondre « rien à changer » ; et après chaque modification, le tableau Place des Arts affiche le bon technicien tout de suite, sans attendre la synchro de quelques minutes.
