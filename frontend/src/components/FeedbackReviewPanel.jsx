@@ -17,10 +17,90 @@ export default function FeedbackReviewPanel({ currentUser, onUpdated }) {
   const [actionStates, setActionStates] = useState({})
   const [applyingId, setApplyingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [pending, setPending] = useState([])
 
   useEffect(() => {
     loadFeedback()
+    loadPending()
   }, [])
+
+  // Commentaires des techniciens en attente (Allan ou Nicolas décide)
+  const loadPending = async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/briefing/feedback/suggestions`)
+      if (resp.ok) {
+        const data = await resp.json()
+        setPending(data.suggestions || [])
+      }
+    } catch (err) {
+      console.error('Erreur chargement suggestions:', err)
+    }
+  }
+
+  const closePending = async (id, statut) => {
+    try {
+      const resp = await fetch(`${API_URL}/api/briefing/feedback/suggestions/${id}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut, by: currentUser?.email }),
+      })
+      if (resp.ok) setPending(prev => prev.filter(p => p.id !== id))
+    } catch (err) {
+      console.error('Erreur clôture suggestion:', err)
+    }
+  }
+
+  const analyzePending = async (sug) => {
+    setAnalyzingId(sug.id)
+    try {
+      const resp = await fetch(`${API_URL}/api/briefing/feedback/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: sug.client_id,
+          client_name: sug.contexte || '',
+          note: `${sug.auteur} (technicien) : ${sug.note}`,
+          narrative: sug.narrative || '',
+        })
+      })
+      if (resp.ok) {
+        const data = await resp.json()
+        const actions = data.suggested_actions || []
+        setSuggestions(prev => ({ ...prev, [sug.id]: actions }))
+        const states = {}
+        actions.forEach((_, idx) => { states[idx] = true })
+        setActionStates(prev => ({ ...prev, [sug.id]: states }))
+      }
+    } catch (err) {
+      console.error('Erreur analyse:', err)
+    } finally {
+      setAnalyzingId(null)
+    }
+  }
+
+  const applyPending = async (sug) => {
+    const actions = (suggestions[sug.id] || []).filter((_, idx) => actionStates[sug.id]?.[idx])
+      .map(a => ({ ...a, reason: `Suggestion de ${sug.auteur}${a.reason ? ' — ' + a.reason : ''}` }))
+    if (actions.length === 0) return
+    setApplyingId(sug.id)
+    try {
+      const resp = await fetch(`${API_URL}/api/briefing/feedback/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actions, created_by: currentUser?.email }),
+      })
+      if (resp.ok) {
+        await closePending(sug.id, 'appliquee')
+        setSuggestions(prev => { const n = { ...prev }; delete n[sug.id]; return n })
+        loadFeedback()
+        onUpdated?.()
+      }
+    } catch (err) {
+      console.error('Erreur application:', err)
+    } finally {
+      setApplyingId(null)
+    }
+  }
 
   const loadFeedback = async () => {
     try {
@@ -105,7 +185,7 @@ export default function FeedbackReviewPanel({ currentUser, onUpdated }) {
   }
 
   const totalCount = notes.length + globalRules.length
-  if (loading || totalCount === 0) return null
+  if (loading || (totalCount === 0 && pending.length === 0)) return null
 
   return (
     <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl overflow-hidden">
@@ -118,6 +198,11 @@ export default function FeedbackReviewPanel({ currentUser, onUpdated }) {
           <span className="font-semibold text-purple-800">
             {totalCount} note{totalCount > 1 ? 's' : ''} d'intelligence active{totalCount > 1 ? 's' : ''}
           </span>
+          {pending.length > 0 && (
+            <span className="text-xs bg-orange-500 text-white font-bold px-2 py-0.5 rounded-full">
+              {pending.length} commentaire{pending.length > 1 ? 's' : ''} de technicien à approuver
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">
@@ -132,6 +217,35 @@ export default function FeedbackReviewPanel({ currentUser, onUpdated }) {
           <p className="text-xs text-purple-600">
             Ces notes influencent les briefings de l'IA. Analysez-les pour les affiner ou supprimez celles qui ne sont plus pertinentes.
           </p>
+
+          {/* Commentaires des techniciens en attente */}
+          {pending.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-orange-700 uppercase tracking-wider">
+                À approuver — l'IA n'en tient pas compte tant que ce n'est pas appliqué
+              </div>
+              {pending.map(sug => (
+                <NoteCard
+                  key={sug.id}
+                  note={{ ...sug, client_id: `${sug.auteur} — ${sug.contexte || sug.client_id}` }}
+                  scope="suggestion"
+                  analyzing={analyzingId === sug.id}
+                  applying={applyingId === sug.id}
+                  deleting={false}
+                  suggestions={suggestions[sug.id]}
+                  actionStates={actionStates[sug.id]}
+                  onAnalyze={() => analyzePending(sug)}
+                  onApply={() => applyPending(sug)}
+                  onDelete={() => closePending(sug.id, 'refusee')}
+                  onToggleAction={(idx) => setActionStates(prev => ({
+                    ...prev,
+                    [sug.id]: { ...prev[sug.id], [idx]: !prev[sug.id]?.[idx] }
+                  }))}
+                  onDismissSuggestions={() => setSuggestions(prev => { const n = { ...prev }; delete n[sug.id]; return n })}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Global rules */}
           {globalRules.map(rule => (
@@ -187,12 +301,13 @@ function NoteCard({
   suggestions, actionStates,
   onAnalyze, onApply, onDelete, onToggleAction, onDismissSuggestions
 }) {
+  const isSuggestion = scope === 'suggestion'
   const scopeLabel = scope === 'global'
     ? '🌐 Règle globale'
-    : `👤 ${note.client_id}`
+    : isSuggestion ? `💬 ${note.client_id}` : `👤 ${note.client_id}`
   const scopeColor = scope === 'global'
     ? 'bg-blue-100 text-blue-800'
-    : 'bg-purple-100 text-purple-800'
+    : isSuggestion ? 'bg-orange-100 text-orange-800' : 'bg-purple-100 text-purple-800'
   const date = note.created_at ? new Date(note.created_at).toLocaleDateString('fr-CA') : ''
 
   return (
@@ -206,6 +321,12 @@ function NoteCard({
             {date && <span className="text-xs text-gray-400">{date}</span>}
           </div>
           <div className="text-sm text-gray-800">{note.note}</div>
+          {isSuggestion && note.narrative && (
+            <details className="mt-1">
+              <summary className="text-xs text-gray-500 cursor-pointer">Briefing qu'il a vu</summary>
+              <div className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{note.narrative}</div>
+            </details>
+          )}
         </div>
       </div>
 
@@ -224,7 +345,7 @@ function NoteCard({
             disabled={deleting}
             className="text-xs text-red-500 hover:text-red-700 px-2 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
           >
-            {deleting ? '...' : 'Supprimer'}
+            {deleting ? '...' : (isSuggestion ? 'Refuser' : 'Supprimer')}
           </button>
         </div>
       )}
@@ -271,7 +392,7 @@ function NoteCard({
               disabled={applying || !Object.values(actionStates || {}).some(v => v)}
               className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50"
             >
-              {applying ? 'Enregistrement...' : 'Appliquer et remplacer la note'}
+              {applying ? 'Enregistrement...' : (isSuggestion ? 'Approuver et appliquer' : 'Appliquer et remplacer la note')}
             </button>
             <button
               onClick={onDismissSuggestions}

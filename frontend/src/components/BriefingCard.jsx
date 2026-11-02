@@ -22,7 +22,13 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   const [actionStates, setActionStates] = useState({})
   const [feedbackDone, setFeedbackDone] = useState(false)
 
-  const isAllan = currentUser?.email === 'asutton@piano-tek.com'
+  // Allan et Nicolas transforment un commentaire en consigne pour l'IA ;
+  // les autres techniciens signalent, et leur commentaire attend leur approbation.
+  const APPROBATEURS = ['asutton@piano-tek.com', 'nlessard@piano-tek.com']
+  const isAllan = APPROBATEURS.includes(currentUser?.email)
+  const canSuggest = !!currentUser?.email && !isAllan
+  const [suggestSent, setSuggestSent] = useState(false)
+  const [suggestError, setSuggestError] = useState('')
 
   const {
     appointment,
@@ -70,7 +76,7 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
   const collaboration = appointment?.collaboration || []
   const hasFollowUps = follow_ups?.length > 0
   const hasEstimates = estimate_items?.length > 0
-  const hasExpandableContent = hasFollowUps || hasEstimates || isAllan
+  const hasExpandableContent = hasFollowUps || hasEstimates || isAllan || canSuggest
 
   // ── Handlers ──
   const analyzeFeedback = async () => {
@@ -130,6 +136,38 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
       console.error('Erreur application:', err)
     } finally {
       setApplying(false)
+    }
+  }
+
+  const sendSuggestion = async () => {
+    if (!feedbackValue.trim()) return
+    setSaving(true)
+    setSuggestError('')
+    try {
+      const response = await fetch(`${API_URL}/api/briefing/feedback/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: briefing.client_id,
+          client_name: client_name || '',
+          note: feedbackValue.trim(),
+          narrative: narrative || '',
+          appointment_date: appointment?.date || '',
+          created_by: currentUser?.email,
+        })
+      })
+      if (response.ok) {
+        setSuggestSent(true)
+        setFeedbackValue('')
+        setTimeout(() => { setShowFeedback(false); setSuggestSent(false) }, 3000)
+      } else {
+        setSuggestError("Pas envoyé — réessaie dans un moment.")
+      }
+    } catch (err) {
+      console.error('Erreur suggestion:', err)
+      setSuggestError("Pas envoyé — réessaie dans un moment.")
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -323,7 +361,52 @@ export default function BriefingCard({ briefing, currentUser, onFeedbackSaved })
             </div>
           )}
 
-          {/* Allan feedback */}
+          {/* Commentaire d'un technicien (en attente d'approbation d'Allan ou Nicolas) */}
+          {canSuggest && (
+            <div className="border-t border-gray-200 pt-3">
+              {!showFeedback ? (
+                <button
+                  onClick={() => setShowFeedback(true)}
+                  className="text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
+                >
+                  <span>💬</span> Quelque chose n'est pas bon ?
+                </button>
+              ) : suggestSent ? (
+                <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-green-800 text-sm font-medium">
+                  Merci ! Allan et Nicolas vont le regarder ; une fois approuvé, l'IA en tiendra compte.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <textarea
+                    value={feedbackValue}
+                    onChange={(e) => setFeedbackValue(e.target.value)}
+                    placeholder="Ex. : cette soumission est faite depuis juillet ; ce n'est pas le bon piano ; il manque…"
+                    className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400"
+                    rows={3}
+                    disabled={saving}
+                  />
+                  {suggestError && <div className="text-sm text-red-600">{suggestError}</div>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={sendSuggestion}
+                      disabled={saving || !feedbackValue.trim()}
+                      className="bg-purple-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      {saving ? 'Envoi...' : 'Envoyer'}
+                    </button>
+                    <button
+                      onClick={() => { setShowFeedback(false); setFeedbackValue(''); setSuggestError('') }}
+                      className="text-gray-500 text-sm px-3 py-2 hover:text-gray-700"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Allan / Nicolas : ajuster directement */}
           {isAllan && (
             <div className="border-t border-gray-200 pt-3">
               {!showFeedback ? (

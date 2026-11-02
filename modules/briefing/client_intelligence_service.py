@@ -182,6 +182,10 @@ class NarrativeBriefingService:
         """
         target_date = target_date or aujourdhui_montreal().isoformat()
 
+        # Recharger les consignes à chaque génération : une correction approuvée
+        # s'applique dès le prochain briefing (l'instance du cache vit longtemps).
+        self.feedback_rules = self._load_training_feedback()
+
         # Rappel d'accès PdA (travaux 1400) : évalué une seule fois par jour.
         try:
             from modules.briefing.pda_access_reminder import is_enabled as _pda_enabled
@@ -501,7 +505,8 @@ class NarrativeBriefingService:
                     timeline=history_timeline,
                     past_appointments=history_past_appts,
                     appt=appt,
-                    feedback_notes=self.feedback_rules.get('__GLOBAL__', []) + self.feedback_rules.get(cid, []),
+                    # Consignes du client d'abord (les plus précises), puis les globales
+                    feedback_notes=self.feedback_rules.get(cid, []) + self.feedback_rules.get('__GLOBAL__', []),
                     personal_notes=client.get('personal_notes', '') or '',
                     preference_notes=client.get('preference_notes', '') or '',
                     piano_notes=piano_notes_txt,
@@ -554,6 +559,7 @@ class NarrativeBriefingService:
                 ] if len(pianos) > 1 else [],
                 "appointment": {
                     "id": appt.get('external_id'),
+                    "date": appt.get('appointment_date', ''),
                     "time": (appt.get('appointment_time', '') or '')[:5],
                     "title": appt.get('title', ''),
                     "description": appt.get('description', ''),
@@ -646,8 +652,8 @@ class NarrativeBriefingService:
         # Feedback context (Allan's corrections)
         feedback_context = ""
         if feedback_notes:
-            feedback_context = "CORRECTIONS D'ALLAN (prioritaires, intègre-les au briefing):\n"
-            for note in feedback_notes[:5]:
+            feedback_context = "CORRECTIONS APPROUVÉES PAR ALLAN OU NICOLAS (prioritaires, intègre-les au briefing):\n"
+            for note in feedback_notes[:12]:
                 if note:
                     feedback_context += f"- {note}\n"
 
@@ -1797,7 +1803,8 @@ class NarrativeBriefingService:
 
 def save_feedback(client_id: str, category: str, field_name: str,
                   original_value: str, corrected_value: str,
-                  created_by: str = "asutton@piano-tek.com") -> bool:
+                  created_by: str = "asutton@piano-tek.com",
+                  is_active: bool = True, reasoning: Optional[str] = None) -> bool:
     storage = SupabaseStorage(silent=True)
     record = {
         'client_external_id': client_id,
@@ -1806,11 +1813,17 @@ def save_feedback(client_id: str, category: str, field_name: str,
         'original_value': original_value,
         'corrected_value': corrected_value,
         'created_by': created_by,
-        'is_active': True,
+        'is_active': is_active,
     }
+    if reasoning:
+        record['reasoning'] = reasoning
     try:
         url = f"{storage.api_url}/ai_training_feedback"
         response = http_requests.post(url, json=record, headers=storage._get_headers())
+        if response.status_code not in (200, 201) and 'reasoning' in record:
+            # Colonne « reasoning » absente en production : réessayer sans elle
+            record.pop('reasoning')
+            response = http_requests.post(url, json=record, headers=storage._get_headers())
         if response.status_code in (200, 201):
             print(f"✅ Feedback sauvegardé pour client {client_id}")
             return True

@@ -17,6 +17,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.timezone_utils import aujourdhui_montreal, bornes_journee_utc
@@ -27,6 +28,17 @@ from modules.briefing.client_intelligence_service import (
 )
 
 router = APIRouter(prefix="/briefing", tags=["briefing"])
+
+# Qui peut transformer un commentaire en consigne pour l'IA de Ma Journée.
+# Les autres techniciens peuvent signaler un problème : leur commentaire
+# reste « en attente » tant qu'un approbateur ne l'a pas appliqué.
+APPROBATEURS = {"asutton@piano-tek.com", "nlessard@piano-tek.com"}
+NOMS_EQUIPE = {
+    "asutton@piano-tek.com": "Allan",
+    "nlessard@piano-tek.com": "Nicolas",
+    "jpreny@gmail.com": "Jean-Philippe",
+    "margotcharignon@gmail.com": "Margot",
+}
 
 
 def _admin_autorise(secret) -> bool:
@@ -61,6 +73,22 @@ class ApplyActionsRequest(BaseModel):
     """Requête pour appliquer les actions approuvées par Allan"""
     actions: List[Dict[str, Any]]
     created_by: str = "asutton@piano-tek.com"
+
+
+class SuggestionRequest(BaseModel):
+    """Commentaire d'un technicien sur un briefing (en attente d'approbation)"""
+    client_id: str
+    client_name: str = ""
+    note: str
+    narrative: str = ""
+    appointment_date: str = ""
+    created_by: str
+
+
+class CloseSuggestionRequest(BaseModel):
+    """Clôture d'une suggestion par Allan ou Nicolas"""
+    statut: str  # "appliquee" ou "refusee"
+    by: str
 
 
 class ResolveFollowUpRequest(BaseModel):
@@ -304,12 +332,14 @@ async def list_feedback(
                 "id": n["id"],
                 "note": n.get("corrected_value", ""),
                 "created_at": n.get("created_at", ""),
+                "created_by": n.get("created_by", ""),
             } for n in global_notes],
             "client_notes": [{
                 "id": n["id"],
                 "client_id": n.get("client_external_id", ""),
                 "note": n.get("corrected_value", ""),
                 "created_at": n.get("created_at", ""),
+                "created_by": n.get("created_by", ""),
             } for n in client_notes],
         }
 
@@ -329,10 +359,10 @@ async def submit_feedback(request: FeedbackRequest):
 
     Pour une règle globale (tous les clients), envoyer client_id="__GLOBAL__"
     """
-    if request.created_by != "asutton@piano-tek.com":
+    if request.created_by not in APPROBATEURS:
         raise HTTPException(
             status_code=403,
-            detail="Seul asutton@piano-tek.com peut soumettre des corrections"
+            detail="Seuls Allan et Nicolas peuvent enregistrer des corrections"
         )
 
     try:
@@ -459,8 +489,8 @@ async def apply_actions(request: ApplyActionsRequest):
     """
     Sauvegarde les actions approuvées par Allan (client-spécifiques et/ou globales).
     """
-    if request.created_by != "asutton@piano-tek.com":
-        raise HTTPException(status_code=403, detail="Réservé à Allan")
+    if request.created_by not in APPROBATEURS:
+        raise HTTPException(status_code=403, detail="Réservé à Allan et Nicolas")
 
     saved = []
     errors = []
@@ -488,6 +518,98 @@ async def apply_actions(request: ApplyActionsRequest):
         "errors": errors,
         "message": f"{len(saved)} action(s) enregistrée(s)",
     }
+
+
+@router.post("/feedback/suggest", response_model=Dict[str, Any])
+async def suggest_feedback(request: SuggestionRequest):
+    """
+    Un technicien signale quelque chose qui n'est pas bon dans un briefing.
+    Enregistré INACTIF (field_name='suggestion_tech') : n'influence pas l'IA tant
+    qu'Allan ou Nicolas ne l'a pas transformé en consigne. Courriel aux approbateurs.
+    """
+    note = (request.note or "").strip()
+    if not note or not request.client_id or not request.created_by:
+        raise HTTPException(status_code=400, detail="Commentaire, client et auteur requis")
+    contexte = f"{request.client_name or request.client_id}"
+    if request.appointment_date:
+        contexte += f" — RV du {request.appointment_date}"
+    ok = save_feedback(
+        client_id=request.client_id,
+        category='general',
+        field_name='suggestion_tech',
+        original_value=(request.narrative or "")[:4000],
+        corrected_value=note[:2000],
+        created_by=request.created_by,
+        is_active=False,
+        reasoning=contexte[:500],
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="Erreur sauvegarde")
+
+    # Courriel aux approbateurs (au mieux : un échec n'empêche pas l'enregistrement)
+    try:
+        import html
+        from core.email_notifier import get_email_notifier
+        auteur = NOMS_EQUIPE.get(request.created_by, request.created_by)
+        corps = (
+            f"<p><b>{html.escape(auteur)}</b> a signalé quelque chose dans Ma Journée "
+            f"pour <b>{html.escape(contexte)}</b> :</p>"
+            f"<blockquote>{html.escape(note)}</blockquote>"
+            f"<p style='color:#666'>Briefing affiché : {html.escape((request.narrative or '')[:800])}</p>"
+            "<p>Pour l'appliquer ou le refuser : Ma Journée → panneau 🧠 en haut de la page.</p>"
+        )
+        get_email_notifier().send_email(
+            to_emails=[e for e in APPROBATEURS if e != request.created_by] or list(APPROBATEURS),
+            subject=f"Ma Journée : commentaire de {auteur} ({request.client_name or 'client'})",
+            html_content=corps,
+        )
+    except Exception as e:
+        print(f"⚠️ Courriel suggestion Ma Journée non envoyé: {e}")
+
+    return {"success": True, "message": "Commentaire envoyé à Allan et Nicolas"}
+
+
+@router.get("/feedback/suggestions", response_model=Dict[str, Any])
+async def list_suggestions():
+    """Commentaires des techniciens en attente d'approbation."""
+    from core.supabase_storage import SupabaseStorage
+    import requests as http_requests
+    storage = SupabaseStorage(silent=True)
+    url = (f"{storage.api_url}/ai_training_feedback?field_name=eq.suggestion_tech"
+           f"&order=created_at.desc&limit=100")
+    resp = http_requests.get(url, headers=storage._get_headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Erreur Supabase: {resp.text}")
+    return {"suggestions": [{
+        "id": n["id"],
+        "client_id": n.get("client_external_id", ""),
+        "contexte": n.get("reasoning") or "",
+        "note": n.get("corrected_value", ""),
+        "narrative": n.get("original_value") or "",
+        "created_by": n.get("created_by", ""),
+        "auteur": NOMS_EQUIPE.get(n.get("created_by", ""), n.get("created_by", "")),
+        "created_at": n.get("created_at", ""),
+    } for n in resp.json()]}
+
+
+@router.post("/feedback/suggestions/{suggestion_id}/close", response_model=Dict[str, Any])
+async def close_suggestion(suggestion_id: str, request: CloseSuggestionRequest):
+    """Allan ou Nicolas marque une suggestion appliquée ou refusée (elle reste inactive)."""
+    if request.by not in APPROBATEURS:
+        raise HTTPException(status_code=403, detail="Réservé à Allan et Nicolas")
+    if request.statut not in ("appliquee", "refusee"):
+        raise HTTPException(status_code=400, detail="statut = appliquee ou refusee")
+    from core.supabase_storage import SupabaseStorage
+    import requests as http_requests
+    storage = SupabaseStorage(silent=True)
+    url = (f"{storage.api_url}/ai_training_feedback?id=eq.{quote(suggestion_id)}"
+           f"&field_name=eq.suggestion_tech")
+    resp = http_requests.patch(
+        url, json={"field_name": f"suggestion_{request.statut}", "is_active": False},
+        headers=storage._get_headers())
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=500, detail=f"Erreur: {resp.text}")
+    return {"success": True}
 
 
 @router.delete("/feedback/{feedback_id}", response_model=Dict[str, Any])

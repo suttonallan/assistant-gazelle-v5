@@ -215,7 +215,7 @@ export default function MaJournee({ currentUser }) {
       )}
 
       {/* Panneau de revue des notes d'intelligence — Allan only */}
-      {isAllan && (
+      {(isAllan || currentUser?.email === 'nlessard@piano-tek.com') && (
         <FeedbackReviewPanel currentUser={currentUser} onUpdated={loadBriefings} />
       )}
 
