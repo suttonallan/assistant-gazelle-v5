@@ -35,6 +35,18 @@ CLIENT_KEYWORDS = {
     "Orford": ["orford"],
 }
 
+# Clients Gazelle dont les pianos sont à Place des Arts sans que leur nom contienne
+# « place des arts » (même liste que PDA_RELATED_CLIENT_IDS dans
+# modules/place_des_arts/services/gazelle_sync.py). Sans ça, leurs notes de
+# service n'apparaissaient pas dans l'onglet Place des Arts (ex. Steinway Hambourg
+# de l'OSM à la Maison symphonique, Steinway de la salle polyvalente UQAM sous
+# le client « PDA ») et manquaient à la contre-vérification de la facture PdA.
+PDA_RELATED_CLIENT_IDS = {
+    "cli_HbEwl9rN11pSuDEU",  # Place des Arts
+    "cli_gO9PL7gIVSQnQC4T",  # Orchestre Symphonique de Montréal (OSM)
+    "cli_wUgiRqV88tUBTr66",  # PDA
+}
+
 # Mots-clés pour l'onglet Alertes Maintenance (notes ou description)
 # Basés sur core/humidity_alert_detector.py - Filtrage strict pour alertes réelles
 MAINTENANCE_KEYWORDS = [
@@ -344,6 +356,18 @@ class ServiceReports:
         
         return " ".join(parts) if parts else ""
 
+    @staticmethod
+    def _client_label(client_id: Optional[str], clients_map: Dict[str, str]) -> str:
+        """Nom du client pour le classement par onglet.
+
+        Les clients liés à Place des Arts (OSM, PDA) reçoivent le suffixe
+        « (Place des Arts) » pour être classés dans l'onglet Place des Arts.
+        """
+        name = clients_map.get(client_id, "Inconnu") if client_id else "Inconnu"
+        if client_id in PDA_RELATED_CLIENT_IDS and "place des arts" not in (name or "").lower():
+            name = f"{name} (Place des Arts)"
+        return name
+
     def _categories_for_entry(self, client_name: str, description: str) -> List[str]:
         """Détermine les onglets cibles pour une entrée."""
         target_tabs: List[str] = []
@@ -635,7 +659,7 @@ class ServiceReports:
             piano = service.get("piano") or {}
             entity_id = service.get("entity_id")
             client_id = piano.get("client_external_id") or entity_id
-            client_name = clients_map.get(client_id, "Inconnu")
+            client_name = self._client_label(client_id, clients_map)
 
             date_raw = service.get("occurred_at") or service.get("entry_date", "")
             entry_date = self._to_montreal_date(date_raw)
@@ -744,7 +768,7 @@ class ServiceReports:
             piano = measurement_entry.get("piano") or {}
             entity_id = measurement_entry.get("entity_id")
             client_id = piano.get("client_external_id") or entity_id
-            client_name = clients_map.get(client_id, "Inconnu")
+            client_name = self._client_label(client_id, clients_map)
 
             date_raw = measurement_entry.get("occurred_at") or measurement_entry.get("entry_date", "")
             entry_date = self._to_montreal_date(date_raw)
@@ -835,7 +859,7 @@ class ServiceReports:
         rows: List[List[str]] = []
         for alert in alerts:
             client_id = alert.get("client_id") or alert.get("clientId")
-            client_name = clients_map.get(client_id, "Inconnu")
+            client_name = self._client_label(client_id, clients_map)
             date_str = (
                 alert.get("date_observation")
                 or alert.get("dateObservation")

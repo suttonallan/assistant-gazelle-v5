@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 3 novembre
+- **Rapport Timeline — Place des Arts complet** : l'onglet Place des Arts inclut maintenant les notes de service des pianos inscrits sous les clients OSM (ex. Steinway Hambourg de l'OSM à la Maison symphonique) et « PDA » (ex. Steinway de la salle polyvalente UQAM), qui en étaient absentes. La contre-vérification de la facture PdA ne les oublie plus.
+
 ### 2 novembre
 - **Place des Arts — les mémos ne bloquent plus un technicien** : dans la journée des techniciens (création ou modification d'un RV), les mémos Gazelle (« Kit PLS pour Margot », « retrait »…) ne s'affichent plus en rouge comme s'ils occupaient la journée. Ils restent visibles en petit gris avec 📝, et un technicien qui n'a que des mémos est indiqué « Libre ».
 - **Ma Journée : choisir quelle(s) journée(s) voir** : les boutons « Mes RV / Autres techs » sont remplacés par une pastille par personne (Allan, Nicolas, Jean-Philippe, Margot, À attribuer), qu'on peut combiner — par exemple Nicolas + Jean-Philippe. Chaque pastille montre son nombre de RV, « Tous » coche tout le monde, et le choix est retenu d'une visite à l'autre.
