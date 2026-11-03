@@ -18,6 +18,15 @@ import { hasPermission } from '../config/roles'
  * - Bouton "Ajuster l'Intelligence" sur chaque carte
  * - Sauvegarde dans ai_training_feedback
  */
+// Équipe affichable dans Ma Journée (deux ID Gazelle pour Jean-Philippe).
+const EQUIPE = [
+  { cle: 'allan', nom: 'Allan', ids: ['usr_ofYggsCDt2JAVeNP'] },
+  { cle: 'nicolas', nom: 'Nicolas', ids: ['usr_HcCiFk7o0vZ9xAI0'] },
+  { cle: 'jp', nom: 'Jean-Philippe', ids: ['usr_ReUSmIJmBF86ilY1', 'usr_QmEpdeM2xMgZVkDS'] },
+  { cle: 'margot', nom: 'Margot', ids: ['usr_bbt59aCUqUaDWA8n'] },
+  { cle: 'attribuer', nom: 'À attribuer', ids: ['usr_HihJsEgkmpTEziJo'] },
+]
+
 export default function MaJournee({ currentUser }) {
   const [briefings, setBriefings] = useState([])
   const [loading, setLoading] = useState(true)
@@ -35,34 +44,47 @@ export default function MaJournee({ currentUser }) {
   const technicianId = currentUser?.gazelleId || currentUser?.id || null
   const isAllan = currentUser?.email === 'asutton@piano-tek.com'
   const isLouise = currentUser?.email === 'info@piano-tek.com' || currentUser?.role === 'louise'
-  const [showAllTechs, setShowAllTechs] = useState(false) // Mode admin: voir tous les RV
+  // Choix des journées affichées (nov. 2026, demande de Nicolas) : une pastille par
+  // technicien, combinables. On charge TOUTE la journée une fois (servie par le cache)
+  // et on filtre ici. Défaut : moi seul (comme l'ancien « Mes RV ») ; Louise : tout le monde.
+  const cleChoix = `maJournee.techs.${currentUser?.email || 'inconnu'}`
+  const [techsChoisis, setTechsChoisis] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(cleChoix) || 'null')
+      if (Array.isArray(s) && s.length) return s
+    } catch (e) { /* stockage indisponible : défaut */ }
+    if (isLouise || !technicianId) return EQUIPE.map((t) => t.cle)
+    const moi = EQUIPE.find((t) => t.ids.includes(technicianId))
+    return moi ? [moi.cle] : EQUIPE.map((t) => t.cle)
+  })
+  useEffect(() => {
+    try { localStorage.setItem(cleChoix, JSON.stringify(techsChoisis)) } catch (e) { /* ignoré */ }
+  }, [cleChoix, techsChoisis])
+  const basculerTech = (cle) => setTechsChoisis((avant) =>
+    avant.includes(cle) ? (avant.length > 1 ? avant.filter((c) => c !== cle) : avant) : [...avant, cle])
+  const toutChoisi = techsChoisis.length === EQUIPE.length
+  const idsChoisis = new Set(EQUIPE.filter((t) => techsChoisis.includes(t.cle)).flatMap((t) => t.ids))
+  const cleDe = (b) => {
+    const id = b.appointment?.technician_id
+    const t = EQUIPE.find((x) => x.ids.includes(id))
+    return t ? t.cle : 'attribuer'
+  }
+  const briefingsVus = briefings.filter((b) => techsChoisis.includes(cleDe(b)))
 
   // Debug: voir quel technicianId est utilisé
   console.log('[MaJournee] currentUser:', currentUser?.email, 'gazelleId:', currentUser?.gazelleId, 'id:', currentUser?.id, '→ technicianId:', technicianId)
 
   useEffect(() => {
     loadBriefings()
-  }, [selectedDate, technicianId, showAllTechs])
+  }, [selectedDate])
 
   const loadBriefings = async (retryCount = 0) => {
     setLoading(true)
     if (retryCount === 0) setError(null)
 
     try {
-      let url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
-      // Louise: voir tous les RV (elle est assistante, pas technicienne)
-      // Allan: filtrer par ses RV ou les autres
-      // Autres: filtrer par leur ID
-      if (isLouise) {
-        // Pas de filtre — Louise voit tous les RV du jour
-      } else if (technicianId) {
-        if (showAllTechs) {
-          // Toggle "Autres techs" — voir les RV de tous SAUF le technicien courant
-          url += `&exclude_technician_id=${technicianId}`
-        } else {
-          url += `&technician_id=${technicianId}`
-        }
-      }
+      // Toute la journée (cache serveur) ; le choix des techniciens se fait dans la page.
+      const url = `${API_URL}/api/briefing/daily?date=${selectedDate}`
 
       // Garde-fou : si le backend est saturé, fetch peut rester suspendu
       // indéfiniment (connexion ouverte, aucune réponse) => spinner infini.
@@ -172,7 +194,7 @@ export default function MaJournee({ currentUser }) {
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl px-4 py-3 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-blue-600">{briefings.length}</span>
+              <span className="text-2xl font-bold text-blue-600">{briefingsVus.length}</span>
               <span className="text-gray-600">rendez-vous</span>
             </div>
             <button
@@ -184,33 +206,34 @@ export default function MaJournee({ currentUser }) {
             </button>
           </div>
 
-          {/* Toggle Mes RV / Autres techs — disponible pour tous les
-              techniciens qui ont un gazelleId (Allan, Nicolas, JP, Margot).
-              Louise n'en a pas besoin : elle voit deja tous les RV par defaut. */}
-          {!isLouise && technicianId && (
-            <div className="mt-3 flex items-center gap-2">
+          {/* Pastilles : quelle(s) journée(s) voir — combinables. Le choix est
+              mémorisé dans ce navigateur. Au moins une pastille reste cochée. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {EQUIPE.map((t) => {
+              const actif = techsChoisis.includes(t.cle)
+              const n = briefings.filter((b) => cleDe(b) === t.cle).length
+              return (
+                <button
+                  key={t.cle}
+                  onClick={() => basculerTech(t.cle)}
+                  aria-pressed={actif}
+                  className={`px-3 py-1 text-sm rounded-full border transition-colors ${
+                    actif ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                  }`}
+                >
+                  {t.nom}{n ? ` · ${n}` : ''}
+                </button>
+              )
+            })}
+            {!toutChoisi && (
               <button
-                onClick={() => setShowAllTechs(false)}
-                className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                  !showAllTechs
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-100'
-                }`}
+                onClick={() => setTechsChoisis(EQUIPE.map((t) => t.cle))}
+                className="px-2 py-1 text-xs text-blue-700 hover:text-blue-900 underline"
               >
-                Mes RV
+                Tous
               </button>
-              <button
-                onClick={() => setShowAllTechs(true)}
-                className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                  showAllTechs
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                Autres techs
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
@@ -232,11 +255,13 @@ export default function MaJournee({ currentUser }) {
         </div>
       )}
 
-      {!loading && !error && briefings.length === 0 && (
+      {!loading && !error && briefingsVus.length === 0 && (
         <div className="text-center py-12">
           <div className="text-6xl mb-4">📭</div>
           <div className="text-gray-600">
-            Aucun rendez-vous pour cette date
+            {briefings.length > 0
+              ? `Aucun rendez-vous pour ce choix — ${briefings.length} pour l'équipe ce jour-là`
+              : 'Aucun rendez-vous pour cette date'}
           </div>
           {!isToday && (
             <button
@@ -250,9 +275,9 @@ export default function MaJournee({ currentUser }) {
       )}
 
       {/* Liste des briefings */}
-      {!loading && !error && briefings.length > 0 && (
+      {!loading && !error && briefingsVus.length > 0 && (
         <div className="space-y-4">
-          {briefings.map((briefing, idx) => (
+          {briefingsVus.map((briefing, idx) => (
             <BriefingCard
               key={briefing.appointment?.id || `${briefing.client_id}-${idx}`}
               briefing={briefing}
