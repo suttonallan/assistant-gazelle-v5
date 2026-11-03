@@ -2279,13 +2279,20 @@ def _aligner_assistant_sur_rv(storage, eid: str, rv: Dict[str, Any], demande: Di
         storage.client.table('place_des_arts_requests').update(maj).eq('appointment_id', eid).execute()
     except Exception as e:
         return f"l'assistant n'a pas pu être mis à jour : {e}"
+    # Copie locale du RV (ce qu'affiche « RV : … » dans le tableau). Si elle ne suit pas,
+    # on le DIT à l'écran : sinon l'équipe voit l'ancienne date jusqu'à une heure et croit
+    # à une erreur (cas Cirque Le Roux, 2 nov. 2026). Une relecture Gazelle est planifiée.
     try:
-        storage.client.table('gazelle_appointments').update({
+        res = storage.client.table('gazelle_appointments').update({
             'technicien': rv['technician_id'], 'appointment_date': rv['date'],
             'appointment_time': f"{rv['heure']}:00", 'duration_minutes': rv['duree'],
         }).eq('external_id', eid).execute()
+        if not (res.data or []):
+            logging.warning(f"Copie locale du RV {eid} : aucune ligne mise à jour")
+            return "l'affichage « RV : … » du tableau peut montrer l'ancienne date quelques minutes (Gazelle est à jour)."
     except Exception as e:
         logging.warning(f"Copie locale du RV {eid} non mise à jour (la synchro le fera) : {e}")
+        return "l'affichage « RV : … » du tableau peut montrer l'ancienne date quelques minutes (Gazelle est à jour)."
     return None
 
 
@@ -2350,6 +2357,8 @@ def reassigner_rv(request_id: str, body: CreerRvGazelleIn, background_tasks: Bac
         err = _aligner_assistant_sur_rv(storage, eid, rv0, demande)
         _cache_verif.pop(request_id, None)
         _cache_journee.clear()
+        if err:
+            background_tasks.add_task(_pull_live_appointments, storage)
         return {"ok": True, "change": True, "rv": rv0, "nom_technicien": _TECHS_JOURNEE.get(rv0['technician_id']) or rv0.get('technicien'),
                 "avertissements": [f"Gazelle était déjà à jour ; {err}"] if err else [],
                 "message": "Gazelle était déjà à jour : l'assistant est maintenant aligné."}
