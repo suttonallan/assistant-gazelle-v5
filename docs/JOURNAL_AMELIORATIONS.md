@@ -8,6 +8,7 @@ l'historique complet reste dans git.
 
 ### 3 novembre
 - **@Ivo dans Front** : dans une conversation Front, un commentaire interne qui commence par « @Ivo » (ex. « @Ivo plus court et plus chaleureux ») fait réécrire le brouillon de réponse par l'assistant en quelques secondes, ou en crée un s'il n'y en a pas. Ivo confirme par un commentaire et retient les consignes générales pour les fois suivantes. Rien ne part tout seul : le brouillon reste à relire et à envoyer.
+- **@Ivo répond aussi aux questions d'horaire** : « @Ivo est-ce que quelqu'un est déjà dans le coin à ces dates ? » — Ivo lit l'horaire des 45 prochains jours dans Gazelle (RV clients et leur ville) et propose qui, quel jour et à quelle heure, dans un commentaire. Il ne dévoile jamais la nature des blocs personnels.
 
 ### 2 novembre
 - **Place des Arts — les mémos ne bloquent plus un technicien** : dans la journée des techniciens (création ou modification d'un RV), les mémos Gazelle (« Kit PLS pour Margot », « retrait »…) ne s'affichent plus en rouge comme s'ils occupaient la journée. Ils restent visibles en petit gris avec 📝, et un technicien qui n'a que des mémos est indiqué « Libre ».

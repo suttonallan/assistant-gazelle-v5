@@ -29,7 +29,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-1"
+VERSION = "ivo-2"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -108,10 +108,48 @@ Règles absolues :
 - Réponds dans la langue du client. Vouvoiement par défaut.
 - Pas de signature dans le corps (Front l'ajoute) : termine par la formule de politesse seulement.
 - Tu ne fais que préparer un brouillon : un humain le relira et l'enverra.
-Réponds UNIQUEMENT en JSON : {"brouillon": "...", "regle_generale": "..." ou null, "note": "..."}
-- brouillon : le texte complet du nouveau brouillon (texte simple, paragraphes séparés par une ligne vide).
+Deux sortes de consignes :
+A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
+B) Une question pour l'équipe (« qui est dans le coin à ces dates ? », « ça fonctionne avec l'horaire ? »…) → action "reponse" : réponds dans "note", sans toucher au brouillon.
+Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec leur ville et code postal ; « occupé » = bloc personnel). Raisonne sur la géographie (villes voisines, temps de route approximatif), propose concrètement qui, quel jour et à quelle heure, et dis clairement quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot. Ne mentionne jamais la nature d'un bloc personnel.
+Réponds UNIQUEMENT en JSON : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
+- brouillon : (action "brouillon" seulement) le texte complet du nouveau brouillon (texte simple, paragraphes séparés par une ligne vide).
 - regle_generale : si la consigne vaut pour toutes les réponses futures (ton, longueur, façon de faire), formule-la en une phrase courte ; sinon null.
-- note : une phrase pour l'équipe (ce que tu as changé, ou ce qui reste à vérifier)."""
+- note : pour "brouillon", une phrase (ce que tu as changé, ce qui reste à vérifier) ; pour "reponse", la réponse complète à la question, courte et concrète."""
+
+
+def _horaire(jours: int = 45) -> str:
+    """Horaire de l'équipe (lecture seule) : RV clients avec ville, blocs perso réduits à « occupé »."""
+    from datetime import datetime, timedelta
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import MONTREAL_TZ
+    noms = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_ReUSmIJmBF86ilY1": "JP",
+            "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot", "usr_HihJsEgkmpTEziJo": "À attribuer"}
+    debut = datetime.now(MONTREAL_TZ).date()
+    evs = GazelleAPIClient().get_appointments(start_date_override=debut.isoformat(),
+                                              end_date_override=(debut + timedelta(days=jours)).isoformat()) or []
+    lignes = []
+    for e in evs:
+        if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED") or (e.get("type") or "") == "MEMO":
+            continue
+        try:
+            d = datetime.fromisoformat(e["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+        except Exception:
+            continue
+        tech = noms.get((e.get("user") or {}).get("id"), "?")
+        fin = d + timedelta(minutes=int(e.get("duration") or 60))
+        if e.get("isAllDay"):
+            quand = f"{d:%Y-%m-%d %a} toute la journée"
+        else:
+            quand = f"{d:%Y-%m-%d %a} {d:%H:%M}-{fin:%H:%M}"
+        if e.get("type") == "APPOINTMENT":
+            loc = e.get("location") or {}
+            lieu = " ".join(x for x in (loc.get("municipality"), loc.get("postalCode")) if x) or "lieu inconnu"
+            quoi = f"RV client « {(e.get('title') or '')[:40]} » à {lieu}"
+        else:
+            quoi = "occupé"
+        lignes.append((d, f"{quand} — {tech} : {quoi}"))
+    return "\n".join(l for _, l in sorted(lignes))
 
 
 def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict[str, Any]:
@@ -123,7 +161,16 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
     ton = _guide_ton()
     if ton:
         systeme += "\n\nGuide de ton de PTM (extrait) :\n" + ton
-    contenu = (f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
+    try:
+        horaire = _horaire()
+    except Exception:
+        _log.exception("Ivo : horaire indisponible")
+        horaire = "(horaire indisponible pour l'instant)"
+    from core.timezone_utils import MONTREAL_TZ
+    from datetime import datetime
+    contenu = (f"AUJOURD'HUI : {datetime.now(MONTREAL_TZ):%Y-%m-%d %A}\n\n"
+               f"HORAIRE DE L'ÉQUIPE (45 prochains jours) :\n{horaire}\n\n"
+               f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
                f"BROUILLON ACTUEL :\n{brouillon or '(aucun — rédige une première réponse)'}\n\n"
                f"CONSIGNE DE L'ÉQUIPE :\n{consigne}")
     rep = client.messages.create(model=MODELE, max_tokens=2000, system=systeme,
@@ -178,6 +225,10 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
 
     try:
         res = _rediger(consigne, _fil(messages), texte_brouillon, _regles())
+        if res.get("action") == "reponse":
+            front.add_comment(conversation_id, PREFIXE_REPONSE + (res.get("note") or "je n'ai pas de réponse."),
+                              auteur_email)
+            return {"statut": "ok", "action": "réponse"}
         nouveau = (res.get("brouillon") or "").strip()
         if not nouveau:
             raise ValueError("brouillon vide")
