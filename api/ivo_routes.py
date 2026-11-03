@@ -29,7 +29,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-3"
+VERSION = "ivo-4"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -206,7 +206,8 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     if comment_id:
         cibles = [c for c in commentaires if c.get("id") == comment_id]
     else:
-        cibles = sorted(commentaires, key=lambda c: c.get("posted_at") or 0)[-1:]
+        cibles = sorted([c for c in commentaires if consigne_ivo(c.get("body") or "") is not None],
+                        key=lambda c: c.get("posted_at") or 0)[-1:]
     if not cibles:
         return {"statut": "ignoré", "raison": "commentaire introuvable"}
     com = cibles[0]
