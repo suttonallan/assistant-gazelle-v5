@@ -29,7 +29,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-4"
+VERSION = "ivo-5"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -280,11 +280,18 @@ def _ids_du_webhook(evt: Dict[str, Any]) -> Dict[str, Optional[str]]:
     return {"conversation_id": cid, "comment_id": com}
 
 
+_derniers: List[Dict[str, Any]] = []  # journal court des derniers traitements (diagnostic)
+
+
 def _traiter_sans_erreur(conversation_id: str, comment_id: Optional[str]) -> None:
+    import traceback
     try:
-        _log.info("Ivo : %s", traiter(conversation_id, comment_id))
-    except Exception:
+        res = traiter(conversation_id, comment_id)
+    except Exception as e:
         _log.exception("Ivo : échec du traitement")
+        res = {"statut": "exception", "raison": f"{e}", "trace": traceback.format_exc()[-800:]}
+    _derniers.append({"conversation": conversation_id, **res})
+    del _derniers[:-10]
 
 
 # ─── Endpoints ───────────────────────────────────────────────────
@@ -307,6 +314,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
             "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY"))}
+
+
+@router.get("/journal")
+def journal():
+    """Les derniers traitements d'Ivo (diagnostic, sans contenu de courriel)."""
+    return {"derniers": _derniers}
 
 
 @router.get("/regles")
