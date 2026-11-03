@@ -29,7 +29,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-5"
+VERSION = "ivo-6"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -112,7 +112,7 @@ Deux sortes de consignes :
 A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
 B) Une question pour l'équipe (« qui est dans le coin à ces dates ? », « ça fonctionne avec l'horaire ? »…) → action "reponse" : réponds dans "note", sans toucher au brouillon.
 Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec leur ville et code postal ; « occupé » = bloc personnel). Raisonne sur la géographie (villes voisines, temps de route approximatif), propose concrètement qui, quel jour et à quelle heure, et dis clairement quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot. Ne mentionne jamais la nature d'un bloc personnel.
-Transmets ton résultat avec l'outil « repondre » : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
+Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans autre texte : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
 - brouillon : (action "brouillon" seulement) le texte complet du nouveau brouillon (texte simple, paragraphes séparés par une ligne vide).
 - regle_generale : si la consigne vaut pour toutes les réponses futures (ton, longueur, façon de faire), formule-la en une phrase courte ; sinon null.
 - note : pour "brouillon", une phrase (ce que tu as changé, ce qui reste à vérifier) ; pour "reponse", la réponse complète à la question, courte et concrète."""
@@ -180,11 +180,15 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
                  "regle_generale": {"type": ["string", "null"]},
                  "note": {"type": "string"}}}}
     rep = client.messages.create(model=MODELE, max_tokens=4000, system=systeme, tools=[outil],
-                                 tool_choice={"type": "tool", "name": "repondre"},
+                                 tool_choice={"type": "auto"},
                                  messages=[{"role": "user", "content": contenu}])
     for b in rep.content:
         if getattr(b, "type", "") == "tool_use":
             return dict(b.input)
+    brut = "".join(getattr(b, "text", "") for b in rep.content).strip()
+    m = re.search(r"\{.*\}", brut, re.DOTALL)
+    if m:
+        return json.loads(m.group(0))
     raise ValueError("réponse de l'IA illisible")
 
 
