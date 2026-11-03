@@ -93,7 +93,8 @@ const jourLong = (iso) => {
 function conflits(rvs, heure, duree, ignorerId) {
   if (!/^\d{2}:\d{2}$/.test(heure)) return []
   const a = enMin(heure), b = a + Number(duree || 60)
-  return (rvs || []).filter((r) => r.id !== ignorerId && (r.journee || (enMin(r.heure) < b && a < enMin(r.heure) + Number(r.duree || 60))))
+  // Les mémos Gazelle sont des notes, pas des absences : ils ne bloquent jamais.
+  return (rvs || []).filter((r) => r.id !== ignorerId && !r.memo && (r.journee || (enMin(r.heure) < b && a < enMin(r.heure) + Number(r.duree || 60))))
 }
 
 function Icone({ statut }) {
@@ -220,10 +221,10 @@ function JourneeTechniciens({ journee, tech, setTech, heure, duree, rvActuelId, 
                 <span>{t.nom}</span>
                 {heure && <span className={c.length ? 'text-red-600' : 'text-green-600'}>{c.length ? '⚠︎' : '✓'}</span>}
               </div>
-              {t.rendez_vous.length === 0 && <div className="text-gray-400">Libre</div>}
+              {!t.rendez_vous.some((r) => !r.memo) && <div className="text-gray-400">Libre</div>}
               {t.rendez_vous.map((r) => (
-                <div key={r.id} className={`mb-0.5 break-words ${r.id === rvActuelId ? 'font-semibold text-blue-700' : c.includes(r) ? 'text-red-600' : r.perso ? 'text-gray-500 italic' : 'text-gray-700'}`} title={r.titre}>
-                  {r.journee ? 'Journée' : `${r.heure}–${r.fin}`} {r.id === rvActuelId ? '(ce RV) ' : ''}{r.titre}
+                <div key={r.id} className={`mb-0.5 break-words ${r.id === rvActuelId ? 'font-semibold text-blue-700' : c.includes(r) ? 'text-red-600' : r.memo ? 'text-[10px] text-gray-400' : r.perso ? 'text-gray-500 italic' : 'text-gray-700'}`} title={r.memo ? `Mémo (ne bloque pas) : ${r.titre}` : r.titre}>
+                  {r.memo ? '📝 ' : <>{r.journee ? 'Journée' : `${r.heure}–${r.fin}`} </>}{r.id === rvActuelId ? '(ce RV) ' : ''}{r.titre}
                 </div>
               ))}
             </button>

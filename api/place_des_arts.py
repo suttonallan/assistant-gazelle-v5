@@ -1839,7 +1839,9 @@ def journee_techniciens(date: str = Query(..., description="AAAA-MM-JJ (heure de
         fin = debut + timedelta(minutes=int(duree))
         rv = {"id": e.get("id"), "titre": (e.get("title") or "").strip(),
               "heure": debut.strftime("%H:%M"), "fin": fin.strftime("%H:%M"), "duree": duree,
-              "journee": bool(e.get("isAllDay")), "perso": (e.get("type") or "").upper() == "PERSONAL"}
+              "journee": bool(e.get("isAllDay")), "perso": (e.get("type") or "").upper() == "PERSONAL",
+              # Mémo Gazelle : simple note (« Kit PLS pour Margot »), ne bloque pas le technicien.
+              "memo": (e.get("type") or "").upper() == "MEMO"}
         uid = (e.get("user") or {}).get("id")
         if uid == "usr_QmEpdeM2xMgZVkDS":  # 2e compte Gazelle de JP
             uid = "usr_ReUSmIJmBF86ilY1"
