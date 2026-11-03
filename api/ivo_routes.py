@@ -20,6 +20,8 @@ import logging
 import os
 import re
 import threading
+
+import requests
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Request
@@ -29,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-6"
+VERSION = "ivo-7"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -118,6 +120,27 @@ Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans
 - note : pour "brouillon", une phrase (ce que tu as changé, ce qui reste à vérifier) ; pour "reponse", la réponse complète à la question, courte et concrète."""
 
 
+def _villes_clients(ids: set) -> Dict[str, str]:
+    """Ville + code postal des clients (table gazelle_clients), pour situer les RV."""
+    from urllib.parse import quote
+    if not ids:
+        return {}
+    from core.supabase_storage import SupabaseStorage
+    st = SupabaseStorage(silent=True)
+    sortie: Dict[str, str] = {}
+    ids = sorted(ids)
+    for i in range(0, len(ids), 80):
+        lot = ",".join(quote(x) for x in ids[i:i + 80])
+        r = requests.get(f"{st.api_url}/gazelle_clients?select=external_id,city,postal_code&external_id=in.({lot})",
+                         headers=st._get_headers(), timeout=15)
+        if r.status_code == 200:
+            for c in r.json():
+                v = " ".join(x for x in (c.get("city"), c.get("postal_code")) if x)
+                if v:
+                    sortie[c["external_id"]] = v
+    return sortie
+
+
 def _horaire(jours: int = 45) -> str:
     """Horaire de l'équipe (lecture seule) : RV clients avec ville, blocs perso réduits à « occupé »."""
     from datetime import datetime, timedelta
@@ -128,6 +151,7 @@ def _horaire(jours: int = 45) -> str:
     debut = datetime.now(MONTREAL_TZ).date()
     evs = GazelleAPIClient().get_appointments(start_date_override=debut.isoformat(),
                                               end_date_override=(debut + timedelta(days=jours)).isoformat()) or []
+    villes = _villes_clients({(e.get("client") or {}).get("id") for e in evs} - {None})
     lignes = []
     for e in evs:
         if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED") or (e.get("type") or "") == "MEMO":
@@ -144,7 +168,8 @@ def _horaire(jours: int = 45) -> str:
             quand = f"{d:%Y-%m-%d %a} {d:%H:%M}-{fin:%H:%M}"
         if e.get("type") == "APPOINTMENT":
             loc = e.get("location") or {}
-            lieu = " ".join(x for x in (loc.get("municipality"), loc.get("postalCode")) if x) or "lieu inconnu"
+            lieu = (" ".join(x for x in (loc.get("municipality"), loc.get("postalCode")) if x)
+                    or villes.get((e.get("client") or {}).get("id")) or "lieu inconnu")
             quoi = f"RV client « {(e.get('title') or '')[:40]} » à {lieu}"
         else:
             quoi = "occupé"
@@ -324,6 +349,12 @@ def sante():
 def journal():
     """Les derniers traitements d'Ivo (diagnostic, sans contenu de courriel)."""
     return {"derniers": _derniers}
+
+
+@router.get("/horaire")
+def horaire(jours: int = 30):
+    """Ce qu'Ivo voit de l'horaire (diagnostic, lecture seule)."""
+    return {"horaire": _horaire(min(max(jours, 1), 60)).split("\n")}
 
 
 @router.get("/regles")
