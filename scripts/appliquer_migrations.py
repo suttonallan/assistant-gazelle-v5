@@ -37,6 +37,23 @@ def anon_peut_executer() -> bool:
     return r.status_code in (200, 204)
 
 
+def tables_lisibles_par_anon() -> list:
+    """Tables dont la clé publique (anon) peut lire au moins une ligne. Doit être vide."""
+    cle = _cle_anon()
+    h = {"apikey": cle, "Authorization": f"Bearer {cle}"}
+    try:
+        spec = requests.get(f"{URL}/rest/v1/", headers=h, timeout=30).json()
+        noms = [p.strip("/") for p in spec.get("paths", {}) if p.count("/") == 1 and not p.startswith("/rpc")]
+    except Exception as e:  # noqa: BLE001
+        return [f"(vérification impossible : {e})"]
+    lisibles = []
+    for nom in sorted(n for n in noms if n):
+        r = requests.get(f"{URL}/rest/v1/{nom}?select=*&limit=1", headers=h, timeout=30)
+        if r.status_code == 200 and r.text.strip() not in ("", "[]"):
+            lisibles.append(nom)
+    return lisibles
+
+
 def main() -> int:
     rapport = []
     ok_global = True
@@ -61,6 +78,10 @@ def main() -> int:
                 ok = r.status_code in (200, 204)
                 ok_global &= ok
                 rapport.append(f"{'OK ' if ok else 'ÉCHEC'} [{f.name}] {stmt[:90]}" + ("" if ok else f" -> {r.text[:200]}"))
+        lisibles = tables_lisibles_par_anon()
+        ok_global &= not lisibles
+        rapport.append("Tables lisibles avec la clé publique : "
+                       + (", ".join(lisibles) if lisibles else "aucune (OK)"))
         apres = anon_peut_executer()
         ok_global &= not apres
         rapport.append(f"Sécurité APRÈS : clé publique peut exécuter du SQL = {'OUI (FAILLE TOUJOURS OUVERTE)' if apres else 'non'}")
