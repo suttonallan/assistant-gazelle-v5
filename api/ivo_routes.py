@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-18"
+VERSION = "ivo-19"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -450,6 +450,17 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
                 historique.append(("assistant", t))
             elif consigne_ivo(c.get("body") or "") is not None:
                 historique.append(("user", consigne_ivo(c.get("body") or "")))
+        # Notes internes de l'équipe (commentaires Front qui ne s'adressent pas à Ivo) : Ivo doit les voir
+        notes = []
+        for c in anterieurs[-15:]:
+            t = _texte(c.get("body") or "")
+            if t.startswith("🤖 Ivo") or consigne_ivo(c.get("body") or "") is not None or not t.strip():
+                continue
+            qui_c = ((c.get("author") or {}).get("first_name")) or ((c.get("author") or {}).get("email")) or "équipe"
+            notes.append(f"- {qui_c} : {t[:800]}")
+        if notes:
+            fil = (fil + "\n\n--- NOTES INTERNES DE L'ÉQUIPE (commentaires Front, non vus du client) ---\n"
+                   + "\n".join(notes))
         while historique and historique[0][0] != "user":
             historique.pop(0)
         _CTX.set({"historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
