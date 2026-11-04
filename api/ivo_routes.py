@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-10"
+VERSION = "ivo-11"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -114,6 +114,7 @@ Deux sortes de consignes :
 A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
 B) Une question pour l'équipe (« qui est dans le coin à ces dates ? », « ça fonctionne avec l'horaire ? »…) → action "reponse" : réponds dans "note", sans toucher au brouillon.
 Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec leur ville et code postal ; « occupé » = bloc personnel). Raisonne sur la géographie (villes voisines, temps de route approximatif), propose concrètement qui, quel jour et à quelle heure, et dis clairement quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot. Ne mentionne jamais la nature d'un bloc personnel.
+Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
 Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans autre texte : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
 - brouillon : (action "brouillon" seulement) le texte complet du nouveau brouillon (texte simple, paragraphes séparés par une ligne vide).
 - regle_generale : si la consigne vaut pour toutes les réponses futures (ton, longueur, façon de faire), formule-la en une phrase courte ; sinon null.
@@ -177,6 +178,35 @@ def _horaire(jours: int = 45) -> str:
     return "\n".join(l for _, l in sorted(lignes))
 
 
+def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
+    try:
+        if nom == "frais_deplacement":
+            from modules.travel_fees.calculator import TravelFeeCalculator
+            r = TravelFeeCalculator().calculer_frais_client(arg.get("adresse") or "")
+            km_aller = r.distance_km / 2
+            if r.is_free:
+                return f"GRATUIT (environ {km_aller:.0f} km aller depuis le point de référence PTM)."
+            texte = f"{r.total_fee:.2f} $ (environ {km_aller:.0f} km aller depuis le point de référence PTM)."
+            if km_aller > TravelFeeCalculator.LIMITE_TARIF_GRADUEL_KM:
+                texte += (" Au-delà de 45 km : montant ESTIMATIF, la coordonnatrice fixe le RV et les frais "
+                          "(visites regroupées).")
+            return texte
+        if nom == "chercher_client":
+            from modules.assistant.services.queries import GazelleQueries
+            from core.supabase_storage import SupabaseStorage
+            res = GazelleQueries(SupabaseStorage(silent=True)).search_clients([arg.get("texte") or ""]) or []
+            if not res:
+                return "Aucun client trouvé."
+            return "\n".join(
+                f"{(c.get('company_name') or (str(c.get('first_name') or '') + ' ' + str(c.get('last_name') or '')).strip())}"
+                f" — {', '.join(x for x in (c.get('address'), c.get('city'), c.get('postal_code')) if x) or 'adresse inconnue'}"
+                for c in res[:5])
+        return "Outil inconnu."
+    except Exception as e:
+        _log.exception("Ivo : outil %s", nom)
+        return f"Échec de l'outil : {e}"
+
+
 def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict[str, Any]:
     from anthropic import Anthropic
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -198,22 +228,40 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
                f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
                f"BROUILLON ACTUEL :\n{brouillon or '(aucun — rédige une première réponse)'}\n\n"
                f"CONSIGNE DE L'ÉQUIPE :\n{consigne}")
-    outil = {"name": "repondre", "description": "Transmet le résultat d'Ivo.",
-             "input_schema": {"type": "object", "required": ["action", "note"], "properties": {
-                 "action": {"type": "string", "enum": ["brouillon", "reponse"]},
-                 "brouillon": {"type": ["string", "null"]},
-                 "regle_generale": {"type": ["string", "null"]},
-                 "note": {"type": "string"}}}}
-    rep = client.messages.create(model=MODELE, max_tokens=4000, system=systeme, tools=[outil],
-                                 tool_choice={"type": "auto"},
-                                 messages=[{"role": "user", "content": contenu}])
-    for b in rep.content:
-        if getattr(b, "type", "") == "tool_use":
-            return dict(b.input)
-    brut = "".join(getattr(b, "text", "") for b in rep.content).strip()
-    m = re.search(r"\{.*\}", brut, re.DOTALL)
-    if m:
-        return json.loads(m.group(0))
+    outils = [
+        {"name": "repondre", "description": "Transmet le résultat final d'Ivo (à appeler en dernier).",
+         "input_schema": {"type": "object", "required": ["action", "note"], "properties": {
+             "action": {"type": "string", "enum": ["brouillon", "reponse"]},
+             "brouillon": {"type": ["string", "null"]},
+             "regle_generale": {"type": ["string", "null"]},
+             "note": {"type": "string"}}}},
+        {"name": "frais_deplacement",
+         "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
+         "input_schema": {"type": "object", "required": ["adresse"],
+                          "properties": {"adresse": {"type": "string"}}}},
+        {"name": "chercher_client",
+         "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal.",
+         "input_schema": {"type": "object", "required": ["texte"],
+                          "properties": {"texte": {"type": "string"}}}},
+    ]
+    messages = [{"role": "user", "content": contenu}]
+    for _ in range(6):
+        rep = client.messages.create(model=MODELE, max_tokens=4000, system=systeme, tools=outils,
+                                     tool_choice={"type": "auto"}, messages=messages)
+        appels = [b for b in rep.content if getattr(b, "type", "") == "tool_use"]
+        final = next((b for b in appels if b.name == "repondre"), None)
+        if final:
+            return dict(final.input)
+        if not appels:
+            brut = "".join(getattr(b, "text", "") for b in rep.content).strip()
+            m = re.search(r"\{.*\}", brut, re.DOTALL)
+            if m:
+                return json.loads(m.group(0))
+            break
+        messages.append({"role": "assistant", "content": rep.content})
+        messages.append({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": b.id, "content": _executer_outil(b.name, dict(b.input))}
+            for b in appels]})
     raise ValueError("réponse de l'IA illisible")
 
 
@@ -223,7 +271,8 @@ def _fil(messages: List[Dict]) -> str:
     lignes = []
     for m in sorted([m for m in messages if not m.get("is_draft")], key=lambda m: m.get("created_at") or 0):
         qui = "CLIENT" if m.get("is_inbound") else "PTM"
-        auteur = ((m.get("author") or {}).get("email")) or ""
+        auteur = ((m.get("author") or {}).get("email")) or next(
+            (r.get("handle") for r in (m.get("recipients") or []) if r.get("role") == "from"), "")
         lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}")
     return "\n\n".join(lignes[-12:])
 
