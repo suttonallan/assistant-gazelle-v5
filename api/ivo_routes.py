@@ -201,6 +201,7 @@ def _factures_resume(client_id: str) -> str:
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     from core import ivo_regles as _ir
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
+        (_CTX.get() or {}).setdefault("bloques", []).append(nom)
         return _ir.MESSAGE_LECTURE_SEULE
     try:
         if nom == "frais_deplacement":
@@ -227,6 +228,10 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                                                        canal="ivo", contexte=ctx.get("fil"))))
             faits = [f"{a.get('type')}: {json.dumps(a.get('result'), ensure_ascii=False, default=str)[:600]}"
                      for a in (rep.get("actions") or [])]
+            from core import ivo_regles as _ir2
+            if any(((a.get("result") or {}).get("error") or "") == _ir2.MESSAGE_LECTURE_SEULE
+                   for a in (rep.get("actions") or []) if isinstance(a.get("result"), dict)):
+                ctx.setdefault("bloques", []).append("demander_assistant")
             return (rep.get("reply") or "") + ("\n\nActions : " + " | ".join(faits) if faits else "")
         if nom == "creer_client":
             from core.gazelle_api_client import GazelleAPIClient
@@ -366,8 +371,9 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
             if "LECTURE SEULE" not in systeme:
                 systeme += ("\n\nLECTURE SEULE : la personne qui t'écrit peut te poser des questions et te faire "
                             "préparer un brouillon, mais tu ne crées, ne modifies ni ne confirmes rien dans Gazelle "
-                            "(pas de RV, de fiche, de bloc ni de règle). Si on te le demande, réponds : "
-                            + ivo_regles.MESSAGE_LECTURE_SEULE)
+                            "(pas de RV, de fiche, de bloc ni de règle). Si on te demande une telle action, prépare-la "
+                            "quand même en détail (client, technicien, date, heure, durée, piano) et décris-la dans ta note, "
+                            "car Louise pourra l'autoriser dans ce fil ; dis : " + ivo_regles.MESSAGE_LECTURE_SEULE)
         rep = client.messages.create(model=MODELE, max_tokens=4000, system=systeme, tools=outils,
                                      tool_choice={"type": "auto"}, messages=messages)
         appels = [b for b in rep.content if getattr(b, "type", "") == "tool_use"]
@@ -446,12 +452,13 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
                 historique.append(("user", consigne_ivo(c.get("body") or "")))
         while historique and historique[0][0] != "user":
             historique.pop(0)
-        _CTX.set({"historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email)})
+        _CTX.set({"historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
         res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
         if res.get("action") == "reponse":
             front.add_comment(conversation_id, PREFIXE_REPONSE + (res.get("note") or "je n'ai pas de réponse."),
                               auteur_email)
+            _transmettre_a_louise(front, conversation_id, auteur_email, consigne)
             return {"statut": "ok", "action": "réponse"}
         nouveau = (res.get("brouillon") or "").strip()
         if not nouveau:
@@ -479,7 +486,26 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
         from core import ivo_regles
         reponse += " " + ivo_regles.ajouter(regle, _PRENOMS.get(auteur_email))["message"]
     front.add_comment(conversation_id, reponse, auteur_email)
+    _transmettre_a_louise(front, conversation_id, auteur_email, consigne)
     return {"statut": "ok", "action": action, "regle": regle or None}
+
+
+def _transmettre_a_louise(front, conversation_id: str, auteur_email: str, consigne: str) -> None:
+    """Une action refusée faute d'autorisation (ex. demandée par Margot) est transmise à Louise :
+    elle est abonnée au fil (donc notifiée) et peut l'autoriser par « @Ivo oui » ; Ivo reprend
+    alors la demande grâce à l'historique du fil, au nom de Louise."""
+    from core import ivo_regles
+    if not (_CTX.get() or {}).get("bloques"):
+        return
+    qui = _PRENOMS.get(auteur_email) or auteur_email
+    try:
+        front.ajouter_abonnes(conversation_id, [ivo_regles.APPROBATRICE])
+    except Exception:
+        _log.exception("Ivo : abonnement de Louise impossible")
+    front.add_comment(conversation_id,
+                      f"{PREFIXE_REPONSE}@louise, {qui} demande une action qui exige ton accord : « {consigne[:500]} ». "
+                      "Pour l'autoriser, réponds dans ce fil « @Ivo oui, vas-y » (tu peux préciser ou corriger). "
+                      "Sinon, ignore ce message : rien n'a été fait.", auteur_email)
 
 
 def _ids_du_webhook(evt: Dict[str, Any]) -> Dict[str, Optional[str]]:

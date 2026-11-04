@@ -7,7 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 4 novembre
-- **Margot peut questionner Ivo dans Front, sans rien changer** : avec « @Ivo », Margot peut poser des questions (horaire, dossier d'un client) et faire préparer un brouillon. Créer un RV, une fiche client, un bloc à l'horaire ou une règle reste réservé à Allan, Nicolas et Louise.
+- **Margot peut questionner Ivo dans Front ; ses demandes d'action passent par Louise** : avec « @Ivo », Margot peut poser des questions (horaire, dossier d'un client) et faire préparer un brouillon. Si elle demande une action (RV, fiche client, bloc à l'horaire), Ivo ne la fait pas : il la transmet à Louise dans le même fil, et Louise l'autorise en répondant « @Ivo oui, vas-y ».
 - **Prix Cory alignés sur Pianos Bolduc dans Gazelle** : ensemble d'entretien 38,95 $, Key-Brite 4 oz 15,95 $ et 8 oz 23,95 $, poli 8 oz 23,95 $. Nouveaux articles : poli Cory 4 oz (12,95 $) et ensemble d'entretien pour fini satiné (38,95 $). Le « Cory kit lustré » de l'inventaire est regroupé sous l'ensemble d'entretien (stock conservé).
 - **Boutique « avec l'accord »** : en réservant en ligne, le client peut ajouter un produit (Cory, traitement de l'eau, coupelles) que le technicien apporte et facture à la visite, ou demander une soumission Piano Life Saver ou Silent. Le choix apparaît dans la demande à approuver et au dossier du client.
 - **Ivo apprend : « la prochaine fois, fais plutôt ceci »** : Allan, Nicolas et Louise peuvent dire à Ivo (dans Front avec « @Ivo » ou dans la case de l'appli) « la prochaine fois… » ou « dorénavant… » : il retient la règle et l'applique partout ensuite. « Quelles sont tes règles ? » les liste avec leur numéro, « oublie la règle 3 » en retire une.
