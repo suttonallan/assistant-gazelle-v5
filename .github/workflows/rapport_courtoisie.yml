@@ -19,4 +19,5 @@ jobs:
           GAZELLE_CLIENT_ID: ${{ secrets.GAZELLE_CLIENT_ID }}
           GAZELLE_CLIENT_SECRET: ${{ secrets.GAZELLE_CLIENT_SECRET }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          FRONT_API_KEY: ${{ secrets.FRONT_API_KEY }}
         run: python scripts/rapport_courtoisie.py

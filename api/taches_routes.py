@@ -1670,6 +1670,102 @@ def _marchand(texte: str) -> Optional[str]:
     return None
 
 
+_MOTS_MARCHAND = _re.compile(r"nantel|archambault", _re.IGNORECASE)
+
+
+def _resumer(clients: List[Dict[str, Any]], cle: str) -> Dict[str, Any]:
+    resume: Dict[str, Any] = {}
+    for c in clients:
+        r = resume.setdefault(c.get(cle) or "Non précisé",
+                              {"clients": 0, "revenus": 0, "par_annee": {}, "eligibles_12": 0, "revenus_12": 0})
+        r["clients"] += 1
+        r["revenus"] += 1 if c["visites_payees_apres"] else 0
+        if c["eligible_12_mois"]:
+            r["eligibles_12"] += 1
+            r["revenus_12"] += 1 if c["revenu_12_mois"] else 0
+        a = r["par_annee"].setdefault(c["date_courtoisie"][:4], {"clients": 0, "revenus": 0})
+        a["clients"] += 1
+        a["revenus"] += 1 if c["visites_payees_apres"] else 0
+    for r in resume.values():
+        r["taux"] = round(100 * r["revenus"] / r["clients"], 1) if r["clients"] else None
+        r["taux_12"] = round(100 * r["revenus_12"] / r["eligibles_12"], 1) if r["eligibles_12"] else None
+    return resume
+
+
+def _rattacher_non_precises(clients: List[Dict[str, Any]], par_client: Dict[str, List[Dict[str, Any]]]) -> None:
+    """Cherche le marchand des courtoisies « non précisé » : autres factures, fiche Gazelle, courriels Front.
+    LECTURE SEULE. Résultat dans c["marchand_final"] et c["preuve"]."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    front = None
+    try:
+        from core.front_client import get_front_client
+        from api.ivo_routes import _texte
+        front = get_front_client()
+    except Exception as e:
+        _log.warning("Front indisponible : %s", e)
+    for c in clients:
+        c["marchand_final"], c["preuve"] = c["marchand"], None
+        if c["marchand"] != "Non précisé":
+            continue
+        # 1. Autres factures du client
+        for f in par_client.get(c["client_id"], []):
+            m = _marchand(f["texte"])
+            if m:
+                c["marchand_final"], c["preuve"] = m, f"Facture {f['date']}"
+                break
+        courriels: List[str] = []
+        # 2. Fiche Gazelle
+        try:
+            r = gz._execute_query("""query($id: String!) { client(id: $id) { referredBy referredByNotes personalNotes
+                preferenceNotes allContacts { nodes { allEmails { nodes { email } } } } } }""", {"id": c["client_id"]})
+            fiche = ((r or {}).get("data") or {}).get("client") or {}
+            for n in ((fiche.get("allContacts") or {}).get("nodes") or []):
+                courriels += [e["email"].lower() for e in ((n.get("allEmails") or {}).get("nodes") or []) if e.get("email")]
+            if c["preuve"] is None:
+                for champ in ("referredBy", "referredByNotes", "personalNotes", "preferenceNotes"):
+                    m = _marchand(str(fiche.get(champ) or ""))
+                    if m:
+                        c["marchand_final"], c["preuve"] = m, f"Fiche Gazelle ({champ})"
+                        break
+        except Exception as e:
+            _log.warning("fiche %s : %s", c["client_id"], e)
+        c["courriels"] = courriels
+        # 3. Courriels Front (tous messages, entrants et sortants)
+        if c["preuve"] is None and front and courriels:
+            for adr in courriels[:2]:
+                try:
+                    convs = front.search_conversations(adr, limit=25)
+                except Exception:
+                    continue
+                trouve = False
+                for conv in convs:
+                    if _MOTS_MARCHAND.search(conv.get("subject") or ""):
+                        m = _marchand(conv["subject"])
+                        c["marchand_final"], c["preuve"] = m, f"Front (objet) : {conv['subject'][:120]}"
+                        trouve = True
+                        break
+                    try:
+                        msgs = front.list_messages(conv["id"], limit=30)
+                    except Exception:
+                        continue
+                    time.sleep(0.4)
+                    for msg in msgs:
+                        texte = _texte(msg.get("text") or msg.get("body") or "")
+                        hit = _MOTS_MARCHAND.search(texte)
+                        if hit:
+                            date = datetime.fromtimestamp(msg.get("created_at") or 0, timezone.utc).strftime("%Y-%m-%d")
+                            c["marchand_final"] = _marchand(hit.group(0))
+                            c["preuve"] = f"Front {date} : …{texte[max(0, hit.start() - 100):hit.start() + 120]}…"
+                            trouve = True
+                            break
+                    if trouve:
+                        break
+                if trouve:
+                    break
+                time.sleep(0.4)
+
+
 def _calculer_courtoisie() -> None:
     from core.gazelle_api_client import GazelleAPIClient
     api = GazelleAPIClient()
@@ -1720,12 +1816,17 @@ def _calculer_courtoisie() -> None:
             premiere = court[0]
             marchand = next((m for m in (_marchand(f["texte"]) for f in court) if m), None) or "Non précisé"
             apres = [f for f in fs if f["date"] > premiere["date"] and f not in court and (f["total"] or 0) > 0]
+            d0 = datetime.fromisoformat(premiere["date"])
+            dans_12 = [f for f in apres if (datetime.fromisoformat(f["date"]) - d0).days <= 365]
             clients.append({
+                "revenu_12_mois": bool(dans_12), "eligible_12_mois": (datetime.now() - d0).days >= 365,
                 "client_id": cid, "client": premiere["client"], "marchand": marchand,
                 "date_courtoisie": premiere["date"], "visites_payees_apres": len(apres),
                 "derniere_visite": apres[-1]["date"] if apres else None,
                 "extrait": premiere["texte"][:160],
             })
+
+        _rattacher_non_precises(clients, par_client)
 
         # Diagnostic : courtoisies facturées au marchand lui-même (client final absent de la facture)
         au_marchand: Dict[str, int] = {}
@@ -1734,20 +1835,12 @@ def _calculer_courtoisie() -> None:
             if m:
                 au_marchand[m] = au_marchand.get(m, 0) + 1
 
-        resume: Dict[str, Any] = {}
-        for c in clients:
-            r = resume.setdefault(c["marchand"], {"clients": 0, "revenus": 0, "par_annee": {}})
-            r["clients"] += 1
-            r["revenus"] += 1 if c["visites_payees_apres"] else 0
-            a = r["par_annee"].setdefault(c["date_courtoisie"][:4], {"clients": 0, "revenus": 0})
-            a["clients"] += 1
-            a["revenus"] += 1 if c["visites_payees_apres"] else 0
-        for r in resume.values():
-            r["taux"] = round(100 * r["revenus"] / r["clients"], 1) if r["clients"] else None
+        resume = _resumer(clients, "marchand")
+        resume_rattache = _resumer(clients, "marchand_final")
 
         _rapport_courtoisie.update({
             "statut": "termine", "fin": datetime.now(timezone.utc).isoformat(),
-            "factures_lues": len(factures), "resume": resume,
+            "factures_lues": len(factures), "resume": resume, "resume_rattache": resume_rattache,
             "factures_au_nom_du_marchand": au_marchand,
             "clients": sorted(clients, key=lambda c: (c["marchand"], c["date_courtoisie"])),
         })
