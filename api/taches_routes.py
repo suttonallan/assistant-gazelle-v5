@@ -945,10 +945,14 @@ class RendezVousIn(BaseModel):
     accord: bool = True                # isTuning sur les pianos
     type: str = "APPOINTMENT"          # PERSONAL = bloc perso (aucun avis au client)
     lieu: Optional[str] = None         # adresse sur une ligne si différente de la fiche client
-    confirmation_client: bool = True   # courriel de confirmation Gazelle au client (comme dans l'appli)
+    # Courriel de confirmation Gazelle au client : PAS par défaut (décision d'Allan, 4 nov. 2026) —
+    # l'équipe relit le RV puis l'envoie (POST /gazelle/rendez-vous/{eid}/confirmation).
+    confirmation_client: bool = False
+    par: Optional[str] = "Ivo (assistant IA) à la demande d'Allan"  # mention en tête des notes du RV
 
 
-from core.provenance_client import RAPPEL_PROVENANCE as RAPPEL_NOUVEAU_CLIENT, faut_demander, provenance_connue
+from core.provenance_client import (RAPPEL_PROVENANCE as RAPPEL_NOUVEAU_CLIENT, RAPPEL_PROVENANCE_EXISTANT,
+                                   faut_demander, provenance_connue, est_institution)
 
 
 def est_nouveau_client(client_id: str) -> bool:
@@ -1020,9 +1024,12 @@ def creer_rendez_vous(r: RendezVousIn):
     if r.lieu:
         inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
     notes = r.notes or ""
-    if r.type == "APPOINTMENT" and "trouvé" not in notes.lower() and est_nouveau_client(r.client_id) \
-            and faut_demander(r.client_id):
-        notes = (notes + "\n\n" if notes else "") + RAPPEL_NOUVEAU_CLIENT
+    if r.type == "APPOINTMENT" and r.par:
+        notes = f"Planifié par {r.par}." + ("\n\n" + notes if notes else "")
+    if (r.type == "APPOINTMENT" and "« Référé par »" not in notes and not est_institution(r.client_id)
+            and faut_demander(r.client_id)):
+        rappel = RAPPEL_NOUVEAU_CLIENT if est_nouveau_client(r.client_id) else RAPPEL_PROVENANCE_EXISTANT
+        notes = (notes + "\n\n" if notes else "") + rappel
     if notes:
         inp["notes"] = notes
     if r.piano_ids:
@@ -1044,6 +1051,23 @@ def creer_rendez_vous(r: RendezVousIn):
         raise HTTPException(502, f"Gazelle a refusé le rendez-vous : {payload.get('mutationErrors')} "
                                  f"{res.get('errors') if isinstance(res, dict) else ''}")
     return {"evenement": ev, "start_utc": start}
+
+
+class NotesRvIn(BaseModel):
+    notes: str
+
+
+@router.post("/gazelle/rendez-vous/{eid}/notes")
+def modifier_notes_rv(eid: str, n: NotesRvIn):
+    """Remplace les notes d'un RV (rien d'autre n'est modifié, aucun courriel au client)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id title notes } mutationErrors { fieldName messages } } }"""
+    res = GazelleAPIClient()._execute_query(mut, {"id": eid, "input": {"notes": n.notes}})
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if (isinstance(res, dict) and res.get("errors")) or payload.get("mutationErrors"):
+        raise HTTPException(502, str(payload.get("mutationErrors") or res.get("errors")))
+    return payload.get("event")
 
 
 @router.post("/gazelle/rendez-vous/{eid}/confirmation")

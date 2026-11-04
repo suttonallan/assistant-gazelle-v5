@@ -7,8 +7,12 @@ On considère aussi la réponse connue si les notes de la fiche la mentionnent.
 import re
 from typing import Optional
 
+import requests
+
 RAPPEL_PROVENANCE = ("Nouveau client : lui demander comment il nous a trouvés "
                      "(puis l'inscrire dans « Référé par » de sa fiche Gazelle).")
+RAPPEL_PROVENANCE_EXISTANT = ("Provenance inconnue : demander au client comment il nous a connus "
+                              "(puis l'inscrire dans « Référé par » de sa fiche Gazelle).")
 
 _MOTS = re.compile(r"(nous a trouv|nous ont trouv|référé|refere|référence|recommand|bouche[- ]à[- ]oreille|"
                    r"referred|found us|via google|trouvé sur)", re.IGNORECASE)
@@ -30,6 +34,23 @@ def provenance_connue(client_id: str) -> Optional[bool]:
         return bool(_MOTS.search(notes))
     except Exception:
         return None
+
+
+def est_institution(client_id: str) -> bool:
+    """Institutions (Place des Arts, Vincent-d'Indy, Orford…) : jamais de question de provenance."""
+    try:
+        from core.supabase_storage import SupabaseStorage
+        st = SupabaseStorage(silent=True)
+        r = requests.get(f"{st.api_url}/gazelle_clients?select=tags&external_id=eq.{client_id}",
+                         headers=st._get_headers(), timeout=10)
+        lignes = r.json() if r.status_code == 200 else []
+        if not lignes:
+            return False
+        tags = lignes[0].get("tags") or []
+        texte = (" ".join(tags) if isinstance(tags, list) else str(tags)).lower()
+        return "institution" in texte
+    except Exception:
+        return True  # dans le doute, ne rien rappeler
 
 
 def faut_demander(client_id: str) -> bool:

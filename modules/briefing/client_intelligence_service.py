@@ -522,21 +522,24 @@ class NarrativeBriefingService:
                 if matches_tm_jd(_salle_txt) and BRIEFING_ACCESS_NOTE not in (action_items or []):
                     action_items = [BRIEFING_ACCESS_NOTE] + (action_items or [])
 
-            # Nouveau client (fiche < 90 jours, aucun RV avant celui-ci) dont la provenance
-            # n'est pas inscrite dans Gazelle : rappeler de lui demander comment il nous a trouvés.
+            # Provenance inconnue (rien dans « Référé par » ni dans les notes de la fiche) :
+            # rappeler de demander comment le client nous a trouvés. Jamais pour une institution.
             try:
                 from datetime import timedelta as _td
-                from core.provenance_client import RAPPEL_PROVENANCE, faut_demander
-                _jour = appt.get('appointment_date') or ''
+                from core.provenance_client import (RAPPEL_PROVENANCE, RAPPEL_PROVENANCE_EXISTANT,
+                                                    faut_demander, est_institution)
+                _jour = (appt.get('appointment_date') or '')[:10]
                 _cree = (client.get('created_at') or '')[:10]
-                _avant = [pa for pa in past_appointments
-                          if (pa.get('appointment_date') or '9999')[:10] < _jour[:10]
-                          and (pa.get('status') or '').upper() not in ('CANCELLED', 'CANCELED')]
-                if (cid and _jour and _cree and not _avant
-                        and _cree >= (datetime.fromisoformat(_jour[:10]) - _td(days=90)).date().isoformat()
+                if (cid and _jour and appt.get('external_id')
                         and RAPPEL_PROVENANCE not in (action_items or [])
-                        and faut_demander(cid)):
-                    action_items = [RAPPEL_PROVENANCE] + (action_items or [])
+                        and RAPPEL_PROVENANCE_EXISTANT not in (action_items or [])
+                        and not est_institution(cid) and faut_demander(cid)):
+                    _avant = [pa for pa in past_appointments
+                              if (pa.get('appointment_date') or '9999')[:10] < _jour
+                              and (pa.get('status') or '').upper() not in ('CANCELLED', 'CANCELED')]
+                    _nouveau = (not _avant and _cree
+                                and _cree >= (datetime.fromisoformat(_jour) - _td(days=90)).date().isoformat())
+                    action_items = [RAPPEL_PROVENANCE if _nouveau else RAPPEL_PROVENANCE_EXISTANT] + (action_items or [])
             except Exception as _e:
                 print(f"⚠️ Rappel provenance ignoré : {_e}")
 
