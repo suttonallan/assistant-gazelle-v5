@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 4 novembre
+- **🧭 Provenance des clients** : nouvel onglet (Allan) qui passe en revue les clients sans « Référé par » et propose une provenance à partir des indices trouvés (notes de la fiche, factures « accord de courtoisie », historique, courriels). Chaque proposition s'approuve (inscrite dans Gazelle, sans jamais écraser), se met à discuter ou se refuse.
+
 ### 3 novembre
 - **@Ivo dans Front** : dans une conversation Front, un commentaire interne qui commence par « @Ivo » (ex. « @Ivo plus court et plus chaleureux ») fait réécrire le brouillon de réponse par l’assistant en moins d’une minute, ou en crée un s'il n'y en a pas. Ivo confirme par un commentaire et retient les consignes générales pour les fois suivantes. Rien ne part tout seul : le brouillon reste à relire et à envoyer.
 - **@Ivo répond aussi aux questions d'horaire** : « @Ivo est-ce que quelqu'un est déjà dans le coin à ces dates ? » — Ivo lit l'horaire des 45 prochains jours dans Gazelle (RV clients et leur ville) et propose qui, quel jour et à quelle heure, dans un commentaire. Il ne dévoile jamais la nature des blocs personnels.

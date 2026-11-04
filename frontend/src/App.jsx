@@ -19,6 +19,7 @@ import KilometersCalculator from './components/admin/KilometersCalculator'
 import ChatStats from './components/ChatStats'
 import ErrorBoundary from './components/ErrorBoundary'
 import TachesDashboard from './components/TachesDashboard' // ✅ Tâches + campagnes
+import ProvenanceReview from './components/ProvenanceReview' // 🧭 « Référé par »
 import { getUserRole, ROLES } from './config/roles'
 
 // V7 Imports - Master Template Vincent d'Indy (527 lignes)
@@ -490,6 +491,12 @@ function App() {
               </div>
             </ErrorBoundary>
           )
+        } else if (currentView === 'provenance') {
+          return (
+            <ErrorBoundary componentName="Provenance">
+              <ProvenanceReview />
+            </ErrorBoundary>
+          )
         } else if (currentView === 'vincent-dindy-v7') {
           // Vincent d'Indy Dashboard (version restaurée, sans iframe)
           return (
@@ -781,6 +788,19 @@ function App() {
                         }`}
                       >
                         💰 Calculateur
+                      </button>
+                    )}
+
+                    {effectiveRole === 'admin' && (
+                      <button
+                        onClick={() => setCurrentView('provenance')}
+                        className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                          currentView === 'provenance'
+                            ? 'bg-blue-100 text-blue-700 font-medium'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        🧭 Provenance
                       </button>
                     )}
 
