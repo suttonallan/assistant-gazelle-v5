@@ -228,8 +228,11 @@ def execute_creer_rv(**t) -> Dict[str, Any]:
             "evenement_id": (res.get("evenement") or {}).get("id")}
 
 
+from core.ivo_regles import OUTILS as _OUTILS_REGLES
+
 TOOLS = [LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
-         JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL]
+         JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
+         *_OUTILS_REGLES]
 
 
 # ── Garde-fou heures ─────────────────────────────────────────────────
@@ -289,6 +292,9 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             return execute_joint_appointment(**tool_input)
         if name == "creer_rendez_vous":
             return execute_creer_rv(**tool_input)
+        if name in ("retenir_regle", "oublier_regle"):
+            from core import ivo_regles
+            return ivo_regles.executer(name, tool_input, user_first_name)
         if name == "attach_email_photos_to_piano":
             return execute_attach_photos(
                 client_name=tool_input.get("client_name", ""),
@@ -374,6 +380,13 @@ async def converse(req: ConverseRequest):
         + user_ctx
     )
 
+    from core import ivo_regles
+    if ivo_regles.texte_pour_ia():
+        system_prompt += "\n\n" + ivo_regles.texte_pour_ia()
+    system_prompt += ("\n\nAPPRENDRE : quand on te dit « la prochaine fois… », « dorénavant… », « à l'avenir… », "
+                      "« ne fais plus… », appelle retenir_regle (règle claire : le cas + quoi faire) et confirme-la. "
+                      "« Quelles sont tes règles ? » : liste-les avec leur numéro ; « oublie la règle N » : oublier_regle. "
+                      "Seuls Allan, Nicolas et Louise peuvent donner ou retirer une règle.")
     if req.contexte:
         system_prompt += ("\n\nCONTEXTE (fil Front du client, à utiliser pour trouver le client, "
                           "ses coordonnées et sa demande) :\n" + req.contexte[:12000])

@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-15"
+VERSION = "ivo-16"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -73,28 +73,8 @@ def consigne_ivo(corps: str) -> Optional[str]:
 
 
 def _regles() -> List[str]:
-    try:
-        from core.supabase_storage import SupabaseStorage
-        val = SupabaseStorage(silent=True).get_system_setting(CLE_REGLES)
-        if isinstance(val, str):
-            val = json.loads(val)
-        return list(val or [])
-    except Exception:
-        _log.exception("Ivo : lecture des règles impossible")
-        return []
-
-
-def _ajouter_regle(regle: str) -> bool:
-    try:
-        from core.supabase_storage import SupabaseStorage
-        regles = _regles()
-        if regle in regles:
-            return True
-        regles.append(regle)
-        return SupabaseStorage(silent=True).save_system_setting(CLE_REGLES, regles)
-    except Exception:
-        _log.exception("Ivo : enregistrement de la règle impossible")
-        return False
+    from core import ivo_regles
+    return [r["regle"] for r in ivo_regles.lire()]
 
 
 def _guide_ton() -> str:
@@ -124,12 +104,13 @@ Historique du client : ta réponse dépend de son dossier. Client existant avec 
 Provenance : lis tout le dossier avant de dire qu'on ignore comment le client nous a connus — un « accord de courtoisie <marchand> » dans une facture (ex. Nantel Musique) veut dire que ce marchand nous l'a envoyé.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
 Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Un RV passe toujours par un aperçu ; il n'est créé qu'après un « oui » de l'équipe, et sans confirmation automatique au client.
+Apprendre : quand l'équipe dit « la prochaine fois… », « dorénavant… », « à l'avenir… », « ne fais plus… », appelle « retenir_regle » avec une règle claire et générale (le cas + quoi faire), puis confirme-la dans ta note. « @Ivo quelles sont tes règles ? » : liste les règles apprises avec leur numéro. « @Ivo oublie la règle 3 » : appelle « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent te donner ou retirer une règle.
 Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Tu ne crées jamais de vrai RV client ni de confirmation.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
 Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
 Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans autre texte : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
 - brouillon : (action "brouillon" seulement) le texte complet du nouveau brouillon (texte simple, paragraphes séparés par une ligne vide).
-- regle_generale : si la consigne vaut pour toutes les réponses futures (ton, longueur, façon de faire), formule-la en une phrase courte ; sinon null.
+- regle_generale : null (pour retenir une règle, utilise l'outil « retenir_regle »).
 - note : pour "brouillon", une phrase (ce que tu as changé, ce qui reste à vérifier) ; pour "reponse", la réponse complète à la question, courte et concrète."""
 
 
@@ -230,6 +211,9 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                 texte += (" Au-delà de 45 km : montant ESTIMATIF, la coordonnatrice fixe le RV et les frais "
                           "(visites regroupées).")
             return texte
+        if nom in ("retenir_regle", "oublier_regle"):
+            from core import ivo_regles
+            return ivo_regles.executer(nom, arg, (_CTX.get() or {}).get("prenom"))["message"]
         if nom == "demander_assistant":
             import asyncio
             from api.assistant_converse import converse, ConverseRequest, ConverseMessage
@@ -312,8 +296,9 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
     from anthropic import Anthropic
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     systeme = _SYSTEME
-    if regles:
-        systeme += "\n\nRègles de réponse déjà établies par l'équipe :\n" + "\n".join(f"- {r}" for r in regles)
+    from core import ivo_regles
+    if ivo_regles.texte_pour_ia():
+        systeme += "\n\n" + ivo_regles.texte_pour_ia()
     ton = _guide_ton()
     if ton:
         systeme += "\n\nGuide de ton de PTM (extrait) :\n" + ton
@@ -342,6 +327,7 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
          "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
          "input_schema": {"type": "object", "required": ["adresse"],
                           "properties": {"adresse": {"type": "string"}}}},
+        *__import__("core.ivo_regles", fromlist=["OUTILS"]).OUTILS,
         {"name": "demander_assistant",
          "description": ("Ton accès principal à tout l'assistant Gazelle de PTM. Transmet une demande à l'assistant (la même case que dans Ma Journée) : "
                          "créer un RV (aperçu d'abord, puis création après un oui), RV conjoint, réactiver ou réviser "
@@ -479,8 +465,9 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     if res.get("note"):
         reponse += f" {res['note']}"
     regle = (res.get("regle_generale") or "").strip()
-    if regle and _ajouter_regle(regle):
-        reponse += f" Règle retenue pour les prochaines fois : « {regle} »"
+    if regle:
+        from core import ivo_regles
+        reponse += " " + ivo_regles.ajouter(regle, _PRENOMS.get(auteur_email))["message"]
     front.add_comment(conversation_id, reponse, auteur_email)
     return {"statut": "ok", "action": action, "regle": regle or None}
 
