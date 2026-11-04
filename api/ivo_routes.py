@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-16"
+VERSION = "ivo-17"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -551,7 +551,41 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 @router.get("/sante")
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
-            "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY"))}
+            "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY")),
+            "cle_voix": bool(os.getenv("OPENAI_API_KEY"))}
+
+
+# ─── Voix d'Ivo (narration de la vidéo de présentation) — TEMPORAIRE ───
+# Bornée : 40 appels par démarrage, 1500 caractères, expire le 2026-11-07. À retirer après usage.
+_voix_compteur = {"n": 0}
+
+
+class VoixIn(__import__("pydantic").BaseModel):
+    texte: str
+    voix: str = "coral"
+    consigne: str = ("Voix chaleureuse, souriante et posée, accent québécois léger, rythme calme, "
+                     "comme un assistant sympathique qui présente un nouvel outil à ses collègues.")
+
+
+@router.post("/voix")
+def voix(v: VoixIn):
+    from datetime import date
+    from fastapi import HTTPException, Response
+    if date.today() > date(2026, 11, 7):
+        raise HTTPException(410, "expiré")
+    if _voix_compteur["n"] >= 40 or len(v.texte) > 1500:
+        raise HTTPException(429, "limite")
+    cle = os.getenv("OPENAI_API_KEY")
+    if not cle:
+        raise HTTPException(503, "pas de clé")
+    _voix_compteur["n"] += 1
+    r = requests.post("https://api.openai.com/v1/audio/speech", timeout=120,
+                      headers={"Authorization": f"Bearer {cle}"},
+                      json={"model": "gpt-4o-mini-tts", "voice": v.voix[:20], "input": v.texte,
+                            "instructions": v.consigne[:600], "response_format": "mp3"})
+    if r.status_code >= 400:
+        raise HTTPException(502, r.text[:300])
+    return Response(content=r.content, media_type="audio/mpeg")
 
 
 @router.post("/surveiller")
