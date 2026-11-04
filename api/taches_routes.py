@@ -790,6 +790,35 @@ def changer_prix_service(service_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]
             "apres": ((m.get("masterServiceItem") or {}).get("amount") or 0) / 100}
 
 
+@router.post("/gazelle/service-copie")
+def copier_service(source_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]+$"),
+                   nom_fr: str = Query(..., min_length=2, max_length=120),
+                   nom_en: str = Query(..., min_length=2, max_length=120),
+                   prix: float = Query(..., gt=0, lt=100000)):
+    """Crée un article de la Master Service List en copiant les réglages d'un article existant
+    (groupe, type, taxes, réservation en ligne, techniciens) ; seuls le nom et le prix changent."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    champs = "id name description type isTaxable isAnyUser isSelfSchedulable isTuning duration masterServiceGroup { id }"
+    items = (gz._execute_query("query { allMasterServiceItems { %s isArchived } }" % champs).get("data") or {}).get("allMasterServiceItems") or []
+    src = next((i for i in items if i["id"] == source_id), None)
+    if not src:
+        raise HTTPException(404, "Article source introuvable")
+    if any(_nom_i18n(i.get("name")).strip().lower() == nom_fr.strip().lower() and not i.get("isArchived") for i in items):
+        raise HTTPException(409, "Un article actif porte déjà ce nom")
+    entree = {"name": {"fr_CA": nom_fr, "en_US": nom_en}, "amount": int(round(prix * 100)),
+              "type": src.get("type"), "isTaxable": src.get("isTaxable"), "isAnyUser": src.get("isAnyUser"),
+              "isSelfSchedulable": src.get("isSelfSchedulable"), "isTuning": src.get("isTuning"),
+              "duration": src.get("duration"), "masterServiceGroupId": (src.get("masterServiceGroup") or {}).get("id")}
+    entree = {k: v for k, v in entree.items() if v is not None}
+    res = gz._execute_query("""mutation($i: PrivateMasterServiceItemInput!) { createMasterServiceItem(input: $i) {
+      masterServiceItem { id name amount isTaxable isSelfSchedulable } mutationErrors { fieldName messages } } }""", {"i": entree})
+    m = (res.get("data") or {}).get("createMasterServiceItem") or {}
+    if res.get("errors") or m.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or m.get("mutationErrors")))
+    return {"cree": m.get("masterServiceItem"), "copie_de": _nom_i18n(src.get("name"))}
+
+
 class LigneSoumission(BaseModel):
     nom: str
     montant: float  # dollars
