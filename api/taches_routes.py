@@ -768,6 +768,28 @@ def chercher_services(q: str = Query("", max_length=80)):
     return {"services": out}
 
 
+@router.post("/gazelle/service-prix")
+def changer_prix_service(service_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]+$"),
+                         prix: float = Query(..., gt=0, lt=100000)):
+    """Change SEULEMENT le prix d'un article de la Master Service List de Gazelle.
+    Les factures et soumissions existantes gardent leur montant : seules les nouvelles lignes prennent le nouveau prix."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    lire = "query { allMasterServiceItems { id name amount isArchived } }"
+    avant = next((i for i in ((gz._execute_query(lire).get("data") or {}).get("allMasterServiceItems") or [])
+                  if i["id"] == service_id), None)
+    if not avant:
+        raise HTTPException(404, "Article introuvable dans la Master Service List")
+    res = gz._execute_query("""mutation($id: String!, $i: PrivateMasterServiceItemInput!) {
+      updateMasterServiceItem(id: $id, input: $i) { masterServiceItem { id amount } mutationErrors { fieldName messages } } }""",
+                            {"id": service_id, "i": {"amount": int(round(prix * 100))}})
+    m = (res.get("data") or {}).get("updateMasterServiceItem") or {}
+    if res.get("errors") or m.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or m.get("mutationErrors")))
+    return {"article": _nom_i18n(avant.get("name")), "avant": (avant.get("amount") or 0) / 100,
+            "apres": ((m.get("masterServiceItem") or {}).get("amount") or 0) / 100}
+
+
 class LigneSoumission(BaseModel):
     nom: str
     montant: float  # dollars
