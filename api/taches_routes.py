@@ -1013,7 +1013,7 @@ _Q_CLIENT_FACTURATION = """query($id: String!) { client(id: $id) { id companyNam
 
 _UPDATE_INVOICE = """mutation($id: String!, $input: PrivateUpdateInvoiceInput!) {
   updateInvoice(id: $id, input: $input) {
-    invoice { id number status subTotal total altBillingCompanyName }
+    invoice { id number status subTotal total altBillingCompanyName assignedTo { id } }
     mutationErrors { fieldName messages } } }"""
 
 
@@ -1025,6 +1025,7 @@ class LigneTexte(BaseModel):
 class FactureMajIn(BaseModel):
     descriptions: List[LigneTexte] = []
     facturer_a_client_id: Optional[str] = None   # facturation alternative (ex. Piano Vertu)
+    assigne_a: Optional[str] = None              # technicien Gazelle (usr_…) — ex. commission
 
 
 @router.patch("/gazelle/facture/{invoice_id}")
@@ -1073,6 +1074,8 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
                          ("altBillingPostalCode", loc.get("postalCode")), ("altBillingRegion", loc.get("region"))):
             if val:
                 inp[cle] = val
+    if m.assigne_a:
+        inp["assignedToId"] = m.assigne_a
     if not inp:
         raise HTTPException(400, "Rien à modifier")
     res = gz._execute_query(_UPDATE_INVOICE, {"id": invoice_id, "input": inp})
@@ -1081,7 +1084,8 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
         raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors')} {res.get('errors') if isinstance(res, dict) else ''}")
     i = payload["invoice"]
     return {"numero": i.get("number"), "statut": i.get("status"), "sous_total": _dollars(i.get("subTotal")),
-            "total": _dollars(i.get("total")), "facture_a": i.get("altBillingCompanyName")}
+            "total": _dollars(i.get("total")), "facture_a": i.get("altBillingCompanyName"),
+            "assigne_a": (i.get("assignedTo") or {}).get("id")}
 
 
 # --- Rendez-vous Gazelle (créé à la demande d'Allan depuis une conversation Claude) ---
