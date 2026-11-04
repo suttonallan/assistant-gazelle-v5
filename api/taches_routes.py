@@ -1089,11 +1089,14 @@ def lire_evenement(eid: str):
 @router.delete("/gazelle/evenement/{eid}")
 def supprimer_note_evenement(eid: str):
     """Supprime UNIQUEMENT un rendez-vous-note créé par l'IA (titre « Service: NOTE »,
-    notes commençant par « NOTE: »). Tout autre rendez-vous est refusé."""
+    notes commençant par « NOTE: ») ou un bloc perso temporaire « RÉSERVÉ (à confirmer) ».
+    Tout autre rendez-vous est refusé."""
     from core.gazelle_api_client import GazelleAPIClient
     gz = GazelleAPIClient()
     ev = _evenement(gz, eid)
-    if ev.get("title") != "Service: NOTE" or not (ev.get("notes") or "").startswith("NOTE: "):
+    note_ia = ev.get("title") == "Service: NOTE" and (ev.get("notes") or "").startswith("NOTE: ")
+    bloc_reserve = (ev.get("type") == "PERSONAL" and (ev.get("title") or "").startswith("RÉSERVÉ (à confirmer)"))
+    if not (note_ia or bloc_reserve):
         raise HTTPException(403, f"Refusé : ce rendez-vous n'est pas une note créée par l'IA ({ev.get('title')!r})")
     res = gz._execute_query("""mutation($id: String!) { deleteEvent(id: $id) { mutationErrors { fieldName messages } } }""", {"id": eid})
     if res.get("errors"):

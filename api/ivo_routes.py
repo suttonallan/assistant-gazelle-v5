@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-12"
+VERSION = "ivo-13"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -114,6 +114,7 @@ Deux sortes de consignes :
 A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
 B) Une question pour l'équipe (« qui est dans le coin à ces dates ? », « ça fonctionne avec l'horaire ? »…) → action "reponse" : réponds dans "note", sans toucher au brouillon.
 Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec leur ville et code postal ; « occupé » = bloc personnel). Raisonne sur la géographie (villes voisines, temps de route approximatif), propose concrètement qui, quel jour et à quelle heure, et dis clairement quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot. Ne mentionne jamais la nature d'un bloc personnel.
+Historique du client : ta réponse dépend de son dossier. Client existant avec visites → reprends ce qui a été fait (ex. accord + entretien Piano Life Saver), le technicien habituel, et les frais de déplacement DÉJÀ FACTURÉS la dernière fois. Si le calculateur donne un montant différent de ce qui a été facturé, signale l'écart à l'équipe dans ta note et ne mets dans le brouillon que le montant que l'équipe confirme ([frais à confirmer] sinon). Nouveau client → calculateur officiel.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
 Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Tu ne crées jamais de vrai RV client ni de confirmation.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
@@ -181,6 +182,33 @@ def _horaire(jours: int = 45) -> str:
     return "\n".join(l for _, l in sorted(lignes))
 
 
+def _factures_resume(client_id: str) -> str:
+    """3 dernières factures Gazelle : date, technicien, total, et frais de déplacement facturés."""
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        from api.taches_routes import _Q_FACTURES_CLIENT
+        noms = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_tndhXmnT0iakT4HF": "Allan",
+                "usr_ReUSmIJmBF86ilY1": "JP", "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot"}
+        res = GazelleAPIClient()._execute_query(_Q_FACTURES_CLIENT, {"c": client_id})
+        nodes = (((res or {}).get("data") or {}).get("allInvoices") or {}).get("nodes") or []
+        if not nodes:
+            return "\n   Factures : aucune."
+        sortie = []
+        for f in sorted(nodes, key=lambda f: f.get("createdAt") or "", reverse=True)[:3]:
+            items = ((f.get("allInvoiceItems") or {}).get("nodes")) or []
+            depl = [i for i in items if "déplacement" in (i.get("description") or "").lower()
+                    or "deplacement" in (i.get("description") or "").lower()]
+            travaux = "; ".join((i.get("description") or "")[:70] for i in items if i not in depl)[:200]
+            frais = (f"frais de déplacement facturés : {sum(i.get('amount') or 0 for i in depl) / 100:.2f} $"
+                     if depl else "aucuns frais de déplacement facturés")
+            tech = noms.get(((f.get("assignedTo") or {}).get("id")) or "", "?")
+            sortie.append(f"   Facture du {(f.get('createdAt') or '')[:10]} ({tech}, {f.get('status')}) : "
+                          f"{(f.get('subTotal') or 0) / 100:.2f} $ avant taxes — {travaux} — {frais}")
+        return "\n" + "\n".join(sortie)
+    except Exception as e:
+        return f"\n   Factures : non disponibles ({e})."
+
+
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     try:
         if nom == "frais_deplacement":
@@ -238,7 +266,7 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             st = SupabaseStorage(silent=True)
             lignes = []
             for c in res[:5]:
-                cid = c.get("external_id") or c.get("client_external_id") or ""
+                cid = c.get("external_id") or c.get("client_id") or c.get("client_external_id") or ""
                 visites = "?"
                 if cid.startswith("cli_"):
                     from core.timezone_utils import MONTREAL_TZ
@@ -252,7 +280,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                         visites = f"{len(d)} visite(s) passée(s)" + (f", la dernière le {d[0]['appointment_date']}" if d else "")
                 nom_c = c.get('company_name') or f"{c.get('first_name') or ''} {c.get('last_name') or ''}".strip()
                 adr = ', '.join(x for x in (c.get('address'), c.get('city'), c.get('postal_code')) if x) or 'adresse inconnue'
-                lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {visites}")
+                lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {visites}"
+                              + (_factures_resume(cid) if cid.startswith("cli_") else ""))
             return "\n".join(lignes)
         return "Outil inconnu."
     except Exception as e:
