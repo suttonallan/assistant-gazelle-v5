@@ -1674,7 +1674,7 @@ def _calculer_courtoisie() -> None:
     from core.gazelle_api_client import GazelleAPIClient
     api = GazelleAPIClient()
     q = """query R($cursor: String) { allInvoices(first: 100, after: $cursor) {
-      edges { node { id number status invoiceDate createdAt total notes topNotes
+      edges { node { id number status createdAt total notes topNotes
         client { id companyName defaultContact { firstName lastName } }
         allInvoiceItems { nodes { description } } } }
       pageInfo { hasNextPage endCursor } } }"""
@@ -1695,7 +1695,7 @@ def _calculer_courtoisie() -> None:
                 desc = " | ".join((it.get("description") or "") for it in ((n.get("allInvoiceItems") or {}).get("nodes") or []))
                 factures.append({
                     "id": n["id"], "numero": n.get("number"), "statut": (n.get("status") or "").upper(),
-                    "date": (n.get("invoiceDate") or n.get("createdAt") or "")[:10],
+                    "date": (n.get("createdAt") or "")[:10],
                     "total": n.get("total") or 0, "client_id": cl.get("id"),
                     "client": cl.get("companyName") or f"{dc.get('firstName') or ''} {dc.get('lastName') or ''}".strip(),
                     "texte": f"{desc} | {n.get('notes') or ''} | {n.get('topNotes') or ''}",

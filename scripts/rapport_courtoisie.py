@@ -44,3 +44,4 @@ try:
     note("Courriel", "envoyé à asutton@" if ok else "non envoyé")
 except Exception as e:
     note("Courriel", f"non envoyé : {e}")
+# relance 1793823837
