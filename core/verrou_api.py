@@ -44,7 +44,21 @@ CHEMINS_OUVERTS = (
     "/health",
     "/api/chat-public/rappel",  # protégé par son propre jeton (X-Chat-Secret)
     "/chat-public/rappel",
+    # Réservation en ligne (ptm-reservation) : chaque route vérifie elle-même
+    # X-Reservation-Secret ; /retroaction est publique par conception (plafonnée).
+    "/api/reservation-en-ligne/",
+    "/reservation-en-ligne/",
+    # Ivo : le webhook Front ne croit jamais son contenu (relecture dans Front) ;
+    # /sante ne renvoie que des indicateurs oui/non.
+    "/api/front/ivo/webhook",
+    "/front/ivo/webhook",
+    "/api/front/ivo/sante",
+    "/front/ivo/sante",
 )
+
+# Routes qu'un appelant muni du secret de la réservation en ligne peut utiliser
+# (ptm-reservation calcule les frais de déplacement côté serveur).
+CHEMINS_SECRET_RESERVATION = {"/admin/travel-fees/calculate", "/api/admin/travel-fees/calculate"}
 CHEMINS_OUVERTS_EXACTS = {"/", "/api/health", "/favicon.ico"}
 
 # Profils de l'équipe (sans PIN : les PIN sont dans system_settings.pins_equipe)
@@ -198,6 +212,17 @@ def changer_pin(role: str, nouveau: str) -> None:
     pins[role] = {"sel": sel, "hash": _hacher_pin(nouveau, sel)}
     _storage().save_system_setting("pins_equipe", pins)
     _etat.update(pins=pins, charge=time.time())
+
+
+def secret_reservation_valide(chemin: str, secret: Optional[str]) -> bool:
+    """Vrai si la route l'autorise et que le secret de la réservation en ligne est le bon."""
+    if chemin not in CHEMINS_SECRET_RESERVATION or not secret:
+        return False
+    try:
+        from api.retroaction_reservation_routes import _EMPREINTE_JETON
+    except Exception:
+        return False
+    return hmac.compare_digest(hashlib.sha256(secret.encode()).hexdigest(), _EMPREINTE_JETON)
 
 
 def est_ouvert(chemin: str) -> bool:

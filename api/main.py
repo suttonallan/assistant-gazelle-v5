@@ -189,6 +189,8 @@ async def verrou_api_middleware(request, call_next):
         return await call_next(request)
     if verrou_api.cle_service_valide(request.headers.get("x-cle-service")):
         return await call_next(request)
+    if verrou_api.secret_reservation_valide(chemin, request.headers.get("x-reservation-secret")):
+        return await call_next(request)
     try:
         from core.feature_flags import is_enabled
         verrouille = is_enabled("api_verrou", default=False)
