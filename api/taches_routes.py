@@ -1053,6 +1053,33 @@ def creer_rendez_vous(r: RendezVousIn):
     return {"evenement": ev, "start_utc": start}
 
 
+class ReferenceClientIn(BaseModel):
+    refere_par: str
+    notes: Optional[str] = None
+
+
+@router.post("/gazelle/client/{client_id}/reference")
+def inscrire_reference(client_id: str, r: ReferenceClientIn):
+    """Inscrit « Référé par » dans la fiche Gazelle, SEULEMENT s'il est vide (jamais d'écrasement)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    actuel = gz._execute_query("query($id: String!) { client(id: $id) { referredBy referredByNotes } }",
+                               {"id": client_id})
+    c = ((actuel or {}).get("data") or {}).get("client") or {}
+    if (c.get("referredBy") or "").strip():
+        raise HTTPException(409, f"« Référé par » déjà rempli : {c['referredBy']!r} — rien modifié")
+    entree = {"referredBy": r.refere_par}
+    if r.notes and not (c.get("referredByNotes") or "").strip():
+        entree["referredByNotes"] = r.notes
+    res = gz._execute_query("""mutation($id: String!, $input: PrivateClientInput!) { updateClient(id: $id, input: $input) {
+      client { id referredBy referredByNotes } mutationErrors { fieldName messages } } }""",
+                            {"id": client_id, "input": entree})
+    p = ((res or {}).get("data") or {}).get("updateClient") or {}
+    if (isinstance(res, dict) and res.get("errors")) or p.get("mutationErrors"):
+        raise HTTPException(502, str(p.get("mutationErrors") or res.get("errors")))
+    return p.get("client")
+
+
 class NotesRvIn(BaseModel):
     notes: str
 

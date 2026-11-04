@@ -31,7 +31,29 @@ def provenance_connue(client_id: str) -> Optional[bool]:
         if (c.get("referredBy") or "").strip() or (c.get("referredByNotes") or "").strip() or c.get("referralClient"):
             return True
         notes = f"{c.get('personalNotes') or ''} {c.get('preferenceNotes') or ''}"
-        return bool(_MOTS.search(notes))
+        if _MOTS.search(notes):
+            return True
+        return provenance_par_factures(client_id) is not None
+    except Exception:
+        return None
+
+
+_COURTOISIE = re.compile(r"courtoisie\s+(?:de\s+|chez\s+)?([A-ZÉ][\w'’&\- ]{2,40}?)(?=[.,;:(]|$)", re.IGNORECASE)
+
+
+def provenance_par_factures(client_id: str) -> Optional[str]:
+    """Provenance lisible dans les factures : un « accord de courtoisie <marchand> » veut dire que le
+    client nous a été envoyé par ce marchand (ex. Nantel Musique). Retourne le marchand, sinon None."""
+    try:
+        from core.gazelle_api_client import GazelleAPIClient
+        from api.taches_routes import _Q_FACTURES_CLIENT
+        res = GazelleAPIClient()._execute_query(_Q_FACTURES_CLIENT, {"c": client_id})
+        for f in (((res or {}).get("data") or {}).get("allInvoices") or {}).get("nodes") or []:
+            for i in ((f.get("allInvoiceItems") or {}).get("nodes")) or []:
+                m = _COURTOISIE.search(i.get("description") or "")
+                if m:
+                    return m.group(1).strip()
+        return None
     except Exception:
         return None
 
