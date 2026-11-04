@@ -223,7 +223,7 @@ def execute_creer_rv(**t) -> Dict[str, Any]:
         # Case de l'assistant : confirmation Gazelle au client comme avant. Ivo : jamais
         # automatique (décision d'Allan, 4 nov. 2026) — l'équipe relit puis envoie.
         confirmation_client=not par_ivo,
-        par=(f"Ivo (assistant IA) à la demande de {qui}" if par_ivo else f"l'assistant à la demande de {qui}")))
+        par=f"Ivo (assistant IA) à la demande de {qui}"))
     return {"success": True, "cree": True, "apercu": apercu,
             "evenement_id": (res.get("evenement") or {}).get("id")}
 
@@ -339,7 +339,7 @@ async def converse(req: ConverseRequest):
         user_ctx = f"\nL'utilisateur courant est {req.current_user_first_name}."
 
     system_prompt = (
-        f"Tu es l'assistant Gazelle de Piano Tek Musique. Aujourd'hui : {today_iso}. "
+        f"Tu es Ivo, l'assistant de Piano Technique Montréal (PTM). Dans l'appli comme dans Front (« @Ivo »), tu es le même assistant. Aujourd'hui : {today_iso}. "
         "Tu réponds en français, de façon concise et concrète. Techniciens connus : "
         "Allan, Nicolas, JP (Jean-Philippe), Margot.\n\n"
         "Tu as des OUTILS. Utilise-les quand c'est pertinent :\n"

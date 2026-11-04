@@ -296,7 +296,7 @@ export default function ClientAccessPanel({ currentUser }) {
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xl">💬</span>
           <div>
-            <h3 className="font-semibold text-gray-800 text-sm">Assistant Gazelle</h3>
+            <h3 className="font-semibold text-gray-800 text-sm">🤖 Ivo — l’assistant de PTM</h3>
             <p className="text-xs text-gray-500">
               Cherchez un client par nom, ou tapez une demande (ex: « ajoute Margot au RV de Nicolas demain »)
             </p>
@@ -312,7 +312,7 @@ export default function ClientAccessPanel({ currentUser }) {
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder="Nom du client, ou écrivez une demande à l’assistant…"
+                placeholder="Nom du client, ou écrivez une demande à Ivo…"
                 className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
               />
               {(loadingSuggestions || convLoading) && (
@@ -326,7 +326,7 @@ export default function ClientAccessPanel({ currentUser }) {
                 type="submit"
                 disabled={convLoading}
                 className="px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50"
-                title="Envoyer à l'assistant"
+                title="Envoyer à Ivo"
               >
                 ➤
               </button>
@@ -404,7 +404,7 @@ export default function ClientAccessPanel({ currentUser }) {
               ))}
               <div className="px-3 py-2 text-xs text-gray-500">
                 Autre chose ? Écrivez-le simplement. Si je ne sais pas encore le faire,
-                la demande est envoyée à l'administrateur.
+                la demande est envoyée à l'administrateur. Dans Front, écrivez « @Ivo … » en commentaire : même assistant.
               </div>
             </div>
           )}
@@ -416,7 +416,7 @@ export default function ClientAccessPanel({ currentUser }) {
         <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
             <div className="text-xs font-semibold text-teal-700 uppercase tracking-wider">
-              🤖 Assistant
+              🤖 Ivo
             </div>
             <button
               type="button"
@@ -469,7 +469,7 @@ export default function ClientAccessPanel({ currentUser }) {
               type="text"
               value={convInput}
               onChange={(e) => setConvInput(e.target.value)}
-              placeholder="Répondre à l'assistant… (ex: « oui, réactive-la avec le prix à jour »)"
+              placeholder="Répondre à Ivo… (ex: « oui, réactive-la avec le prix à jour »)"
               className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
             />
             <button

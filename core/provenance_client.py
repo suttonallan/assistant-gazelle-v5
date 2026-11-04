@@ -9,10 +9,10 @@ from typing import Optional
 
 import requests
 
-RAPPEL_PROVENANCE = ("Nouveau client : lui demander comment il nous a trouvés "
-                     "(puis l'inscrire dans « Référé par » de sa fiche Gazelle).")
-RAPPEL_PROVENANCE_EXISTANT = ("Provenance inconnue : demander au client comment il nous a connus "
-                              "(puis l'inscrire dans « Référé par » de sa fiche Gazelle).")
+RAPPEL_PROVENANCE = ("Ivo vous recommande de demander à ce nouveau client comment il nous a trouvés "
+                     "(puis de l'inscrire dans « Référé par » de sa fiche Gazelle).")
+RAPPEL_PROVENANCE_EXISTANT = ("Ivo vous recommande de demander au client comment il nous a connus : "
+                              "ce n'est pas encore noté (puis de l'inscrire dans « Référé par » de sa fiche Gazelle).")
 
 _MOTS = re.compile(r"(nous a trouv|nous ont trouv|référé|refere|référence|recommand|bouche[- ]à[- ]oreille|"
                    r"referred|found us|via google|trouvé sur)", re.IGNORECASE)
