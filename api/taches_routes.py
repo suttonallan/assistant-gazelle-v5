@@ -1682,6 +1682,9 @@ def _resumer(clients: List[Dict[str, Any]], cle: str) -> Dict[str, Any]:
                               {"clients": 0, "revenus": 0, "par_annee": {}, "eligibles_12": 0, "revenus_12": 0})
         r["clients"] += 1
         r["revenus"] += 1 if c["visites_payees_apres"] else 0
+        r["paye_courtoisie"] = round(r.get("paye_courtoisie", 0) + c.get("paye_courtoisie", 0), 2)
+        r["ventes_apres"] = round(r.get("ventes_apres", 0) + c.get("revenus_apres_dollars", 0), 2)
+        r["visites_apres"] = r.get("visites_apres", 0) + c["visites_payees_apres"]
         if c["eligible_12_mois"]:
             r["eligibles_12"] += 1
             r["revenus_12"] += 1 if c["revenu_12_mois"] else 0
@@ -1825,6 +1828,8 @@ def _calculer_courtoisie() -> None:
             dans_12 = [f for f in apres if (datetime.fromisoformat(f["date"]) - d0).days <= 365]
             clients.append({
                 "revenu_12_mois": bool(dans_12), "eligible_12_mois": (datetime.now() - d0).days >= 365,
+                "paye_courtoisie": round(sum((f["total"] or 0) for f in court) / 100, 2),
+                "revenus_apres_dollars": round(sum((f["total"] or 0) for f in apres) / 100, 2),
                 "client_id": cid, "client": premiere["client"], "marchand": marchand,
                 "date_courtoisie": premiere["date"], "visites_payees_apres": len(apres),
                 "derniere_visite": apres[-1]["date"] if apres else None,

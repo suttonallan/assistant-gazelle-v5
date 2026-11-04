@@ -35,6 +35,10 @@ for c in r["clients"]:
         cle = (c.get("preuve") or "aucun indice").split(" ")[0] + f" → {c['marchand_final']}"
         sources[cle] = sources.get(cle, 0) + 1
 note("Rattachement des non précisés", sources)
+for m, s in sorted(r["resume_rattache"].items()):
+    n = s["clients"] or 1
+    note(f"Argent — {m}", f"payé pour les courtoisies : {s['paye_courtoisie']:.0f} $ (moy. {s['paye_courtoisie']/n:.0f} $) | "
+         f"ventes ensuite : {s['ventes_apres']:.0f} $ en {s['visites_apres']} visites (moy. {s['ventes_apres']/n:.0f} $ par courtoisie)")
 
 SupabaseStorage(silent=True).save_system_setting("rapport_courtoisie", r)
 
@@ -59,3 +63,5 @@ except Exception as e:
     note("Courriel", f"non envoyé : {e}")
 # relance 1793826330
 # relance 1793826618
+
+# relance montants
