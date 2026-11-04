@@ -1329,6 +1329,35 @@ def envoyer_confirmation(eid: str):
     return {"envoye": True, "evenement": payload.get("event")}
 
 
+class ModifRvIn(BaseModel):
+    user_id: Optional[str] = None      # réassigner à un technicien
+    notes_ajout: Optional[str] = None  # ajouté EN TÊTE des notes existantes (rien n'est effacé)
+
+
+@router.post("/gazelle/rendez-vous/{eid}/modifier")
+def modifier_rendez_vous(eid: str, m: ModifRvIn):
+    """Réassigne un RV et/ou ajoute une précision aux notes. Ne touche ni à l'heure, ni au
+    client, ni au titre ; aucun courriel n'est envoyé au client."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    inp: Dict[str, Any] = {}
+    if m.user_id:
+        inp["userId"] = m.user_id
+    if m.notes_ajout:
+        actuelles = (_evenement(gz, eid).get("notes") or "").strip()
+        if m.notes_ajout.strip() not in actuelles:
+            inp["notes"] = m.notes_ajout.strip() + ("\n\n" + actuelles if actuelles else "")
+    if not inp:
+        raise HTTPException(400, "Rien à modifier")
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id title start notes user { id firstName } } mutationErrors { fieldName messages } } }"""
+    res = gz._execute_query(mut, {"id": eid, "input": inp})
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if (isinstance(res, dict) and res.get("errors")) or payload.get("mutationErrors"):
+        raise HTTPException(502, str(payload.get("mutationErrors") or res.get("errors")))
+    return payload.get("event")
+
+
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
 _Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""
@@ -1390,7 +1419,7 @@ def charge_techniciens(debut: str = Query(...), fin: str = Query(...)):
             continue
         uid = (e.get("user") or {}).get("id")
         cb = (e.get("createdBy") or {}).get("id")
-        sortie.append({"jour": d.strftime("%Y-%m-%d"), "heure": d.strftime("%H:%M"), "tech": noms.get(uid, uid),
+        sortie.append({"id": e.get("id"), "jour": d.strftime("%Y-%m-%d"), "heure": d.strftime("%H:%M"), "tech": noms.get(uid, uid),
                        "type": e.get("type"), "titre": (e.get("title") or "")[:60], "duree_min": e.get("duration"),
                        "journee": e.get("isAllDay"), "source": e.get("source"), "cree_par": noms.get(cb, cb),
                        "cree_le": (e.get("createdAt") or "")[:10]})
