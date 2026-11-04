@@ -552,7 +552,50 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
             "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY")),
-            "cle_voix": bool(os.getenv("OPENAI_API_KEY"))}
+            "cle_voix": bool(os.getenv("ELEVENLABS_API_KEY"))}
+
+
+# ─── Voix d'Ivo (ElevenLabs) — narration des présentations ───
+# Bornée : 60 appels par démarrage du serveur, 2500 caractères par appel. Jamais la voix clonée d'Allan.
+_voix_compteur = {"n": 0}
+
+
+@router.get("/voix/catalogue")
+def voix_catalogue():
+    """Voix ElevenLabs du compte (nom, étiquettes) — sans les voix clonées."""
+    from fastapi import HTTPException
+    cle = os.getenv("ELEVENLABS_API_KEY")
+    if not cle:
+        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
+    r = requests.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": cle}, timeout=60)
+    return [{"id": v["voice_id"], "nom": v["name"], "categorie": v.get("category"), "labels": v.get("labels")}
+            for v in r.json().get("voices", []) if v.get("category") != "cloned"]
+
+
+class VoixIn(__import__("pydantic").BaseModel):
+    texte: str
+    voix_id: str
+    stabilite: float = 0.45
+    style: float = 0.35
+
+
+@router.post("/voix")
+def voix(v: VoixIn):
+    from fastapi import HTTPException, Response
+    cle = os.getenv("ELEVENLABS_API_KEY")
+    if not cle:
+        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
+    if _voix_compteur["n"] >= 60 or len(v.texte) > 2500:
+        raise HTTPException(429, "limite")
+    _voix_compteur["n"] += 1
+    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{v.voix_id[:40]}?output_format=mp3_44100_128",
+                      headers={"xi-api-key": cle}, timeout=180,
+                      json={"text": v.texte, "model_id": "eleven_multilingual_v2",
+                            "voice_settings": {"stability": v.stabilite, "similarity_boost": 0.8,
+                                               "style": v.style, "use_speaker_boost": True}})
+    if r.status_code >= 400:
+        raise HTTPException(502, r.text[:300])
+    return Response(content=r.content, media_type="audio/mpeg")
 
 
 
