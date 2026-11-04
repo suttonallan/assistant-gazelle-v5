@@ -58,3 +58,4 @@ try:
 except Exception as e:
     note("Courriel", f"non envoyé : {e}")
 # relance 1793826330
+# relance 1793826618

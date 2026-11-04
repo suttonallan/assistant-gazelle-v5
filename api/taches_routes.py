@@ -1667,12 +1667,12 @@ def _marchand(texte: str) -> Optional[str]:
         return "Nantel"
     if "archambault" in t:
         return "Archambault"
-    if "vertu" in t:
+    if _re.search(r"piano[s]?[ -]?vertu", t):
         return "Piano Vertu"
     return None
 
 
-_MOTS_MARCHAND = _re.compile(r"nantel|archambault|vertu", _re.IGNORECASE)
+_MOTS_MARCHAND = _re.compile(r"nantel|archambault|pianos?[ -]?vertu", _re.IGNORECASE)
 
 
 def _resumer(clients: List[Dict[str, Any]], cle: str) -> Dict[str, Any]:
