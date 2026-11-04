@@ -1606,8 +1606,12 @@ def fiche_test_equipe(f: FicheTestEquipe):
     gz = GazelleAPIClient()
     nom_complet = f"{f.prenom} {f.nom}"
     # Garde-fou : pas de doublon si la fiche test existe déjà
-    deja = gz._execute_query("""query($s: String) { allClients(first: 20, filters: {searchString: $s}) {
-        nodes { id tags personalNotes } } }""", {"s": nom_complet})
+    try:
+        deja = gz._execute_query("""query($s: String) { allClients(first: 20, search: $s) {
+            nodes { id tags } } }""", {"s": nom_complet})
+    except Exception as e:
+        logging.getLogger(__name__).warning("fiche-test-equipe : recherche de doublon impossible : %s", e)
+        deja = {}
     for c in ((deja.get("data") or {}).get("allClients") or {}).get("nodes") or []:
         if "test-equipe" in (c.get("tags") or []):
             return {"deja": True, "client_id": c["id"], "lien": f"https://reserver.pianotechniquemontreal.com/?client={c['id']}"}
@@ -1618,17 +1622,23 @@ def fiche_test_equipe(f: FicheTestEquipe):
     entree = {"status": "ACTIVE", "contacts": [contact], "tags": ["test-equipe"], "lifecycleId": None,
               "personalNotes": "FICHE TEST de l'équipe PTM pour essayer la réservation en ligne. "
                                "Adresse et piano fictifs. Ne pas planifier, ne pas facturer."}
-    r = gz._execute_query("""mutation($i: PrivateClientInput!) { createClient(input: $i) {
-        client { id lifecycle { id name } } mutationErrors { fieldName messages } } }""", {"i": entree})
+    try:
+        r = gz._execute_query("""mutation($i: PrivateClientInput!) { createClient(input: $i) {
+            client { id } mutationErrors { fieldName messages } } }""", {"i": entree})
+    except Exception as e:
+        raise HTTPException(502, f"createClient : {e}")
     p = (r.get("data") or {}).get("createClient") or {}
     if r.get("errors") or p.get("mutationErrors") or not (p.get("client") or {}).get("id"):
         raise HTTPException(502, f"createClient : {r.get('errors') or p.get('mutationErrors')}")
     cid = p["client"]["id"]
-    rp = gz._execute_query("""mutation($i: PrivatePianoInput!) { createPiano(input: $i) {
+    try:
+        rp = gz._execute_query("""mutation($i: PrivatePianoInput!) { createPiano(input: $i) {
         piano { id make model type } mutationErrors { fieldName messages } } }""",
                            {"i": {"clientId": cid, "type": f.type_piano, "make": f.marque, "model": f.modele,
                                   "location": "Salon", "status": "ACTIVE", "tags": ["test-equipe"]}})
+    except Exception as e:
+        rp = {"errors": str(e)}
     pp = (rp.get("data") or {}).get("createPiano") or {}
-    return {"deja": False, "client_id": cid, "cycle": p["client"].get("lifecycle"),
+    return {"deja": False, "client_id": cid, 
             "piano": pp.get("piano"), "erreurs_piano": rp.get("errors") or pp.get("mutationErrors"),
             "lien": f"https://reserver.pianotechniquemontreal.com/?client={cid}"}
