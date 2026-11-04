@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-8"
+VERSION = "ivo-9"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -377,7 +377,10 @@ def sante():
 @router.post("/surveiller")
 def surveiller_maintenant():
     """Lance une surveillance tout de suite (diagnostic)."""
-    return surveiller()
+    try:
+        return surveiller()
+    except Exception as e:
+        return {"erreur": str(e)[:500]}
 
 
 @router.get("/journal")
