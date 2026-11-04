@@ -1002,6 +1002,88 @@ def creer_facture(f: FactureIn):
             "total": _dollars(inv.get("total"))}
 
 
+_Q_FACTURE_UNE = """query($id: String!) { invoice(id: $id) { id number status
+  client { id }
+  allInvoiceItems { nodes { description type quantity amount taxable billable sequenceNumber
+    masterServiceItem { id } piano { id } } } } }"""
+
+_Q_CLIENT_FACTURATION = """query($id: String!) { client(id: $id) { id companyName
+  defaultContact { firstName lastName defaultEmail { email } defaultPhone { phoneNumber }
+    defaultLocation { street1 street2 municipality postalCode region } } } }"""
+
+_UPDATE_INVOICE = """mutation($id: String!, $input: PrivateUpdateInvoiceInput!) {
+  updateInvoice(id: $id, input: $input) {
+    invoice { id number status subTotal total altBillingCompanyName }
+    mutationErrors { fieldName messages } } }"""
+
+
+class LigneTexte(BaseModel):
+    sequence: int          # sequenceNumber de la ligne (0 = première)
+    description: str
+
+
+class FactureMajIn(BaseModel):
+    descriptions: List[LigneTexte] = []
+    facturer_a_client_id: Optional[str] = None   # facturation alternative (ex. Piano Vertu)
+
+
+@router.patch("/gazelle/facture/{invoice_id}")
+def maj_facture(invoice_id: str, m: FactureMajIn):
+    """Modifie une facture Gazelle en BROUILLON seulement : texte des lignes et/ou
+    facturation alternative vers un autre client Gazelle. Montants et taxes inchangés.
+    Rien n'est envoyé."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from api.assistant_duplication import _build_taxes
+    gz = GazelleAPIClient()
+    inv = ((gz._execute_query(_Q_FACTURE_UNE, {"id": invoice_id}) or {}).get("data") or {}).get("invoice")
+    if not inv:
+        raise HTTPException(404, "Facture introuvable")
+    if inv.get("status") != "DRAFT":
+        raise HTTPException(409, "Seules les factures en brouillon peuvent être modifiées ici")
+    inp: Dict[str, Any] = {}
+    if m.descriptions:
+        nouv = {d.sequence: d.description for d in m.descriptions}
+        items = []
+        for it in sorted(inv["allInvoiceItems"]["nodes"], key=lambda x: x.get("sequenceNumber") or 0):
+            seq = it.get("sequenceNumber") or 0
+            item = {"description": nouv.get(seq, it.get("description")), "type": it.get("type"),
+                    "quantity": it.get("quantity"), "amount": it.get("amount"),
+                    "taxable": it.get("taxable"), "billable": it.get("billable"), "sequenceNumber": seq,
+                    "taxes": _build_taxes(int((it.get("amount") or 0) * (it.get("quantity") or 100) / 100),
+                                          it.get("taxable"))}
+            if (it.get("masterServiceItem") or {}).get("id"):
+                item["masterServiceItemId"] = it["masterServiceItem"]["id"]
+            if (it.get("piano") or {}).get("id"):
+                item["pianoId"] = it["piano"]["id"]
+            items.append(item)
+        inp["invoiceItems"] = items
+    if m.facturer_a_client_id:
+        c = ((gz._execute_query(_Q_CLIENT_FACTURATION, {"id": m.facturer_a_client_id}) or {})
+             .get("data") or {}).get("client")
+        if not c:
+            raise HTTPException(404, "Client de facturation introuvable")
+        dc = c.get("defaultContact") or {}
+        loc = dc.get("defaultLocation") or {}
+        for cle, val in (("altBillingCompanyName", c.get("companyName")),
+                         ("altBillingFirstName", dc.get("firstName")), ("altBillingLastName", dc.get("lastName")),
+                         ("altBillingEmail", (dc.get("defaultEmail") or {}).get("email")),
+                         ("altBillingPhone", (dc.get("defaultPhone") or {}).get("phoneNumber")),
+                         ("altBillingStreet1", loc.get("street1")), ("altBillingStreet2", loc.get("street2")),
+                         ("altBillingMunicipality", loc.get("municipality")),
+                         ("altBillingPostalCode", loc.get("postalCode")), ("altBillingRegion", loc.get("region"))):
+            if val:
+                inp[cle] = val
+    if not inp:
+        raise HTTPException(400, "Rien à modifier")
+    res = gz._execute_query(_UPDATE_INVOICE, {"id": invoice_id, "input": inp})
+    payload = ((res or {}).get("data") or {}).get("updateInvoice") or {}
+    if payload.get("mutationErrors") or not payload.get("invoice"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors')} {res.get('errors') if isinstance(res, dict) else ''}")
+    i = payload["invoice"]
+    return {"numero": i.get("number"), "statut": i.get("status"), "sous_total": _dollars(i.get("subTotal")),
+            "total": _dollars(i.get("total")), "facture_a": i.get("altBillingCompanyName")}
+
+
 # --- Rendez-vous Gazelle (créé à la demande d'Allan depuis une conversation Claude) ---
 class RendezVousIn(BaseModel):
     client_id: str
