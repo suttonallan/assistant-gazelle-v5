@@ -978,7 +978,15 @@ def est_nouveau_client(client_id: str) -> bool:
 @router.get("/gazelle/nouveau-client")
 def nouveau_client(client_id: str = Query(...)):
     """LECTURE SEULE — ce client recevra-t-il le rappel « comment nous a-t-il trouvés » ?"""
-    return {"client_id": client_id, "nouveau": est_nouveau_client(client_id)}
+    db = _db()
+    h = db._get_headers()
+    fiche = requests.get(f"{db.api_url}/gazelle_clients?select=created_at&external_id=eq.{client_id}",
+                         headers=h, timeout=10)
+    rv = requests.get(f"{db.api_url}/gazelle_appointments?select=appointment_date"
+                      f"&client_external_id=eq.{client_id}&order=appointment_date.asc&limit=3", headers=h, timeout=10)
+    return {"client_id": client_id, "nouveau": est_nouveau_client(client_id),
+            "fiche": fiche.json() if fiche.status_code == 200 else fiche.text[:200],
+            "premiers_rv": rv.json() if rv.status_code == 200 else rv.text[:200]}
 
 
 @router.post("/gazelle/rendez-vous")
