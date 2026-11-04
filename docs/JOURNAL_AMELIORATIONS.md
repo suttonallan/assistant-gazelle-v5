@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 4 novembre
+- **@Ivo fait tout ce que fait la case de l'assistant** : dans Front, « @Ivo » peut maintenant créer un RV (aperçu, puis « @Ivo oui »), réactiver ou réviser une soumission, chercher dans les notes, donner les appels récents, préparer un lien de réservation, joindre les photos d'un courriel au piano, etc. Ivo se souvient des échanges précédents du fil. Les RV créés par Ivo ne partent pas au client sans relecture ; ceux créés depuis la case de l'assistant envoient la confirmation comme avant.
 - **🧭 Provenance des clients** : nouvel onglet (Allan) qui passe en revue les clients sans « Référé par » et propose une provenance à partir des indices trouvés (notes de la fiche, factures « accord de courtoisie », historique, courriels). Chaque proposition s'approuve (inscrite dans Gazelle, sans jamais écraser), se met à discuter ou se refuse.
 
 ### 3 novembre

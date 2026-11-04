@@ -169,6 +169,12 @@ CREER_RV_TOOL = {
 }
 
 
+import contextvars
+# Canal de la demande : « assistant » (case de Ma Journée) ou « ivo » (commentaire @Ivo dans Front).
+_CANAL = contextvars.ContextVar("canal_assistant", default="assistant")
+_PRENOM = contextvars.ContextVar("prenom_assistant", default=None)
+
+
 def execute_creer_rv(**t) -> Dict[str, Any]:
     from api.taches_routes import chercher_clients, creer_rendez_vous, RendezVousIn
     tech = (t.get("technicien") or "").strip().lower()
@@ -208,10 +214,16 @@ def execute_creer_rv(**t) -> Dict[str, Any]:
     if not t.get("confirme"):
         return {"success": True, "apercu": apercu, "cree": False,
                 "message": "Aperçu seulement : rien n'est créé. Demande confirmation."}
+    qui = _PRENOM.get() or "l'équipe"
+    par_ivo = _CANAL.get() == "ivo"
     res = creer_rendez_vous(RendezVousIn(
         client_id=client_id, user_id=user_id, debut_montreal=debut,
         duree_min=apercu["duree_min"], notes=apercu["notes"] or None,
-        piano_ids=[p["external_id"] for p in pianos], accord=apercu["accord"]))
+        piano_ids=[p["external_id"] for p in pianos], accord=apercu["accord"],
+        # Case de l'assistant : confirmation Gazelle au client comme avant. Ivo : jamais
+        # automatique (décision d'Allan, 4 nov. 2026) — l'équipe relit puis envoie.
+        confirmation_client=not par_ivo,
+        par=(f"Ivo (assistant IA) à la demande de {qui}" if par_ivo else f"l'assistant à la demande de {qui}")))
     return {"success": True, "cree": True, "apercu": apercu,
             "evenement_id": (res.get("evenement") or {}).get("id")}
 
@@ -306,6 +318,8 @@ class ConverseMessage(BaseModel):
 class ConverseRequest(BaseModel):
     messages: List[ConverseMessage]
     current_user_first_name: Optional[str] = None
+    canal: str = "assistant"  # « ivo » quand la demande vient d'un commentaire @Ivo dans Front
+    contexte: Optional[str] = None  # ex. le fil client Front, pour Ivo
 
 
 @router.post("/converse", response_model=Dict[str, Any])
@@ -360,6 +374,11 @@ async def converse(req: ConverseRequest):
         + user_ctx
     )
 
+    if req.contexte:
+        system_prompt += ("\n\nCONTEXTE (fil Front du client, à utiliser pour trouver le client, "
+                          "ses coordonnées et sa demande) :\n" + req.contexte[:12000])
+    _CANAL.set(req.canal or "assistant")
+    _PRENOM.set(req.current_user_first_name)
     messages: List[Dict[str, Any]] = [{"role": m.role, "content": m.content} for m in req.messages]
     actions: List[Dict[str, Any]] = []
 

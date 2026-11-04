@@ -31,11 +31,16 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-13"
+VERSION = "ivo-14"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
 _DECLENCHEUR = re.compile(r"^\s*@?ivo\b[\s,:;.\-–—]*", re.IGNORECASE)
+
+import contextvars
+_CTX = contextvars.ContextVar("ivo_ctx", default={})
+_PRENOMS = {"asutton@piano-tek.com": "Allan", "nlessard@piano-tek.com": "Nicolas", "info@piano-tek.com": "Louise",
+            "margotcharignon@gmail.com": "Margot", "jpreny@gmail.com": "JP"}
 
 _deja_traites: set = set()          # commentaires déjà pris en charge (évite les doublons)
 _verrou = threading.Lock()
@@ -117,6 +122,7 @@ Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients
 Historique du client : ta réponse dépend de son dossier. Client existant avec visites → reprends ce qui a été fait (ex. accord + entretien Piano Life Saver), le technicien habituel, et les frais de déplacement DÉJÀ FACTURÉS la dernière fois. Si le calculateur donne un montant différent de ce qui a été facturé, signale l'écart à l'équipe dans ta note et ne mets dans le brouillon que le montant que l'équipe confirme ([frais à confirmer] sinon). Nouveau client → calculateur officiel.
 Provenance : lis tout le dossier avant de dire qu'on ignore comment le client nous a connus — un « accord de courtoisie <marchand> » dans une facture (ex. Nantel Musique) veut dire que ce marchand nous l'a envoyé.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
+Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Un RV passe toujours par un aperçu ; il n'est créé qu'après un « oui » de l'équipe, et sans confirmation automatique au client.
 Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Tu ne crées jamais de vrai RV client ni de confirmation.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
 Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
@@ -223,6 +229,17 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                 texte += (" Au-delà de 45 km : montant ESTIMATIF, la coordonnatrice fixe le RV et les frais "
                           "(visites regroupées).")
             return texte
+        if nom == "demander_assistant":
+            import asyncio
+            from api.assistant_converse import converse, ConverseRequest, ConverseMessage
+            ctx = _CTX.get() or {}
+            hist = [ConverseMessage(role=r, content=c) for r, c in (ctx.get("historique") or [])][-8:]
+            hist.append(ConverseMessage(role="user", content=arg.get("demande") or ""))
+            rep = asyncio.run(converse(ConverseRequest(messages=hist, current_user_first_name=ctx.get("prenom"),
+                                                       canal="ivo", contexte=ctx.get("fil"))))
+            faits = [f"{a.get('type')}: {json.dumps(a.get('result'), ensure_ascii=False, default=str)[:600]}"
+                     for a in (rep.get("actions") or [])]
+            return (rep.get("reply") or "") + ("\n\nActions : " + " | ".join(faits) if faits else "")
         if nom == "creer_client":
             from core.gazelle_api_client import GazelleAPIClient
             gz = GazelleAPIClient()
@@ -290,7 +307,7 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
         return f"Échec de l'outil : {e}"
 
 
-def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict[str, Any]:
+def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echanges: str = "") -> Dict[str, Any]:
     from anthropic import Anthropic
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     systeme = _SYSTEME
@@ -310,7 +327,9 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
                f"HORAIRE DE L'ÉQUIPE (45 prochains jours) :\n{horaire}\n\n"
                f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
                f"BROUILLON ACTUEL :\n{brouillon or '(aucun — rédige une première réponse)'}\n\n"
-               f"CONSIGNE DE L'ÉQUIPE :\n{consigne}")
+               + (f"ÉCHANGES PRÉCÉDENTS AVEC IVO DANS CE FIL (pour comprendre « oui », « vas-y », etc.) :\n{echanges}\n\n"
+                  if echanges else "")
+               + f"CONSIGNE DE L'ÉQUIPE :\n{consigne}")
     outils = [
         {"name": "repondre", "description": "Transmet le résultat final d'Ivo (à appeler en dernier).",
          "input_schema": {"type": "object", "required": ["action", "note"], "properties": {
@@ -322,6 +341,14 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
          "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
          "input_schema": {"type": "object", "required": ["adresse"],
                           "properties": {"adresse": {"type": "string"}}}},
+        {"name": "demander_assistant",
+         "description": ("Transmet une demande à l'assistant Gazelle de PTM (la même case que dans Ma Journée) : "
+                         "créer un RV (aperçu d'abord, puis création après un oui), RV conjoint, réactiver ou réviser "
+                         "une soumission, chercher dans les notes, appels récents, lien de réservation prérempli, "
+                         "photos d'un courriel → dossier du piano, frais partagés, etc. Écris la demande complète "
+                         "avec le nom du client. Pour une confirmation (« oui »), redis l'action confirmée."),
+         "input_schema": {"type": "object", "required": ["demande"],
+                          "properties": {"demande": {"type": "string"}}}},
         {"name": "creer_client",
          "description": "Crée une fiche client potentiel dans Gazelle (refuse si une fiche existe déjà avec ce courriel ou ce téléphone).",
          "input_schema": {"type": "object", "required": ["prenom", "nom"], "properties": {
@@ -410,7 +437,21 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     texte_brouillon = _texte((brouillon or {}).get("text") or (brouillon or {}).get("body") or "")
 
     try:
-        res = _rediger(consigne, _fil(messages), texte_brouillon, _regles())
+        fil = _fil(messages)
+        anterieurs = sorted([c for c in commentaires if (c.get("posted_at") or 0) < (com.get("posted_at") or 0)],
+                            key=lambda c: c.get("posted_at") or 0)
+        historique = []
+        for c in anterieurs[-10:]:
+            t = _texte(c.get("body") or "")
+            if t.startswith("🤖 Ivo"):
+                historique.append(("assistant", t))
+            elif consigne_ivo(c.get("body") or "") is not None:
+                historique.append(("user", consigne_ivo(c.get("body") or "")))
+        while historique and historique[0][0] != "user":
+            historique.pop(0)
+        _CTX.set({"historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email)})
+        echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
+        res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
         if res.get("action") == "reponse":
             front.add_comment(conversation_id, PREFIXE_REPONSE + (res.get("note") or "je n'ai pas de réponse."),
                               auteur_email)
