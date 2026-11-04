@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-17"
+VERSION = "ivo-18"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -596,6 +596,27 @@ def voix(v: VoixIn):
     if r.status_code >= 400:
         raise HTTPException(502, r.text[:300])
     return Response(content=r.content, media_type="audio/mpeg")
+
+
+@router.post("/voix/minutage")
+def voix_minutage(v: VoixIn):
+    """Même chose, avec le minutage de chaque caractère (pour les sous-titres) : audio en base64 + alignement."""
+    from fastapi import HTTPException
+    cle = os.getenv("ELEVENLABS_API_KEY")
+    if not cle:
+        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
+    if _voix_compteur["n"] >= 60 or len(v.texte) > 2500:
+        raise HTTPException(429, "limite")
+    _voix_compteur["n"] += 1
+    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{v.voix_id[:40]}/with-timestamps"
+                      "?output_format=mp3_44100_128", headers={"xi-api-key": cle}, timeout=180,
+                      json={"text": v.texte, "model_id": "eleven_multilingual_v2",
+                            "voice_settings": {"stability": v.stabilite, "similarity_boost": 0.8,
+                                               "style": v.style, "use_speaker_boost": True}})
+    if r.status_code >= 400:
+        raise HTTPException(502, r.text[:300])
+    d = r.json()
+    return {"audio_base64": d.get("audio_base64"), "alignement": d.get("alignment")}
 
 
 
