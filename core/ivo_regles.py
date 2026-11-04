@@ -4,8 +4,9 @@ Une seule liste, partagée par Ivo dans Front (« @Ivo … ») et par la case de
 de l'appli. Seuls Allan, Nicolas et Louise peuvent ajouter ou retirer une règle.
 Gardée dans system_settings « ivo_regles_reponse ».
 """
-from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from core.timezone_utils import aujourdhui_montreal
 
 CLE = "ivo_regles_reponse"
 AUTORISES = {"allan", "nicolas", "louise"}
@@ -66,7 +67,7 @@ def ajouter(regle: str, prenom: Optional[str]) -> Dict[str, Any]:
     regles = lire()
     if any(r["regle"].lower() == regle.lower() for r in regles):
         return {"ok": True, "message": "Cette règle existe déjà."}
-    regles.append({"regle": regle, "par": prenom, "le": datetime.now().strftime("%Y-%m-%d")})
+    regles.append({"regle": regle, "par": prenom, "le": aujourdhui_montreal().isoformat()})
     _st().save_system_setting(CLE, regles)
     return {"ok": True, "message": f"Règle n° {len(regles)} retenue : « {regle} »"}
 
