@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-9"
+VERSION = "ivo-10"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -335,7 +335,11 @@ def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
     import time
     front = get_front_client()
     depuis = _curseur.get("t") or (time.time() - fenetre_s)
-    r = front._get("/events", params={"q[types][]": "comment", "q[after]": depuis, "limit": 50})
+    rep = requests.get(f"{front.BASE_URL}/events", headers=front._headers(), timeout=15,
+                       params={"q[types]": "comment", "q[after]": int(depuis), "limit": 15})
+    if rep.status_code >= 400:
+        raise RuntimeError(f"Front {rep.status_code}: {rep.text[:300]}")
+    r = rep.json()
     evenements = r.get("_results", [])
     vus = 0
     plus_recent = depuis
