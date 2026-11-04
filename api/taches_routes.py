@@ -819,6 +819,17 @@ def copier_service(source_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]+$"),
     return {"cree": m.get("masterServiceItem"), "copie_de": _nom_i18n(src.get("name"))}
 
 
+@router.get("/boutique/catalogue")
+def boutique_catalogue():
+    """LECTURE — articles de la boutique « avec l'accord », prix en direct de la Master Service List."""
+    from core.boutique_accord import catalogue
+    from core.gazelle_api_client import GazelleAPIClient
+    items = ((GazelleAPIClient()._execute_query("query { allMasterServiceItems { id amount isArchived } }")
+              .get("data") or {}).get("allMasterServiceItems") or [])
+    prix = {i["id"]: (i.get("amount") or 0) / 100 for i in items if not i.get("isArchived")}
+    return {"articles": catalogue(prix)}
+
+
 class LigneSoumission(BaseModel):
     nom: str
     montant: float  # dollars
