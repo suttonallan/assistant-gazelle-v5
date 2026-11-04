@@ -1667,10 +1667,12 @@ def _marchand(texte: str) -> Optional[str]:
         return "Nantel"
     if "archambault" in t:
         return "Archambault"
+    if "vertu" in t:
+        return "Piano Vertu"
     return None
 
 
-_MOTS_MARCHAND = _re.compile(r"nantel|archambault", _re.IGNORECASE)
+_MOTS_MARCHAND = _re.compile(r"nantel|archambault|vertu", _re.IGNORECASE)
 
 
 def _resumer(clients: List[Dict[str, Any]], cle: str) -> Dict[str, Any]:
@@ -1764,6 +1766,9 @@ def _rattacher_non_precises(clients: List[Dict[str, Any]], par_client: Dict[str,
                 if trouve:
                     break
                 time.sleep(0.4)
+        # 4. Règle d'Allan : avant 2025 (avant Nantel et Piano Vertu), toutes les courtoisies venaient d'Archambault
+        if c["preuve"] is None and c["date_courtoisie"] < "2025-01-01":
+            c["marchand_final"], c["preuve"] = "Archambault", "Déduit : avant 2025, seul Archambault"
 
 
 def _calculer_courtoisie() -> None:
