@@ -964,6 +964,8 @@ def est_nouveau_client(client_id: str) -> bool:
         if not lignes or not lignes[0].get("created_at"):
             return False
         cree = datetime.fromisoformat(lignes[0]["created_at"].replace("Z", "+00:00"))
+        if cree.tzinfo is None:
+            cree = cree.replace(tzinfo=timezone.utc)
         if cree < datetime.now(timezone.utc) - timedelta(days=90):
             return False
         aujourdhui = datetime.now(MONTREAL_TZ).date().isoformat()
