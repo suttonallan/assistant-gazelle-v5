@@ -41,6 +41,7 @@ from api.assistant import router as assistant_core_router  # 💬 Assistant chat
 from api.admin import router as admin_router
 from api.front_routes import router as front_router  # 📬 Lecture Front (conversations + commentaires équipe)
 from api.ivo_routes import router as ivo_router  # 🤖 Ivo : commentaires @Ivo dans Front
+from api.provenance_routes import router as provenance_router  # 🧭 Survol « Référé par »
 from api.campaigns_routes import router as campaigns_router  # 🎯 Campagnes (agrégation par client)
 from api.auth_routes import router as auth_router  # 🔒 Connexion PIN
 try:  # ✅ Tâches d'équipe + campagnes — isolé : un bogue ici ne doit jamais empêcher l'API de démarrer
@@ -250,6 +251,7 @@ app.include_router(assistant_core_router)  # 💬 Assistant chat + fiche client
 app.include_router(admin_router)
 app.include_router(front_router)  # 📬 Front API
 app.include_router(ivo_router)  # 🤖 Ivo
+app.include_router(provenance_router)  # 🧭 Provenance
 app.include_router(campaigns_router)  # 🎯 Campagnes
 if taches_router:
     app.include_router(taches_router)  # ✅ Tâches
@@ -288,6 +290,7 @@ app.include_router(assistant_core_router, prefix="/api")  # 💬 /api/assistant/
 app.include_router(admin_router, prefix="/api")
 app.include_router(front_router, prefix="/api")  # 📬 Front API
 app.include_router(ivo_router, prefix="/api")  # 🤖 Ivo
+app.include_router(provenance_router, prefix="/api")  # 🧭 Provenance
 app.include_router(campaigns_router, prefix="/api")  # 🎯 Campagnes
 if taches_router:
     app.include_router(taches_router, prefix="/api")  # ✅ Tâches
