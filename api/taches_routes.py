@@ -840,6 +840,53 @@ def creer_soumission(s: SoumissionIn):
 
 
 
+# Cycles de vie visés par les rappels personnalisés (lecture seule pour l'instant)
+CYCLES_RAPPEL_PERSO = {
+    "lcy_VEOrJHKlyLhGaNa4": "fr",   # Français
+    "lcy_JnzQO9dhl9AeY5MQ": "fr",   # Français 1x/an
+    "lcy_bWUWxo81RTbyQc7x": "en",   # English
+}
+
+
+@router.get("/gazelle/rappels-a-venir")
+def rappels_a_venir(jours: int = Query(35, ge=1, le=90)):
+    """LECTURE — pianos actifs dont le prochain service calculé par Gazelle tombe d'ici `jours` jours,
+    pour les clients des cycles Français, Français 1x/an et English. Sert à préparer les rappels personnalisés."""
+    from datetime import timedelta
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    debut = aujourdhui_montreal()
+    fin = debut + timedelta(days=jours)
+    req = """query($a: String) { allPianos(first: 100, after: $a) {
+      nodes { id status make model type location calculatedNextService calculatedLastService
+        client { id companyName lifecycle { id } } }
+      pageInfo { hasNextPage endCursor } } }"""
+    out, apres, pages, erreurs = [], None, 0, None
+    while pages < 200:
+        res = gz._execute_query(req, {"a": apres})
+        if res.get("errors"):
+            erreurs = res["errors"]
+            break
+        bloc = (res.get("data") or {}).get("allPianos") or {}
+        for p in bloc.get("nodes") or []:
+            c = p.get("client") or {}
+            lc = (c.get("lifecycle") or {}).get("id")
+            nxt = (p.get("calculatedNextService") or "")[:10]
+            if p.get("status") not in (None, "ACTIVE") or lc not in CYCLES_RAPPEL_PERSO or not nxt:
+                continue
+            if debut.isoformat() <= nxt <= fin.isoformat():
+                out.append({"client_id": c.get("id"), "client": c.get("companyName"), "langue": CYCLES_RAPPEL_PERSO[lc],
+                            "piano_id": p["id"], "piano": " ".join(x for x in (p.get("make"), p.get("model")) if x),
+                            "lieu": p.get("location"), "prochain": nxt, "dernier": (p.get("calculatedLastService") or "")[:10]})
+        pages += 1
+        info = bloc.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            break
+        apres = info.get("endCursor")
+    out.sort(key=lambda r: r["prochain"])
+    return {"de": debut.isoformat(), "a": fin.isoformat(), "pages": pages, "nombre": len(out), "pianos": out, "erreurs": erreurs}
+
+
 @router.get("/gazelle/soumissions")
 def soumissions_client(client_id: str = Query(...)):
     """Soumissions Gazelle récentes d'un client, avec leur contenu complet :
