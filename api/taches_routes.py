@@ -948,7 +948,7 @@ class RendezVousIn(BaseModel):
     confirmation_client: bool = True   # courriel de confirmation Gazelle au client (comme dans l'appli)
 
 
-RAPPEL_NOUVEAU_CLIENT = "Nouveau client : lui demander comment il nous a trouvés."
+from core.provenance_client import RAPPEL_PROVENANCE as RAPPEL_NOUVEAU_CLIENT, faut_demander, provenance_connue
 
 
 def est_nouveau_client(client_id: str) -> bool:
@@ -987,6 +987,7 @@ def nouveau_client(client_id: str = Query(...)):
     rv = requests.get(f"{db.api_url}/gazelle_appointments?select=appointment_date"
                       f"&client_external_id=eq.{client_id}&order=appointment_date.asc&limit=3", headers=h, timeout=10)
     return {"client_id": client_id, "nouveau": est_nouveau_client(client_id),
+            "provenance_connue": provenance_connue(client_id),
             "fiche": fiche.json() if fiche.status_code == 200 else fiche.text[:200],
             "premiers_rv": rv.json() if rv.status_code == 200 else rv.text[:200]}
 
@@ -1019,7 +1020,8 @@ def creer_rendez_vous(r: RendezVousIn):
     if r.lieu:
         inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
     notes = r.notes or ""
-    if r.type == "APPOINTMENT" and "trouvé" not in notes.lower() and est_nouveau_client(r.client_id):
+    if r.type == "APPOINTMENT" and "trouvé" not in notes.lower() and est_nouveau_client(r.client_id) \
+            and faut_demander(r.client_id):
         notes = (notes + "\n\n" if notes else "") + RAPPEL_NOUVEAU_CLIENT
     if notes:
         inp["notes"] = notes
