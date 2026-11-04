@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-7"
+VERSION = "ivo-8"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -323,6 +323,35 @@ def _traiter_sans_erreur(conversation_id: str, comment_id: Optional[str]) -> Non
     del _derniers[:-10]
 
 
+# ─── Surveillance (la règle « webhook » de Front exige un forfait supérieur) ───
+_curseur: Dict[str, float] = {}
+
+
+def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
+    """Lit les nouveaux commentaires Front (événements) et traite ceux qui commencent par @Ivo.
+
+    Appelé toutes les 30 s par le scheduler. Les doublons sont écartés par traiter().
+    """
+    import time
+    front = get_front_client()
+    depuis = _curseur.get("t") or (time.time() - fenetre_s)
+    r = front._get("/events", params={"q[types][]": "comment", "q[after]": depuis, "limit": 50})
+    evenements = r.get("_results", [])
+    vus = 0
+    plus_recent = depuis
+    for e in evenements:
+        plus_recent = max(plus_recent, float(e.get("emitted_at") or 0))
+        cible = ((e.get("target") or {}).get("data")) or {}
+        if consigne_ivo(cible.get("body") or "") is None:
+            continue
+        conv = (e.get("conversation") or {}).get("id")
+        if conv:
+            vus += 1
+            _traiter_sans_erreur(conv, cible.get("id"))
+    _curseur["t"] = plus_recent
+    return {"evenements": len(evenements), "ivo": vus}
+
+
 # ─── Endpoints ───────────────────────────────────────────────────
 
 @router.post("/webhook")
@@ -343,6 +372,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
             "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY"))}
+
+
+@router.post("/surveiller")
+def surveiller_maintenant():
+    """Lance une surveillance tout de suite (diagnostic)."""
+    return surveiller()
 
 
 @router.get("/journal")

@@ -941,6 +941,15 @@ def task_lien_reservation_front():
     return res
 
 
+def task_ivo_front():
+    """Commentaires @Ivo dans Front → Ivo réécrit le brouillon ou répond."""
+    import os
+    if not os.getenv("FRONT_API_KEY") or not os.getenv("ANTHROPIC_API_KEY"):
+        return {"note": "clé absente"}
+    from api.ivo_routes import surveiller
+    return surveiller()
+
+
 def task_assistant_courriel():
     """Répond aux courriels de l'équipe reçus dans la boîte Front « Assistant »."""
     import os
@@ -1100,6 +1109,18 @@ def configure_jobs(scheduler: BackgroundScheduler):
         coalesce=True
     )
     print("   2 min - Front « Lien RV » → lien de réservation configure")
+
+    # Toutes les 30 s - Commentaires @Ivo dans Front
+    scheduler.add_job(
+        task_ivo_front,
+        trigger=IntervalTrigger(seconds=30),
+        id='ivo_front',
+        name='Front : commentaires @Ivo (30 s)',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
+    )
+    print("   30 s - Commentaires @Ivo dans Front configure")
 
     # Toutes les 2 min - Courriels à assistant@piano-tek.com (boîte Front « Assistant »)
     scheduler.add_job(
