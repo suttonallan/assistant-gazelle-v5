@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-11"
+VERSION = "ivo-12"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -114,6 +114,8 @@ Deux sortes de consignes :
 A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
 B) Une question pour l'équipe (« qui est dans le coin à ces dates ? », « ça fonctionne avec l'horaire ? »…) → action "reponse" : réponds dans "note", sans toucher au brouillon.
 Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec leur ville et code postal ; « occupé » = bloc personnel). Raisonne sur la géographie (villes voisines, temps de route approximatif), propose concrètement qui, quel jour et à quelle heure, et dis clairement quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot. Ne mentionne jamais la nature d'un bloc personnel.
+Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
+Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Tu ne crées jamais de vrai RV client ni de confirmation.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
 Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
 Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans autre texte : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
@@ -192,16 +194,66 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                 texte += (" Au-delà de 45 km : montant ESTIMATIF, la coordonnatrice fixe le RV et les frais "
                           "(visites regroupées).")
             return texte
+        if nom == "creer_client":
+            from core.gazelle_api_client import GazelleAPIClient
+            gz = GazelleAPIClient()
+            existant = gz.trouver_client_existant(
+                telephones=[arg["telephone"]] if arg.get("telephone") else None, courriel=arg.get("courriel"))
+            if existant:
+                return f"Fiche déjà existante ({existant}) : rien créé."
+            cid = gz.create_client(arg.get("prenom"), arg.get("nom"), telephone=arg.get("telephone"),
+                                   courriel=arg.get("courriel"),
+                                   adresse={"rue": arg.get("rue"), "ville": arg.get("ville"),
+                                            "code_postal": arg.get("code_postal")},
+                                   statut="PROSPECT", reference="Fiche créée par Ivo à partir d'un courriel à info@")
+            return f"Fiche client potentiel créée dans Gazelle : {cid}."
+        if nom == "bloquer_technicien":
+            from datetime import datetime, timezone
+            from core.gazelle_api_client import GazelleAPIClient
+            from core.timezone_utils import MONTREAL_TZ
+            ids = {"Nicolas": "usr_HcCiFk7o0vZ9xAI0", "JP": "usr_ReUSmIJmBF86ilY1", "Margot": "usr_bbt59aCUqUaDWA8n"}
+            uid = ids.get(arg.get("technicien") or "")
+            if not uid:
+                return "Technicien inconnu."
+            local = datetime.fromisoformat(arg["debut"]).replace(tzinfo=MONTREAL_TZ)
+            if local < datetime.now(MONTREAL_TZ):
+                return "Date passée : rien bloqué."
+            inp = {"title": f"RÉSERVÉ (à confirmer) — {arg.get('motif') or ''}".strip(" —"),
+                   "start": local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   "duration": int(arg.get("duree_min") or 120), "type": "PERSONAL", "userId": uid,
+                   "notes": "Bloc temporaire posé par Ivo à la demande de l'équipe. À convertir en RV ou à supprimer."}
+            res = GazelleAPIClient()._execute_query(
+                "mutation($input: PrivateEventInput!) { createEvent(input: $input) { event { id } "
+                "mutationErrors { fieldName messages } } }", {"input": inp})
+            p = ((res or {}).get("data") or {}).get("createEvent") or {}
+            if not p.get("event"):
+                return f"Gazelle a refusé le bloc : {p.get('mutationErrors') or res.get('errors')}"
+            return f"Bloc posé à l'horaire de {arg['technicien']} le {local:%Y-%m-%d} à {local:%H:%M} ({inp['duration']} min)."
         if nom == "chercher_client":
             from modules.assistant.services.queries import GazelleQueries
             from core.supabase_storage import SupabaseStorage
             res = GazelleQueries(SupabaseStorage(silent=True)).search_clients([arg.get("texte") or ""]) or []
             if not res:
                 return "Aucun client trouvé."
-            return "\n".join(
-                f"{(c.get('company_name') or (str(c.get('first_name') or '') + ' ' + str(c.get('last_name') or '')).strip())}"
-                f" — {', '.join(x for x in (c.get('address'), c.get('city'), c.get('postal_code')) if x) or 'adresse inconnue'}"
-                for c in res[:5])
+            st = SupabaseStorage(silent=True)
+            lignes = []
+            for c in res[:5]:
+                cid = c.get("external_id") or c.get("client_external_id") or ""
+                visites = "?"
+                if cid.startswith("cli_"):
+                    from core.timezone_utils import MONTREAL_TZ
+                    from datetime import datetime
+                    r = requests.get(f"{st.api_url}/gazelle_appointments?select=appointment_date"
+                                     f"&client_external_id=eq.{cid}"
+                                     f"&appointment_date=lt.{datetime.now(MONTREAL_TZ):%Y-%m-%d}"
+                                     f"&order=appointment_date.desc&limit=20", headers=st._get_headers(), timeout=10)
+                    if r.status_code == 200:
+                        d = r.json()
+                        visites = f"{len(d)} visite(s) passée(s)" + (f", la dernière le {d[0]['appointment_date']}" if d else "")
+                nom_c = c.get('company_name') or f"{c.get('first_name') or ''} {c.get('last_name') or ''}".strip()
+                adr = ', '.join(x for x in (c.get('address'), c.get('city'), c.get('postal_code')) if x) or 'adresse inconnue'
+                lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {visites}")
+            return "\n".join(lignes)
         return "Outil inconnu."
     except Exception as e:
         _log.exception("Ivo : outil %s", nom)
@@ -240,8 +292,23 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str]) -> Dict
          "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
          "input_schema": {"type": "object", "required": ["adresse"],
                           "properties": {"adresse": {"type": "string"}}}},
+        {"name": "creer_client",
+         "description": "Crée une fiche client potentiel dans Gazelle (refuse si une fiche existe déjà avec ce courriel ou ce téléphone).",
+         "input_schema": {"type": "object", "required": ["prenom", "nom"], "properties": {
+             "prenom": {"type": "string"}, "nom": {"type": "string"},
+             "courriel": {"type": ["string", "null"]}, "telephone": {"type": ["string", "null"]},
+             "rue": {"type": ["string", "null"]}, "ville": {"type": ["string", "null"]},
+             "code_postal": {"type": ["string", "null"]},
+             "langue": {"type": "string", "enum": ["fr", "en"]}}}},
+        {"name": "bloquer_technicien",
+         "description": "Pose un bloc personnel temporaire « RÉSERVÉ (à confirmer) » à l'horaire Gazelle d'un technicien.",
+         "input_schema": {"type": "object", "required": ["technicien", "debut", "duree_min", "motif"], "properties": {
+             "technicien": {"type": "string", "enum": ["Nicolas", "JP", "Margot"]},
+             "debut": {"type": "string", "description": "AAAA-MM-JJTHH:MM, heure de Montréal"},
+             "duree_min": {"type": "integer"},
+             "motif": {"type": "string", "description": "ex. « Yves-Jerry Loiseau, Mascouche »"}}}},
         {"name": "chercher_client",
-         "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal.",
+         "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal et nombre de visites passées.",
          "input_schema": {"type": "object", "required": ["texte"],
                           "properties": {"texte": {"type": "string"}}}},
     ]
