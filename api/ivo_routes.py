@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-14"
+VERSION = "ivo-15"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -109,7 +109,8 @@ def _guide_ton() -> str:
 # ─── Rédaction (Claude) ──────────────────────────────────────────
 
 _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entreprise d'accord et d'entretien de pianos.
-Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client.
+Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
+RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
 Règles absolues :
 - N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
 - Réponds dans la langue du client. Vouvoiement par défaut.
@@ -342,7 +343,7 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
          "input_schema": {"type": "object", "required": ["adresse"],
                           "properties": {"adresse": {"type": "string"}}}},
         {"name": "demander_assistant",
-         "description": ("Transmet une demande à l'assistant Gazelle de PTM (la même case que dans Ma Journée) : "
+         "description": ("Ton accès principal à tout l'assistant Gazelle de PTM. Transmet une demande à l'assistant (la même case que dans Ma Journée) : "
                          "créer un RV (aperçu d'abord, puis création après un oui), RV conjoint, réactiver ou réviser "
                          "une soumission, chercher dans les notes, appels récents, lien de réservation prérempli, "
                          "photos d'un courriel → dossier du piano, frais partagés, etc. Écris la demande complète "
