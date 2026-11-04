@@ -948,6 +948,39 @@ class RendezVousIn(BaseModel):
     confirmation_client: bool = True   # courriel de confirmation Gazelle au client (comme dans l'appli)
 
 
+RAPPEL_NOUVEAU_CLIENT = "Nouveau client : lui demander comment il nous a trouvés."
+
+
+def est_nouveau_client(client_id: str) -> bool:
+    """Fiche créée depuis moins de 90 jours ET aucun RV passé. En cas de doute → False."""
+    from datetime import timedelta
+    from core.timezone_utils import MONTREAL_TZ
+    try:
+        db = _db()
+        h = db._get_headers()
+        r = requests.get(f"{db.api_url}/gazelle_clients?select=created_at&external_id=eq.{client_id}",
+                         headers=h, timeout=10)
+        lignes = r.json() if r.status_code == 200 else []
+        if not lignes or not lignes[0].get("created_at"):
+            return False
+        cree = datetime.fromisoformat(lignes[0]["created_at"].replace("Z", "+00:00"))
+        if cree < datetime.now(timezone.utc) - timedelta(days=90):
+            return False
+        aujourdhui = datetime.now(MONTREAL_TZ).date().isoformat()
+        r = requests.get(f"{db.api_url}/gazelle_appointments?select=external_id"
+                         f"&client_external_id=eq.{client_id}&appointment_date=lt.{aujourdhui}&limit=1",
+                         headers=h, timeout=10)
+        return r.status_code == 200 and not r.json()
+    except Exception:
+        return False
+
+
+@router.get("/gazelle/nouveau-client")
+def nouveau_client(client_id: str = Query(...)):
+    """LECTURE SEULE — ce client recevra-t-il le rappel « comment nous a-t-il trouvés » ?"""
+    return {"client_id": client_id, "nouveau": est_nouveau_client(client_id)}
+
+
 @router.post("/gazelle/rendez-vous")
 def creer_rendez_vous(r: RendezVousIn):
     """Crée un APPOINTMENT dans Gazelle au format natif PTM (durée en minutes, start en UTC,
@@ -975,8 +1008,11 @@ def creer_rendez_vous(r: RendezVousIn):
            "travelMode": "DRIVING", "userId": r.user_id, "clientId": r.client_id}
     if r.lieu:
         inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
-    if r.notes:
-        inp["notes"] = r.notes
+    notes = r.notes or ""
+    if r.type == "APPOINTMENT" and "trouvé" not in notes.lower() and est_nouveau_client(r.client_id):
+        notes = (notes + "\n\n" if notes else "") + RAPPEL_NOUVEAU_CLIENT
+    if notes:
+        inp["notes"] = notes
     if r.piano_ids:
         inp["pianos"] = [{"pianoId": p, "isTuning": r.accord} for p in r.piano_ids]
     if r.type == "APPOINTMENT" and r.confirmation_client:
