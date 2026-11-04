@@ -955,6 +955,24 @@ from core.provenance_client import (RAPPEL_PROVENANCE as RAPPEL_NOUVEAU_CLIENT, 
                                    faut_demander, provenance_connue, est_institution)
 
 
+def client_recent(client_id: str, jours: int = 365) -> bool:
+    """Fiche Gazelle créée depuis moins d'un an. En cas de doute → False (pas de rappel)."""
+    from datetime import timedelta
+    try:
+        db = _db()
+        r = requests.get(f"{db.api_url}/gazelle_clients?select=created_at&external_id=eq.{client_id}",
+                         headers=db._get_headers(), timeout=10)
+        lignes = r.json() if r.status_code == 200 else []
+        if not lignes or not lignes[0].get("created_at"):
+            return False
+        cree = datetime.fromisoformat(lignes[0]["created_at"].replace("Z", "+00:00"))
+        if cree.tzinfo is None:
+            cree = cree.replace(tzinfo=timezone.utc)
+        return cree >= datetime.now(timezone.utc) - timedelta(days=jours)
+    except Exception:
+        return False
+
+
 def est_nouveau_client(client_id: str) -> bool:
     """Fiche créée depuis moins de 90 jours ET aucun RV passé. En cas de doute → False."""
     from datetime import timedelta
@@ -1026,8 +1044,8 @@ def creer_rendez_vous(r: RendezVousIn):
     notes = r.notes or ""
     if r.type == "APPOINTMENT" and r.par:
         notes = f"Planifié par {r.par}." + ("\n\n" + notes if notes else "")
-    if (r.type == "APPOINTMENT" and "« Référé par »" not in notes and not est_institution(r.client_id)
-            and faut_demander(r.client_id)):
+    if (r.type == "APPOINTMENT" and "« Référé par »" not in notes and client_recent(r.client_id)
+            and not est_institution(r.client_id) and faut_demander(r.client_id)):
         rappel = RAPPEL_NOUVEAU_CLIENT if est_nouveau_client(r.client_id) else RAPPEL_PROVENANCE_EXISTANT
         notes = (notes + "\n\n" if notes else "") + rappel
     if notes:

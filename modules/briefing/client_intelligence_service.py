@@ -522,8 +522,8 @@ class NarrativeBriefingService:
                 if matches_tm_jd(_salle_txt) and BRIEFING_ACCESS_NOTE not in (action_items or []):
                     action_items = [BRIEFING_ACCESS_NOTE] + (action_items or [])
 
-            # Provenance inconnue (rien dans « Référé par » ni dans les notes de la fiche) :
-            # rappeler de demander comment le client nous a trouvés. Jamais pour une institution.
+            # Provenance inconnue (rien dans « Référé par », les notes ou les factures), client
+            # arrivé depuis moins de 12 mois : rappeler de le demander. Jamais pour une institution.
             try:
                 from datetime import timedelta as _td
                 from core.provenance_client import (RAPPEL_PROVENANCE, RAPPEL_PROVENANCE_EXISTANT,
@@ -537,9 +537,15 @@ class NarrativeBriefingService:
                     _avant = [pa for pa in past_appointments
                               if (pa.get('appointment_date') or '9999')[:10] < _jour
                               and (pa.get('status') or '').upper() not in ('CANCELLED', 'CANCELED')]
+                    _base = datetime.fromisoformat(_jour)
                     _nouveau = (not _avant and _cree
-                                and _cree >= (datetime.fromisoformat(_jour) - _td(days=90)).date().isoformat())
-                    action_items = [RAPPEL_PROVENANCE if _nouveau else RAPPEL_PROVENANCE_EXISTANT] + (action_items or [])
+                                and _cree >= (_base - _td(days=90)).date().isoformat())
+                    _recent = bool(_cree) and _cree >= (_base - _td(days=365)).date().isoformat()
+                    # Clients arrivés depuis plus de 12 mois : le survol « Provenance » s'en occupe
+                    # (sinon le rappel apparaîtrait sur presque tous les RV et serait ignoré).
+                    if _nouveau or _recent:
+                        action_items = ([RAPPEL_PROVENANCE if _nouveau else RAPPEL_PROVENANCE_EXISTANT]
+                                        + (action_items or []))
             except Exception as _e:
                 print(f"⚠️ Rappel provenance ignoré : {_e}")
 
