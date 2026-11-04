@@ -24,7 +24,7 @@ if r.get("statut") != "termine":
     sys.exit(1)
 
 note("Factures lues", f"{r['factures_lues']} factures Gazelle ; factures au nom du marchand : {r['factures_au_nom_du_marchand']}")
-for titre, res in (("Brut", r["resume"]), ("Rattaché", r["resume_rattache"])):
+for titre, res in (("Rattaché", r["resume_rattache"]),):
     for m, s in sorted(res.items()):
         annees = " ; ".join(f"{a} : {v['revenus']}/{v['clients']}" for a, v in sorted(s["par_annee"].items()))
         note(f"{titre} — {m}", f"revenus : {s['revenus']}/{s['clients']} ({s['taux']} %) | dans les 12 mois : "
@@ -35,10 +35,10 @@ for c in r["clients"]:
         cle = (c.get("preuve") or "aucun indice").split(" ")[0] + f" → {c['marchand_final']}"
         sources[cle] = sources.get(cle, 0) + 1
 note("Rattachement des non précisés", sources)
-for m, s in sorted(r["resume_rattache"].items()):
-    n = s["clients"] or 1
-    note(f"Argent — {m}", f"payé pour les courtoisies : {s['paye_courtoisie']:.0f} $ (moy. {s['paye_courtoisie']/n:.0f} $) | "
-         f"ventes ensuite : {s['ventes_apres']:.0f} $ en {s['visites_apres']} visites (moy. {s['ventes_apres']/n:.0f} $ par courtoisie)")
+note("Argent", " || ".join(
+    f"{m} : courtoisies payées {s['paye_courtoisie']:.0f} $ (moy. {s['paye_courtoisie']/(s['clients'] or 1):.0f} $), "
+    f"ventes ensuite {s['ventes_apres']:.0f} $ en {s['visites_apres']} visites (moy. {s['ventes_apres']/(s['clients'] or 1):.0f} $ par courtoisie)"
+    for m, s in sorted(r["resume_rattache"].items())))
 
 SupabaseStorage(silent=True).save_system_setting("rapport_courtoisie", r)
 
@@ -65,3 +65,4 @@ except Exception as e:
 # relance 1793826618
 
 # relance montants
+# relance argent
