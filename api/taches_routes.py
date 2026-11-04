@@ -1653,3 +1653,123 @@ def fiche_test_equipe(f: FicheTestEquipe):
     return {"deja": False, "client_id": cid, 
             "piano": pp.get("piano"), "erreurs_piano": rp.get("errors") or pp.get("mutationErrors"),
             "lien": f"https://reserver.pianotechniquemontreal.com/?client={cid}"}
+
+
+# --- Rapport LECTURE SEULE : rétention des clients d'accords de courtoisie (Nantel vs Archambault) ---
+# Rien n'est écrit dans Gazelle. Parcourt toutes les factures en direct (la copie Supabase s'arrête en mars 2026).
+_rapport_courtoisie: Dict[str, Any] = {"statut": "jamais_lance"}
+_EXCLUS = {"VOIDED", "VOID", "DRAFT", "CANCELED", "CANCELLED"}
+
+
+def _marchand(texte: str) -> Optional[str]:
+    t = texte.lower()
+    if "nantel" in t:
+        return "Nantel"
+    if "archambault" in t:
+        return "Archambault"
+    return None
+
+
+def _calculer_courtoisie() -> None:
+    from core.gazelle_api_client import GazelleAPIClient
+    api = GazelleAPIClient()
+    q = """query R($cursor: String) { allInvoices(first: 100, after: $cursor) {
+      edges { node { id number status invoiceDate createdAt total notes topNotes
+        client { id companyName defaultContact { firstName lastName } }
+        allInvoiceItems { nodes { description } } } }
+      pageInfo { hasNextPage endCursor } } }"""
+    _rapport_courtoisie.clear()
+    _rapport_courtoisie.update({"statut": "en_cours", "debut": datetime.now(timezone.utc).isoformat(), "pages": 0})
+    factures: List[Dict[str, Any]] = []
+    cursor = None
+    try:
+        for _ in range(1000):
+            res = api._execute_query(q, {"cursor": cursor} if cursor else {})
+            if res.get("errors"):
+                raise RuntimeError(str(res["errors"])[:500])
+            bloc = (res.get("data") or {}).get("allInvoices") or {}
+            for e in bloc.get("edges") or []:
+                n = e["node"]
+                cl = n.get("client") or {}
+                dc = cl.get("defaultContact") or {}
+                desc = " | ".join((it.get("description") or "") for it in ((n.get("allInvoiceItems") or {}).get("nodes") or []))
+                factures.append({
+                    "id": n["id"], "numero": n.get("number"), "statut": (n.get("status") or "").upper(),
+                    "date": (n.get("invoiceDate") or n.get("createdAt") or "")[:10],
+                    "total": n.get("total") or 0, "client_id": cl.get("id"),
+                    "client": cl.get("companyName") or f"{dc.get('firstName') or ''} {dc.get('lastName') or ''}".strip(),
+                    "texte": f"{desc} | {n.get('notes') or ''} | {n.get('topNotes') or ''}",
+                })
+            _rapport_courtoisie["pages"] += 1
+            pi = bloc.get("pageInfo") or {}
+            if not pi.get("hasNextPage"):
+                break
+            cursor = pi.get("endCursor")
+
+        valides = [f for f in factures if f["statut"] not in _EXCLUS and f["client_id"]]
+        par_client: Dict[str, List[Dict[str, Any]]] = {}
+        for f in valides:
+            par_client.setdefault(f["client_id"], []).append(f)
+
+        clients: List[Dict[str, Any]] = []
+        for cid, fs in par_client.items():
+            fs.sort(key=lambda f: f["date"])
+            court = [f for f in fs if "courtoisie" in f["texte"].lower()]
+            if not court:
+                continue
+            premiere = court[0]
+            marchand = next((m for m in (_marchand(f["texte"]) for f in court) if m), None) or "Non précisé"
+            apres = [f for f in fs if f["date"] > premiere["date"] and f not in court and (f["total"] or 0) > 0]
+            clients.append({
+                "client_id": cid, "client": premiere["client"], "marchand": marchand,
+                "date_courtoisie": premiere["date"], "visites_payees_apres": len(apres),
+                "derniere_visite": apres[-1]["date"] if apres else None,
+                "extrait": premiere["texte"][:160],
+            })
+
+        # Diagnostic : courtoisies facturées au marchand lui-même (client final absent de la facture)
+        au_marchand: Dict[str, int] = {}
+        for f in valides:
+            m = _marchand(f["client"] or "")
+            if m:
+                au_marchand[m] = au_marchand.get(m, 0) + 1
+
+        resume: Dict[str, Any] = {}
+        for c in clients:
+            r = resume.setdefault(c["marchand"], {"clients": 0, "revenus": 0, "par_annee": {}})
+            r["clients"] += 1
+            r["revenus"] += 1 if c["visites_payees_apres"] else 0
+            a = r["par_annee"].setdefault(c["date_courtoisie"][:4], {"clients": 0, "revenus": 0})
+            a["clients"] += 1
+            a["revenus"] += 1 if c["visites_payees_apres"] else 0
+        for r in resume.values():
+            r["taux"] = round(100 * r["revenus"] / r["clients"], 1) if r["clients"] else None
+
+        _rapport_courtoisie.update({
+            "statut": "termine", "fin": datetime.now(timezone.utc).isoformat(),
+            "factures_lues": len(factures), "resume": resume,
+            "factures_au_nom_du_marchand": au_marchand,
+            "clients": sorted(clients, key=lambda c: (c["marchand"], c["date_courtoisie"])),
+        })
+    except Exception as e:
+        _log.exception("rapport courtoisie")
+        _rapport_courtoisie.update({"statut": "erreur", "erreur": str(e)[:500]})
+
+
+@router.post("/rapports/courtoisie")
+def lancer_rapport_courtoisie(request: Request):
+    """LECTURE SEULE — lance en arrière-plan l'analyse des accords de courtoisie."""
+    if _restreint(request):
+        raise HTTPException(403, "Réservé à la direction")
+    if _rapport_courtoisie.get("statut") == "en_cours":
+        return {"statut": "en_cours"}
+    import threading
+    threading.Thread(target=_calculer_courtoisie, daemon=True).start()
+    return {"statut": "lance"}
+
+
+@router.get("/rapports/courtoisie")
+def lire_rapport_courtoisie(request: Request):
+    if _restreint(request):
+        raise HTTPException(403, "Réservé à la direction")
+    return _rapport_courtoisie
