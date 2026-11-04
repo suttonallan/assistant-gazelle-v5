@@ -199,6 +199,9 @@ def _factures_resume(client_id: str) -> str:
 
 
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
+    from core import ivo_regles as _ir
+    if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
+        return _ir.MESSAGE_LECTURE_SEULE
     try:
         if nom == "frais_deplacement":
             from modules.travel_fees.calculator import TravelFeeCalculator
@@ -358,6 +361,13 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
     ]
     messages = [{"role": "user", "content": contenu}]
     for _ in range(6):
+        if not ivo_regles.peut_agir((_CTX.get() or {}).get("prenom")):
+            outils = [o for o in outils if o["name"] not in ivo_regles.ACTIONS_RESERVEES]
+            if "LECTURE SEULE" not in systeme:
+                systeme += ("\n\nLECTURE SEULE : la personne qui t'écrit peut te poser des questions et te faire "
+                            "préparer un brouillon, mais tu ne crées, ne modifies ni ne confirmes rien dans Gazelle "
+                            "(pas de RV, de fiche, de bloc ni de règle). Si on te le demande, réponds : "
+                            + ivo_regles.MESSAGE_LECTURE_SEULE)
         rep = client.messages.create(model=MODELE, max_tokens=4000, system=systeme, tools=outils,
                                      tool_choice={"type": "auto"}, messages=messages)
         appels = [b for b in rep.content if getattr(b, "type", "") == "tool_use"]

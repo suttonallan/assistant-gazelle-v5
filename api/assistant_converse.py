@@ -263,6 +263,9 @@ def _vers_montreal(valeur: Any) -> Any:
 def _run_tool(name: str, tool_input: Dict[str, Any],
               user_first_name: Optional[str] = None) -> Dict[str, Any]:
     """Exécute un outil et retourne un dict résultat (jamais d'exception qui remonte)."""
+    from core import ivo_regles
+    if _CANAL.get() == "ivo" and name in ivo_regles.ACTIONS_RESERVEES and not ivo_regles.peut_agir(user_first_name):
+        return {"success": False, "error": ivo_regles.MESSAGE_LECTURE_SEULE}
     try:
         if name == "request_new_feature":
             return execute_feature_request(

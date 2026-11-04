@@ -44,6 +44,18 @@ def peut_modifier(prenom: Optional[str]) -> bool:
     return (prenom or "").strip().lower() in AUTORISES
 
 
+# Outils qui CHANGENT quelque chose (Gazelle, horaire, dossiers). Les autres membres de l'équipe
+# (ex. Margot dans Front) peuvent poser des questions à Ivo, mais pas déclencher ces actions.
+ACTIONS_RESERVEES = {"creer_client", "bloquer_technicien", "creer_rendez_vous", "create_joint_appointment",
+                     "reactivate_estimate", "attach_email_photos_to_piano", "retenir_regle", "oublier_regle"}
+MESSAGE_LECTURE_SEULE = ("Cette action est réservée à Allan, Nicolas et Louise ; "
+                         "je peux seulement répondre aux questions et préparer un brouillon.")
+
+
+def peut_agir(prenom: Optional[str]) -> bool:
+    return peut_modifier(prenom)
+
+
 def ajouter(regle: str, prenom: Optional[str]) -> Dict[str, Any]:
     regle = (regle or "").strip()
     if not regle:
