@@ -43,16 +43,32 @@ class FrontClient:
             "Accept": "application/json",
         }
 
+    def _requete(self, methode: str, url: str, **kw) -> "requests.Response":
+        """Appel Front avec patience : si Front répond 429 (trop de requêtes), on attend
+        le délai demandé (Retry-After, 20 s max) et on réessaie, jusqu'à 4 fois."""
+        import time
+        for essai in range(4):
+            resp = requests.request(methode, url, timeout=self.timeout, **kw)
+            if resp.status_code != 429 or essai == 3:
+                return resp
+            try:
+                attente = float(resp.headers.get("Retry-After") or 2)
+            except ValueError:
+                attente = 2.0
+            self._log.warning("Front 429 sur %s : nouvel essai dans %.0f s", url, attente)
+            time.sleep(min(max(attente, 1.0), 20.0))
+        return resp
+
     def _get(self, path: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         url = f"{self.BASE_URL}{path}"
-        resp = requests.get(url, headers=self._headers(), params=params, timeout=self.timeout)
+        resp = self._requete("GET", url, headers=self._headers(), params=params)
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.BASE_URL}{path}"
         headers = {**self._headers(), "Content-Type": "application/json"}
-        resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+        resp = self._requete("POST", url, headers=headers, json=payload)
         if resp.status_code >= 400:
             raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
         return resp.json() if resp.text else {}
@@ -221,7 +237,7 @@ class FrontClient:
             payload["cc"] = cc
         url = f"{self.BASE_URL}/drafts/{draft_id}/"
         headers = {**self._headers(), "Content-Type": "application/json"}
-        resp = requests.patch(url, headers=headers, json=payload, timeout=self.timeout)
+        resp = self._requete("PATCH", url, headers=headers, json=payload)
         if resp.status_code >= 400:
             raise RuntimeError(f"Front {resp.status_code}: {resp.text[:300]}")
         return resp.json() if resp.text else {"ok": True}
