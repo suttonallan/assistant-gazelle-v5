@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 5 novembre
+- **Ivo voit maintenant les photos insérées dans le corps d'un courriel** : avant, il ne regardait que les pièces jointes et disait « aucune photo » quand le client avait collé ses photos dans le message (cas courant depuis un iPhone). Les petits logos de signature restent ignorés.
 - **Ajouter un piano à une fiche client et y joindre les photos d'un courriel** : on peut maintenant créer le piano d'un client (marque, type) sans doublon, et y verser les photos insérées dans le corps d'un courriel (les logos de signature sont écartés).
 
 ### 4 novembre

@@ -48,6 +48,17 @@ _verrou = threading.Lock()
 
 # ─── Utilitaires ─────────────────────────────────────────────────
 
+
+def _est_photo(x: Dict[str, Any]) -> bool:
+    """Photo envoyée par le client : pièce jointe image, OU image insérée dans le corps
+    du courriel (cas courant depuis un iPhone) si elle fait au moins 30 Ko — les petites
+    images insérées sont des logos de signature."""
+    if not (x.get("content_type") or "").startswith("image/"):
+        return False
+    if not (x.get("metadata") or {}).get("is_inline"):
+        return True
+    return (x.get("size") or 0) >= 30000
+
 def _texte(html_ou_texte: str) -> str:
     """HTML Front → texte simple."""
     t = re.sub(r"<br\s*/?>|</p>|</div>", "\n", html_ou_texte or "", flags=re.IGNORECASE)
@@ -428,7 +439,7 @@ def _fil(messages: List[Dict]) -> str:
         auteur = ((m.get("author") or {}).get("email")) or next(
             (r.get("handle") for r in (m.get("recipients") or []) if r.get("role") == "from"), "")
         imgs = [x.get("filename") or "photo" for x in (m.get("attachments") or [])
-                if (x.get("content_type") or "").startswith("image/") and not (x.get("metadata") or {}).get("is_inline")]
+                if _est_photo(x)]
         pj = f"\n[{len(imgs)} photo(s) jointe(s) : {', '.join(imgs[:8])} — outil analyser_photos]" if imgs else ""
         lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}{pj}")
     return "\n\n".join(lignes[-12:])
@@ -495,7 +506,7 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
         photos = []
         for m in sorted([m for m in messages if m.get("is_inbound")], key=lambda m: m.get("created_at") or 0, reverse=True):
             for x in (m.get("attachments") or []):
-                if (x.get("content_type") or "").startswith("image/") and not (x.get("metadata") or {}).get("is_inline"):
+                if _est_photo(x):
                     photos.append(x)
         _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
