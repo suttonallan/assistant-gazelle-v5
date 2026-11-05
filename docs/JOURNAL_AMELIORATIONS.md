@@ -7,6 +7,8 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 5 novembre
+- **Ivo lit tout le dossier du client dans Front** : avant de dire qu'une information manque, il cherche les autres fils du même client (messages vocaux, textos, résumés d'appel, autres courriels, commentaires) par téléphone, courriel ou nom, sans mélanger deux clients.
+- **Ivo crée le RV quand on le lui dit** : « @Ivo crée le RV avec JP mardi 13 h, 3 h » crée le RV directement dans Gazelle, sans repasser par un aperçu à approuver. S'il manque un élément (technicien, jour, heure ou durée), il ne demande que celui-là. Il refuse s'il y a un conflit à l'horaire du technicien, et n'envoie jamais de confirmation au client.
 - **Ivo voit maintenant les photos insérées dans le corps d'un courriel** : avant, il ne regardait que les pièces jointes et disait « aucune photo » quand le client avait collé ses photos dans le message (cas courant depuis un iPhone). Les petits logos de signature restent ignorés.
 - **Ajouter un piano à une fiche client et y joindre les photos d'un courriel** : on peut maintenant créer le piano d'un client (marque, type) sans doublon, et y verser les photos insérées dans le corps d'un courriel (les logos de signature sont écartés).
 

@@ -102,7 +102,7 @@ def _guide_ton() -> str:
 _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entreprise d'accord et d'entretien de pianos.
 Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
 RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
-Règles absolues :
+RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRègles absolues :
 - N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
 - Réponds dans la langue du client. Vouvoiement par défaut.
 - Pas de signature dans le corps (Front l'ajoute) : termine par la formule de politesse seulement.
@@ -114,9 +114,9 @@ Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients
 Historique du client : ta réponse dépend de son dossier. Client existant avec visites → reprends ce qui a été fait (ex. accord + entretien Piano Life Saver), le technicien habituel, et les frais de déplacement DÉJÀ FACTURÉS la dernière fois. Si le calculateur donne un montant différent de ce qui a été facturé, signale l'écart à l'équipe dans ta note et ne mets dans le brouillon que le montant que l'équipe confirme ([frais à confirmer] sinon). Nouveau client → calculateur officiel.
 Provenance : lis tout le dossier avant de dire qu'on ignore comment le client nous a connus — un « accord de courtoisie <marchand> » dans une facture (ex. Nantel Musique) veut dire que ce marchand nous l'a envoyé.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
-Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Un RV passe toujours par un aperçu ; il n'est créé qu'après un « oui » de l'équipe, et sans confirmation automatique au client.
+Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Créer un RV : quand l'équipe donne un ordre explicite (« crée le RV », « oui », « vas-y ») et que tu connais le client, le technicien, le jour, l'heure et la durée (dans la consigne, les échanges précédents, le fil ou les règles apprises), crée-le DIRECTEMENT avec « creer_rendez_vous », sans repasser par un aperçu, avec des notes complètes pour le technicien. S'il manque UN de ces éléments, demande seulement ce qui manque (pas d'aperçu complet à approuver). Jamais de confirmation automatique au client.
 Apprendre : quand l'équipe dit « la prochaine fois… », « dorénavant… », « à l'avenir… », « ne fais plus… », appelle « retenir_regle » avec une règle claire et générale (le cas + quoi faire), puis confirme-la dans ta note. « @Ivo quelles sont tes règles ? » : liste les règles apprises avec leur numéro. « @Ivo oublie la règle 3 » : appelle « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent te donner ou retirer une règle.
-Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Tu ne crées jamais de vrai RV client ni de confirmation.
+Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Un bloc n'est jamais un vrai RV client.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
 Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
 Transmets OBLIGATOIREMENT ton résultat en appelant l'outil « repondre », sans autre texte : {"action": "brouillon" ou "reponse", "brouillon": "..." ou null, "regle_generale": "..." ou null, "note": "..."}
@@ -209,6 +209,111 @@ def _factures_resume(client_id: str) -> str:
         return f"\n   Factures : non disponibles ({e})."
 
 
+
+# ─── Dossier complet dans Front (autres fils du même client) ─────────────
+
+def _variantes_tel(tel: str) -> List[str]:
+    chiffres = re.sub(r"\D", "", tel or "")
+    if len(chiffres) == 11 and chiffres.startswith("1"):
+        chiffres = chiffres[1:]
+    if len(chiffres) != 10:
+        return [tel] if tel else []
+    a, b, c = chiffres[:3], chiffres[3:6], chiffres[6:]
+    return [chiffres, f"{a}-{b}-{c}", f"({a}) {b}-{c}", f"{a} {b}-{c}"]
+
+
+def _dossier_front(arg: Dict[str, Any]) -> str:
+    """Cherche dans tout Front les AUTRES fils du même client (messages vocaux, textos,
+    résumés d'appel, courriels) par téléphone, courriel ou nom, et en donne le contenu."""
+    front = get_front_client()
+    courant = (_CTX.get() or {}).get("conversation_id")
+    requetes: List[str] = []
+    for t in (arg.get("telephones") or []):
+        requetes += _variantes_tel(t)
+    if arg.get("courriel"):
+        requetes.append(arg["courriel"])
+    if arg.get("nom"):
+        requetes.append(f'"{arg["nom"]}"')
+    vus: Dict[str, Dict] = {}
+    for q in requetes:
+        try:
+            for c in front.search_conversations(q, limit=15):
+                if c.get("id") and c["id"] != courant:
+                    vus.setdefault(c["id"], c)
+        except Exception as e:
+            _log.warning("Ivo dossier_front : recherche %r : %s", q, e)
+    if not vus:
+        return "Aucun autre fil trouvé dans Front pour ce client."
+    convs = sorted(vus.values(), key=lambda c: c.get("last_message_at") or c.get("created_at") or 0, reverse=True)[:8]
+    ctx = _CTX.get() or {}
+    sortie = []
+    for c in convs:
+        bloc = [f"=== Fil « {c.get('subject') or '(sans objet)'} » ({c['id']}) ==="]
+        try:
+            for m in sorted(front.list_messages(c["id"], limit=10), key=lambda m: m.get("created_at") or 0)[-6:]:
+                qui = "CLIENT" if m.get("is_inbound") else "PTM"
+                photos = [x for x in (m.get("attachments") or []) if _est_photo(x)]
+                if photos and m.get("is_inbound"):
+                    ctx.setdefault("photos", []).extend(photos[:8])
+                pj = f" [{len(photos)} photo(s) — outil analyser_photos]" if photos else ""
+                bloc.append(f"--- {qui} ---\n{_texte(m.get('text') or m.get('body') or '')[:1500]}{pj}")
+            for co in front.list_comments(c["id"], limit=10)[-5:]:
+                bloc.append(f"[commentaire interne] {_texte(co.get('body') or '')[:400]}")
+        except Exception as e:
+            bloc.append(f"(lecture impossible : {e})")
+        sortie.append("\n".join(bloc))
+    return "\n\n".join(sortie)[:14000]
+
+
+# ─── RV créé directement sur ordre explicite ────────────────────────────
+
+_TECHS = {"Nicolas": "usr_HcCiFk7o0vZ9xAI0", "JP": "usr_ReUSmIJmBF86ilY1", "Margot": "usr_bbt59aCUqUaDWA8n"}
+
+
+def _creer_rv_direct(arg: Dict[str, Any]) -> str:
+    from datetime import datetime, timedelta
+    from core.timezone_utils import MONTREAL_TZ
+    from api.taches_routes import creer_rendez_vous, RendezVousIn, charge_techniciens
+    tech = arg.get("technicien") or ""
+    uid = _TECHS.get(tech)
+    if not uid:
+        return "Technicien inconnu (Nicolas, JP ou Margot) : rien créé."
+    try:
+        debut = datetime.fromisoformat(arg["debut"]).replace(tzinfo=MONTREAL_TZ)
+    except Exception:
+        return "Date ou heure illisible (AAAA-MM-JJTHH:MM) : rien créé."
+    if debut < datetime.now(MONTREAL_TZ):
+        return "Date passée : rien créé."
+    duree = int(arg.get("duree_min") or 0)
+    if duree <= 0:
+        return "Durée manquante : rien créé (demande-la à l'équipe)."
+    fin = debut + timedelta(minutes=duree)
+    # Garde-fou : aucun chevauchement avec l'horaire du technicien
+    try:
+        jour = debut.strftime("%Y-%m-%d")
+        for e in charge_techniciens(debut=jour, fin=jour).get("evenements") or []:
+            if e.get("tech") != tech or e.get("journee"):
+                continue
+            d = datetime.fromisoformat(f"{e['jour']}T{e['heure']}").replace(tzinfo=MONTREAL_TZ)
+            f = d + timedelta(minutes=int(e.get("duree_min") or 0))
+            if d < fin and debut < f:
+                return (f"Conflit : {tech} a déjà « {e.get('titre')} » de {d:%H:%M} à {f:%H:%M} ce jour-là. "
+                        "Rien créé : propose une autre heure à l'équipe.")
+    except Exception as e:
+        _log.warning("Ivo : vérification d'horaire impossible : %s", e)
+        return "Je n'ai pas pu vérifier l'horaire du technicien : rien créé, par prudence."
+    prenom = (_CTX.get() or {}).get("prenom") or "l'équipe"
+    try:
+        res = creer_rendez_vous(RendezVousIn(
+            client_id=arg["client_id"], user_id=uid, debut_montreal=debut.strftime("%Y-%m-%dT%H:%M"),
+            duree_min=duree, notes=arg.get("notes"), piano_ids=arg.get("piano_ids") or [],
+            lieu=arg.get("lieu"), par=f"Ivo (assistant IA) à la demande de {prenom}"))
+    except Exception as e:
+        return f"Gazelle a refusé le RV : {getattr(e, 'detail', e)}"
+    ev = res.get("evenement") or {}
+    return (f"RV créé dans Gazelle ({ev.get('id')}) : {ev.get('title')}, {tech}, {debut:%A %d %B %Y} "
+            f"de {debut:%H:%M} à {fin:%H:%M}. Aucune confirmation envoyée au client.")
+
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     from core import ivo_regles as _ir
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
@@ -299,6 +404,10 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             if not p.get("event"):
                 return f"Gazelle a refusé le bloc : {p.get('mutationErrors') or res.get('errors')}"
             return f"Bloc posé à l'horaire de {arg['technicien']} le {local:%Y-%m-%d} à {local:%H:%M} ({inp['duration']} min)."
+        if nom == "dossier_front":
+            return _dossier_front(arg)
+        if nom == "creer_rendez_vous":
+            return _creer_rv_direct(arg)
         if nom == "chercher_client":
             from modules.assistant.services.queries import GazelleQueries
             from core.supabase_storage import SupabaseStorage
@@ -396,13 +505,33 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "debut": {"type": "string", "description": "AAAA-MM-JJTHH:MM, heure de Montréal"},
              "duree_min": {"type": "integer"},
              "motif": {"type": "string", "description": "ex. « Yves-Jerry Loiseau, Mascouche »"}}}},
+        {"name": "dossier_front",
+         "description": ("Cherche dans TOUT Front les autres fils du même client (messages vocaux, textos, résumés "
+                         "d'appel Zoom, autres courriels, commentaires internes) par téléphone, courriel ou nom, et "
+                         "retourne leur contenu. À utiliser AVANT de dire qu'une information manque."),
+         "input_schema": {"type": "object", "properties": {
+             "telephones": {"type": "array", "items": {"type": "string"}},
+             "courriel": {"type": ["string", "null"]}, "nom": {"type": ["string", "null"]}}}},
+        {"name": "creer_rendez_vous",
+         "description": ("Crée DIRECTEMENT un RV client dans Gazelle (sans confirmation au client). Seulement sur un "
+                         "ordre explicite de l'équipe (« crée le RV », « oui ») quand client, technicien, jour, heure "
+                         "et durée sont connus. Refuse s'il y a un conflit à l'horaire."),
+         "input_schema": {"type": "object", "required": ["client_id", "technicien", "debut", "duree_min", "notes"],
+                          "properties": {
+             "client_id": {"type": "string"},
+             "technicien": {"type": "string", "enum": ["Nicolas", "JP", "Margot"]},
+             "debut": {"type": "string", "description": "AAAA-MM-JJTHH:MM, heure de Montréal"},
+             "duree_min": {"type": "integer"},
+             "notes": {"type": "string", "description": "Notes pour le technicien : service, prix connu, qui facturer, adresse, contacts, points à vérifier."},
+             "piano_ids": {"type": "array", "items": {"type": "string"}},
+             "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."}}}},
         {"name": "chercher_client",
          "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal et nombre de visites passées.",
          "input_schema": {"type": "object", "required": ["texte"],
                           "properties": {"texte": {"type": "string"}}}},
     ]
     messages = [{"role": "user", "content": contenu}]
-    for _ in range(6):
+    for _ in range(8):
         if not ivo_regles.peut_agir((_CTX.get() or {}).get("prenom")):
             outils = [o for o in outils if o["name"] not in ivo_regles.ACTIONS_RESERVEES]
             if "LECTURE SEULE" not in systeme:
@@ -508,7 +637,7 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
             for x in (m.get("attachments") or []):
                 if _est_photo(x):
                     photos.append(x)
-        _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
+        _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": [], "conversation_id": conversation_id})
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
         res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
         if res.get("action") == "reponse":
