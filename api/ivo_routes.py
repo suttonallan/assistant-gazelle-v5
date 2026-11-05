@@ -208,7 +208,11 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             photos = (_CTX.get() or {}).get("photos") or []
             if not photos:
                 return "Aucune photo jointe par le client dans ce fil."
-            from api.photos_piano_routes import _front_telecharger
+            def _front_telecharger(url):
+                fc = get_front_client()
+                r = fc._requete("GET", url, headers={"Authorization": fc._headers()["Authorization"]})
+                r.raise_for_status()
+                return r.content
             from core.analyse_photos_piano import analyser, resume
             images = []
             for x in photos:

@@ -128,8 +128,8 @@ IMPORTANT: Retourne UNIQUEMENT le JSON valide, sans texte avant ou après."""
 
 def _reduire(data: bytes, mime: str):
     """Ramène une photo trop lourde sous la limite de l'API (JPEG, 1600 px max)."""
-    if len(data) <= MAX_OCTETS and mime in TYPES_OK:
-        return data, mime
+    if len(data) <= 1_200_000 and mime in TYPES_OK:
+        return data, mime  # déjà légère : on l'envoie telle quelle
     try:
         from io import BytesIO
         from PIL import Image
