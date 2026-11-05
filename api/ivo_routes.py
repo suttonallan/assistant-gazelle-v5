@@ -501,7 +501,8 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
         res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
         if res.get("action") == "reponse":
-            front.add_comment(conversation_id, PREFIXE_REPONSE + (res.get("note") or "je n'ai pas de réponse."),
+            note = re.sub(r"^\s*(🤖\s*)?(Ivo\s*:\s*)?(🤖\s*)?", "", res.get("note") or "") or "je n'ai pas de réponse."
+            front.add_comment(conversation_id, PREFIXE_REPONSE + note,
                               auteur_email)
             _transmettre_a_louise(front, conversation_id, auteur_email, consigne)
             return {"statut": "ok", "action": "réponse"}
