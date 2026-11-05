@@ -67,6 +67,7 @@ class DepuisFrontRequest(BaseModel):
     message_id: str                      # msg_xxx (message Front contenant les photos)
     attachable_type: str = "PIANO"
     seulement_images: bool = True
+    inclure_integrees: bool = False      # photos insérées dans le corps du courriel (sauf petits logos)
 
 
 def _front_message(message_id: str) -> Dict[str, Any]:
@@ -142,7 +143,14 @@ def _est_image(a: Dict[str, Any]) -> bool:
 @router.post("/depuis-front")
 def depuis_front(req: DepuisFrontRequest) -> Dict[str, Any]:
     msg = _front_message(req.message_id)
-    pieces = [a for a in msg.get("attachments", []) if not req.seulement_images or _est_image(a)]
+    def garder(a):
+        if not req.seulement_images:
+            return True
+        if _est_image(a):
+            return True
+        return (req.inclure_integrees and (a.get("content_type") or "").startswith("image/")
+                and (a.get("size") or 0) >= 30000)   # écarte les logos de signature
+    pieces = [a for a in msg.get("attachments", []) if garder(a)]
     if not pieces:
         raise HTTPException(status_code=404, detail="Aucune image dans ce message Front")
     return deposer_images(req.piano_id, pieces)

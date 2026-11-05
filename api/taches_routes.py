@@ -1266,6 +1266,42 @@ def creer_rendez_vous(r: RendezVousIn):
     return {"evenement": ev, "start_utc": start}
 
 
+class PianoClientIn(BaseModel):
+    marque: str
+    modele: Optional[str] = None
+    type_piano: str = "UPRIGHT"          # UPRIGHT, GRAND, ...
+    numero_serie: Optional[str] = None
+    emplacement: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/gazelle/client/{client_id}/piano")
+def ajouter_piano_client(client_id: str, p: PianoClientIn):
+    """Ajoute un piano à une fiche client. Garde-fou : si la fiche a déjà un piano
+    actif de la même marque, rien n'est créé et ce piano est retourné."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    ex = gz._execute_query("query($id: String!) { client(id: $id) { id allPianos { nodes { id make model type status } } } }",
+                           {"id": client_id})
+    c = ((ex or {}).get("data") or {}).get("client")
+    if not c:
+        raise HTTPException(404, f"Client introuvable : {client_id}")
+    for n in (c.get("allPianos") or {}).get("nodes") or []:
+        if (n.get("make") or "").strip().lower() == p.marque.strip().lower() and n.get("status") != "INACTIVE":
+            return {"deja": True, "piano": n}
+    entree = {"clientId": client_id, "type": p.type_piano, "make": p.marque, "status": "ACTIVE"}
+    for cle, val in (("model", p.modele), ("serialNumber", p.numero_serie),
+                     ("location", p.emplacement), ("notes", p.notes)):
+        if val:
+            entree[cle] = val
+    r = gz._execute_query("""mutation($i: PrivatePianoInput!) { createPiano(input: $i) {
+      piano { id make model type status } mutationErrors { fieldName messages } } }""", {"i": entree})
+    pp = ((r or {}).get("data") or {}).get("createPiano") or {}
+    if (isinstance(r, dict) and r.get("errors")) or pp.get("mutationErrors") or not pp.get("piano"):
+        raise HTTPException(502, f"createPiano : {r.get('errors') if isinstance(r, dict) else ''} {pp.get('mutationErrors')}")
+    return {"deja": False, "piano": pp["piano"]}
+
+
 class ReferenceClientIn(BaseModel):
     refere_par: str
     notes: Optional[str] = None

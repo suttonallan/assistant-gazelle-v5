@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 5 novembre
+- **Ajouter un piano à une fiche client et y joindre les photos d'un courriel** : on peut maintenant créer le piano d'un client (marque, type) sans doublon, et y verser les photos insérées dans le corps d'un courriel (les logos de signature sont écartés).
+
 ### 4 novembre
 - **Ivo regarde les photos de piano envoyées par les clients** : quand un client joint des photos dans un courriel, Ivo les analyse (marque, type, époque, état, signes d'alerte comme un piano « drop-action », photos à demander) avec le même regard d'expert que le chat du site, et s'en sert pour sa réponse ou son brouillon.
 - **Ivo lit les commentaires internes du fil** : ce que l'équipe écrit dans Front (ex. « Margot dit que c'est confirmé ») fait maintenant partie de ce qu'Ivo sait, en plus des courriels du client.
