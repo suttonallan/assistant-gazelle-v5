@@ -133,11 +133,18 @@ def _reduire(data: bytes, mime: str):
     try:
         from io import BytesIO
         from PIL import Image
+        try:  # photos d'iPhone (HEIC)
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except Exception:
+            pass
         im = Image.open(BytesIO(data)).convert("RGB")
         im.thumbnail((1600, 1600))
         out = BytesIO(); im.save(out, "JPEG", quality=85)
         return out.getvalue(), "image/jpeg"
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Photo illisible (%s, %d octets) : %s", mime, len(data), e)
         return None, None
 
 
