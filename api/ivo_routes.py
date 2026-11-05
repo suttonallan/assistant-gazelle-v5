@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "ivo-19"
+VERSION = "ivo-20"
 MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -204,6 +204,22 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
         (_CTX.get() or {}).setdefault("bloques", []).append(nom)
         return _ir.MESSAGE_LECTURE_SEULE
     try:
+        if nom == "analyser_photos":
+            photos = (_CTX.get() or {}).get("photos") or []
+            if not photos:
+                return "Aucune photo jointe par le client dans ce fil."
+            from api.photos_piano_routes import _front_telecharger
+            from core.analyse_photos_piano import analyser, resume
+            images = []
+            for x in photos:
+                try:
+                    images.append({"data": _front_telecharger(x["url"]), "mime": x.get("content_type")})
+                except Exception as e:
+                    _log.warning("Ivo : photo illisible %s : %s", x.get("filename"), e)
+            if not images:
+                return "Les photos n'ont pas pu être téléchargées de Front."
+            return f"Analyse de {len(images)} photo(s) (interne, ne pas copier telle quelle au client) :\n" + \
+                resume(analyser(images, arg.get("contexte")))
         if nom == "frais_deplacement":
             from modules.travel_fees.calculator import TravelFeeCalculator
             r = TravelFeeCalculator().calculer_frais_client(arg.get("adresse") or "")
@@ -331,6 +347,12 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "brouillon": {"type": ["string", "null"]},
              "regle_generale": {"type": ["string", "null"]},
              "note": {"type": "string"}}}},
+        {"name": "analyser_photos",
+         "description": ("Regarde les photos de piano jointes par le client dans ce fil (vision) et en tire marque, modèle, "
+                         "type, époque, état, problèmes, alertes (ex. drop-action), photos à demander. À utiliser dès que "
+                         "le fil indique des photos jointes, avant de répondre ou de rédiger."),
+         "input_schema": {"type": "object", "properties": {
+             "contexte": {"type": ["string", "null"], "description": "Ce que le client dit de son piano (héritage, achat, etc.)"}}}},
         {"name": "frais_deplacement",
          "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
          "input_schema": {"type": "object", "required": ["adresse"],
@@ -401,7 +423,10 @@ def _fil(messages: List[Dict]) -> str:
         qui = "CLIENT" if m.get("is_inbound") else "PTM"
         auteur = ((m.get("author") or {}).get("email")) or next(
             (r.get("handle") for r in (m.get("recipients") or []) if r.get("role") == "from"), "")
-        lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}")
+        imgs = [x.get("filename") or "photo" for x in (m.get("attachments") or [])
+                if (x.get("content_type") or "").startswith("image/") and not (x.get("metadata") or {}).get("is_inline")]
+        pj = f"\n[{len(imgs)} photo(s) jointe(s) : {', '.join(imgs[:8])} — outil analyser_photos]" if imgs else ""
+        lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}{pj}")
     return "\n\n".join(lignes[-12:])
 
 
@@ -463,7 +488,12 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
                    + "\n".join(notes))
         while historique and historique[0][0] != "user":
             historique.pop(0)
-        _CTX.set({"historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
+        photos = []
+        for m in sorted([m for m in messages if m.get("is_inbound")], key=lambda m: m.get("created_at") or 0, reverse=True):
+            for x in (m.get("attachments") or []):
+                if (x.get("content_type") or "").startswith("image/") and not (x.get("metadata") or {}).get("is_inline"):
+                    photos.append(x)
+        _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": []})
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
         res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
         if res.get("action") == "reponse":
