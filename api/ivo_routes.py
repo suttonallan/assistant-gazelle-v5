@@ -840,7 +840,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
             "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY")),
-            "cle_voix": bool(os.getenv("ELEVENLABS_API_KEY"))}
+            "cle_voix": bool(os.getenv("ELEVENLABS_API_KEY")),
+            "cahier": bool(__import__("core.ivo_regles", fromlist=["x"]).cahier_pour_ia())}
 
 
 # ─── Voix d'Ivo (ElevenLabs) — narration des présentations ───
