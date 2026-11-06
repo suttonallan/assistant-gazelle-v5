@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 6 novembre
+- **Boutique de la réservation en ligne : coupelles** : la fiche précise maintenant « feutre vert dessous · installation comprise », pour que le client comprenne que le technicien soulève le piano et les pose (le prix n'est pas comparable à une simple boîte achetée en ligne).
 - **Steinway B de Wilfrid-Pelletier : emplacement corrigé** : sa fiche Gazelle ne dit plus qu'il est toujours en salle de répétition. Elle indique qu'il peut être sur scène ou en salle de répétition 1 (5e). La fiche du Steinway D 9' de WP précise de même : sur scène ou au garage à piano (sous-sol). Les demandes d'Isabelle ne précisent jamais l'endroit ; Ivo l'écrit désormais dans la note du RV au lieu de supposer.
 - **Cahier de connaissances d'Ivo** : Ivo connaît maintenant ce que PTM sait (tarifs, frais de déplacement, équipe, institutions, façons de répondre aux clients), au lieu de l'apprendre règle par règle. Le cahier est une tâche dans Front (boîte info@, « 📘 Cahier de connaissances d'Ivo ») : Allan, Nicolas ou Louise y ajoutent un commentaire pour lui apprendre quelque chose de durable. La case de l'assistant s'en sert aussi. Ivo rédige aussi avec un modèle d'IA plus puissant.
 - **Ivo connaît les tarifs de PTM** : il lit la liste des services et des prix de Gazelle et choisit le prix qui correspond au service et à la durée réservés (un RV de 3 h n'est plus annoncé comme une visite de base). Il reprend aussi un prix que l'équipe a déjà donné au client dans le fil.
