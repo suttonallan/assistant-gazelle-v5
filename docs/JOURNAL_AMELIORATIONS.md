@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 6 novembre
+- **Steinway B de Wilfrid-Pelletier : emplacement corrigé** : sa fiche Gazelle ne dit plus qu'il est toujours en salle de répétition. Elle indique qu'il peut être sur scène, à l'entrepôt du 5e ou en salle de répétition 1, avec le numéro de la sécurité pour demander. Les demandes d'Isabelle ne précisent jamais l'endroit ; Ivo l'écrit désormais dans la note du RV au lieu de supposer.
 - **Cahier de connaissances d'Ivo** : Ivo connaît maintenant ce que PTM sait (tarifs, frais de déplacement, équipe, institutions, façons de répondre aux clients), au lieu de l'apprendre règle par règle. Le cahier est une tâche dans Front (boîte info@, « 📘 Cahier de connaissances d'Ivo ») : Allan, Nicolas ou Louise y ajoutent un commentaire pour lui apprendre quelque chose de durable. La case de l'assistant s'en sert aussi. Ivo rédige aussi avec un modèle d'IA plus puissant.
 - **Ivo connaît les tarifs de PTM** : il lit la liste des services et des prix de Gazelle et choisit le prix qui correspond au service et à la durée réservés (un RV de 3 h n'est plus annoncé comme une visite de base). Il reprend aussi un prix que l'équipe a déjà donné au client dans le fil.
 - **Ivo ajoute le piano à la fiche** : quand un client décrit son piano (marque, modèle), Ivo l'ajoute à sa fiche Gazelle s'il n'y est pas et l'attache au RV. Il lit toujours le premier message du client et ne redemande plus une information déjà donnée.

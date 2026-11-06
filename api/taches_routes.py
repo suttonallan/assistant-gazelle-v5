@@ -1608,8 +1608,10 @@ def pianos_statut(client_id: str = Query(...)):
 @router.post("/gazelle/piano-maj")
 def piano_maj(piano_id: str = Query(...), statut: Optional[str] = Query(None, pattern="^(ACTIVE|INACTIVE)$"),
               dernier_service: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-              numero_serie: Optional[str] = Query(None, min_length=1, max_length=40)):
-    """Met à jour le statut, la date de dernier service (manuelle) et/ou le numéro de série d'un piano Gazelle."""
+              numero_serie: Optional[str] = Query(None, min_length=1, max_length=40),
+              emplacement: Optional[str] = Query(None, min_length=1, max_length=200)):
+    """Met à jour le statut, la date de dernier service (manuelle), le numéro de série
+    et/ou l'emplacement (champ « location ») d'un piano Gazelle."""
     from core.gazelle_api_client import GazelleAPIClient
     entree: Dict[str, Any] = {}
     if statut:
@@ -1618,10 +1620,12 @@ def piano_maj(piano_id: str = Query(...), statut: Optional[str] = Query(None, pa
         entree["manualLastService"] = dernier_service
     if numero_serie:
         entree["serialNumber"] = numero_serie.strip()
+    if emplacement:
+        entree["location"] = emplacement.strip()
     if not entree:
         raise HTTPException(400, "Rien à modifier")
     res = GazelleAPIClient()._execute_query(
-        'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status serialNumber calculatedLastService manualLastService} mutationErrors{fieldName messages}}}',
+        'mutation($id:String!,$input:PrivatePianoInput!){updatePiano(id:$id,input:$input){piano{id status serialNumber location calculatedLastService manualLastService} mutationErrors{fieldName messages}}}',
         {"id": piano_id, "input": entree})
     data = (res.get("data") or {}).get("updatePiano") or {}
     if res.get("errors") or data.get("mutationErrors"):
