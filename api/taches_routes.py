@@ -1135,7 +1135,8 @@ _Q_FACTURE_DETAILS = """query($id: String!) { invoice(id: $id) { id number statu
   clientUrl acceptElectronicPayment acceptedElectronicPaymentMethods
   altBillingCompanyName altBillingEmail altBillingCountryCode
   client { id companyName localization { id locale } defaultClientLocalization { id locale } }
-  allInvoiceItems { nodes { sequenceNumber description amount taxable } } } }"""
+  allInvoiceItems { nodes { sequenceNumber description amount taxable } }
+  allClientLogs { nodes { createdAt type status systemMessage comment } } } }"""
 
 
 @router.get("/gazelle/facture/{invoice_id}/details")
