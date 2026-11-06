@@ -1846,6 +1846,51 @@ def fiche_test_equipe(f: FicheTestEquipe):
             "lien": f"https://reserver.pianotechniquemontreal.com/?client={cid}"}
 
 
+class ClientEntrepriseIn(BaseModel):
+    entreprise: str
+    prenom: str
+    nom: str
+    courriel: str
+    telephone: Optional[str] = None
+    rue: str
+    ville: str
+    region: Optional[str] = None
+    code_postal: str
+    pays: str = "CA"          # code ISO à 2 lettres
+    notes: Optional[str] = None
+
+
+@router.post("/gazelle/client-entreprise")
+def creer_client_entreprise(c: ClientEntrepriseIn):
+    """Crée une fiche Gazelle d'entreprise (ex. fabricant, partenaire à facturer), SANS cycle de
+    rappels. Refuse s'il existe déjà une fiche au même nom d'entreprise (jamais de doublon)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    deja = gz._execute_query("""query($s: String) { allClients(first: 20, search: $s) {
+        nodes { id companyName } } }""", {"s": c.entreprise})
+    if deja.get("errors"):
+        raise HTTPException(502, f"Recherche de doublon impossible : {deja['errors']}")
+    for n in ((deja.get("data") or {}).get("allClients") or {}).get("nodes") or []:
+        if (n.get("companyName") or "").strip().lower() == c.entreprise.strip().lower():
+            raise HTTPException(409, f"Fiche déjà existante : {n['id']} — rien créé")
+    contact = {"isDefault": True, "isBillingDefault": True, "firstName": c.prenom, "lastName": c.nom,
+               "emails": [{"isDefault": True, "email": c.courriel}],
+               "locations": [{"locationType": "ADDRESS", "usageType": "STREET", "street1": c.rue,
+                              "municipality": c.ville, "region": c.region, "postalCode": c.code_postal,
+                              "countryCode": c.pays}]}
+    if c.telephone:
+        contact["phones"] = [{"isDefault": True, "type": "WORK", "phoneNumber": c.telephone}]
+    entree = {"status": "ACTIVE", "companyName": c.entreprise, "contacts": [contact], "lifecycleId": None}
+    if c.notes:
+        entree["personalNotes"] = c.notes
+    r = gz._execute_query("""mutation($i: PrivateClientInput!) { createClient(input: $i) {
+        client { id companyName } mutationErrors { fieldName messages } } }""", {"i": entree})
+    p = (r.get("data") or {}).get("createClient") or {}
+    if r.get("errors") or p.get("mutationErrors") or not (p.get("client") or {}).get("id"):
+        raise HTTPException(502, f"createClient : {r.get('errors') or p.get('mutationErrors')}")
+    return p["client"]
+
+
 # --- Rapport LECTURE SEULE : rétention des clients d'accords de courtoisie (Nantel vs Archambault) ---
 # Rien n'est écrit dans Gazelle. Parcourt toutes les factures en direct (la copie Supabase s'arrête en mars 2026).
 _rapport_courtoisie: Dict[str, Any] = {"statut": "jamais_lance"}
