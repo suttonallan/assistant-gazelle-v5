@@ -1336,6 +1336,42 @@ def ajouter_adresse_client(client_id: str, a: AdresseClientIn):
     return {"ok": True, "client_id": client_id, "adresse": entree}
 
 
+class CorrectionAdresseIn(BaseModel):
+    ancienne_rue: str                     # garde-fou : doit correspondre à la rue actuelle
+    nouvelle_rue: str
+    ville: Optional[str] = None
+    code_postal: Optional[str] = None
+
+
+@router.post("/gazelle/client/{client_id}/adresse/corriger")
+def corriger_adresse_client(client_id: str, a: CorrectionAdresseIn):
+    """Corrige la rue de l'adresse principale. Refuse si la rue actuelle n'est pas celle
+    qu'on croit corriger (évite d'écraser une adresse mise à jour entre-temps)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    norm = lambda t: _re.sub(r"[^0-9a-z]", "", (t or "").lower())
+    gz = GazelleAPIClient()
+    res = gz._execute_query("""query($id: String!) { client(id: $id) { id defaultContact { id
+      defaultLocation { id street1 municipality postalCode } } } }""", {"id": client_id})
+    c = ((res or {}).get("data") or {}).get("client") or {}
+    loc = (c.get("defaultContact") or {}).get("defaultLocation") or {}
+    if not loc.get("id"):
+        raise HTTPException(404, "Aucune adresse principale sur la fiche : utiliser l'ajout d'adresse")
+    if norm(loc.get("street1")) != norm(a.ancienne_rue):
+        raise HTTPException(409, f"La rue actuelle est « {loc.get('street1')} », pas « {a.ancienne_rue} » : rien modifié")
+    entree = {"street1": a.nouvelle_rue.strip()}
+    if a.ville:
+        entree["municipality"] = a.ville.strip()
+    if a.code_postal:
+        entree["postalCode"] = a.code_postal.strip().upper()
+    r = gz._execute_query("""mutation($id: String!, $i: PrivateContactLocationInput!) {
+      updateContactLocation(id: $id, input: $i) { mutationErrors { fieldName messages } } }""",
+                          {"id": loc["id"], "i": entree})
+    p = ((r or {}).get("data") or {}).get("updateContactLocation") or {}
+    if (isinstance(r, dict) and r.get("errors")) or p.get("mutationErrors"):
+        raise HTTPException(502, f"updateContactLocation : {(r or {}).get('errors') or p.get('mutationErrors')}")
+    return {"ok": True, "client_id": client_id, "avant": loc.get("street1"), "apres": entree["street1"]}
+
+
 class CourrielClientIn(BaseModel):
     courriel: str
 
