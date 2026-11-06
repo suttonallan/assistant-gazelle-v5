@@ -1049,7 +1049,7 @@ _Q_FACTURE_UNE = """query($id: String!) { invoice(id: $id) { id number status
 
 _Q_CLIENT_FACTURATION = """query($id: String!) { client(id: $id) { id companyName
   defaultContact { firstName lastName defaultEmail { email } defaultPhone { phoneNumber }
-    defaultLocation { street1 street2 municipality postalCode region } } } }"""
+    defaultLocation { street1 street2 municipality postalCode region countryCode } } } }"""
 
 _UPDATE_INVOICE = """mutation($id: String!, $input: PrivateUpdateInvoiceInput!) {
   updateInvoice(id: $id, input: $input) {
@@ -1111,7 +1111,10 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
                          ("altBillingPhone", (dc.get("defaultPhone") or {}).get("phoneNumber")),
                          ("altBillingStreet1", loc.get("street1")), ("altBillingStreet2", loc.get("street2")),
                          ("altBillingMunicipality", loc.get("municipality")),
-                         ("altBillingPostalCode", loc.get("postalCode")), ("altBillingRegion", loc.get("region"))):
+                         ("altBillingPostalCode", loc.get("postalCode")),
+                         ("altBillingCountryCode", loc.get("countryCode")),
+                         # Gazelle n'accepte que les provinces/États CA/US comme région
+                         ("altBillingRegion", loc.get("region") if (loc.get("countryCode") or "CA") in ("CA", "US") else None)):
             if val:
                 inp[cle] = val
     if m.assigne_a:
