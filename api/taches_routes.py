@@ -1302,6 +1302,50 @@ def ajouter_piano_client(client_id: str, p: PianoClientIn):
     return {"deja": False, "piano": pp["piano"]}
 
 
+class CourrielClientIn(BaseModel):
+    courriel: str
+
+
+def ajouter_courriel(client_id: str, courriel: str) -> Dict[str, Any]:
+    """Ajoute un courriel au contact principal d'une fiche Gazelle.
+    Garde-fous : format valide ; rien si le courriel y est déjà ; refus si un AUTRE
+    client a ce courriel (doublon possible) ; ne remplace jamais le courriel principal
+    existant (le nouveau devient principal seulement s'il n'y en a aucun)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    courriel = (courriel or "").strip().lower()
+    if not _re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", courriel):
+        raise HTTPException(400, f"Courriel invalide : {courriel!r}")
+    gz = GazelleAPIClient()
+    res = gz._execute_query("""query($id: String!) { client(id: $id) { id
+      defaultContact { id firstName lastName allEmails { nodes { id email isDefault } } } } }""", {"id": client_id})
+    c = ((res or {}).get("data") or {}).get("client")
+    if not c:
+        raise HTTPException(404, f"Client introuvable : {client_id}")
+    contact = c.get("defaultContact") or {}
+    if not contact.get("id"):
+        raise HTTPException(409, "La fiche n'a pas de contact principal : rien modifié")
+    actuels = (contact.get("allEmails") or {}).get("nodes") or []
+    if any((e.get("email") or "").strip().lower() == courriel for e in actuels):
+        return {"deja": True, "client_id": client_id, "courriel": courriel}
+    autre = gz.trouver_client_existant(courriel=courriel)
+    if autre and autre != client_id:
+        raise HTTPException(409, f"Ce courriel est déjà sur une autre fiche ({autre}) : doublon possible, rien modifié")
+    principal = not any(e.get("isDefault") for e in actuels)
+    r = gz._execute_query("""mutation($c: String!, $i: PrivateContactEmailInput!) { createContactEmail(contactId: $c, input: $i) {
+      email { id email isDefault } mutationErrors { fieldName messages } } }""",
+                          {"c": contact["id"], "i": {"email": courriel, "isDefault": principal}})
+    p = ((r or {}).get("data") or {}).get("createContactEmail") or {}
+    if (isinstance(r, dict) and r.get("errors")) or p.get("mutationErrors") or not p.get("email"):
+        raise HTTPException(502, f"createContactEmail : {(r or {}).get('errors') or p.get('mutationErrors')}")
+    return {"deja": False, "client_id": client_id, "courriel": courriel, "principal": principal,
+            "contact": f"{contact.get('firstName') or ''} {contact.get('lastName') or ''}".strip()}
+
+
+@router.post("/gazelle/client/{client_id}/courriel")
+def ajouter_courriel_client(client_id: str, c: CourrielClientIn):
+    return ajouter_courriel(client_id, c.courriel)
+
+
 class ReferenceClientIn(BaseModel):
     refere_par: str
     notes: Optional[str] = None

@@ -230,7 +230,45 @@ def execute_creer_rv(**t) -> Dict[str, Any]:
 
 from core.ivo_regles import OUTILS as _OUTILS_REGLES
 
-TOOLS = [LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+AJOUTER_COURRIEL_TOOL = {
+    "name": "ajouter_courriel_client",
+    "description": (
+        "Ajoute un courriel à la fiche Gazelle d'un client (contact principal). Ne remplace jamais "
+        "le courriel principal existant ; refuse si un autre client a déjà ce courriel. "
+        "Donne le client_id (cli_…) si connu, sinon le nom du client."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "courriel": {"type": "string"},
+            "client_id": {"type": "string"},
+            "client": {"type": "string", "description": "Nom du client si le client_id n'est pas connu."},
+        },
+        "required": ["courriel"],
+    },
+}
+
+
+def execute_ajouter_courriel(**t) -> Dict[str, Any]:
+    from api.taches_routes import chercher_clients, ajouter_courriel
+    client_id = (t.get("client_id") or "").strip()
+    if not client_id:
+        nom = (t.get("client") or "").strip()
+        if len(nom) < 2:
+            return {"success": False, "error": "Client manquant (client_id ou nom)."}
+        trouves = chercher_clients(q=nom)["clients"]
+        if not trouves:
+            return {"success": False, "error": f"Aucun client « {nom} » dans Gazelle."}
+        if len(trouves) > 1:
+            return {"success": False, "plusieurs_clients": [
+                {"client_id": c["external_id"], "nom": c["company_name"]} for c in trouves],
+                "message": "Plusieurs clients correspondent : demande lequel, puis repasse son client_id."}
+        client_id = trouves[0]["external_id"]
+    r = ajouter_courriel(client_id, t.get("courriel") or "")
+    return {"success": True, **r}
+
+
+TOOLS = [AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
          *_OUTILS_REGLES]
 
@@ -295,6 +333,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             return execute_joint_appointment(**tool_input)
         if name == "creer_rendez_vous":
             return execute_creer_rv(**tool_input)
+        if name == "ajouter_courriel_client":
+            return execute_ajouter_courriel(**tool_input)
         if name in ("retenir_regle", "oublier_regle"):
             from core import ivo_regles
             return ivo_regles.executer(name, tool_input, user_first_name)

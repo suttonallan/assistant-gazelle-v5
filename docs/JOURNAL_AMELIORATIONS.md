@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 5 novembre
+- **Ajouter le courriel d'un client à sa fiche Gazelle** : « ajoute le courriel x@y.com à la fiche de Robert Chartrand », dans la case de l'assistant ou avec @Ivo dans Front. Le courriel principal existant n'est jamais remplacé, et rien n'est fait si un autre client a déjà ce courriel (doublon possible).
 - **Ivo lit tout le dossier du client dans Front** : avant de dire qu'une information manque, il cherche les autres fils du même client (messages vocaux, textos, résumés d'appel, autres courriels, commentaires) par téléphone, courriel ou nom, sans mélanger deux clients.
 - **Ivo crée le RV quand on le lui dit** : « @Ivo crée le RV avec JP mardi 13 h, 3 h » crée le RV directement dans Gazelle, sans repasser par un aperçu à approuver. S'il manque un élément (technicien, jour, heure ou durée), il ne demande que celui-là. Il refuse s'il y a un conflit à l'horaire du technicien, et n'envoie jamais de confirmation au client.
 - **Ivo voit maintenant les photos insérées dans le corps d'un courriel** : avant, il ne regardait que les pièces jointes et disait « aucune photo » quand le client avait collé ses photos dans le message (cas courant depuis un iPhone). Les petits logos de signature restent ignorés.
