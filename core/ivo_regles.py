@@ -63,7 +63,7 @@ def cahier_pour_ia() -> str:
             corps = (c.get("body") or "").strip()
             if auteur in AUTEURS_CAHIER and corps and not corps.startswith("🤖"):
                 parts.append(corps)
-        texte = ("CAHIER DE CONNAISSANCES DE PTM (ce que l'entreprise sait ; fait foi, à appliquer sans qu'on te le redise) :\n"
+        texte = ("CAHIER DE CONNAISSANCES DE PTM (ce que l'entreprise sait ; fait foi, à appliquer sans qu'on te le redise ; en cas de contradiction, la section la plus récente l'emporte) :\n"
                  + "\n\n".join(parts))[:30000] if parts else ""
     except Exception:
         return _CAHIER["texte"]  # en cas de panne de Front, on garde la dernière version lue
