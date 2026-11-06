@@ -164,6 +164,51 @@ def rapport_hebdomadaire() -> Dict[str, Any]:
     return {"groupes": len(groupes), "envoye": bool(ok)}
 
 
+# Fiches vides à supprimer — décidé par Allan (id Gazelle seulement, dépôt public).
+# 2026-11-06 : fiche vide créée par erreur (orthographe au son d'une cliente existante).
+SUPPRESSIONS_APPROUVEES = [
+    "cli_8mrS0L7z9cF2W76E",
+]
+
+
+def supprimer_approuvees() -> Dict[str, Any]:
+    """Supprime les fiches de SUPPRESSIONS_APPROUVEES, seulement si elles sont vides
+    (aucun piano, rendez-vous ni facture). IRRÉVERSIBLE — décidé par Allan."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    bilan = {"supprimees": [], "refusees": [], "introuvables": [], "erreurs": []}
+    q = """query($id: String!) { client(id: $id) { id
+             allPianos { nodes { id } } allAppointments { nodes { id } } lastInvoice { id } } }"""
+    m = """mutation($id: String!) { deleteClient(id: $id) { mutationErrors { fieldName messages } } }"""
+    for cid in SUPPRESSIONS_APPROUVEES:
+        try:
+            r = gz._execute_query(q, {"id": cid})
+            if r.get("errors"):
+                bilan["erreurs"].append({"id": cid, "erreur": str(r["errors"])[:300]})
+                continue
+            c = (r.get("data") or {}).get("client")
+            if not c:
+                bilan["introuvables"].append(cid)
+                continue
+            contenu = {
+                "pianos": len(((c.get("allPianos") or {}).get("nodes")) or []),
+                "rendez_vous": len(((c.get("allAppointments") or {}).get("nodes")) or []),
+                "facture": bool(c.get("lastInvoice")),
+            }
+            if contenu["pianos"] or contenu["rendez_vous"] or contenu["facture"]:
+                bilan["refusees"].append({"id": cid, "contenu": contenu})
+                continue
+            d = gz._execute_query(m, {"id": cid})
+            err = d.get("errors") or ((d.get("data") or {}).get("deleteClient") or {}).get("mutationErrors")
+            if err:
+                bilan["erreurs"].append({"id": cid, "erreur": str(err)[:300]})
+                continue
+            bilan["supprimees"].append(cid)
+        except Exception as ex:
+            bilan["erreurs"].append({"id": cid, "erreur": str(ex)[:300]})
+    return bilan
+
+
 def fusionner_approuves(limite: int = 0) -> Dict[str, Any]:
     """Exécute FUSIONS_APPROUVEES dans Gazelle (mergeClients). Idempotent : une fiche
     déjà absorbée (introuvable) est passée. IRRÉVERSIBLE — décidé par Allan."""

@@ -1776,6 +1776,14 @@ def fusionner_doublons_approuves(limite: int = Query(0, ge=0, le=50)):
     return fusionner_approuves(limite)
 
 
+@router.post("/gazelle/supprimer-fiches-approuvees")
+def supprimer_fiches_approuvees():
+    """Supprime UNIQUEMENT les fiches de SUPPRESSIONS_APPROUVEES (dans le code, décidées par
+    Allan), et seulement si la fiche est vide : aucun piano, rendez-vous ni facture."""
+    from modules.alerts.clients_doublons import supprimer_approuvees
+    return supprimer_approuvees()
+
+
 class FicheTestEquipe(BaseModel):
     prenom: str
     nom: str
