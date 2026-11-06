@@ -88,6 +88,26 @@ def _regles() -> List[str]:
     return [r["regle"] for r in ivo_regles.lire()]
 
 
+_TARIFS_CACHE: Dict[str, Any] = {"t": 0.0, "texte": ""}
+
+
+def _tarifs() -> str:
+    """Grille de prix de PTM, lue dans la liste des services de Gazelle (celle qui sert à facturer).
+    Gardée une heure en mémoire."""
+    import time
+    if _TARIFS_CACHE["texte"] and time.time() - _TARIFS_CACHE["t"] < 3600:
+        return _TARIFS_CACHE["texte"]
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query("query { allMasterServiceItems { name amount isArchived type } }")
+    items = ((res or {}).get("data") or {}).get("allMasterServiceItems") or []
+    from api.taches_routes import _nom_i18n
+    lignes = sorted({f"{(i.get('amount') or 0) / 100:.2f} $ — {_nom_i18n(i.get('name')).strip()[:220]}"
+                     for i in items if not i.get("isArchived") and (i.get("amount") or 0) > 0})
+    texte = "\n".join(lignes)
+    _TARIFS_CACHE.update(t=time.time(), texte=texte)
+    return texte
+
+
 def _guide_ton() -> str:
     chemin = os.path.join(os.path.dirname(__file__), "..", "workspace", "guide-ton-ptm.md")
     try:
@@ -103,7 +123,10 @@ _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entrepr
 Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
 RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
 RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRègles absolues :
-- N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
+- N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil, dans la GRILLE DES TARIFS ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
+- Prix : le prix annoncé doit correspondre au service ET à la durée réellement demandés ou réservés (un RV de 3 h n'est pas une visite de base de 255 $ : cherche dans la grille le service de cette durée). Si l'équipe a déjà annoncé un prix au client plus tôt dans le fil, reprends-le et reste cohérent avec lui. Les services nommés d'après une institution ou un marchand (PdA, UQAM, Grands Ballets, Nantel, Archambault, Piano Vertu) ne s'appliquent qu'à eux.
+- Lis TOUT le fil, à commencer par le premier message du client : marque, modèle, adresse, code postal, problème décrit. Ne redemande jamais au client une information qu'il a déjà donnée.
+- Piano : le piano décrit par le client doit figurer dans sa fiche Gazelle. Si « chercher_client » montre qu'il n'y est pas, ajoute-le avec « ajouter_piano » (marque, modèle, type) AVANT de créer le RV, et passe son id dans piano_ids. Si le modèle écrit semble une coquille évidente (ex. « BG-1 » pour un Yamaha GB1), corrige-la et signale-le dans ta note.
 - Réponds dans la langue du client. Vouvoiement par défaut.
 - Pas de signature dans le corps (Front l'ajoute) : termine par la formule de politesse seulement.
 - Tu ne fais que préparer un brouillon : un humain le relira et l'enverra.
@@ -405,6 +428,14 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             if not p.get("event"):
                 return f"Gazelle a refusé le bloc : {p.get('mutationErrors') or res.get('errors')}"
             return f"Bloc posé à l'horaire de {arg['technicien']} le {local:%Y-%m-%d} à {local:%H:%M} ({inp['duration']} min)."
+        if nom == "ajouter_piano":
+            from api.taches_routes import ajouter_piano_client, PianoClientIn
+            r = ajouter_piano_client(arg["client_id"], PianoClientIn(
+                marque=arg["marque"], modele=arg.get("modele"), type_piano=arg.get("type_piano") or "UNKNOWN",
+                numero_serie=arg.get("numero_serie"), notes=arg.get("notes")))
+            pi = r.get("piano") or {}
+            etat = "déjà dans la fiche" if r.get("deja") else "ajouté à la fiche"
+            return f"Piano {etat} : {pi.get('make')} {pi.get('model') or ''} ({pi.get('type')}), id {pi.get('id')}."
         if nom == "dossier_front":
             return _dossier_front(arg)
         if nom == "creer_rendez_vous":
@@ -432,7 +463,20 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                         visites = f"{len(d)} visite(s) passée(s)" + (f", la dernière le {d[0]['appointment_date']}" if d else "")
                 nom_c = c.get('company_name') or f"{c.get('first_name') or ''} {c.get('last_name') or ''}".strip()
                 adr = ', '.join(x for x in (c.get('address'), c.get('city'), c.get('postal_code')) if x) or 'adresse inconnue'
-                lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {visites}"
+                pianos = "pianos : ?"
+                if cid.startswith("cli_"):
+                    try:
+                        from core.gazelle_api_client import GazelleAPIClient
+                        q = GazelleAPIClient()._execute_query(
+                            "query($id: String!) { client(id: $id) { allPianos { nodes { id make model type status } } } }",
+                            {"id": cid})
+                        ns = [n for n in ((((q or {}).get("data") or {}).get("client") or {}).get("allPianos") or {}).get("nodes") or []
+                              if n.get("status") != "INACTIVE"]
+                        pianos = ("pianos : " + "; ".join(f"{n.get('make')} {n.get('model') or ''} {n.get('type')} ({n['id']})"
+                                                         for n in ns)) if ns else "AUCUN piano dans la fiche"
+                    except Exception:
+                        pass
+                lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {pianos} — {visites}"
                               + (_factures_resume(cid) if cid.startswith("cli_") else ""))
             return "\n".join(lignes)
         return "Outil inconnu."
@@ -458,8 +502,15 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
         horaire = "(horaire indisponible pour l'instant)"
     from core.timezone_utils import MONTREAL_TZ
     from datetime import datetime
+    try:
+        tarifs = _tarifs()
+    except Exception:
+        _log.exception("Ivo : tarifs indisponibles")
+        tarifs = ""
     contenu = (f"AUJOURD'HUI : {datetime.now(MONTREAL_TZ):%Y-%m-%d %A}\n\n"
-               f"HORAIRE DE L'ÉQUIPE (45 prochains jours) :\n{horaire}\n\n"
+               + (f"GRILLE DES TARIFS DE PTM (liste des services de Gazelle, avant taxes) :\n{tarifs}\n\n" if tarifs
+                  else "GRILLE DES TARIFS : indisponible — mets [prix à confirmer] plutôt que de deviner.\n\n")
+               + f"HORAIRE DE L'ÉQUIPE (45 prochains jours) :\n{horaire}\n\n"
                f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
                f"BROUILLON ACTUEL :\n{brouillon or '(aucun — rédige une première réponse)'}\n\n"
                + (f"ÉCHANGES PRÉCÉDENTS AVEC IVO DANS CE FIL (pour comprendre « oui », « vas-y », etc.) :\n{echanges}\n\n"
@@ -526,8 +577,17 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "notes": {"type": "string", "description": "Notes pour le technicien : service, prix connu, qui facturer, adresse, contacts, points à vérifier."},
              "piano_ids": {"type": "array", "items": {"type": "string"}},
              "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."}}}},
+        {"name": "ajouter_piano",
+         "description": ("Ajoute à la fiche Gazelle d'un client le piano qu'il a décrit (refuse s'il a déjà un piano actif "
+                         "de la même marque, et retourne alors celui-là). Retourne l'id du piano pour piano_ids."),
+         "input_schema": {"type": "object", "required": ["client_id", "marque", "type_piano"], "properties": {
+             "client_id": {"type": "string"}, "marque": {"type": "string"},
+             "modele": {"type": ["string", "null"]},
+             "type_piano": {"type": "string", "enum": ["UPRIGHT", "GRAND", "DIGITAL", "UNKNOWN"]},
+             "numero_serie": {"type": ["string", "null"]},
+             "notes": {"type": ["string", "null"], "description": "Ex. année d'achat, problème décrit par le client."}}}},
         {"name": "chercher_client",
-         "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal et nombre de visites passées.",
+         "description": "Cherche un client dans Gazelle par courriel, nom ou téléphone ; retourne nom, ville, code postal, pianos de la fiche et nombre de visites passées.",
          "input_schema": {"type": "object", "required": ["texte"],
                           "properties": {"texte": {"type": "string"}}}},
     ]
@@ -572,7 +632,10 @@ def _fil(messages: List[Dict]) -> str:
                 if _est_photo(x)]
         pj = f"\n[{len(imgs)} photo(s) jointe(s) : {', '.join(imgs[:8])} — outil analyser_photos]" if imgs else ""
         lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}{pj}")
-    return "\n\n".join(lignes[-12:])
+    # Le premier message du client (marque, modèle, adresse, demande) est toujours gardé
+    if len(lignes) > 12:
+        lignes = [lignes[0], "[… messages intermédiaires omis …]"] + lignes[-11:]
+    return "\n\n".join(lignes)
 
 
 def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:

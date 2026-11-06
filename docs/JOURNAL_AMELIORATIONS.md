@@ -6,6 +6,10 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 6 novembre
+- **Ivo connaît les tarifs de PTM** : il lit la liste des services et des prix de Gazelle et choisit le prix qui correspond au service et à la durée réservés (un RV de 3 h n'est plus annoncé comme une visite de base). Il reprend aussi un prix que l'équipe a déjà donné au client dans le fil.
+- **Ivo ajoute le piano à la fiche** : quand un client décrit son piano (marque, modèle), Ivo l'ajoute à sa fiche Gazelle s'il n'y est pas et l'attache au RV. Il lit toujours le premier message du client et ne redemande plus une information déjà donnée.
+
 ### 5 novembre
 - **Ajouter le courriel d'un client à sa fiche Gazelle** : « ajoute le courriel x@y.com à la fiche de Robert Chartrand », dans la case de l'assistant ou avec @Ivo dans Front. Le courriel principal existant n'est jamais remplacé, et rien n'est fait si un autre client a déjà ce courriel (doublon possible).
 - **Ivo lit tout le dossier du client dans Front** : avant de dire qu'une information manque, il cherche les autres fils du même client (messages vocaux, textos, résumés d'appel, autres courriels, commentaires) par téléphone, courriel ou nom, sans mélanger deux clients.
