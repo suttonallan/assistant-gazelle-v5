@@ -1131,6 +1131,58 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
             "assigne_a": (i.get("assignedTo") or {}).get("id")}
 
 
+_Q_FACTURE_DETAILS = """query($id: String!) { invoice(id: $id) { id number status subTotal taxTotal total
+  clientUrl acceptElectronicPayment acceptedElectronicPaymentMethods
+  altBillingCompanyName altBillingEmail altBillingCountryCode
+  client { id companyName localization { id locale } defaultClientLocalization { id locale } }
+  allInvoiceItems { nodes { sequenceNumber description amount taxable } } } }"""
+
+
+@router.get("/gazelle/facture/{invoice_id}/details")
+def details_facture(invoice_id: str):
+    """LECTURE — une facture Gazelle : statut, lien client (paiement), facturation alt., langue."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query(_Q_FACTURE_DETAILS, {"id": invoice_id})
+    if res.get("errors"):
+        raise HTTPException(502, str(res["errors"]))
+    inv = (res.get("data") or {}).get("invoice")
+    if not inv:
+        raise HTTPException(404, "Facture introuvable")
+    return inv
+
+
+class EnvoiFactureIn(BaseModel):
+    sujet: str
+    message: str
+    paiement_carte: bool = True
+
+
+@router.post("/gazelle/facture/{invoice_id}/envoyer-facturation-alt")
+def envoyer_facture_alt(invoice_id: str, e: EnvoiFactureIn):
+    """Envoie la facture (PDF joint + lien de paiement Gazelle) au courriel de FACTURATION
+    ALTERNATIVE, à la demande d'Allan. Passe le brouillon à OPEN. Refuse si la facture n'a pas
+    de facturation alternative ou est déjà payée/annulée."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    inv = details_facture(invoice_id)
+    if inv.get("status") not in ("DRAFT", "OPEN", "OVERDUE"):
+        raise HTTPException(409, f"Statut {inv.get('status')} — rien envoyé")
+    if not inv.get("altBillingEmail"):
+        raise HTTPException(409, "Aucun courriel de facturation alternative — rien envoyé")
+    inp = {"status": "OPEN", "emailToAltBilling": True, "attachPdf": True,
+           "emailSubject": e.sujet, "emailMessage": e.message}
+    if e.paiement_carte:
+        inp["acceptElectronicPayment"] = True
+        inp["acceptedElectronicPaymentMethods"] = ["CARD"]
+    res = gz._execute_query(_UPDATE_INVOICE, {"id": invoice_id, "input": inp})
+    payload = ((res or {}).get("data") or {}).get("updateInvoice") or {}
+    if res.get("errors") or payload.get("mutationErrors") or not payload.get("invoice"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors') or res.get('errors')}")
+    apres = details_facture(invoice_id)
+    return {"numero": apres.get("number"), "statut": apres.get("status"), "envoye_a": apres.get("altBillingEmail"),
+            "lien": apres.get("clientUrl"), "paiement_carte": apres.get("acceptElectronicPayment")}
+
+
 # --- Rendez-vous Gazelle (créé à la demande d'Allan depuis une conversation Claude) ---
 class RendezVousIn(BaseModel):
     client_id: str
