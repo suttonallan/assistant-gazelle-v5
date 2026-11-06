@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 6 novembre
+- **Corriger le texte d'une facture non payée** : l'assistant peut maintenant corriger le texte des lignes d'une facture Gazelle ouverte mais pas encore payée (avant, seulement en brouillon). Les montants et les taxes ne changent pas.
 - **Provenance des clients de la réservation en ligne** : le bilan quotidien dans Front montre maintenant d'où viennent les visiteurs de la page de réservation (Google, ChatGPT, un détaillant comme Nantel, etc.), et chaque demande de RV indique sa provenance. Dans Gazelle, la note de la demande porte aussi « Provenance : … ».
 - **Boutique de la réservation en ligne : coupelles** : la fiche précise maintenant « feutre vert dessous · installation comprise », pour que le client comprenne que le technicien soulève le piano et les pose (le prix n'est pas comparable à une simple boîte achetée en ligne).
 - **Steinway B de Wilfrid-Pelletier : emplacement corrigé** : sa fiche Gazelle ne dit plus qu'il est toujours en salle de répétition. Elle indique qu'il peut être sur scène ou en salle de répétition 1 (5e). La fiche du Steinway D 9' de WP précise de même : sur scène ou au garage à piano (sous-sol). Les demandes d'Isabelle ne précisent jamais l'endroit ; Ivo l'écrit désormais dans la note du RV au lieu de supposer.

@@ -1070,7 +1070,7 @@ class FactureMajIn(BaseModel):
 
 @router.patch("/gazelle/facture/{invoice_id}")
 def maj_facture(invoice_id: str, m: FactureMajIn):
-    """Modifie une facture Gazelle en BROUILLON seulement : texte des lignes et/ou
+    """Modifie une facture Gazelle NON PAYÉE (brouillon ou ouverte) : texte des lignes et/ou
     facturation alternative vers un autre client Gazelle. Montants et taxes inchangés.
     Rien n'est envoyé."""
     from core.gazelle_api_client import GazelleAPIClient
@@ -1079,8 +1079,9 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
     inv = ((gz._execute_query(_Q_FACTURE_UNE, {"id": invoice_id}) or {}).get("data") or {}).get("invoice")
     if not inv:
         raise HTTPException(404, "Facture introuvable")
-    if inv.get("status") != "DRAFT":
-        raise HTTPException(409, "Seules les factures en brouillon peuvent être modifiées ici")
+    # Brouillon, ou facture ouverte non payée (pas encore réglée) : on peut encore en corriger le texte.
+    if inv.get("status") not in ("DRAFT", "OPEN", "OVERDUE"):
+        raise HTTPException(409, f"Statut {inv.get('status')} — seules les factures non payées peuvent être modifiées ici")
     inp: Dict[str, Any] = {}
     if m.descriptions:
         nouv = {d.sequence: d.description for d in m.descriptions}
