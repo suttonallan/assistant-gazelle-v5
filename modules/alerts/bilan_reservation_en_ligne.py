@@ -72,12 +72,17 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
         return None
     e = lambda s: html.escape(str(s) if s not in (None, "") else "—")
     etapes = Counter()
+    provenances = Counter()  # visites (étape 1) par provenance : ?source=, utm, site référent
     for ev in evts:
         if ev["type"] == "etape":
+            cle = ev.get("cle") or "etape0"
             try:
-                etapes[int((ev.get("cle") or "etape0")[5])] += 1
+                etapes[int(cle[5])] += 1
             except (ValueError, IndexError):
                 pass
+            if cle.startswith("etape1"):
+                provenances["chat du site" if "_chat" in cle else
+                            (cle.split("_src-", 1)[1] if "_src-" in cle else "direct ou site PTM")] += 1
     par_type = lambda t: [ev for ev in evts if ev["type"] == t]
     reservations, hors_zone, refus = par_type("reservation"), par_type("hors_zone"), par_type("refus")
     # Abandons : une ligne par personne, et jamais quelqu'un qui a finalement envoyé
@@ -104,6 +109,9 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
                        "Chaque visite est comptée une seule fois, à l'étape où elle s'est arrêtée.</p>"
                        f"<table cellpadding='4' style='border-collapse:collapse'>{lignes}</table>"
                        "<p style='color:#777'>Depuis le 1er nov., recharger la page ne compte pas comme une nouvelle visite (même onglet).</p>")
+        if len(provenances) > 1 or (provenances and "direct ou site PTM" not in provenances):
+            parties.append("<p><b>Provenance des visites</b><br>"
+                           + "<br>".join(f"{e(src)} : <b>{n}</b>" for src, n in provenances.most_common()) + "</p>")
 
     def liste(titre: str, items: List[Dict[str, Any]], ligne) -> None:
         if items:
@@ -116,7 +124,9 @@ def composer_bilan(jour: date, evts: List[Dict[str, Any]]) -> Optional[Dict[str,
 
     liste("Demandes de rendez-vous envoyées par la nouvelle page", reservations,
           lambda ev: f"{e((ev.get('details') or {}).get('nom'))} — RV demandé : "
-                     f"{e((ev.get('details') or {}).get('rendez_vous'))} (à approuver dans Gazelle)")
+                     f"{e((ev.get('details') or {}).get('rendez_vous'))} (à approuver dans Gazelle)"
+                     + (f" — provenance : {e((ev.get('details') or {}).get('provenance'))}"
+                        if (ev.get('details') or {}).get('provenance') else ""))
     liste("Partis sans envoyer leur demande (coordonnées laissées)", abandons,
           lambda ev: f"{qui(ev)} — à {_heure(ev['cree_le'])}")
     liste("Demandes hors zone à fixer", hors_zone, lambda ev: qui(ev))
