@@ -174,6 +174,7 @@ def _horaire(jours: int = 45) -> str:
         if e.get("type") == "APPOINTMENT":
             loc = e.get("location") or {}
             lieu = (" ".join(x for x in (loc.get("municipality"), loc.get("postalCode")) if x)
+                    or (loc.get("singleLineAddress") or "").strip()
                     or villes.get((e.get("client") or {}).get("id")) or "lieu inconnu")
             quoi = f"RV client « {(e.get('title') or '')[:40]} » à {lieu}"
         else:

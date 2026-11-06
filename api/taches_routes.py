@@ -1302,6 +1302,40 @@ def ajouter_piano_client(client_id: str, p: PianoClientIn):
     return {"deja": False, "piano": pp["piano"]}
 
 
+class AdresseClientIn(BaseModel):
+    rue: str                              # ex. « 192, 80e Avenue »
+    ville: str
+    code_postal: Optional[str] = None
+    province: str = "QC"
+
+
+@router.post("/gazelle/client/{client_id}/adresse")
+def ajouter_adresse_client(client_id: str, a: AdresseClientIn):
+    """Ajoute l'adresse au contact principal SEULEMENT si la fiche n'en a aucune
+    (jamais d'écrasement d'une adresse existante)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    res = gz._execute_query("""query($id: String!) { client(id: $id) { id defaultContact { id
+      defaultLocation { street1 municipality postalCode } } } }""", {"id": client_id})
+    c = ((res or {}).get("data") or {}).get("client")
+    if not c or not (c.get("defaultContact") or {}).get("id"):
+        raise HTTPException(404, f"Client ou contact principal introuvable : {client_id}")
+    loc = c["defaultContact"].get("defaultLocation") or {}
+    if (loc.get("street1") or "").strip():
+        raise HTTPException(409, f"La fiche a déjà une adresse ({loc.get('street1')}, {loc.get('municipality')}) : rien modifié")
+    entree = {"locationType": "ADDRESS", "usageType": "STREET", "street1": a.rue.strip(),
+              "municipality": a.ville.strip(), "region": a.province, "countryCode": "CA"}
+    if a.code_postal:
+        entree["postalCode"] = a.code_postal.strip().upper()
+    r = gz._execute_query("""mutation($c: String!, $i: PrivateContactLocationInput!) {
+      createContactLocation(contactId: $c, input: $i) { mutationErrors { fieldName messages } } }""",
+                          {"c": c["defaultContact"]["id"], "i": entree})
+    p = ((r or {}).get("data") or {}).get("createContactLocation") or {}
+    if (isinstance(r, dict) and r.get("errors")) or p.get("mutationErrors"):
+        raise HTTPException(502, f"createContactLocation : {(r or {}).get('errors') or p.get('mutationErrors')}")
+    return {"ok": True, "client_id": client_id, "adresse": entree}
+
+
 class CourrielClientIn(BaseModel):
     courriel: str
 
