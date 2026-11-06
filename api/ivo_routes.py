@@ -32,7 +32,7 @@ router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
 VERSION = "2026-11-05-dossier-rv-direct"
-MODELE = os.getenv("IVO_MODELE", "claude-sonnet-5-5")
+MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
 _DECLENCHEUR = re.compile(r"^\s*@?ivo\b[\s,:;.\-–—]*", re.IGNORECASE)
@@ -138,7 +138,7 @@ Historique du client : ta réponse dépend de son dossier. Client existant avec 
 Provenance : lis tout le dossier avant de dire qu'on ignore comment le client nous a connus — un « accord de courtoisie <marchand> » dans une facture (ex. Nantel Musique) veut dire que ce marchand nous l'a envoyé.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
 Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Créer un RV : quand l'équipe donne un ordre explicite (« crée le RV », « oui », « vas-y ») et que tu connais le client, le technicien, le jour, l'heure et la durée (dans la consigne, les échanges précédents, le fil ou les règles apprises), crée-le DIRECTEMENT avec « creer_rendez_vous », sans repasser par un aperçu, avec des notes complètes pour le technicien. S'il manque UN de ces éléments, demande seulement ce qui manque (pas d'aperçu complet à approuver). Jamais de confirmation automatique au client.
-Apprendre : quand l'équipe dit « la prochaine fois… », « dorénavant… », « à l'avenir… », « ne fais plus… », appelle « retenir_regle » avec une règle claire et générale (le cas + quoi faire), puis confirme-la dans ta note. « @Ivo quelles sont tes règles ? » : liste les règles apprises avec leur numéro. « @Ivo oublie la règle 3 » : appelle « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent te donner ou retirer une règle.
+Apprendre : ce qui est déjà dans le CAHIER DE CONNAISSANCES ne doit jamais être réenseigné. Quand l'équipe dit « la prochaine fois… », « dorénavant… », « à l'avenir… », « ne fais plus… », appelle « retenir_regle » avec une règle claire et générale (le cas + quoi faire), puis confirme-la dans ta note. « @Ivo quelles sont tes règles ? » : liste les règles apprises avec leur numéro. « @Ivo oublie la règle 3 » : appelle « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent te donner ou retirer une règle.
 Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Un bloc n'est jamais un vrai RV client.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
 Frais de déplacement : ne les devine JAMAIS. Appelle l'outil « frais_deplacement » avec l'adresse ou le code postal du client (dans le fil, ou trouvé avec « chercher_client » à partir de son courriel ou de son nom). C'est le calculateur officiel de PTM : donne le montant qu'il retourne, tel quel. Regrouper une visite avec un RV voisin ne change pas les frais du client, sauf décision de l'équipe : tu peux le signaler comme piste, sans promettre de rabais. Si l'outil échoue ou si l'adresse est introuvable, dis-le et mets [frais à confirmer].
@@ -490,6 +490,8 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     systeme = _SYSTEME
     from core import ivo_regles
+    if ivo_regles.cahier_pour_ia():
+        systeme += "\n\n" + ivo_regles.cahier_pour_ia()
     if ivo_regles.texte_pour_ia():
         systeme += "\n\n" + ivo_regles.texte_pour_ia()
     ton = _guide_ton()

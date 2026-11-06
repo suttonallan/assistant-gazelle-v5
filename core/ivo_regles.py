@@ -41,6 +41,36 @@ def texte_pour_ia() -> str:
             + "\n".join(f"{i}. {r['regle']} (— {r.get('par') or '?'})" for i, r in enumerate(regles, 1)))
 
 
+# ─── Cahier de connaissances (tâche Front « 📘 Cahier de connaissances d'Ivo », boîte info@) ───
+# Ce que l'entreprise sait (tarifs, politiques, équipe, institutions, façons de faire).
+# L'équipe le tient à jour dans Front, sans code : un commentaire = une section.
+# Seuls les commentaires d'Allan, Nicolas et Louise comptent.
+CAHIER_CONVERSATION = "cnv_steodan"
+AUTEURS_CAHIER = {"asutton@piano-tek.com", "nlessard@piano-tek.com", "info@piano-tek.com"}
+_CAHIER: Dict[str, Any] = {"t": 0.0, "texte": ""}
+
+
+def cahier_pour_ia() -> str:
+    import time
+    if _CAHIER["texte"] and time.time() - _CAHIER["t"] < 600:
+        return _CAHIER["texte"]
+    try:
+        from core.front_client import get_front_client
+        coms = get_front_client().list_comments(CAHIER_CONVERSATION, limit=100)
+        parts = []
+        for c in sorted(coms, key=lambda c: c.get("posted_at") or 0):
+            auteur = ((c.get("author") or {}).get("email") or "").lower()
+            corps = (c.get("body") or "").strip()
+            if auteur in AUTEURS_CAHIER and corps and not corps.startswith("🤖"):
+                parts.append(corps)
+        texte = ("CAHIER DE CONNAISSANCES DE PTM (ce que l'entreprise sait ; fait foi, à appliquer sans qu'on te le redise) :\n"
+                 + "\n\n".join(parts))[:30000] if parts else ""
+    except Exception:
+        return _CAHIER["texte"]  # en cas de panne de Front, on garde la dernière version lue
+    _CAHIER.update(t=time.time(), texte=texte)
+    return texte
+
+
 def peut_modifier(prenom: Optional[str]) -> bool:
     return (prenom or "").strip().lower() in AUTORISES
 

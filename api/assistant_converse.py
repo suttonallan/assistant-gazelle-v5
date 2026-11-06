@@ -424,6 +424,8 @@ async def converse(req: ConverseRequest):
     )
 
     from core import ivo_regles
+    if ivo_regles.cahier_pour_ia():
+        system_prompt += "\n\n" + ivo_regles.cahier_pour_ia()
     if ivo_regles.texte_pour_ia():
         system_prompt += "\n\n" + ivo_regles.texte_pour_ia()
     system_prompt += ("\n\nAPPRENDRE : quand on te dit « la prochaine fois… », « dorénavant… », « à l'avenir… », "
