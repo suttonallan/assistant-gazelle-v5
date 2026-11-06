@@ -1151,6 +1151,29 @@ def details_facture(invoice_id: str):
     return inv
 
 
+class NotesFactureIn(BaseModel):
+    notes: Optional[str] = None
+    top_notes: Optional[str] = None
+
+
+@router.patch("/gazelle/facture/{invoice_id}/notes")
+def maj_notes_facture(invoice_id: str, n: NotesFactureIn):
+    """Modifie SEULEMENT le texte des notes (bas/haut) d'une facture non payée, même déjà
+    envoyée. Montants, lignes et taxes inchangés. Rien n'est renvoyé au client."""
+    from core.gazelle_api_client import GazelleAPIClient
+    inv = details_facture(invoice_id)
+    if inv.get("status") not in ("DRAFT", "OPEN", "OVERDUE"):
+        raise HTTPException(409, f"Statut {inv.get('status')} — rien modifié")
+    inp = {k: v for k, v in (("notes", n.notes), ("topNotes", n.top_notes)) if v is not None}
+    if not inp:
+        raise HTTPException(400, "Rien à modifier")
+    res = GazelleAPIClient()._execute_query(_UPDATE_INVOICE, {"id": invoice_id, "input": inp})
+    payload = ((res or {}).get("data") or {}).get("updateInvoice") or {}
+    if res.get("errors") or payload.get("mutationErrors") or not payload.get("invoice"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors') or res.get('errors')}")
+    return {"numero": payload["invoice"].get("number"), "statut": payload["invoice"].get("status"), **inp}
+
+
 class EnvoiFactureIn(BaseModel):
     sujet: str
     message: str
