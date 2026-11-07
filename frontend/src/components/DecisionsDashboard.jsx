@@ -45,13 +45,13 @@ function AvantApres({ avant, apres }) {
       {avant && (
         <p className="grid grid-cols-[52px_1fr] gap-2 mb-1">
           <span className="text-[11px] uppercase tracking-wide text-gray-500 font-semibold pt-0.5">Avant</span>
-          <span className="text-gray-500 min-w-0 break-words">{avant}</span>
+          <span className="text-gray-500 min-w-0 break-words whitespace-pre-line">{avant}</span>
         </p>
       )}
       {apres && (
         <p className="grid grid-cols-[52px_1fr] gap-2 mb-1">
           <span className="text-[11px] uppercase tracking-wide font-semibold pt-0.5" style={{ color: '#b8860b' }}>Après</span>
-          <span className="min-w-0 break-words">{apres}</span>
+          <span className="min-w-0 break-words whitespace-pre-line">{apres}</span>
         </p>
       )}
     </>
@@ -93,7 +93,7 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
         ) : (
           <AvantApres avant={d.avant} apres={d.apres} />
         )}
-        {d.info && <p className="mt-1 text-[13px] text-amber-800">{d.info}</p>}
+        {d.info && <p className="mt-1 text-[13px] text-amber-800 whitespace-pre-line">{d.info}</p>}
         {d.consigne && <p className="mt-1 text-[13px] text-green-700 font-semibold">{d.consigne}</p>}
         {d.recommandation && <p className="mt-1 text-[13px] text-green-700 font-semibold">Recommandation : {d.recommandation}</p>}
         {d.question && <p className="mt-1 text-[13px] font-semibold" style={{ color: '#b8860b' }}>Question : {d.question}</p>}
