@@ -121,7 +121,7 @@ def _guide_ton() -> str:
 
 _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entreprise d'accord et d'entretien de pianos.
 Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
-RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
+RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé tes outils. Tu as directement les outils de l'assistant Gazelle de PTM (soumissions, recherche dans les notes, appels récents, RV d'accompagnement, liens de réservation, photos d'un courriel, courriel d'un client…). Sers-t'en directement ; « demander_assistant » n'est plus qu'un secours, si aucun de tes outils ne convient. Si rien ne marche, « transmettre_a_claude ».
 RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRÈGLE N° 4 : si, après avoir essayé tes outils (dont « demander_assistant »), tu ne peux pas faire la demande ou y répondre avec certitude, appelle « transmettre_a_claude » au lieu de répondre « je ne peux pas » : Claude a accès à tout et répondra dans ce fil. Ne transmets pas une simple demande de rédaction de brouillon, ni une question que tes outils règlent. RÈGLE N° 3 : une consigne dictée peut être mal transcrite (« corriger », « corrigé », « corrige » se ressemblent). Si elle peut se lire comme un ORDRE (« corrige ça ») ou comme un CONSTAT (« c'est corrigé »), ne choisis pas : demande laquelle dans ta note (action "reponse"), sans rien faire. Ne dis jamais qu'une chose est réglée sans l'avoir vérifiée avec tes outils (ex. « lire_rv »).
 Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ». Place des Arts n'indique jamais de technicien : le technicien d'une demande PdA est celui que l'assistant a noté, et Gazelle fait foi.
 Règles absolues :
@@ -139,7 +139,7 @@ Pour l'horaire, sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients
 Historique du client : ta réponse dépend de son dossier. Client existant avec visites → reprends ce qui a été fait (ex. accord + entretien Piano Life Saver), le technicien habituel, et les frais de déplacement DÉJÀ FACTURÉS la dernière fois. Si le calculateur donne un montant différent de ce qui a été facturé, signale l'écart à l'équipe dans ta note et ne mets dans le brouillon que le montant que l'équipe confirme ([frais à confirmer] sinon). Nouveau client → calculateur officiel.
 Provenance : lis tout le dossier avant de dire qu'on ignore comment le client nous a connus — un « accord de courtoisie <marchand> » dans une facture (ex. Nantel Musique) veut dire que ce marchand nous l'a envoyé.
 Fiche client : pour toute demande d'un client, vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a déjà une fiche et des visites. S'il n'a AUCUNE fiche, crée-la tout de suite avec « creer_client » (client potentiel), avec les coordonnées du fil, sans attendre qu'on te le demande, et dis-le dans ta note. Ne crée jamais de fiche si une fiche correspond déjà (même courriel, même téléphone, ou même nom et même ville) : signale plutôt un doublon possible.
-Pour tout ce que la case de l'assistant de Ma Journée sait faire (créer un RV, RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, frais partagés…), utilise « demander_assistant » et rapporte sa réponse telle quelle dans ta note (action "reponse"). Créer un RV : quand l'équipe donne un ordre explicite (« crée le RV », « oui », « vas-y ») et que tu connais le client, le technicien, le jour, l'heure et la durée (dans la consigne, les échanges précédents, le fil ou les règles apprises), crée-le DIRECTEMENT avec « creer_rendez_vous », sans repasser par un aperçu, avec des notes complètes pour le technicien. S'il manque UN de ces éléments, demande seulement ce qui manque (pas d'aperçu complet à approuver). Jamais de confirmation automatique au client.
+Pour tout ce que la case de l'assistant de Ma Journée sait faire (RV conjoint, soumissions, recherche dans les notes, appels récents, lien de réservation, photos d'un courriel, courriel d'un client), utilise directement l'outil correspondant et rapporte son résultat dans ta note (action "reponse"). Frais partagés entre plusieurs clients : indique le calculateur « Frais partagés » de l'assistant. Repères : reprice=true pour réactiver une soumission « à jour » (toujours un brouillon) ; « mes appels » sans nom = la personne qui t'écrit ; « le premier RV » : source_time_hint='premier' ; les heures que te rendent ces outils sont déjà en heure de Montréal ; donne un lien de réservation tel quel. Créer un RV : quand l'équipe donne un ordre explicite (« crée le RV », « oui », « vas-y ») et que tu connais le client, le technicien, le jour, l'heure et la durée (dans la consigne, les échanges précédents, le fil ou les règles apprises), crée-le DIRECTEMENT avec « creer_rendez_vous », sans repasser par un aperçu, avec des notes complètes pour le technicien. S'il manque UN de ces éléments, demande seulement ce qui manque (pas d'aperçu complet à approuver). Jamais de confirmation automatique au client.
 Apprendre : ce qui est déjà dans le CAHIER DE CONNAISSANCES ne doit jamais être réenseigné. Quand l'équipe dit « la prochaine fois… », « dorénavant… », « à l'avenir… », « ne fais plus… », appelle « retenir_regle » avec une règle claire et générale (le cas + quoi faire), puis confirme-la dans ta note. « @Ivo quelles sont tes règles ? » : liste les règles apprises avec leur numéro. « @Ivo oublie la règle 3 » : appelle « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent te donner ou retirer une règle.
 Bloquer un technicien : quand l'équipe le demande (« bloque JP mardi matin »), utilise « bloquer_technicien » : c'est un bloc personnel « RÉSERVÉ (à confirmer) » dans Gazelle, sans aucun avis au client. Un bloc n'est jamais un vrai RV client.
 Nouveau client (aucune visite passée) : quand tu proposes ou prépares un RV, rappelle que la note du RV doit dire au technicien de demander au client comment il nous a trouvés.
@@ -388,6 +388,37 @@ def _lire_rv(arg: Dict[str, Any]) -> str:
     return "\n".join(lignes)
 
 
+# Outils de la case de l'assistant, donnés DIRECTEMENT à Ivo (sans repasser par une seconde IA).
+# Exclus : ceux qu'Ivo a déjà en mieux (creer_rendez_vous direct, retenir/oublier_regle) et
+# request_new_feature (remplacé par transmettre_a_claude).
+_OUTILS_ASSISTANT_EXCLUS = {"creer_rendez_vous", "request_new_feature", "retenir_regle", "oublier_regle"}
+
+
+def _outils_assistant() -> List[Dict[str, Any]]:
+    try:
+        from api.assistant_converse import TOOLS
+        return [t for t in TOOLS if t.get("name") not in _OUTILS_ASSISTANT_EXCLUS]
+    except Exception:
+        _log.exception("Ivo : outils de l'assistant indisponibles")
+        return []
+
+
+def _noms_outils_assistant() -> set:
+    return {t["name"] for t in _outils_assistant()}
+
+
+def _executer_outil_assistant(nom: str, arg: Dict[str, Any]) -> str:
+    from api import assistant_converse as ac
+    prenom = (_CTX.get() or {}).get("prenom")
+    ac._CANAL.set("ivo")
+    ac._PRENOM.set(prenom)
+    res = ac._run_tool(nom, arg, prenom)
+    from core import ivo_regles as _ir
+    if isinstance(res, dict) and res.get("error") == _ir.MESSAGE_LECTURE_SEULE:
+        (_CTX.get() or {}).setdefault("bloques", []).append(nom)
+    return json.dumps(ac._vers_montreal(res), ensure_ascii=False, default=str)[:12000]
+
+
 def _transmettre_a_claude(arg: Dict[str, Any]) -> str:
     """Relais Ivo → Claude : la demande est gardée ; une tâche planifiée Claude la reprend
     (en semaine, toutes les heures de 8 h à 18 h) et répond dans le même fil Front."""
@@ -552,6 +583,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
                 lignes.append(f"{nom_c} ({cid or 'id ?'}) — {adr} — {pianos} — {visites}"
                               + (_factures_resume(cid) if cid.startswith("cli_") else ""))
             return "\n".join(lignes)
+        if nom in _noms_outils_assistant():
+            return _executer_outil_assistant(nom, arg)
         return "Outil inconnu."
     except Exception as e:
         _log.exception("Ivo : outil %s", nom)
@@ -610,13 +643,14 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
                           "properties": {"adresse": {"type": "string"}}}},
         *__import__("core.ivo_regles", fromlist=["OUTILS"]).OUTILS,
         {"name": "demander_assistant",
-         "description": ("Ton accès principal à tout l'assistant Gazelle de PTM. Transmet une demande à l'assistant (la même case que dans Ma Journée) : "
+         "description": ("SECOURS SEULEMENT, si aucun de tes autres outils ne convient. Transmet une demande à l'assistant (la même case que dans Ma Journée) : "
                          "créer un RV (aperçu d'abord, puis création après un oui), RV conjoint, réactiver ou réviser "
                          "une soumission, chercher dans les notes, appels récents, lien de réservation prérempli, "
                          "photos d'un courriel → dossier du piano, frais partagés, etc. Écris la demande complète "
                          "avec le nom du client. Pour une confirmation (« oui »), redis l'action confirmée."),
          "input_schema": {"type": "object", "required": ["demande"],
                           "properties": {"demande": {"type": "string"}}}},
+        *_outils_assistant(),
         {"name": "transmettre_a_claude",
          "description": ("Transmet la demande à Claude (accès complet : code de l'assistant, API, Gazelle, Front, "
                          "QuickBooks) quand TES outils ne permettent pas de la faire ou d'y répondre avec certitude. "

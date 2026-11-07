@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 7 novembre
+- **Ivo dans Front a maintenant directement les outils de la case de l'assistant** (soumissions, recherche dans les notes, appels récents, RV d'accompagnement, liens de réservation, photos d'un courriel) : il ne passe plus par un intermédiaire, ce qui le rend plus fiable et plus rapide. Son cahier compte aussi trois nouvelles règles de travail (vérifier tout le dossier avant de conclure, ne pas refaire trancher ce qui est décidé, technicien des demandes de Place des Arts).
 - **Ivo passe la main à Claude** : quand Ivo ne peut pas faire une demande lui-même (dans Front), il ne répond plus « je ne peux pas » : il la transmet à Claude, qui a accès à tout et répond dans le même fil, en général dans l'heure en semaine (8 h à 18 h).
 - **Parler à Ivo et l'écouter** : dans la case d'Ivo (Ma Journée), un bouton 🎙️ permet de dicter sa demande ou sa réponse au lieu de l'écrire, et un bouton 🔊 Écouter lit la réponse d'Ivo à voix haute. Une case « Lire les réponses d'Ivo à voix haute » les fait lire automatiquement. Fonctionne dans Chrome et Safari, sans rien installer.
 - **Décisions : les petits détails restent discrets** : une coquille, une espace ou un trait d'union qu'Allan approuve seul n'apparaît plus dans le volet de Nicolas ; ces corrections figurent dans le rapport hebdomadaire des améliorations.
