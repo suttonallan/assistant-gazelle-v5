@@ -122,7 +122,7 @@ def _guide_ton() -> str:
 _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entreprise d'accord et d'entretien de pianos.
 Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
 RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
-RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRÈGLE N° 3 : une consigne dictée peut être mal transcrite (« corriger », « corrigé », « corrige » se ressemblent). Si elle peut se lire comme un ORDRE (« corrige ça ») ou comme un CONSTAT (« c'est corrigé »), ne choisis pas : demande laquelle dans ta note (action "reponse"), sans rien faire. Ne dis jamais qu'une chose est réglée sans l'avoir vérifiée avec tes outils (ex. « lire_rv »).
+RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRÈGLE N° 4 : si, après avoir essayé tes outils (dont « demander_assistant »), tu ne peux pas faire la demande ou y répondre avec certitude, appelle « transmettre_a_claude » au lieu de répondre « je ne peux pas » : Claude a accès à tout et répondra dans ce fil. Ne transmets pas une simple demande de rédaction de brouillon, ni une question que tes outils règlent. RÈGLE N° 3 : une consigne dictée peut être mal transcrite (« corriger », « corrigé », « corrige » se ressemblent). Si elle peut se lire comme un ORDRE (« corrige ça ») ou comme un CONSTAT (« c'est corrigé »), ne choisis pas : demande laquelle dans ta note (action "reponse"), sans rien faire. Ne dis jamais qu'une chose est réglée sans l'avoir vérifiée avec tes outils (ex. « lire_rv »).
 Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ». Place des Arts n'indique jamais de technicien : le technicien d'une demande PdA est celui que l'assistant a noté, et Gazelle fait foi.
 Règles absolues :
 - N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil, dans la GRILLE DES TARIFS ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
@@ -388,6 +388,25 @@ def _lire_rv(arg: Dict[str, Any]) -> str:
     return "\n".join(lignes)
 
 
+def _transmettre_a_claude(arg: Dict[str, Any]) -> str:
+    """Relais Ivo → Claude : la demande est gardée ; une tâche planifiée Claude la reprend
+    (en semaine, toutes les heures de 8 h à 18 h) et répond dans le même fil Front."""
+    from core.supabase_storage import SupabaseStorage
+    ctx = _CTX.get() or {}
+    if not ctx.get("conversation_id"):
+        return "Relais impossible : aucun fil Front associé à cette demande."
+    st = SupabaseStorage(silent=True)
+    ligne = {"conversation_id": ctx["conversation_id"], "qui": ctx.get("prenom") or "équipe",
+             "demande": (arg.get("demande") or "")[:4000], "contexte": (arg.get("contexte") or "")[:4000]}
+    r = requests.post(f"{st.api_url}/ivo_relais", headers={**st._get_headers(), "Prefer": "return=minimal"},
+                      json=ligne, timeout=15)
+    if r.status_code >= 400:
+        _log.warning("Ivo : relais impossible : %s", r.text[:200])
+        return "Le relais vers Claude a échoué : dis à l'équipe de demander directement à Allan."
+    return ("Transmis à Claude. Il répondra dans ce fil, en général dans l'heure en semaine (8 h à 18 h). "
+            "Dis-le à l'équipe dans ta note.")
+
+
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     from core import ivo_regles as _ir
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
@@ -490,6 +509,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return _dossier_front(arg)
         if nom == "lire_rv":
             return _lire_rv(arg)
+        if nom == "transmettre_a_claude":
+            return _transmettre_a_claude(arg)
         if nom == "creer_rendez_vous":
             return _creer_rv_direct(arg)
         if nom == "chercher_client":
@@ -596,6 +617,13 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
                          "avec le nom du client. Pour une confirmation (« oui »), redis l'action confirmée."),
          "input_schema": {"type": "object", "required": ["demande"],
                           "properties": {"demande": {"type": "string"}}}},
+        {"name": "transmettre_a_claude",
+         "description": ("Transmet la demande à Claude (accès complet : code de l'assistant, API, Gazelle, Front, "
+                         "QuickBooks) quand TES outils ne permettent pas de la faire ou d'y répondre avec certitude. "
+                         "Claude répond dans ce même fil. Écris la demande complète et ce que tu as déjà essayé."),
+         "input_schema": {"type": "object", "required": ["demande"], "properties": {
+             "demande": {"type": "string", "description": "Ce que l'équipe veut, en clair, avec le client, le RV, la date."},
+             "contexte": {"type": ["string", "null"], "description": "Ce que tu as déjà vérifié ou essayé, et pourquoi tu bloques."}}}},
         {"name": "lire_rv",
          "description": ("LECTURE SEULE : ouvre un RV Gazelle (evt_…) tel qu'il est maintenant : date, heure, durée, "
                          "statut, technicien en clair, pianos (marque, modèle, n° de série), notes, et les demandes "
@@ -987,6 +1015,31 @@ def journal():
 def horaire(jours: int = 30):
     """Ce qu'Ivo voit de l'horaire (diagnostic, lecture seule)."""
     return {"horaire": _horaire(min(max(jours, 1), 60)).split("\n")}
+
+
+@router.get("/relais")
+def relais(statut: str = "ouvert"):
+    """Demandes transmises par Ivo à Claude (lues par la tâche planifiée)."""
+    from core.supabase_storage import SupabaseStorage
+    st = SupabaseStorage(silent=True)
+    r = requests.get(f"{st.api_url}/ivo_relais?select=*&statut=eq.{statut}&order=cree_le.asc",
+                     headers=st._get_headers(), timeout=15)
+    return {"relais": r.json() if r.status_code == 200 else [], "erreur": None if r.status_code == 200 else r.text[:200]}
+
+
+class RelaisFait(__import__("pydantic").BaseModel):
+    reponse: str
+
+
+@router.post("/relais/{rid}/traite")
+def relais_traite(rid: str, f: RelaisFait):
+    from datetime import datetime, timezone
+    from core.supabase_storage import SupabaseStorage
+    st = SupabaseStorage(silent=True)
+    r = requests.patch(f"{st.api_url}/ivo_relais?id=eq.{rid}", headers={**st._get_headers(), "Prefer": "return=minimal"},
+                       json={"statut": "traite", "reponse": f.reponse[:8000], "traite_le": datetime.now(timezone.utc).isoformat()},
+                       timeout=15)
+    return {"ok": r.status_code < 400}
 
 
 @router.get("/regles")

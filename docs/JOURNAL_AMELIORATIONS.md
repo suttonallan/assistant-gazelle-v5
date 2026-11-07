@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 7 novembre
+- **Ivo passe la main à Claude** : quand Ivo ne peut pas faire une demande lui-même (dans Front), il ne répond plus « je ne peux pas » : il la transmet à Claude, qui a accès à tout et répond dans le même fil, en général dans l'heure en semaine (8 h à 18 h).
 - **Parler à Ivo et l'écouter** : dans la case d'Ivo (Ma Journée), un bouton 🎙️ permet de dicter sa demande ou sa réponse au lieu de l'écrire, et un bouton 🔊 Écouter lit la réponse d'Ivo à voix haute. Une case « Lire les réponses d'Ivo à voix haute » les fait lire automatiquement. Fonctionne dans Chrome et Safari, sans rien installer.
 - **Décisions : les petits détails restent discrets** : une coquille, une espace ou un trait d'union qu'Allan approuve seul n'apparaît plus dans le volet de Nicolas ; ces corrections figurent dans le rapport hebdomadaire des améliorations.
 - **Décisions : on voit aussi ce que l'autre tranche seul** : les révisions WordPress et les suivis qu'Allan approuve seul restent visibles pour Nicolas (filtre « En attente de l'autre »), marqués « À trancher par Allan » puis « Approuvé par Allan ».
