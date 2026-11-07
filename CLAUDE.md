@@ -116,3 +116,11 @@ Toute amélioration visible pour l'équipe ajoute **une ligne en français clair
 | `backfill_timeline_weekly.yml` | weekly | Timeline backfill |
 
 Backend deploys: `git push` triggers automatic Render redeploy of `https://assistant-gazelle-v5-api.onrender.com`. Frontend: `https://suttonallan.github.io/assistant-gazelle-v5/`.
+
+## Volet Décisions (Allan ↔ Nicolas) — remplace les panneaux de décisions publiés à part
+Quand Allan a des points à trancher (site web, procédures, ententes…), les déposer ici au lieu de publier un nouveau panneau :
+- `POST /api/decisions` avec une liste de points `{titre, sujet, groupe, type: "point"|"revision_wp", avant, apres, changements: [[avant, après]…], info, consigne, question, recommandation, page, lien, lien_wp, rid, ordre, votants: ["allan","nicolas"], cle_source}`. Une `cle_source` déjà connue est ignorée (import rejouable). Par défaut les deux votent ; `votants: ["allan"]` pour un point qu'Allan tranche seul.
+- `GET /api/decisions` pour lire les votes et les statuts (`en_attente`, `a_discuter`, `approuvee`, `refusee`) calculés par le serveur : unanimes → décision prise ; divergence ou « À discuter » → à discuter.
+- `PATCH /api/decisions/{id}` `{suite, realisee: true}` une fois la décision appliquée ; `{archive: true}` pour retirer un point.
+- Seul un jeton de personne peut voter (`POST /api/decisions/{id}/vote`) : Claude ne vote jamais.
+- Jamais de sujet confidentiel entre copropriétaires ni de perso tant que l'API répond sans jeton (verrou en mode observation).
