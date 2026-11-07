@@ -164,6 +164,7 @@ class PointIn(BaseModel):
     source: Optional[str] = None
     cle_source: Optional[str] = None
     depuis: Optional[str] = None  # AAAA-MM-JJ
+    mineur: Optional[bool] = None  # coquille : montré seulement à qui tranche
 
 
 def _ligne(p: PointIn, qui: Optional[str]) -> Dict[str, Any]:
@@ -254,6 +255,7 @@ class MajIn(BaseModel):
     consigne: Optional[str] = None
     question: Optional[str] = None
     apres: Optional[str] = None
+    mineur: Optional[bool] = None
 
 
 @router.patch("/{did}")

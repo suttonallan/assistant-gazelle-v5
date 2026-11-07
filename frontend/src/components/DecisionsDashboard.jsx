@@ -204,6 +204,7 @@ export default function DecisionsDashboard({ currentUser }) {
   const comptes = useMemo(() => {
     const c = { moi: 0, autre: 0, a_discuter: 0, approuvee: 0, refusee: 0 }
     for (const d of liste) {
+      if (d.mineur && !(d.votants || []).includes(moi)) continue
       const ouvert = d.statut === 'en_attente' || d.statut === 'a_discuter'
       if (ouvert && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s) c.moi++
       if (ouvert && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))) c.autre++
@@ -213,6 +214,8 @@ export default function DecisionsDashboard({ currentUser }) {
   }, [liste, moi])
 
   const visibles = useMemo(() => liste.filter((d) => {
+    // Détail mineur (coquille, espace…) : seulement pour qui le tranche ; les autres le voient dans le rapport hebdo.
+    if (d.mineur && !(d.votants || []).includes(moi)) return false
     if (filtre === 'tous') return true
     if (filtre === 'moi') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s
     if (filtre === 'autre') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))
