@@ -6,6 +6,10 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 7 novembre
+- **Ivo sait ouvrir un RV** : dans Front, Ivo peut maintenant lire un RV Gazelle précis (technicien en clair, pianos avec n° de série, notes) et les demandes Place des Arts qui y sont liées, pour expliquer une alerte du vérificateur au lieu de deviner.
+- **Ivo demande au lieu de deviner** : quand une consigne dictée peut vouloir dire « corrige » ou « c'est corrigé », Ivo pose la question au lieu de conclure, et il ne dit plus qu'une chose est réglée sans l'avoir vérifiée.
+
 ### 6 novembre
 - **Corriger le texte d'une facture non payée** : l'assistant peut maintenant corriger le texte des lignes d'une facture Gazelle ouverte mais pas encore payée (avant, seulement en brouillon). Les montants et les taxes ne changent pas.
 - **Provenance des clients de la réservation en ligne** : le bilan quotidien dans Front montre maintenant d'où viennent les visiteurs de la page de réservation (Google, ChatGPT, un détaillant comme Nantel, etc.), et chaque demande de RV indique sa provenance. Dans Gazelle, la note de la demande porte aussi « Provenance : … ».

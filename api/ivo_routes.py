@@ -122,7 +122,9 @@ def _guide_ton() -> str:
 _SYSTEME = """Tu es Ivo, l'assistant de Piano Technique Montréal (PTM), entreprise d'accord et d'entretien de pianos.
 Un membre de l'équipe te donne une consigne pour le brouillon de réponse à un client, ou te demande quelque chose.
 RÈGLE N° 1 : tu ne réponds JAMAIS « je ne peux pas » ou « je n'ai pas accès » sans avoir d'abord essayé l'outil « demander_assistant ». C'est ton accès à tout l'assistant Gazelle de PTM (notes et historique des RV, soumissions, appels, création de RV, liens de réservation, photos, frais partagés…). Toute demande qui n'est pas une réécriture du brouillon passe par lui, sauf si tes autres outils y répondent directement.
-RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRègles absolues :
+RÈGLE N° 2 : avant de dire qu'une information manque (marque du piano, adresse, courriel, contexte), appelle « dossier_front » avec le téléphone, le courriel et le nom du client : les messages vocaux, textos et résumés d'appel sont souvent dans d'autres fils. Ne mélange jamais deux clients : un fil trouvé ne compte que s'il correspond au même téléphone, courriel ou nom.\nRÈGLE N° 3 : une consigne dictée peut être mal transcrite (« corriger », « corrigé », « corrige » se ressemblent). Si elle peut se lire comme un ORDRE (« corrige ça ») ou comme un CONSTAT (« c'est corrigé »), ne choisis pas : demande laquelle dans ta note (action "reponse"), sans rien faire. Ne dis jamais qu'une chose est réglée sans l'avoir vérifiée avec tes outils (ex. « lire_rv »).
+Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ». Place des Arts n'indique jamais de technicien : le technicien d'une demande PdA est celui que l'assistant a noté, et Gazelle fait foi.
+Règles absolues :
 - N'invente JAMAIS un prix, des frais, une date, une disponibilité ou une règle qui n'est pas dans le fil, dans la GRILLE DES TARIFS ou dans les règles fournies. Si une information manque, garde-la entre crochets, ex. [prix à confirmer].
 - Prix : le prix annoncé doit correspondre au service ET à la durée réellement demandés ou réservés (un RV de 3 h n'est pas une visite de base de 255 $ : cherche dans la grille le service de cette durée). Si l'équipe a déjà annoncé un prix au client plus tôt dans le fil, reprends-le et reste cohérent avec lui. Les services nommés d'après une institution ou un marchand (PdA, UQAM, Grands Ballets, Nantel, Archambault, Piano Vertu) ne s'appliquent qu'à eux.
 - Lis TOUT le fil, à commencer par le premier message du client : marque, modèle, adresse, code postal, problème décrit. Ne redemande jamais au client une information qu'il a déjà donnée.
@@ -338,6 +340,54 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
     return (f"RV créé dans Gazelle ({ev.get('id')}) : {ev.get('title')}, {tech}, {debut:%A %d %B %Y} "
             f"de {debut:%H:%M} à {fin:%H:%M}. Aucune confirmation envoyée au client.")
 
+_NOMS_TECHS = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_tndhXmnT0iakT4HF": "Allan",
+               "usr_ReUSmIJmBF86ilY1": "JP", "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot",
+               "usr_HihJsEgkmpTEziJo": "À attribuer"}
+
+_Q_RV_IVO = """query($id: String!) { event(eventId: $id) { id title start duration status notes
+  client { id } user { id firstName }
+  allEventPianos(first: 20) { nodes { piano { id make model serialNumber } } } } }"""
+
+
+def _lire_rv(arg: Dict[str, Any]) -> str:
+    """LECTURE SEULE : un RV Gazelle (evt_…) tel qu'il est maintenant, avec ses pianos,
+    son technicien en clair et les demandes Place des Arts qui y sont liées."""
+    from datetime import datetime
+    from urllib.parse import quote
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.supabase_storage import SupabaseStorage
+    from core.timezone_utils import MONTREAL_TZ
+    eid = (arg.get("rv_id") or "").strip()
+    if not eid.startswith("evt_"):
+        return "Identifiant de RV invalide (il commence par evt_)."
+    res = GazelleAPIClient()._execute_query(_Q_RV_IVO, {"id": eid}) or {}
+    ev = (res.get("data") or {}).get("event")
+    if not ev:
+        return f"RV {eid} introuvable dans Gazelle (supprimé ?)."
+    debut = datetime.fromisoformat(ev["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+    uid = (ev.get("user") or {}).get("id")
+    pianos = [n.get("piano") or {} for n in ((ev.get("allEventPianos") or {}).get("nodes") or [])]
+    lignes = [f"RV {eid} : « {ev.get('title') or ''} », {debut:%Y-%m-%d %H:%M}, {ev.get('duration') or '?'} min, "
+              f"statut {ev.get('status')}, technicien {_NOMS_TECHS.get(uid, (ev.get('user') or {}).get('firstName') or uid)}.",
+              f"Pianos du RV ({len(pianos)}) : " + ("; ".join(
+                  f"{p.get('make') or ''} {p.get('model') or ''} n° {p.get('serialNumber') or '?'} ({p.get('id')})"
+                  for p in pianos) or "aucun")]
+    if ev.get("notes"):
+        lignes.append(f"Notes du RV : {ev['notes'][:600]}")
+    st = SupabaseStorage(silent=True)
+    r = requests.get(f"{st.api_url}/place_des_arts_requests?select=id,appointment_date,room,for_who,piano,time,"
+                     f"technician_id,status,notes&appointment_id=eq.{quote(eid)}", headers=st._get_headers(), timeout=15)
+    dem = r.json() if r.status_code == 200 else []
+    if dem:
+        lignes.append(f"Demandes Place des Arts liées à ce RV ({len(dem)}) :")
+        for d in dem:
+            lignes.append(f"- {d['id']} : {str(d.get('appointment_date') or '')[:10]} {d.get('room')} "
+                          f"« {d.get('for_who')} », piano « {d.get('piano')} », {d.get('time') or 'sans heure'}, "
+                          f"technicien noté dans l'assistant : {_NOMS_TECHS.get(d.get('technician_id'), d.get('technician_id') or 'aucun')}, "
+                          f"statut {d.get('status')}" + (f" — note : {d['notes'][:300]}" if d.get("notes") else ""))
+    return "\n".join(lignes)
+
+
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     from core import ivo_regles as _ir
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
@@ -438,6 +488,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return f"Piano {etat} : {pi.get('make')} {pi.get('model') or ''} ({pi.get('type')}), id {pi.get('id')}."
         if nom == "dossier_front":
             return _dossier_front(arg)
+        if nom == "lire_rv":
+            return _lire_rv(arg)
         if nom == "creer_rendez_vous":
             return _creer_rv_direct(arg)
         if nom == "chercher_client":
@@ -544,6 +596,13 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
                          "avec le nom du client. Pour une confirmation (« oui »), redis l'action confirmée."),
          "input_schema": {"type": "object", "required": ["demande"],
                           "properties": {"demande": {"type": "string"}}}},
+        {"name": "lire_rv",
+         "description": ("LECTURE SEULE : ouvre un RV Gazelle (evt_…) tel qu'il est maintenant : date, heure, durée, "
+                         "statut, technicien en clair, pianos (marque, modèle, n° de série), notes, et les demandes "
+                         "Place des Arts qui y sont liées (avec le technicien noté dans l'assistant). À utiliser pour "
+                         "toute question sur un RV précis ou une alerte du vérificateur quotidien."),
+         "input_schema": {"type": "object", "required": ["rv_id"],
+                          "properties": {"rv_id": {"type": "string"}}}},
         {"name": "creer_client",
          "description": "Crée une fiche client potentiel dans Gazelle (refuse si une fiche existe déjà avec ce courriel ou ce téléphone).",
          "input_schema": {"type": "object", "required": ["prenom", "nom"], "properties": {
