@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { API_URL } from '../utils/apiConfig'
 import BriefingCard from './BriefingCard'
+import { dicteePossible, lecturePossible, lireAVoixHaute, arreterLecture, useDictee, lireLectureAuto, ecrireLectureAuto } from '../utils/voixIvo'
 
 /**
  * ClientAccessPanel — Recherche rapide de clients
@@ -143,6 +144,13 @@ export default function ClientAccessPanel({ currentUser }) {
   const [convInput, setConvInput] = useState('')          // champ de réponse dans le fil
   const [convLoading, setConvLoading] = useState(false)
   const [showCapabilities, setShowCapabilities] = useState(false)
+  // 🎙️ Voix : dicter une demande, écouter les réponses d'Ivo
+  const [lectureAuto, setLectureAuto] = useState(lireLectureAuto)
+  const [enLecture, setEnLecture] = useState(null) // index du message lu
+  // Passe par handleSearchChange pour que la recherche de client réagisse aussi à la dictée.
+  const dicteeRecherche = useDictee((t) => handleSearchChange(searchTerm ? `${searchTerm} ${t}` : t))
+  const dicteeReponse = useDictee((t) => setConvInput((v) => (v ? `${v} ${t}` : t)))
+  const dernierLu = useRef(0)
 
   const searchRef = useRef(null)
   const debounceRef = useRef(null)
@@ -209,6 +217,23 @@ export default function ClientAccessPanel({ currentUser }) {
   }
 
   // Envoie un message dans le fil conversationnel (mémoire d'historique côté /converse)
+  useEffect(() => {
+    const n = conversation.length
+    if (n <= dernierLu.current) { dernierLu.current = n; return }
+    dernierLu.current = n
+    const m = conversation[n - 1]
+    if (lectureAuto && m?.role === 'assistant') {
+      setEnLecture(n - 1)
+      lireAVoixHaute(m.content, { onFin: () => setEnLecture(null) })
+    }
+  }, [conversation, lectureAuto])
+
+  const ecouter = (idx, texte) => {
+    if (enLecture === idx) { arreterLecture(); setEnLecture(null); return }
+    setEnLecture(idx)
+    lireAVoixHaute(texte, { onFin: () => setEnLecture(null) })
+  }
+
   const sendConversation = async (text) => {
     const history = [...conversation, { role: 'user', content: text }]
     setConversation(history)
@@ -321,6 +346,17 @@ export default function ClientAccessPanel({ currentUser }) {
                 </div>
               )}
             </div>
+            {dicteePossible && (
+              <button
+                type="button"
+                onClick={dicteeRecherche.basculer}
+                aria-pressed={dicteeRecherche.ecoute}
+                className={`px-3 py-2 text-sm rounded-lg transition-colors ${dicteeRecherche.ecoute ? 'bg-red-600 text-white animate-pulse' : 'bg-white border border-teal-300 text-teal-700 hover:bg-teal-100'}`}
+                title={dicteeRecherche.ecoute ? 'Arrêter la dictée' : 'Dicter la demande'}
+              >
+                🎙️
+              </button>
+            )}
             {searchTerm.trim() && !selectedClient && (
               <button
                 type="submit"
@@ -370,6 +406,17 @@ export default function ClientAccessPanel({ currentUser }) {
             </div>
           )}
         </form>
+
+        {(dicteeRecherche.erreur || dicteeReponse.erreur) && (
+          <p className="mt-2 text-xs text-red-700">{dicteeRecherche.erreur || dicteeReponse.erreur}</p>
+        )}
+        {lecturePossible && (
+          <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={lectureAuto}
+              onChange={(e) => { setLectureAuto(e.target.checked); ecrireLectureAuto(e.target.checked); if (!e.target.checked) arreterLecture() }} />
+            🔊 Lire les réponses d'Ivo à voix haute
+          </label>
+        )}
 
         {/* Ce que l'assistant sait faire */}
         <div className="mt-3">
@@ -439,6 +486,14 @@ export default function ClientAccessPanel({ currentUser }) {
                   }`}
                 >
                   {m.content}
+                  {m.role === 'assistant' && lecturePossible && (
+                    <div className="mt-1.5">
+                      <button type="button" onClick={() => ecouter(idx, m.content)}
+                        className="text-xs px-2 py-0.5 rounded border border-teal-300 text-teal-700 hover:bg-teal-50">
+                        {enLecture === idx ? '■ Arrêter' : '🔊 Écouter'}
+                      </button>
+                    </div>
+                  )}
                   {m.forwarded && (
                     <div className="mt-2 text-xs px-2 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800">
                       📨 Demande de fonctionnalité envoyée à l'administrateur
@@ -472,6 +527,17 @@ export default function ClientAccessPanel({ currentUser }) {
               placeholder="Répondre à Ivo… (ex: « oui, réactive-la avec le prix à jour »)"
               className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 text-sm bg-white"
             />
+            {dicteePossible && (
+              <button
+                type="button"
+                onClick={dicteeReponse.basculer}
+                aria-pressed={dicteeReponse.ecoute}
+                className={`px-3 py-2 text-sm rounded-lg transition-colors ${dicteeReponse.ecoute ? 'bg-red-600 text-white animate-pulse' : 'bg-white border border-teal-300 text-teal-700 hover:bg-teal-100'}`}
+                title={dicteeReponse.ecoute ? 'Arrêter la dictée' : 'Dicter la réponse'}
+              >
+                🎙️
+              </button>
+            )}
             <button
               type="submit"
               disabled={convLoading || !convInput.trim()}

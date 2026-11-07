@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 7 novembre
+- **Parler à Ivo et l'écouter** : dans la case d'Ivo (Ma Journée), un bouton 🎙️ permet de dicter sa demande ou sa réponse au lieu de l'écrire, et un bouton 🔊 Écouter lit la réponse d'Ivo à voix haute. Une case « Lire les réponses d'Ivo à voix haute » les fait lire automatiquement. Fonctionne dans Chrome et Safari, sans rien installer.
 - **Décisions : les petits détails restent discrets** : une coquille, une espace ou un trait d'union qu'Allan approuve seul n'apparaît plus dans le volet de Nicolas ; ces corrections figurent dans le rapport hebdomadaire des améliorations.
 - **Décisions : on voit aussi ce que l'autre tranche seul** : les révisions WordPress et les suivis qu'Allan approuve seul restent visibles pour Nicolas (filtre « En attente de l'autre »), marqués « À trancher par Allan » puis « Approuvé par Allan ».
 - **Nouveau volet « 🗳️ Décisions » (Allan et Nicolas)** : les points à trancher (site web, procédures, etc.) sont maintenant dans l'assistant, au même format que les anciens panneaux : avant/après, Approuver / À discuter / Refuser et une note. Chacun vote de son côté ; quand vous êtes d'accord, la décision est prise, sinon le point passe à « À discuter ». Une pastille dans le menu indique combien de points attendent ton vote.
