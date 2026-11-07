@@ -20,6 +20,7 @@ import ChatStats from './components/ChatStats'
 import ErrorBoundary from './components/ErrorBoundary'
 import TachesDashboard from './components/TachesDashboard' // ✅ Tâches + campagnes
 import ProvenanceReview from './components/ProvenanceReview' // 🧭 « Référé par »
+import DecisionsDashboard from './components/DecisionsDashboard' // 🗳️ Décisions Allan–Nicolas
 import { getUserRole, ROLES } from './config/roles'
 
 // V7 Imports - Master Template Vincent d'Indy (527 lignes)
@@ -91,6 +92,21 @@ function App() {
     charger()
     return () => { annule = true }
   }, [currentUser])
+
+  // 🗳️ Pastille : points qui attendent mon vote
+  const [aVoter, setAVoter] = useState(0)
+  useEffect(() => {
+    if (!currentUser) return
+    const role = getUserRole(currentUser?.email, currentUser?.role)
+    if (role !== 'admin' && role !== 'nick') return
+    const API_URL = import.meta.env.VITE_API_URL || ''
+    let annule = false
+    const charger = () => fetch(`${API_URL}/api/decisions/a-voter`)
+      .then((r) => (r.ok ? r.json() : null)).then((d) => { if (!annule && d) setAVoter(d.n || 0) }).catch(() => {})
+    charger()
+    const t = setInterval(charger, 60000)
+    return () => { annule = true; clearInterval(t) }
+  }, [currentUser, currentView])
 
   // Charger les institutions depuis l'API
   useEffect(() => {
@@ -252,7 +268,18 @@ function App() {
   const tachesVisible = tachesFlags.actif && (effectiveRole === 'admin' ||
     (tachesFlags.equipe && ['nick', 'louise', 'margot', 'jeanphilippe'].includes(effectiveRole)))
 
+  // 🗳️ Décisions : Allan et Nicolas seulement (identité réelle, pas le rôle simulé)
+  const roleReel = getUserRole(currentUser?.email, currentUser?.role)
+  const decisionsVisible = roleReel === 'admin' || roleReel === 'nick'
+
   const renderDashboard = () => {
+    if (currentView === 'decisions' && decisionsVisible) {
+      return (
+        <ErrorBoundary componentName="Décisions">
+          <DecisionsDashboard currentUser={currentUser} />
+        </ErrorBoundary>
+      )
+    }
     // ✅ Tâches : même vue pour toute l'équipe
     if (currentView === 'taches' && tachesVisible) {
       return (
@@ -562,6 +589,17 @@ function App() {
                       ✅ Tâches
                     </button>}
 
+{decisionsVisible && <button
+                      onClick={() => setCurrentView('decisions')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'decisions'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🗳️ Décisions{aVoter > 0 && <span className="ml-1 inline-block min-w-[18px] px-1 rounded-full bg-amber-600 text-white text-[11px] leading-[18px] text-center">{aVoter}</span>}
+                    </button>}
+
                     <button
                       onClick={() => setCurrentView('inventaire')}
                       className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -712,6 +750,17 @@ function App() {
                   </>
                 ) : (
                   <>
+                    {decisionsVisible && <button
+                      onClick={() => setCurrentView('decisions')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'decisions'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🗳️ Décisions{aVoter > 0 && <span className="ml-1 inline-block min-w-[18px] px-1 rounded-full bg-amber-600 text-white text-[11px] leading-[18px] text-center">{aVoter}</span>}
+                    </button>}
+
                     {/* Tableau de Bord Unifié V6 - admin seulement */}
                     {effectiveRole === 'admin' && (
                       <button

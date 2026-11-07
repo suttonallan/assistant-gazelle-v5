@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 7 novembre
+- **Nouveau volet « 🗳️ Décisions » (Allan et Nicolas)** : les points à trancher (site web, procédures, etc.) sont maintenant dans l'assistant, au même format que les anciens panneaux : avant/après, Approuver / À discuter / Refuser et une note. Chacun vote de son côté ; quand vous êtes d'accord, la décision est prise, sinon le point passe à « À discuter ». Une pastille dans le menu indique combien de points attendent ton vote.
 - **Ivo sait ouvrir un RV** : dans Front, Ivo peut maintenant lire un RV Gazelle précis (technicien en clair, pianos avec n° de série, notes) et les demandes Place des Arts qui y sont liées, pour expliquer une alerte du vérificateur au lieu de deviner.
 - **Ivo demande au lieu de deviner** : quand une consigne dictée peut vouloir dire « corrige » ou « c'est corrigé », Ivo pose la question au lieu de conclure, et il ne dit plus qu'une chose est réglée sans l'avoir vérifiée.
 
