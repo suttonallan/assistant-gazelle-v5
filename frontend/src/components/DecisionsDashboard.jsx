@@ -67,7 +67,11 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
   // Une note qui arrive du serveur ne doit pas écraser ce que la personne est en train d'écrire.
   useEffect(() => { if (!tape.current) setNote(d.votes?.[moi]?.note || '') }, [d.votes, moi])
   const peutVoter = moi && votants.includes(moi)
-  const st = STATUT[d.statut] || STATUT.en_attente
+  const seul = votants.length === 1 ? NOMS[votants[0]] : null
+  const st0 = STATUT[d.statut] || STATUT.en_attente
+  const st = seul && (d.statut === 'approuvee' || d.statut === 'refusee')
+    ? { ...st0, nom: `${d.statut === 'approuvee' ? 'Approuvé' : 'Refusé'} par ${seul}` }
+    : seul && d.statut === 'en_attente' ? { ...st0, nom: `À trancher par ${seul}` } : st0
   const attente = d.statut === 'en_attente' || d.statut === 'a_discuter' ? joursDepuis(d.created_at) : null
   const enRetard = attente !== null && attente >= RETARD_JOURS
   const autres = votants.filter((p) => p !== moi)
@@ -202,7 +206,7 @@ export default function DecisionsDashboard({ currentUser }) {
     for (const d of liste) {
       const ouvert = d.statut === 'en_attente' || d.statut === 'a_discuter'
       if (ouvert && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s) c.moi++
-      if (d.statut === 'en_attente' && moi && d.votes?.[moi]?.s) c.autre++
+      if (ouvert && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))) c.autre++
       if (c[d.statut] !== undefined && d.statut !== 'en_attente') c[d.statut]++
     }
     return c
@@ -211,7 +215,7 @@ export default function DecisionsDashboard({ currentUser }) {
   const visibles = useMemo(() => liste.filter((d) => {
     if (filtre === 'tous') return true
     if (filtre === 'moi') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s
-    if (filtre === 'autre') return d.statut === 'en_attente' && moi && d.votes?.[moi]?.s
+    if (filtre === 'autre') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))
     return d.statut === filtre
   }), [liste, filtre, moi])
 
