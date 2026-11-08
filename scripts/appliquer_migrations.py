@@ -88,9 +88,12 @@ def main() -> int:
 
     texte = "\n".join(rapport)
     print(texte)
+    if ok_global:
+        # Tout est OK : rien à signaler à Allan, le rapport reste dans le journal GitHub.
+        return 0
     try:
         from core.email_notifier import get_email_notifier
-        sujet = f"[PTM] Migrations SQL — {'OK' if ok_global else 'À VÉRIFIER'}"
+        sujet = "[PTM] Migrations SQL — À VÉRIFIER"
         get_email_notifier().send_email(
             to_emails=["asutton@piano-tek.com"], subject=sujet,
             html_content="<pre>" + texte.replace("<", "&lt;") + "</pre>", plain_content=texte)
