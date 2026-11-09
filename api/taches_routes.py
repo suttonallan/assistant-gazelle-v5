@@ -1391,6 +1391,46 @@ def ajouter_piano_client(client_id: str, p: PianoClientIn):
     return {"deja": False, "piano": pp["piano"]}
 
 
+class PianoModifIn(BaseModel):
+    marque: Optional[str] = None
+    modele: Optional[str] = None
+    type_piano: Optional[str] = None
+    numero_serie: Optional[str] = None
+    emplacement: Optional[str] = None
+    ajout_notes: Optional[str] = None     # ajouté À LA SUITE des notes existantes, jamais en remplacement
+
+
+@router.post("/gazelle/piano/{piano_id}/modifier")
+def modifier_piano(piano_id: str, m: PianoModifIn):
+    """Corrige un piano existant. Seuls les champs fournis changent ; les notes
+    existantes sont conservées (le texte fourni s'ajoute à la suite)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    ex = gz._execute_query("query($id: String!) { piano(id: $id) { id make model type serialNumber location notes } }",
+                           {"id": piano_id})
+    avant = ((ex or {}).get("data") or {}).get("piano")
+    if not avant:
+        raise HTTPException(404, f"Piano introuvable : {piano_id}")
+    entree = {}
+    for cle, val in (("make", m.marque), ("model", m.modele), ("type", m.type_piano),
+                     ("serialNumber", m.numero_serie), ("location", m.emplacement)):
+        if val:
+            entree[cle] = val
+    if m.ajout_notes:
+        existantes = (avant.get("notes") or "").strip()
+        if m.ajout_notes.strip() not in existantes:
+            entree["notes"] = (existantes + "\n\n" if existantes else "") + m.ajout_notes.strip()
+    if not entree:
+        return {"modifie": False, "piano": avant}
+    r = gz._execute_query("""mutation($id: String!, $i: PrivatePianoInput!) { updatePiano(id: $id, input: $i) {
+      piano { id make model type serialNumber location notes } mutationErrors { fieldName messages } } }""",
+                          {"id": piano_id, "i": entree})
+    pp = ((r or {}).get("data") or {}).get("updatePiano") or {}
+    if (isinstance(r, dict) and r.get("errors")) or pp.get("mutationErrors") or not pp.get("piano"):
+        raise HTTPException(502, f"updatePiano : {r.get('errors') if isinstance(r, dict) else ''} {pp.get('mutationErrors')}")
+    return {"modifie": True, "avant": avant, "piano": pp["piano"]}
+
+
 class AdresseClientIn(BaseModel):
     rue: str                              # ex. « 192, 80e Avenue »
     ville: str
