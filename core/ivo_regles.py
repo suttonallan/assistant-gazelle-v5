@@ -48,6 +48,9 @@ def texte_pour_ia() -> str:
 CAHIER_CONVERSATION = "cnv_steodan"
 AUTEURS_CAHIER = {"asutton@piano-tek.com", "nlessard@piano-tek.com", "info@piano-tek.com"}
 _CAHIER: Dict[str, Any] = {"t": 0.0, "texte": ""}
+# Un commentaire qui commence par cette marque est une version complète du cahier :
+# seuls ce commentaire et ceux qui le suivent comptent (on réécrit au lieu d'empiler des corrections).
+MARQUE_VERSION = "# CAHIER — VERSION"
 
 
 def cahier_pour_ia() -> str:
@@ -62,6 +65,8 @@ def cahier_pour_ia() -> str:
             auteur = ((c.get("author") or {}).get("email") or "").lower()
             corps = (c.get("body") or "").strip()
             if auteur in AUTEURS_CAHIER and corps and not corps.startswith("🤖"):
+                if corps.startswith(MARQUE_VERSION):
+                    parts = []  # une version complète du cahier remplace tout ce qui la précède
                 parts.append(corps)
         texte = ("CAHIER DE CONNAISSANCES DE PTM (ce que l'entreprise sait ; fait foi, à appliquer sans qu'on te le redise ; en cas de contradiction, la section la plus récente l'emporte) :\n"
                  + "\n\n".join(parts))[:30000] if parts else ""

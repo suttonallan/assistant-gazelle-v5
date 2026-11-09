@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 8 novembre
+- **Ivo vérifie au lieu de se fier à sa mémoire** : ses consignes, devenues un empilement de règles au fil des erreurs, sont réécrites autour d'un seul principe. Tout ce qu'il affirme (piano, n° de série, prix, technicien, statut) doit venir de Gazelle ou de Front, consultés dans sa réponse ; sinon il écrit « à vérifier ». Il voit maintenant le n° de série de chaque piano d'un client. Le cahier peut désormais être réécrit en une version complète au lieu d'accumuler des corrections.
+
 ### 7 novembre
 - **Ivo dans Front a maintenant directement les outils de la case de l'assistant** (soumissions, recherche dans les notes, appels récents, RV d'accompagnement, liens de réservation, photos d'un courriel) : il ne passe plus par un intermédiaire, ce qui le rend plus fiable et plus rapide. Son cahier compte aussi trois nouvelles règles de travail (vérifier tout le dossier avant de conclure, ne pas refaire trancher ce qui est décidé, technicien des demandes de Place des Arts).
 - **Ivo passe la main à Claude** : quand Ivo ne peut pas faire une demande lui-même (dans Front), il ne répond plus « je ne peux pas » : il la transmet à Claude, qui a accès à tout et répond dans le même fil, en général dans l'heure en semaine (8 h à 18 h).

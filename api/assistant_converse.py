@@ -424,6 +424,11 @@ async def converse(req: ConverseRequest):
     )
 
     from core import ivo_regles
+    system_prompt += ("\n\nPRINCIPE FONDAMENTAL — tu vérifies, tu ne te souviens pas : tout fait que tu affirmes "
+                      "(client, piano, n° de série, prix, date, technicien, statut) doit venir d'un outil consulté dans "
+                      "cette réponse. Le cahier de connaissances donne les règles de métier, ce n'est pas une base de "
+                      "données : Gazelle fait foi pour les faits. Ne dis jamais qu'une chose manque, est inconnue ou est "
+                      "réglée sans l'avoir vérifiée ; sinon écris [à vérifier] sans en tirer de conclusion.")
     if ivo_regles.cahier_pour_ia():
         system_prompt += "\n\n" + ivo_regles.cahier_pour_ia()
     if ivo_regles.texte_pour_ia():
