@@ -220,7 +220,7 @@ def supprimer_approuvees() -> Dict[str, Any]:
     return bilan
 
 
-def fusionner_approuves(limite: int = 0) -> Dict[str, Any]:
+def fusionner_approuves(limite: int = 0, seulement: str = "") -> Dict[str, Any]:
     """Exécute FUSIONS_APPROUVEES dans Gazelle (mergeClients). Idempotent : une fiche
     déjà absorbée (introuvable) est passée. IRRÉVERSIBLE — décidé par Allan."""
     from core.gazelle_api_client import GazelleAPIClient
@@ -233,6 +233,8 @@ def fusionner_approuves(limite: int = 0) -> Dict[str, Any]:
     for cible, sources in FUSIONS_APPROUVEES:
         for source in sources:
             cle = f"{source}>{cible}"
+            if seulement and cle != seulement:
+                continue
             if cle in faits:
                 bilan["deja_faites"].append(cle)
                 continue

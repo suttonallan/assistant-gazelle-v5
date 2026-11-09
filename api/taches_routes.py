@@ -2011,11 +2011,13 @@ def rapport_doublons(tous: bool = Query(False)):
 
 
 @router.post("/gazelle/fusionner-doublons-approuves")
-def fusionner_doublons_approuves(limite: int = Query(0, ge=0, le=50)):
+def fusionner_doublons_approuves(limite: int = Query(0, ge=0, le=50),
+                                 seulement: str = Query("", pattern=r"^(cli_[A-Za-z0-9]+>cli_[A-Za-z0-9]+)?$")):
     """Exécute UNIQUEMENT la liste de fusions décidée par Allan (FUSIONS_APPROUVEES,
-    dans le code). Idempotent : une fusion déjà faite est passée."""
+    dans le code). Idempotent : une fusion déjà faite est passée.
+    `seulement="source>cible"` : une seule fusion de la liste (aucune hors liste)."""
     from modules.alerts.clients_doublons import fusionner_approuves
-    return fusionner_approuves(limite)
+    return fusionner_approuves(limite, seulement)
 
 
 @router.post("/gazelle/supprimer-fiches-approuvees")
