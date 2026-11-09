@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 9 novembre
+- **Ivo crée des soumissions neuves** : « @Ivo fais une soumission pour <client> : <travaux>, avec les avertissements d'usage » crée directement le brouillon dans Gazelle, aux prix du catalogue, sans exiger une ancienne soumission. Rien n'est envoyé au client ; si un travail n'a pas de prix au catalogue, Ivo le dit au lieu de deviner.
 - **Corriger un piano existant** : Claude peut maintenant corriger la fiche d'un piano dans Gazelle (modèle, n° de série, emplacement, type) et y ajouter une note, sans effacer les notes déjà présentes.
 - **Ajouter un 2e piano de même marque chez une institution** : Ivo et Claude peuvent maintenant ajouter un piano à une fiche qui a déjà un piano de la même marque (ex. un nouveau Yamaha chez Vincent-d'Indy), quand on fournit son numéro de série. Le doublon est alors reconnu par le numéro de série plutôt que par la marque.
 - **Compléter un RV oublié** : Claude peut maintenant compléter dans Gazelle un RV passé resté « actif » et y écrire l'entrée de service (ex. « Accord 440Hz … stat 11 »), comme le technicien le fait dans l'appli. Refusé pour un RV futur ou déjà complété ; le stationnement écrit est repris par l'assistant pour Place des Arts.

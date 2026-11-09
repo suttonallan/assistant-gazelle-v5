@@ -268,7 +268,113 @@ def execute_ajouter_courriel(**t) -> Dict[str, Any]:
     return {"success": True, **r}
 
 
-TOOLS = [AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+CATALOGUE_TOOL = {
+    "name": "chercher_catalogue",
+    "description": (
+        "Cherche dans le catalogue Gazelle (Master Service List) les services et leurs PRIX COURANTS. "
+        "À utiliser AVANT creer_soumission pour trouver le service_id de chaque ligne. "
+        "Donne plusieurs mots-clés courts à la fois (ex. [\"corde\", \"nettoyage\", \"basse\"])."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"mots": {"type": "array", "items": {"type": "string"},
+                                "description": "Mots-clés (sous-chaîne du nom du service)."}},
+        "required": ["mots"],
+    },
+}
+
+
+def execute_catalogue(mots: List[str]) -> Dict[str, Any]:
+    from api.taches_routes import chercher_services
+    out = {}
+    for m in (mots or [])[:8]:
+        out[m] = chercher_services(q=(m or "").strip())["services"][:25]
+    return {"success": True, "resultats": out}
+
+
+CREER_SOUMISSION_TOOL = {
+    "name": "creer_soumission",
+    "description": (
+        "Crée une NOUVELLE soumission (brouillon, rien n'est envoyé au client) pour un client et un piano, "
+        "sans soumission existante de départ. Chaque ligne vient du catalogue (service_id trouvé avec "
+        "chercher_catalogue : le prix courant du catalogue est appliqué automatiquement). Une ligne hors "
+        "catalogue n'est permise que si l'utilisateur a donné lui-même son montant. Les avertissements "
+        "vont dans « notes » (pas en lignes)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "client": {"type": "string", "description": "Nom du client tel que dit par l'utilisateur."},
+            "client_id": {"type": "string", "description": "ID Gazelle (cli_…) si connu."},
+            "piano_id": {"type": "string", "description": "ID du piano (ins_…) si le client en a plusieurs."},
+            "lignes": {"type": "array", "items": {"type": "object", "properties": {
+                "service_id": {"type": "string", "description": "mit_… du catalogue."},
+                "nom": {"type": "string", "description": "Seulement pour une ligne hors catalogue."},
+                "montant": {"type": "number", "description": "Seulement hors catalogue, donné par l'utilisateur."},
+                "description": {"type": "string", "description": "Précision propre à ce piano (facultatif)."}}}},
+            "notes": {"type": "string", "description": "Notes de la soumission : courte intro + section « À savoir avant de décider : » avec les avertissements d'usage."},
+            "locale": {"type": "string", "enum": ["fr", "en"]},
+        },
+        "required": ["lignes"],
+    },
+}
+
+
+def execute_creer_soumission(**t) -> Dict[str, Any]:
+    from api.taches_routes import chercher_clients, chercher_services, creer_soumission, SoumissionIn, LigneSoumission
+    client_id = (t.get("client_id") or "").strip()
+    nom = (t.get("client") or "").strip()
+    trouves = chercher_clients(q=nom)["clients"] if nom else []
+    if not client_id:
+        if not trouves:
+            return {"success": False, "error": f"Aucun client « {nom} » dans Gazelle." if nom else "Client manquant."}
+        if len(trouves) > 1:
+            return {"success": False, "plusieurs_clients": [
+                {"client_id": c["external_id"], "nom": c["company_name"],
+                 "pianos": [{"piano_id": p.get("external_id"), "piano": f"{p.get('make') or ''} {p.get('model') or ''}".strip()} for p in c["pianos"]]}
+                for c in trouves], "message": "Plusieurs clients correspondent : demande lequel, puis repasse son client_id."}
+        client_id = trouves[0]["external_id"]
+    client = next((c for c in trouves if c["external_id"] == client_id), None) or \
+        next((c for c in chercher_clients(q=client_id)["clients"] if c["external_id"] == client_id), {"pianos": []})
+    pianos = client.get("pianos") or []
+    piano_id = (t.get("piano_id") or "").strip()
+    if not piano_id:
+        if len(pianos) == 1:
+            piano_id = pianos[0].get("external_id")
+        elif not pianos:
+            return {"success": False, "error": "Ce client n'a aucun piano dans Gazelle : il faut d'abord ajouter le piano."}
+        else:
+            return {"success": False, "plusieurs_pianos": [
+                {"piano_id": p.get("external_id"), "piano": f"{p.get('make') or ''} {p.get('model') or ''}".strip(),
+                 "lieu": p.get("location")} for p in pianos],
+                "message": "Le client a plusieurs pianos : demande lequel, puis repasse son piano_id."}
+    prix = {x["id"]: x for x in chercher_services(q="")["services"]}
+    lignes, manquantes = [], []
+    for l in t.get("lignes") or []:
+        sid = (l.get("service_id") or "").strip()
+        if sid:
+            if sid not in prix:
+                manquantes.append(f"service {sid} introuvable au catalogue")
+                continue
+            lignes.append(LigneSoumission(nom=prix[sid]["nom"], montant=prix[sid]["prix"],
+                                          description=l.get("description"), service_id=sid))
+        elif l.get("nom") and l.get("montant"):
+            lignes.append(LigneSoumission(nom=l["nom"], montant=float(l["montant"]), description=l.get("description")))
+        else:
+            manquantes.append(f"« {l.get('nom') or '?'} » : ni service du catalogue ni montant donné")
+    if manquantes or not lignes:
+        return {"success": False, "error": "Soumission non créée. " + " ; ".join(manquantes or ["aucune ligne"]) +
+                ". Demande le prix à l'utilisateur au lieu de le deviner."}
+    r = creer_soumission(SoumissionIn(client_id=client_id, piano_id=piano_id, lignes=lignes,
+                                      notes=t.get("notes"), locale=t.get("locale") or "fr"))
+    return {"success": True, "cree": True, "numero": r.get("numero"), "client": client.get("company_name"),
+            "piano": next((f"{p.get('make') or ''} {p.get('model') or ''}".strip() for p in pianos if p.get("external_id") == piano_id), piano_id),
+            "lignes": [{"nom": l.nom, "montant": l.montant} for l in lignes],
+            "total_avant_taxes": r.get("total_avant_taxes"),
+            "message": "Brouillon créé dans Gazelle, rien n'a été envoyé au client."}
+
+
+TOOLS = [CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
          *_OUTILS_REGLES]
 
@@ -313,6 +419,10 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             )
         if name == "preparer_lien_reservation":
             return execute_lien_reservation(**tool_input)
+        if name == "chercher_catalogue":
+            return execute_catalogue(tool_input.get("mots") or [])
+        if name == "creer_soumission":
+            return execute_creer_soumission(**tool_input)
         if name == "reactivate_estimate":
             return duplicate_estimate(
                 int(tool_input["estimate_number"]),
@@ -394,6 +504,16 @@ async def converse(req: ConverseRequest):
         "Tu as des OUTILS. Utilise-les quand c'est pertinent :\n"
         "- reactivate_estimate : créer une nouvelle soumission (brouillon) à partir "
         "d'un numéro. reprice=true pour « réactiver / à jour / nouveaux prix ».\n"
+        "- creer_soumission : créer une soumission NEUVE (sans numéro de départ) pour un client. "
+        "Ne demande PAS de numéro existant. Étapes : chercher_catalogue avec les mots-clés des travaux "
+        "demandés, puis creer_soumission avec les service_id trouvés (le prix du catalogue s'applique). "
+        "Ne devine jamais un prix : si un travail n'est pas au catalogue et que l'utilisateur n'a pas donné "
+        "son montant, crée la soumission avec le reste et dis clairement quelle ligne manque, ou demande. "
+        "« Avec les avertissements d'usage » : mets dans les notes une courte intro puis « À savoir avant "
+        "de décider : » et des puces factuelles propres aux travaux (ex. cordes neuves qui s'étirent et "
+        "demandent des accords de stabilisation la première année ; vieilles cordes qui peuvent casser à "
+        "l'accord ; constats confirmables seulement une fois le travail commencé, soumis avant d'être "
+        "exécutés ; équilibre sonore entre cordes neuves et d'origine). Aucun prix inventé dans les notes.\n"
         "- review_estimate : analyser/réviser une soumission existante.\n"
         "- search_events_by_keyword : retrouver des rendez-vous par mot-clé.\n"
         "- create_joint_appointment : créer un RV conjoint.\n"
@@ -446,10 +566,10 @@ async def converse(req: ConverseRequest):
     actions: List[Dict[str, Any]] = []
 
     # Boucle outil : Claude peut enchaîner quelques appels avant de répondre en texte.
-    for _ in range(5):
+    for _ in range(7):
         resp = client.messages.create(
             model="claude-sonnet-5",
-            max_tokens=1500,
+            max_tokens=3000,
             system=system_prompt,
             tools=TOOLS,
             messages=messages,

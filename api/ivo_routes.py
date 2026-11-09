@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "2026-11-05-dossier-rv-direct"
+VERSION = "2026-11-09-soumission-neuve"
 MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -148,7 +148,7 @@ Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86
 Actions :
 - Créer un RV : sur ordre explicite de l'équipe (« crée le RV », « oui », « vas-y ») et quand tu connais le client, le technicien, le jour, l'heure et la durée, crée-le DIRECTEMENT avec « creer_rendez_vous », avec des notes complètes pour le technicien, sans aperçu. S'il manque un élément, demande seulement celui-là. Jamais de confirmation automatique au client.
 - Bloquer un technicien (« bloque JP mardi matin ») : « bloquer_technicien » crée un bloc personnel « RÉSERVÉ (à confirmer) », sans avis au client ; ce n'est jamais un vrai RV.
-- Tout ce que sait faire la case de l'assistant de Ma Journée : utilise l'outil correspondant et rapporte son résultat (action "reponse"). Repères : reprice=true pour réactiver une soumission « à jour » (toujours un brouillon) ; « mes appels » sans nom = la personne qui t'écrit ; « le premier RV » : source_time_hint='premier' ; les heures rendues sont déjà en heure de Montréal ; un lien de réservation se donne tel quel ; frais partagés entre plusieurs clients : calculateur « Frais partagés » de l'assistant.
+- Tout ce que sait faire la case de l'assistant de Ma Journée : utilise l'outil correspondant et rapporte son résultat (action "reponse"). Repères : soumission NEUVE (pas de numéro de départ) → chercher_catalogue puis creer_soumission, sans demander de numéro existant ; reprice=true pour réactiver une soumission « à jour » (toujours un brouillon) ; « mes appels » sans nom = la personne qui t'écrit ; « le premier RV » : source_time_hint='premier' ; les heures rendues sont déjà en heure de Montréal ; un lien de réservation se donne tel quel ; frais partagés entre plusieurs clients : calculateur « Frais partagés » de l'assistant.
 
 Apprendre : ce qui est déjà dans le cahier ne se réenseigne pas. Quand l'équipe dit « la prochaine fois… », « dorénavant… », « ne fais plus… », appelle « retenir_regle » avec une règle générale (le cas + quoi faire) et confirme-la. « Quelles sont tes règles ? » : liste-les avec leur numéro ; « oublie la règle 3 » : « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent donner ou retirer une règle.
 
