@@ -1356,17 +1356,27 @@ class PianoClientIn(BaseModel):
 
 @router.post("/gazelle/client/{client_id}/piano")
 def ajouter_piano_client(client_id: str, p: PianoClientIn):
-    """Ajoute un piano à une fiche client. Garde-fou : si la fiche a déjà un piano
-    actif de la même marque, rien n'est créé et ce piano est retourné."""
+    """Ajoute un piano à une fiche client. Garde-fou contre les doublons :
+    - avec un numéro de série : doublon si un piano de la fiche porte ce numéro,
+      ou si un piano actif de même marque n'a encore aucun numéro (sans doute le même) ;
+    - sans numéro : doublon si la fiche a déjà un piano actif de la même marque.
+    (Une institution peut ainsi recevoir un 2e Yamaha dont le numéro est connu.)"""
     from core.gazelle_api_client import GazelleAPIClient
     gz = GazelleAPIClient()
-    ex = gz._execute_query("query($id: String!) { client(id: $id) { id allPianos { nodes { id make model type status } } } }",
+    ex = gz._execute_query("query($id: String!) { client(id: $id) { id allPianos { nodes { id make model type status serialNumber } } } }",
                            {"id": client_id})
     c = ((ex or {}).get("data") or {}).get("client")
     if not c:
         raise HTTPException(404, f"Client introuvable : {client_id}")
+    serie = (p.numero_serie or "").replace(" ", "").upper()
     for n in (c.get("allPianos") or {}).get("nodes") or []:
-        if (n.get("make") or "").strip().lower() == p.marque.strip().lower() and n.get("status") != "INACTIVE":
+        meme_marque = (n.get("make") or "").strip().lower() == p.marque.strip().lower()
+        actif = n.get("status") != "INACTIVE"
+        serie_n = (n.get("serialNumber") or "").replace(" ", "").upper()
+        if serie:
+            if serie_n == serie or (meme_marque and actif and not serie_n):
+                return {"deja": True, "piano": n}
+        elif meme_marque and actif:
             return {"deja": True, "piano": n}
     entree = {"clientId": client_id, "type": p.type_piano, "make": p.marque, "status": "ACTIVE"}
     for cle, val in (("model", p.modele), ("serialNumber", p.numero_serie),

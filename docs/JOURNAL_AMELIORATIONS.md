@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 9 novembre
+- **Ajouter un 2e piano de même marque chez une institution** : Ivo et Claude peuvent maintenant ajouter un piano à une fiche qui a déjà un piano de la même marque (ex. un nouveau Yamaha chez Vincent-d'Indy), quand on fournit son numéro de série. Le doublon est alors reconnu par le numéro de série plutôt que par la marque.
 - **Compléter un RV oublié** : Claude peut maintenant compléter dans Gazelle un RV passé resté « actif » et y écrire l'entrée de service (ex. « Accord 440Hz … stat 11 »), comme le technicien le fait dans l'appli. Refusé pour un RV futur ou déjà complété ; le stationnement écrit est repris par l'assistant pour Place des Arts.
 - **Changer le piano d'un RV existant** : Ivo (et Claude) peuvent maintenant remplacer le piano lié à un RV Gazelle déjà créé, par exemple passer du Steinway B au Steinway D pour toute une série de RV de Place des Arts. Rien d'autre du RV ne bouge, le client ne reçoit rien, et le résultat est vérifié après coup. Réservé à Allan, Nicolas et Louise.
 
