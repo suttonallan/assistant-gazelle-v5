@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 9 novembre
+- **Changer le piano d'un RV existant** : Ivo (et Claude) peuvent maintenant remplacer le piano lié à un RV Gazelle déjà créé, par exemple passer du Steinway B au Steinway D pour toute une série de RV de Place des Arts. Rien d'autre du RV ne bouge, le client ne reçoit rien, et le résultat est vérifié après coup. Réservé à Allan, Nicolas et Louise.
+
 ### 8 novembre
 - **Ivo vérifie au lieu de se fier à sa mémoire** : ses consignes, devenues un empilement de règles au fil des erreurs, sont réécrites autour d'un seul principe. Tout ce qu'il affirme (piano, n° de série, prix, technicien, statut) doit venir de Gazelle ou de Front, consultés dans sa réponse ; sinon il écrit « à vérifier ». Il voit maintenant le n° de série de chaque piano d'un client. Le cahier peut désormais être réécrit en une version complète au lieu d'accumuler des corrections.
 

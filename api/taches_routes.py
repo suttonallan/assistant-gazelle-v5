@@ -1587,6 +1587,67 @@ def modifier_rendez_vous(eid: str, m: ModifRvIn):
     return payload.get("event")
 
 
+class PianosRvIn(BaseModel):
+    retirer: List[str] = []   # ins_… à enlever du RV
+    ajouter: List[str] = []   # ins_… à mettre sur le RV
+
+
+_Q_RV_PIANOS = """query($id: String!) { event(eventId: $id) { id title start duration status notes type
+  client { id } user { id } allEventPianos(first: 20) { nodes { isTuning piano { id } } } } }"""
+
+
+def _rv_pianos(gz, eid: str) -> Dict[str, Any]:
+    res = gz._execute_query(_Q_RV_PIANOS, {"id": eid}) or {}
+    if res.get("errors"):
+        raise HTTPException(502, f"Gazelle : {res['errors']}")
+    ev = (res.get("data") or {}).get("event")
+    if not ev:
+        raise HTTPException(404, f"RV {eid} introuvable dans Gazelle")
+    return ev
+
+
+@router.post("/gazelle/rendez-vous/{eid}/pianos")
+def changer_pianos_rv(eid: str, b: PianosRvIn):
+    """Remplace un ou des pianos d'un RV existant (ex. Steinway B → Steinway D). Les autres pianos
+    du RV et leur case « accord » sont gardés ; rien d'autre n'est modifié (heure, technicien,
+    titre, notes, client) et aucun courriel n'est envoyé au client. Vérifie le résultat après coup."""
+    from core.gazelle_api_client import GazelleAPIClient
+    if not eid.startswith("evt_"):
+        raise HTTPException(400, "Identifiant de RV invalide (evt_…)")
+    if not (b.retirer or b.ajouter) or any(not x.startswith("ins_") for x in b.retirer + b.ajouter):
+        raise HTTPException(400, "Donne des pianos ins_… à retirer et/ou à ajouter")
+    gz = GazelleAPIClient()
+    avant = _rv_pianos(gz, eid)
+    noeuds = (avant.get("allEventPianos") or {}).get("nodes") or []
+    actuels = [(((n.get("piano") or {}).get("id")), bool(n.get("isTuning"))) for n in noeuds]
+    ids_actuels = [i for i, _ in actuels]
+    accord_defaut = any(t for _, t in actuels) or not actuels
+    voulus = [(i, t) for i, t in actuels if i not in b.retirer]
+    voulus += [(i, accord_defaut) for i in b.ajouter if i not in [v[0] for v in voulus]]
+    if [i for i, _ in voulus] == ids_actuels:
+        return {"change": False, "pianos": ids_actuels, "message": "Le RV avait déjà ces pianos : rien modifié."}
+    if not voulus:
+        raise HTTPException(400, "Un RV ne peut pas rester sans piano")
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id } mutationErrors { fieldName messages } } }"""
+    res = gz._execute_query(mut, {"id": eid, "input": {"pianos": [{"pianoId": i, "isTuning": t} for i, t in voulus]}})
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if (isinstance(res, dict) and res.get("errors")) or payload.get("mutationErrors") or not payload.get("event"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors') or res.get('errors')}")
+    apres = _rv_pianos(gz, eid)
+    ids_apres = [((n.get("piano") or {}).get("id")) for n in ((apres.get("allEventPianos") or {}).get("nodes") or [])]
+    avert = []
+    if sorted(ids_apres) != sorted(i for i, _ in voulus):
+        avert.append(f"Pianos dans Gazelle après le changement : {ids_apres} (attendu : {[i for i, _ in voulus]})")
+    for c in ("title", "start", "duration", "notes", "status", "type"):
+        if apres.get(c) != avant.get(c):
+            avert.append(f"« {c} » a changé : {avant.get(c)!r} → {apres.get(c)!r}")
+    for c in ("client", "user"):
+        if (apres.get(c) or {}).get("id") != (avant.get(c) or {}).get("id"):
+            avert.append(f"« {c} » a changé")
+    return {"change": True, "avant": ids_actuels, "pianos": ids_apres, "avertissements": avert}
+
+
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
 _Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""

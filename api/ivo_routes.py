@@ -551,6 +551,13 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return _dossier_front(arg)
         if nom == "lire_rv":
             return _lire_rv(arg)
+        if nom == "changer_pianos_rv":
+            from api.taches_routes import changer_pianos_rv, PianosRvIn
+            r = changer_pianos_rv(arg["rv_id"], PianosRvIn(retirer=arg.get("retirer") or [], ajouter=arg.get("ajouter") or []))
+            if not r.get("change"):
+                return r["message"]
+            return (f"Pianos du RV {arg['rv_id']} : avant {r['avant']}, maintenant {r['pianos']}."
+                    + (" ⚠️ " + " ; ".join(r["avertissements"]) if r.get("avertissements") else ""))
         if nom == "transmettre_a_claude":
             return _transmettre_a_claude(arg)
         if nom == "creer_rendez_vous":
@@ -679,6 +686,15 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
                          "toute question sur un RV précis ou une alerte du vérificateur quotidien."),
          "input_schema": {"type": "object", "required": ["rv_id"],
                           "properties": {"rv_id": {"type": "string"}}}},
+        {"name": "changer_pianos_rv",
+         "description": ("Change le ou les pianos d'un RV Gazelle EXISTANT (evt_…), ex. remplacer le Steinway B par le "
+                         "Steinway D. Ne touche à rien d'autre (heure, technicien, notes) et n'écrit pas au client. "
+                         "Trouve d'abord les ins_… avec « lire_rv » (pianos du RV) et « chercher_client » (pianos du client). "
+                         "Seulement sur ordre explicite de l'équipe ; pour plusieurs RV, un appel par RV, puis rapporte RV par RV."),
+         "input_schema": {"type": "object", "required": ["rv_id"], "properties": {
+             "rv_id": {"type": "string"},
+             "retirer": {"type": "array", "items": {"type": "string"}, "description": "ins_… à enlever du RV"},
+             "ajouter": {"type": "array", "items": {"type": "string"}, "description": "ins_… à mettre sur le RV"}}}},
         {"name": "creer_client",
          "description": "Crée une fiche client potentiel dans Gazelle (refuse si une fiche existe déjà avec ce courriel ou ce téléphone).",
          "input_schema": {"type": "object", "required": ["prenom", "nom"], "properties": {
