@@ -1648,6 +1648,54 @@ def changer_pianos_rv(eid: str, b: PianosRvIn):
     return {"change": True, "avant": ids_actuels, "pianos": ids_apres, "avertissements": avert}
 
 
+class NoteServicePiano(BaseModel):
+    piano_id: str
+    notes: str
+
+
+class CompleterRvIn(BaseModel):
+    notes: List[NoteServicePiano]
+
+
+@router.post("/gazelle/rendez-vous/{eid}/completer")
+def completer_rv(eid: str, b: CompleterRvIn):
+    """Complète un RV passé resté « actif » et crée son entrée de service (historique du piano),
+    comme le technicien le fait dans l'appli Gazelle. Ex. : « Accord 440Hz … stat 11 » — le
+    « stat » est ensuite repris par l'assistant pour le stationnement de Place des Arts.
+    Refuse un RV futur, déjà complété, ou un piano qui n'est pas sur le RV."""
+    from core.gazelle_api_client import GazelleAPIClient
+    if not eid.startswith("evt_"):
+        raise HTTPException(400, "Identifiant de RV invalide (evt_…)")
+    if not b.notes or any(not n.piano_id.startswith("ins_") or not n.notes.strip() for n in b.notes):
+        raise HTTPException(400, "Donne au moins une note de service non vide par piano ins_…")
+    gz = GazelleAPIClient()
+    ev = _evenement(gz, eid)
+    if not ev:
+        raise HTTPException(404, f"RV {eid} introuvable dans Gazelle")
+    if ev.get("type") != "APPOINTMENT":
+        raise HTTPException(400, f"Ce n'est pas un RV client (type {ev.get('type')})")
+    if ev.get("status") != "ACTIVE":
+        raise HTTPException(409, f"RV déjà traité (statut {ev.get('status')}) : rien modifié")
+    debut = datetime.fromisoformat((ev.get("start") or "").replace("Z", "+00:00"))
+    if debut > datetime.now(timezone.utc):
+        raise HTTPException(400, "Ce RV n'a pas encore eu lieu : rien modifié")
+    sur_rv = {((n.get("piano") or {}).get("id")) for n in ((ev.get("allEventPianos") or {}).get("nodes") or [])}
+    hors = [n.piano_id for n in b.notes if n.piano_id not in sur_rv]
+    if hors:
+        raise HTTPException(400, f"Pianos absents du RV : {hors} (pianos du RV : {sorted(sur_rv)})")
+    mut = """mutation($eventId: String!, $input: PrivateCompleteEventInput!) {
+      completeEvent(eventId: $eventId, input: $input) { event { id status } mutationErrors { fieldName messages } } }"""
+    res = gz._execute_query(mut, {"eventId": eid, "input": {
+        "resultType": "COMPLETE",
+        "serviceHistoryNotes": [{"pianoId": n.piano_id, "notes": n.notes.strip()} for n in b.notes]}}) or {}
+    payload = (res.get("data") or {}).get("completeEvent") or {}
+    if res.get("errors") or payload.get("mutationErrors") or not payload.get("event"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors') or res.get('errors')}")
+    apres = _evenement(gz, eid)
+    return {"complete": apres.get("status") == "COMPLETE", "statut": apres.get("status"),
+            "pianos": [n.piano_id for n in b.notes]}
+
+
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
 _Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""

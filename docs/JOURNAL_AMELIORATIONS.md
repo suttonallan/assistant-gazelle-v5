@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 9 novembre
+- **Compléter un RV oublié** : Claude peut maintenant compléter dans Gazelle un RV passé resté « actif » et y écrire l'entrée de service (ex. « Accord 440Hz … stat 11 »), comme le technicien le fait dans l'appli. Refusé pour un RV futur ou déjà complété ; le stationnement écrit est repris par l'assistant pour Place des Arts.
 - **Changer le piano d'un RV existant** : Ivo (et Claude) peuvent maintenant remplacer le piano lié à un RV Gazelle déjà créé, par exemple passer du Steinway B au Steinway D pour toute une série de RV de Place des Arts. Rien d'autre du RV ne bouge, le client ne reçoit rien, et le résultat est vérifié après coup. Réservé à Allan, Nicolas et Louise.
 
 ### 8 novembre
