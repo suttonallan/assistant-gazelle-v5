@@ -876,7 +876,10 @@ def creer_soumission(s: SoumissionIn):
     tiers = [{"sequenceNumber": 0, "isPrimary": True, "estimateTierGroups": [], "ungroupedEstimateTierItems": items}]
     if s.completer_id:
         try:
-            r = gz.update_estimate(s.completer_id, {"estimateTiers": tiers})
+            maj = {"estimateTiers": tiers}
+            if s.notes:
+                maj["notes"] = s.notes
+            r = gz.update_estimate(s.completer_id, maj)
         except Exception as e:
             raise HTTPException(502, f"updateEstimate : {e}")
         return {"numero": (r or {}).get("number"), "id": s.completer_id, "total_avant_taxes": sum(l.montant for l in s.lignes)}
