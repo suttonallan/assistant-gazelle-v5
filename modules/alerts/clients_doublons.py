@@ -30,6 +30,12 @@ GROUPES_DISTINCTS = [
     frozenset(["cli_FvBoegI0bkl5m6zF", "cli_eiyU2axIhgdojFp8"]),
     frozenset(["cli_AnsIrmfi98tw8eAy", "cli_pEiTGamQJQkRfB6y"]),
     frozenset(["cli_3HyEFPaeNgWHntw5", "cli_RMe7Ou9JqVfmJMPi"]),
+    # Revue d'Allan du 2026-11-09 : salles distinctes (Laval / La Centrale des artistes) ; famille Saine
+    frozenset(["cli_hySIn9ragiyZS6xJ", "cli_fz3KOcZ9f6TVxFzT", "cli_m4dtWS5I48fd0LFR", "cli_NpuoT9s95zceMRZu",
+               "cli_9bOiYugrPuK1V7lg", "cli_7tuz3klY6LIfSsLX", "cli_cY3HP7BYzSZCNH83", "cli_1D0tr1cU7y2XZudC",
+               "cli_RDazrzvFXdAa6YP5", "cli_0KS8XPStyxfu7AB0", "cli_sHlmLdMQXSwKw9B4", "cli_WCwkYKBmPGn1j8aN",
+               "cli_0hi60wvacEkVRGs8", "cli_txPDcwntt2XjYkec"]),
+    frozenset(["cli_2awXRVQ0BtoqMeoj", "cli_lISkw6wJoMZbPOxo"]),
 ]
 
 # (fiche à garder, [fiches à fusionner dedans]) — décidé par Allan le 2026-10-28
@@ -57,6 +63,11 @@ FUSIONS_APPROUVEES = [
     ("cli_YAMhe6RrYuQdnOU0", ["cli_FqCVEAFrmm8Jlz35"]),
     ("cli_B0XU6QcA25OdhbFt", ["cli_sPbbTPfYCXIH2Vvf"]),
     ("cli_ZPzdGn6W7FSI7rOQ", ["cli_KIAVDe4IXTPCqb8d"]),
+    # Revue d'Allan du 2026-11-09 (rapport hebdomadaire, groupes 1 à 4 ; Collège Lasalle gardé à part)
+    ("cli_7veZWO3CaX2qA2Ao", ["cli_PHascFFZQdwRNTa4"]),
+    ("cli_khlZrUDUgFUsjZvP", ["cli_rdxekRVHRB00rYhA", "cli_zFLwwqz4dCjGFfZw"]),
+    ("cli_SbTVk9tTHbDPyux9", ["cli_mXmtQDGX1dfO6VK2"]),
+    ("cli_Q0SyBZrdncKETeZ3", ["cli_R3BwUavur3KVb3UR"]),
 ]
 
 _DEJA_REVUS = [frozenset([t, *s]) for t, s in FUSIONS_APPROUVEES]
