@@ -132,7 +132,7 @@ def lister(archives: bool = False, statut: Optional[str] = None, sujet: Optional
 def a_voter(request: Request):
     """Nombre de points qui attendent le vote de la personne connectée (pastille du menu)."""
     q = _qui(request)
-    rows = _check(requests.get(_url("?select=votes,votants,statut&archive=eq.false&statut=in.(en_attente,a_discuter)"),
+    rows = _check(requests.get(_url("?select=votes,votants,statut&archive=eq.false&realisee_le=is.null&statut=in.(en_attente,a_discuter)"),
                                headers=_h(), timeout=15)) or []
     if not q:
         return {"n": 0}
