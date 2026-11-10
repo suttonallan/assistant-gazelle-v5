@@ -65,8 +65,9 @@ def _chiffres(v: Any) -> str:
 
 
 def telephone_du_sujet(sujet: str) -> Optional[str]:
-    """« Nouveau message vocal de (514) 592-8664 … » / « 📩 SMS Reçu de +15145928664 »."""
-    m = re.search(r"(?:message vocal de|SMS Re[çc]u de)\s*([+\d()\s.\-]{10,20})", sujet or "", re.I)
+    """« Nouveau message vocal de (514) 592-8664 … », « … de SEGAL HELEN INT (514) 684-0409 … »
+    (nom de l'afficheur avant le numéro) / « 📩 SMS Reçu de +15145928664 »."""
+    m = re.search(r"(?:message vocal de|SMS Re[çc]u de)[^()+\d]{0,60}?([+\d()\s.\-]{10,20})", sujet or "", re.I)
     if not m:
         return None
     d = _chiffres(m.group(1))
@@ -213,9 +214,119 @@ def verifier_messages() -> Dict[str, int]:
         except Exception as e:
             print(f"⚠️ Commentaire Front impossible ({conv['id']}) : {e}")
 
+    try:
+        stats["deja_repondus"] = signaler_reponses_ailleurs(front, convs, deja, nouveaux)
+    except Exception as e:
+        print(f"⚠️ Vérification « répondu ailleurs » impossible : {e}")
+
     if nouveaux:
         db.save_system_setting(CLE_SIGNALES, (deja + nouveaux)[-500:])
     return stats
+
+
+# ─── Message vocal / texto déjà répondu dans un autre fil ─────────────────
+#
+# Cas réel (2026-11-05, Helen Segal) : la cliente laisse un message vocal, puis
+# écrit un courriel. On lui répond par courriel, mais le fil du message vocal
+# reste ouvert, sans trace : Louise se demande si quelqu'un s'en est occupé.
+#
+# Règle générale : un avis de message vocal ou de texto encore ouvert dans
+# info@, où l'équipe n'a rien écrit, reçoit un commentaire si l'équipe a ENVOYÉ
+# (pas un brouillon) un courriel à ce même client APRÈS le message, dans un
+# autre fil. Comme pour l'avis de RV, rien n'est archivé : Louise lit la note
+# et ferme elle-même (le courriel peut porter sur autre chose que l'appel).
+
+def _courriels_du_client(client_id: str) -> List[str]:
+    from core.supabase_storage import SupabaseStorage
+    db = SupabaseStorage()
+    h = db._get_headers()
+    trouves: List[str] = []
+    for table, champ in (("gazelle_clients", "external_id"), ("gazelle_contacts", "client_external_id")):
+        try:
+            r = requests.get(f"{db.api_url}/{table}", headers=h, timeout=15,
+                             params={"select": "email", champ: f"eq.{client_id}", "limit": "10"})
+            lignes = r.json() if r.status_code == 200 else []
+        except Exception:
+            lignes = []
+        for l in lignes:
+            c = (l.get("email") or "").strip().lower()
+            if "@" in c and not c.split("@")[1].endswith(DOMAINES_IGNORES) and c not in trouves:
+                trouves.append(c)
+    return trouves
+
+
+def _heure_montreal(ts: float) -> str:
+    from core.timezone_utils import MONTREAL_TZ
+    d = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(MONTREAL_TZ)
+    return f"{JOURS[d.weekday()]} {d.day} {MOIS[d.month - 1]} à {d.hour} h {d.minute:02d}"
+
+
+def reponse_envoyee_ailleurs(front, conv_id: str, depuis: float,
+                             courriels: List[str]) -> Optional[Dict[str, Any]]:
+    """Premier courriel ENVOYÉ par l'équipe à l'un de ces courriels après `depuis`,
+    dans une autre conversation que `conv_id`. None si aucun."""
+    meilleur = None
+    for courriel in courriels:
+        try:
+            autres = front.conversations_contact(courriel, limit=15).get("conversations", [])
+        except Exception:
+            continue
+        for c in autres:
+            if c.get("id") == conv_id:
+                continue
+            if ((c.get("last_message") or {}).get("created_at") or 0) < depuis:
+                continue
+            try:
+                messages = front.list_messages(c["id"])
+            except Exception:
+                continue
+            for m in messages:
+                t = m.get("created_at") or 0
+                if m.get("is_inbound") or m.get("is_draft") or t < depuis:
+                    continue
+                destinataires = [(r.get("handle") or "").lower() for r in (m.get("recipients") or [])
+                                 if r.get("role") in ("to", "cc", "bcc")]
+                if courriel not in destinataires:
+                    continue
+                if not meilleur or t < meilleur["t"]:
+                    meilleur = {"t": t, "sujet": c.get("subject") or "(sans objet)"}
+    return meilleur
+
+
+def signaler_reponses_ailleurs(front, convs: List[Dict[str, Any]], deja: List[str],
+                               nouveaux: List[str]) -> int:
+    n = 0
+    for conv in convs:
+        tel = telephone_du_sujet(conv.get("subject", ""))
+        if not tel:
+            continue  # seulement les avis de message vocal / texto
+        cle = f"repondu:{conv['id']}"
+        if cle in deja or cle in nouveaux:
+            continue
+        dernier = conv.get("last_message") or {}
+        if dernier and dernier.get("is_inbound") is False:
+            continue  # l'équipe a déjà écrit dans ce fil
+        client_id = _client_par_telephone(tel)
+        if not client_id:
+            continue
+        courriels = _courriels_du_client(client_id)
+        if not courriels:
+            continue
+        # Référence : le DERNIER message reçu (Front peut regrouper plusieurs avis).
+        depuis = dernier.get("created_at") or conv.get("created_at") or 0
+        rep = reponse_envoyee_ailleurs(front, conv["id"], depuis, courriels)
+        if not rep:
+            continue
+        texte = (f"✅ {nom_client(client_id)} a déjà reçu une réponse par courriel "
+                 f"{_heure_montreal(rep['t'])}, dans le fil « {rep['sujet']} ». "
+                 "Vérifier que ça couvre bien l'appel, puis archiver ce fil. (Ivo)")
+        try:
+            front.add_comment(conv["id"], texte, AUTEUR_COMMENTAIRE)
+            nouveaux.append(cle)
+            n += 1
+        except Exception as e:
+            print(f"⚠️ Commentaire Front impossible ({conv['id']}) : {e}")
+    return n
 
 
 if __name__ == "__main__":

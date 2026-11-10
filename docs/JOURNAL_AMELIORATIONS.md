@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 10 novembre
+- **Message vocal déjà répondu ailleurs** : quand un client laisse un message vocal ou un texto, puis reçoit une réponse de l'équipe par courriel dans un autre fil, Ivo l'écrit maintenant dans le fil du message vocal (date de la réponse et nom du fil). Louise voit tout de suite qu'une réponse a été envoyée (il faut que la fiche Gazelle ait le numéro et le courriel). Rien n'est archivé automatiquement. Aussi : les messages vocaux dont l'afficheur montre un nom avant le numéro (ex. « SEGAL HELEN ») sont maintenant bien reliés à la fiche Gazelle, aussi pour l'avis « a déjà un rendez-vous ».
 - **Ivo vérifie que tous les services de Place des Arts sont dans l'assistant** : à la question « est-ce que tous les services de PdA sont bien dans l'assistant ? », Ivo compare les RV Place des Arts de Gazelle (60 derniers jours et à venir) avec l'onglet Place des Arts, répond oui ou non et liste ce qui manque (date, technicien, piano, fait ou à venir). Il signale aussi les demandes du mois dont la date est passée sans RV Gazelle. Lecture seule : rien n'est modifié.
 
 ### 9 novembre
