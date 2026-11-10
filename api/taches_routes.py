@@ -989,6 +989,45 @@ def factures_client(client_id: str = Query(...)):
     return res
 
 
+_Q_FACTURES_ECHUES = """query($f: PrivateAllInvoicesFilter, $after: String) {
+  allInvoices(first: 100, after: $after, filters: $f) {
+    pageInfo { hasNextPage endCursor }
+    nodes { id number status createdAt dueOn total
+      client { id companyName defaultContact { firstName lastName } }
+      altBillingCompanyName assignedTo { id firstName }
+      allInvoicePayments { nodes { id type amount paidAt notes } } } } }"""
+
+
+@router.get("/gazelle/factures-echues")
+def factures_echues():
+    """LECTURE — toutes les factures Gazelle au statut OVERDUE (échues), avec paiements déjà inscrits."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    out, after = [], None
+    for _ in range(20):
+        res = gz._execute_query(_Q_FACTURES_ECHUES, {"f": {"status": "OVERDUE"}, "after": after})
+        if res.get("errors"):
+            raise HTTPException(502, str(res["errors"]))
+        page = (res.get("data") or {}).get("allInvoices") or {}
+        out.extend(page.get("nodes") or [])
+        if not (page.get("pageInfo") or {}).get("hasNextPage"):
+            break
+        after = page["pageInfo"]["endCursor"]
+    return {"nombre": len(out), "factures": out}
+
+
+@router.get("/gazelle/schema/type")
+def schema_type(nom: str = Query(...)):
+    """LECTURE — introspection GraphQL d'un type Gazelle (champs, arguments). Aucune donnée client."""
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """query($n: String!) { __type(name: $n) { name kind
+      fields { name args { name type { name kind ofType { name kind ofType { name } } } }
+        type { name kind ofType { name } } }
+      inputFields { name type { name kind ofType { name kind ofType { name } } } }
+      enumValues { name } } }"""
+    return GazelleAPIClient()._execute_query(q, {"n": nom})
+
+
 class LigneFacture(BaseModel):
     description: str
     montant: float  # dollars, quantité 1
