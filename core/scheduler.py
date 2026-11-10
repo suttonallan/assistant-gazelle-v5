@@ -990,6 +990,19 @@ def task_zoom_transcriptions():
     return res
 
 
+def task_ivo_cas_tests():
+    """Chaque nuit : rejoue les cas de test d'Ivo ; courriel à Allan seulement en cas d'échec."""
+    try:
+        from core.ivo_cas_tests import executer
+        res = executer()
+        print(f"🧪 Cas de test d'Ivo : {res['reussis']}/{res['total']} réussis")
+        return res
+    except Exception as e:
+        print(f"❌ Erreur cas de test d'Ivo : {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def configure_jobs(scheduler: BackgroundScheduler):
     """
     Configure toutes les tâches planifiées.
@@ -1291,6 +1304,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 22:00 - Enrichissement items RV du lendemain configuré")
+
+    # 03:30 - Cas de test d'Ivo (horaire figé)
+    scheduler.add_job(
+        task_ivo_cas_tests,
+        trigger=CronTrigger(hour=3, minute=30, timezone='America/Montreal'),
+        id='ivo_cas_tests',
+        name="Cas de test d'Ivo",
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 03:30 - Cas de test d'Ivo configuré")
 
     print("\n✅ Toutes les tâches planifiées sont configurées\n")
     print("ℹ️  Note: Le Rapport Timeline est généré par GitHub Actions (full_gazelle_sync.yml), pas par le scheduler Render\n")

@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "2026-11-09-soumission-neuve"
+VERSION = "2026-11-10-horaire-outil"
 MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -142,7 +142,9 @@ Prix et frais : jamais devinés. Le prix doit correspondre au service ET à la d
 
 Brouillon au client : langue du client, vouvoiement, pas de signature dans le corps (Front l'ajoute) : termine par la formule de politesse. Tu ne fais que préparer : un humain relit et envoie.
 
-Horaire : sers-toi UNIQUEMENT de l'HORAIRE DE L'ÉQUIPE fourni (RV clients avec ville et code postal ; « occupé » = bloc personnel, dont tu ne mentionnes jamais la nature). Raisonne sur la géographie, propose concrètement qui, quel jour et à quelle heure, et dis quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot.
+Principe premier : VÉRIFIE AVANT D'AFFIRMER. Tes outils lisent Gazelle et Front en direct ; ta mémoire et le cahier ne remplacent jamais une vérification. N'écris jamais qu'une information manque, qu'elle est inconnue ou qu'une chose est impossible sans avoir d'abord appelé l'outil qui la donne ; si un outil renvoie un résultat étrange, dis exactement ce qu'il a renvoyé au lieu de généraliser.
+
+Horaire : appelle « consulter_horaire » pour les dates en jeu (avec « secteur » = ville, quartier ou début de code postal du client et des villes voisines quand la géographie compte). Il donne chaque RV avec sa ville et son code postal, les RV déjà prévus dans le secteur (à jumeler) et les plages libres de chaque technicien. « Occupé » = bloc personnel, dont tu ne mentionnes jamais la nature. Raisonne sur la géographie et la route, propose concrètement qui, quel jour et à quelle heure, et dis quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot.
 Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ».
 
 Actions :
@@ -182,18 +184,26 @@ def _villes_clients(ids: set) -> Dict[str, str]:
     return sortie
 
 
-def _horaire(jours: int = 45) -> str:
-    """Horaire de l'équipe (lecture seule) : RV clients avec ville, blocs perso réduits à « occupé »."""
+_NOMS_TECH = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_tndhXmnT0iakT4HF": "Allan",
+              "usr_ReUSmIJmBF86ilY1": "JP", "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot",
+              "usr_HihJsEgkmpTEziJo": "À attribuer"}
+_EVTS_TEST = contextvars.ContextVar("ivo_evts_test", default=None)   # horaire figé des cas de test
+
+
+def _evenements(debut, fin) -> List[Dict[str, Any]]:
+    """RV et blocs de l'équipe entre deux dates (Gazelle en direct, ou horaire figé en test).
+    Chaque élément : jour, debut/fin (datetime Montréal), tech, client (bool), titre, lieu."""
     from datetime import datetime, timedelta
-    from core.gazelle_api_client import GazelleAPIClient
     from core.timezone_utils import MONTREAL_TZ
-    noms = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_ReUSmIJmBF86ilY1": "JP",
-            "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot", "usr_HihJsEgkmpTEziJo": "À attribuer"}
-    debut = datetime.now(MONTREAL_TZ).date()
-    evs = GazelleAPIClient().get_appointments(start_date_override=debut.isoformat(),
-                                              end_date_override=(debut + timedelta(days=jours)).isoformat()) or []
-    villes = _villes_clients({(e.get("client") or {}).get("id") for e in evs} - {None})
-    lignes = []
+    evs = _EVTS_TEST.get()
+    if evs is None:
+        from core.gazelle_api_client import GazelleAPIClient
+        evs = GazelleAPIClient().get_appointments(start_date_override=debut.isoformat(),
+                                                  end_date_override=(fin + timedelta(days=1)).isoformat()) or []
+        villes = _villes_clients({(e.get("client") or {}).get("id") for e in evs} - {None})
+    else:
+        villes = {}
+    sortie = []
     for e in evs:
         if (e.get("status") or "").upper() in ("CANCELLED", "CANCELED") or (e.get("type") or "") == "MEMO":
             continue
@@ -201,22 +211,92 @@ def _horaire(jours: int = 45) -> str:
             d = datetime.fromisoformat(e["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
         except Exception:
             continue
-        tech = noms.get((e.get("user") or {}).get("id"), "?")
-        fin = d + timedelta(minutes=int(e.get("duration") or 60))
-        if e.get("isAllDay"):
-            quand = f"{d:%Y-%m-%d %a} toute la journée"
-        else:
-            quand = f"{d:%Y-%m-%d %a} {d:%H:%M}-{fin:%H:%M}"
-        if e.get("type") == "APPOINTMENT":
+        if not (debut <= d.date() <= fin):
+            continue
+        client = e.get("type") == "APPOINTMENT"
+        lieu = ""
+        if client:
             loc = e.get("location") or {}
             lieu = (" ".join(x for x in (loc.get("municipality"), loc.get("postalCode")) if x)
                     or (loc.get("singleLineAddress") or "").strip()
-                    or villes.get((e.get("client") or {}).get("id")) or "lieu inconnu")
-            quoi = f"RV client « {(e.get('title') or '')[:40]} » à {lieu}"
-        else:
-            quoi = "occupé"
-        lignes.append((d, f"{quand} — {tech} : {quoi}"))
-    return "\n".join(l for _, l in sorted(lignes))
+                    or villes.get((e.get("client") or {}).get("id")) or "")
+        fin_ev = d + timedelta(minutes=int(e.get("duration") or 60))
+        if e.get("isAllDay"):
+            d, fin_ev = d.replace(hour=0, minute=0), d.replace(hour=23, minute=59)
+        sortie.append({"jour": d.date(), "debut": d, "fin": fin_ev, "journee": bool(e.get("isAllDay")),
+                       "tech": _NOMS_TECH.get((e.get("user") or {}).get("id"), "?"), "client": client,
+                       "titre": (e.get("title") or "")[:40], "lieu": lieu})
+    return sorted(sortie, key=lambda x: (x["debut"], x["tech"]))
+
+
+def _ligne_ev(x: Dict[str, Any]) -> str:
+    quand = (f"{x['jour']:%Y-%m-%d %a} toute la journée" if x["journee"]
+             else f"{x['jour']:%Y-%m-%d %a} {x['debut']:%H:%M}-{x['fin']:%H:%M}")
+    quoi = (f"RV client « {x['titre']} » à {x['lieu'] or 'adresse absente de Gazelle'}" if x["client"] else "occupé")
+    return f"{quand} — {x['tech']} : {quoi}"
+
+
+def _horaire(jours: int = 45) -> str:
+    """Horaire de l'équipe (lecture seule) : RV clients avec ville, blocs perso réduits à « occupé »."""
+    from datetime import datetime, timedelta
+    from core.timezone_utils import MONTREAL_TZ
+    debut = datetime.now(MONTREAL_TZ).date()
+    return "\n".join(_ligne_ev(x) for x in _evenements(debut, debut + timedelta(days=jours)))
+
+
+def _consulter_horaire(arg: Dict[str, Any]) -> str:
+    """Outil d'Ivo : horaire d'une période, RV dans un secteur, et plages libres de chaque technicien."""
+    from datetime import date, datetime, timedelta
+    from core.timezone_utils import MONTREAL_TZ
+    try:
+        debut = date.fromisoformat(arg["debut"])
+        fin = date.fromisoformat(arg.get("fin") or arg["debut"])
+        h0, h1 = arg.get("heure_debut") or "08:00", arg.get("heure_fin") or "18:00"
+        datetime.strptime(h0, "%H:%M"), datetime.strptime(h1, "%H:%M")
+    except Exception:
+        return "Dates ou heures illisibles : dates AAAA-MM-JJ, heures HH:MM (ex. 08:00)."
+    if fin < debut:
+        debut, fin = fin, debut
+    if (fin - debut).days > 31:
+        fin = debut + timedelta(days=31)
+    techs = [t for t in (arg.get("techniciens") or ["Nicolas", "JP", "Margot"])]
+    evs = _evenements(debut, fin)
+    parties = [f"HORAIRE du {debut} au {fin} (heure de Montréal ; « occupé » = bloc personnel, nature jamais mentionnée) :"]
+    parties += [_ligne_ev(x) for x in evs if x["tech"] in techs or x["tech"] in ("À attribuer", "?")] or ["(rien à l'horaire)"]
+    brut = arg.get("secteur")
+    brut = [brut] if isinstance(brut, str) else (brut or [])
+    secteur = [s.strip().lower() for s in brut if s and s.strip()]
+    if secteur:
+        proches = [x for x in evs if x["client"] and any(s in x["lieu"].lower() for s in secteur)]
+        parties.append(f"\nRV DANS LE SECTEUR ({', '.join(brut)}) — tous techniciens, à jumeler si possible :")
+        parties += [_ligne_ev(x) for x in proches] or ["(aucun RV dans ce secteur pendant cette période)"]
+    sans_lieu = sum(1 for x in evs if x["client"] and not x["lieu"])
+    if sans_lieu:
+        parties.append(f"\n({sans_lieu} RV sans adresse dans Gazelle : ce sont des exceptions, pas tout l'horaire.)")
+    parties.append(f"\nPLAGES LIBRES ({h0}-{h1}, durée en minutes ; la route n'est pas déduite) :")
+    j = debut
+    while j <= fin:
+        if j.weekday() < 5:
+            bornes = (datetime.combine(j, datetime.strptime(h0, "%H:%M").time(), MONTREAL_TZ),
+                      datetime.combine(j, datetime.strptime(h1, "%H:%M").time(), MONTREAL_TZ))
+            morceaux = []
+            for t in techs:
+                pris = sorted((max(x["debut"], bornes[0]), min(x["fin"], bornes[1]))
+                              for x in evs if x["tech"] == t and x["jour"] == j
+                              and x["fin"] > bornes[0] and x["debut"] < bornes[1])
+                libres, curseur = [], bornes[0]
+                for a, b in pris:
+                    if a > curseur:
+                        libres.append((curseur, a))
+                    curseur = max(curseur, b)
+                if curseur < bornes[1]:
+                    libres.append((curseur, bornes[1]))
+                txt = ", ".join(f"{a:%H:%M}-{b:%H:%M} ({int((b - a).total_seconds() // 60)})"
+                                for a, b in libres if (b - a).total_seconds() >= 1800)
+                morceaux.append(f"{t} : {txt or 'aucune'}")
+            parties.append(f"{j:%Y-%m-%d %a} — " + " ; ".join(morceaux))
+        j += timedelta(days=1)
+    return "\n".join(parties)[:15000]
 
 
 def _factures_resume(client_id: str) -> str:
@@ -454,7 +534,11 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
         (_CTX.get() or {}).setdefault("bloques", []).append(nom)
         return _ir.MESSAGE_LECTURE_SEULE
+    if _EVTS_TEST.get() is not None and nom != "consulter_horaire":
+        return "Outil non disponible pendant un cas de test : réponds avec l'horaire (« consulter_horaire »)."
     try:
+        if nom == "consulter_horaire":
+            return _consulter_horaire(arg)
         if nom == "analyser_photos":
             photos = (_CTX.get() or {}).get("photos") or []
             if not photos:
@@ -624,11 +708,6 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
     ton = _guide_ton()
     if ton:
         systeme += "\n\nGuide de ton de PTM (extrait) :\n" + ton
-    try:
-        horaire = _horaire()
-    except Exception:
-        _log.exception("Ivo : horaire indisponible")
-        horaire = "(horaire indisponible pour l'instant)"
     from core.timezone_utils import MONTREAL_TZ
     from datetime import datetime
     try:
@@ -639,7 +718,7 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
     contenu = (f"AUJOURD'HUI : {datetime.now(MONTREAL_TZ):%Y-%m-%d %A}\n\n"
                + (f"GRILLE DES TARIFS DE PTM (liste des services de Gazelle, avant taxes) :\n{tarifs}\n\n" if tarifs
                   else "GRILLE DES TARIFS : indisponible — mets [prix à confirmer] plutôt que de deviner.\n\n")
-               + f"HORAIRE DE L'ÉQUIPE (45 prochains jours) :\n{horaire}\n\n"
+               + "HORAIRE DE L'ÉQUIPE : consulte-le avec l'outil « consulter_horaire » (Gazelle en direct).\n\n"
                f"FIL DE LA CONVERSATION (du plus ancien au plus récent) :\n{fil}\n\n"
                f"BROUILLON ACTUEL :\n{brouillon or '(aucun — rédige une première réponse)'}\n\n"
                + (f"ÉCHANGES PRÉCÉDENTS AVEC IVO DANS CE FIL (pour comprendre « oui », « vas-y », etc.) :\n{echanges}\n\n"
@@ -658,6 +737,19 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
                          "le fil indique des photos jointes, avant de répondre ou de rédiger."),
          "input_schema": {"type": "object", "properties": {
              "contexte": {"type": ["string", "null"], "description": "Ce que le client dit de son piano (héritage, achat, etc.)"}}}},
+        {"name": "consulter_horaire",
+         "description": ("Horaire de l'équipe EN DIRECT dans Gazelle pour une période : chaque RV avec ville et code "
+                         "postal, les RV déjà prévus dans un secteur (pour jumeler) et les plages libres de chaque "
+                         "technicien. À appeler avant toute réponse sur des disponibilités, un secteur ou un jumelage."),
+         "input_schema": {"type": "object", "required": ["debut"], "properties": {
+             "debut": {"type": "string", "description": "AAAA-MM-JJ"},
+             "fin": {"type": ["string", "null"], "description": "AAAA-MM-JJ (31 jours au plus)"},
+             "techniciens": {"type": ["array", "null"], "items": {"type": "string", "enum": ["Nicolas", "JP", "Margot", "Allan"]},
+                             "description": "Par défaut Nicolas, JP et Margot."},
+             "secteur": {"type": ["array", "null"], "items": {"type": "string"},
+                         "description": "Villes, quartiers ou débuts de code postal du secteur, ex. [\"Lorraine\", \"J6Z\", \"Rosemère\", \"Blainville\"]"},
+             "heure_debut": {"type": ["string", "null"], "description": "HH:MM, début de la plage du client (défaut 08:00)"},
+             "heure_fin": {"type": ["string", "null"], "description": "HH:MM, fin de la plage du client (défaut 18:00)"}}}},
         {"name": "frais_deplacement",
          "description": "Calculateur officiel des frais de déplacement PTM pour une adresse ou un code postal client.",
          "input_schema": {"type": "object", "required": ["adresse"],
@@ -1073,6 +1165,28 @@ def surveiller_maintenant():
 def journal():
     """Les derniers traitements d'Ivo (diagnostic, sans contenu de courriel)."""
     return {"derniers": _derniers}
+
+
+_tests_en_cours = {"depuis": 0.0}
+
+
+@router.post("/tests")
+def lancer_tests(background_tasks: BackgroundTasks):
+    """Rejoue les cas de test d'Ivo (horaire figé) ; résultats via GET /tests dans quelques minutes."""
+    import time
+    if time.time() - _tests_en_cours["depuis"] < 600:
+        return {"lance": False, "message": "Des cas de test ont été lancés il y a moins de 10 minutes."}
+    _tests_en_cours["depuis"] = time.time()
+    from core import ivo_cas_tests
+    background_tasks.add_task(ivo_cas_tests.executer, False)
+    return {"lance": True, "message": "Cas de test lancés ; lire GET /api/front/ivo/tests dans 3 à 5 minutes."}
+
+
+@router.get("/tests")
+def resultats_tests():
+    """Résultats des derniers cas de test d'Ivo."""
+    from core import ivo_cas_tests
+    return ivo_cas_tests.derniers_resultats()
 
 
 @router.get("/horaire")
