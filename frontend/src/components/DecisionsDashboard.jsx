@@ -88,6 +88,7 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
       <div className="text-gray-500 font-semibold tabular-nums pt-0.5">{num}</div>
       <div className="min-w-0">
         <p className="font-semibold mb-1">{d.titre}</p>
+        {d.question && <p className="mb-1 text-[14px] font-semibold" style={{ color: '#b8860b' }}>Question : {d.question}</p>}
         {d.type === 'revision_wp' && Array.isArray(d.changements) && d.changements.length > 0 ? (
           d.changements.map((c, i) => (
             <div key={i} className={i ? 'border-t border-dashed border-stone-200 pt-1 mt-1' : ''}>
@@ -100,7 +101,6 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
         {d.info && <p className="mt-1 text-[13px] text-amber-800 whitespace-pre-line">{d.info}</p>}
         {d.consigne && <p className="mt-1 text-[13px] text-green-700 font-semibold">{d.consigne}</p>}
         {d.recommandation && <p className="mt-1 text-[13px] text-green-700 font-semibold">Recommandation : {d.recommandation}</p>}
-        {d.question && <p className="mt-1 text-[13px] font-semibold" style={{ color: '#b8860b' }}>Question : {d.question}</p>}
         <div className="flex flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-[12.5px] text-gray-500">
           <span className={`px-1.5 py-0.5 rounded border text-[12px] font-semibold ${st.cls}`}>{st.nom}</span>
           {d.page && <span>{d.page}</span>}
