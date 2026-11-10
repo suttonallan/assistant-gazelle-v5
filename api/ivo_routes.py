@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "2026-11-10-horaire-outil"
+VERSION = "2026-11-10-apprentissage-brouillons"
 MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -152,7 +152,7 @@ Actions :
 - Bloquer un technicien (« bloque JP mardi matin ») : « bloquer_technicien » crée un bloc personnel « RÉSERVÉ (à confirmer) », sans avis au client ; ce n'est jamais un vrai RV.
 - Tout ce que sait faire la case de l'assistant de Ma Journée : utilise l'outil correspondant et rapporte son résultat (action "reponse"). Repères : soumission NEUVE (pas de numéro de départ) → chercher_catalogue puis creer_soumission, sans demander de numéro existant ; reprice=true pour réactiver une soumission « à jour » (toujours un brouillon) ; « mes appels » sans nom = la personne qui t'écrit ; « le premier RV » : source_time_hint='premier' ; les heures rendues sont déjà en heure de Montréal ; un lien de réservation se donne tel quel ; frais partagés entre plusieurs clients : calculateur « Frais partagés » de l'assistant.
 
-Apprendre : ce qui est déjà dans le cahier ne se réenseigne pas. Quand l'équipe dit « la prochaine fois… », « dorénavant… », « ne fais plus… », appelle « retenir_regle » avec une règle générale (le cas + quoi faire) et confirme-la. « Quelles sont tes règles ? » : liste-les avec leur numéro ; « oublie la règle 3 » : « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent donner ou retirer une règle.
+Apprendre : ce qui est déjà dans le cahier ne se réenseigne pas. Si ton dernier commentaire dans le fil propose une règle tirée d'une modification de ton brouillon (« Je retiens pour les prochains clients : … ? ») et qu'on te répond oui (ou avec une correction), appelle « retenir_regle » avec cette règle, corrigée s'il y a lieu, puis confirme-la. Quand l'équipe dit « la prochaine fois… », « dorénavant… », « ne fais plus… », appelle « retenir_regle » avec une règle générale (le cas + quoi faire) et confirme-la. « Quelles sont tes règles ? » : liste-les avec leur numéro ; « oublie la règle 3 » : « oublier_regle ». Seuls Allan, Nicolas et Louise peuvent donner ou retirer une règle.
 
 Deux sortes de consignes :
 A) Une correction du brouillon (« plus court », « propose la réservation en ligne »…) → action "brouillon".
@@ -529,6 +529,15 @@ def _transmettre_a_claude(arg: Dict[str, Any]) -> str:
             "Dis-le à l'équipe dans ta note.")
 
 
+def _apres_regle(conversation_id: Optional[str], regle: str) -> None:
+    """Règle retenue après une leçon proposée par Ivo : le cas devient un cas de test de nuit."""
+    try:
+        from core import ivo_apprentissage
+        ivo_apprentissage.regle_retenue(conversation_id, regle)
+    except Exception:
+        _log.exception("Ivo : cas de test appris non enregistré")
+
+
 def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
     from core import ivo_regles as _ir
     if nom in _ir.ACTIONS_RESERVEES and not _ir.peut_agir((_CTX.get() or {}).get("prenom")):
@@ -572,7 +581,22 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return texte
         if nom in ("retenir_regle", "oublier_regle"):
             from core import ivo_regles
-            return ivo_regles.executer(nom, arg, (_CTX.get() or {}).get("prenom"))["message"]
+            oubliee = None
+            if nom == "oublier_regle":
+                try:
+                    oubliee = ivo_regles.lire()[int(arg.get("numero") or 0) - 1]["regle"]
+                except Exception:
+                    oubliee = None
+            res_r = ivo_regles.executer(nom, arg, (_CTX.get() or {}).get("prenom"))
+            if nom == "retenir_regle" and res_r.get("ok"):
+                _apres_regle((_CTX.get() or {}).get("conversation_id"), arg.get("regle") or "")
+            if nom == "oublier_regle" and res_r.get("ok") and oubliee:
+                try:
+                    from core import ivo_apprentissage
+                    ivo_apprentissage.retirer_cas(oubliee)
+                except Exception:
+                    _log.exception("Ivo : cas appris non retiré")
+            return res_r["message"]
         if nom == "demander_assistant":
             import asyncio
             from api.assistant_converse import converse, ConverseRequest, ConverseMessage
@@ -972,6 +996,11 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     else:
         front.create_draft_reply(conversation_id, corps, auteur_email, mode="shared")
         action = "brouillon créé"
+    try:
+        from core import ivo_apprentissage
+        ivo_apprentissage.memoriser_brouillon(conversation_id, nouveau, auteur_email, fil)
+    except Exception:
+        _log.exception("Ivo : brouillon non mémorisé pour l'apprentissage")
 
     reponse = f"{PREFIXE_REPONSE}{action}."
     if res.get("note"):
@@ -979,7 +1008,10 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     regle = (res.get("regle_generale") or "").strip()
     if regle:
         from core import ivo_regles
-        reponse += " " + ivo_regles.ajouter(regle, _PRENOMS.get(auteur_email))["message"]
+        res_regle = ivo_regles.ajouter(regle, _PRENOMS.get(auteur_email))
+        reponse += " " + res_regle["message"]
+        if res_regle.get("ok"):
+            _apres_regle(conversation_id, regle)
     front.add_comment(conversation_id, reponse, auteur_email)
     _transmettre_a_louise(front, conversation_id, auteur_email, consigne)
     return {"statut": "ok", "action": action, "regle": regle or None}
@@ -1060,7 +1092,61 @@ def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
             vus += 1
             _traiter_sans_erreur(conv, cible.get("id"))
     _curseur["t"] = plus_recent
-    return {"evenements": len(evenements), "ivo": vus}
+    envois = 0
+    try:
+        envois = _surveiller_envois(front, fenetre_s)
+    except Exception:
+        _log.exception("Ivo : surveillance des envois impossible")
+    return {"evenements": len(evenements), "ivo": vus, "envois_compares": envois}
+
+
+def _sans_citation(corps_html: str) -> str:
+    """Corps d'un courriel envoyé, sans le texte cité des messages précédents."""
+    t = re.split(r"<blockquote|<div class=\"gmail_quote|<div class=\"front-blockquote", corps_html or "",
+                 maxsplit=1, flags=re.IGNORECASE)[0]
+    t = _texte(t)
+    return re.split(r"\n\s*(Le .{5,120} a écrit\s*:|On .{5,120} wrote\s*:|-{2,}\s*Original Message)", t,
+                    maxsplit=1)[0].strip()
+
+
+def _surveiller_envois(front, fenetre_s: int) -> int:
+    """Réponses envoyées par l'équipe : comparées au dernier brouillon d'Ivo du même fil (apprentissage).
+    Les comparaisons se font dans un fil à part pour ne pas retarder les @Ivo."""
+    import time
+    depuis = _curseur.get("envois") or (time.time() - fenetre_s)
+    plus_recent, a_comparer = depuis, []
+    for type_evt in ("out_reply", "outbound"):
+        rep = requests.get(f"{front.BASE_URL}/events", headers=front._headers(), timeout=15,
+                           params={"q[types]": type_evt, "q[after]": int(depuis), "limit": 15})
+        if rep.status_code >= 400:
+            raise RuntimeError(f"Front {rep.status_code}: {rep.text[:300]}")
+        for e in rep.json().get("_results", []):
+            plus_recent = max(plus_recent, float(e.get("emitted_at") or 0))
+            msg = ((e.get("target") or {}).get("data")) or {}
+            conv = (e.get("conversation") or {}).get("id")
+            if not conv or msg.get("is_draft"):
+                continue
+            with _verrou:
+                cle = "envoi:" + str(msg.get("id") or e.get("id"))
+                if cle in _deja_traites:
+                    continue
+                _deja_traites.add(cle)
+            a_comparer.append((conv, _sans_citation(msg.get("body") or msg.get("text") or "")))
+    _curseur["envois"] = plus_recent
+    if a_comparer:
+        def _comparer_tout(lot):
+            from core import ivo_apprentissage
+            for conv, texte in lot:
+                try:
+                    _derniers_envois.append({"conversation": conv, **ivo_apprentissage.traiter_envoi(conv, texte)})
+                    del _derniers_envois[:-20]
+                except Exception:
+                    _log.exception("Ivo : comparaison brouillon/envoi impossible")
+        threading.Thread(target=_comparer_tout, args=(a_comparer,), daemon=True).start()
+    return len(a_comparer)
+
+
+_derniers_envois: List[Dict[str, Any]] = []
 
 
 # ─── Endpoints ───────────────────────────────────────────────────
@@ -1164,7 +1250,7 @@ def surveiller_maintenant():
 @router.get("/journal")
 def journal():
     """Les derniers traitements d'Ivo (diagnostic, sans contenu de courriel)."""
-    return {"derniers": _derniers}
+    return {"derniers": _derniers, "envois": [{k: v for k, v in x.items() if k != "regle"} for x in _derniers_envois]}
 
 
 _tests_en_cours = {"depuis": 0.0}

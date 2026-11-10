@@ -114,6 +114,13 @@ def cas() -> List[Dict[str, Any]]:
     ]
 
 
+def tous_les_cas() -> List[Dict[str, Any]]:
+    """Cas écrits à la main + cas appris des modifications de brouillons acceptées par l'équipe."""
+    from core import ivo_apprentissage
+    appris = [{**c, "evenements": []} for c in ivo_apprentissage.cas_appris()]
+    return cas() + appris
+
+
 def _juger(c: Dict[str, Any], reponse: str) -> Dict[str, Any]:
     from anthropic import Anthropic
     from api.ivo_routes import MODELE
@@ -143,12 +150,13 @@ def executer(envoyer: bool = True) -> Dict[str, Any]:
     from api import ivo_routes as ivo
     from core.timezone_utils import MONTREAL_TZ
     sortie = []
-    for c in cas():
+    for c in tous_les_cas():
         jeton_evts = ivo._EVTS_TEST.set(c["evenements"])
         jeton_ctx = ivo._CTX.set({"prenom": "Louise"})
         try:
             res = ivo._rediger(c["consigne"], c["fil"], "", [])
-            reponse = res.get("note") or res.get("brouillon") or ""
+            reponse = ((res.get("brouillon") if res.get("action") == "brouillon" else res.get("note"))
+                       or res.get("note") or res.get("brouillon") or "")
             verdict = _juger(c, reponse)
         except Exception as e:
             _log.exception("Cas de test d'Ivo en erreur")
