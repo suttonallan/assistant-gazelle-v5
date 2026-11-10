@@ -117,16 +117,19 @@ def cas() -> List[Dict[str, Any]]:
 def _juger(c: Dict[str, Any], reponse: str) -> Dict[str, Any]:
     from anthropic import Anthropic
     from api.ivo_routes import MODELE
-    rep = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]).messages.create(
-        model=MODELE, max_tokens=400,
-        system=("Tu juges la réponse d'un assistant de planification. Réponds UNIQUEMENT en JSON "
-                '{"ok": true|false, "raison": "une phrase"}. ok=true seulement si TOUS les critères sont respectés.'),
-        messages=[{"role": "user", "content": f"CRITÈRES :\n{c['criteres']}\n\nRÉPONSE D'IVO :\n{reponse}"}])
-    texte = "".join(getattr(b, "text", "") for b in rep.content)
-    try:
-        return json.loads(texte[texte.index("{"):texte.rindex("}") + 1])
-    except Exception:
-        return {"ok": False, "raison": f"jugement illisible : {texte[:200]}"}
+    outil = {"name": "verdict", "description": "Verdict sur la réponse.",
+             "input_schema": {"type": "object", "required": ["ok", "raison"], "properties": {
+                 "ok": {"type": "boolean"}, "raison": {"type": "string"}}}}
+    for _ in range(2):
+        rep = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]).messages.create(
+            model=MODELE, max_tokens=600, tools=[outil], tool_choice={"type": "tool", "name": "verdict"},
+            system=("Tu juges la réponse d'un assistant de planification. ok=true seulement si TOUS les critères "
+                    "sont respectés ; raison = une phrase."),
+            messages=[{"role": "user", "content": f"CRITÈRES :\n{c['criteres']}\n\nRÉPONSE D'IVO :\n{reponse}"}])
+        bloc = next((b for b in rep.content if getattr(b, "type", "") == "tool_use"), None)
+        if bloc:
+            return dict(bloc.input)
+    return {"ok": False, "raison": "le juge n'a pas rendu de verdict"}
 
 
 def executer(envoyer: bool = True) -> Dict[str, Any]:
