@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Fab, Drawer, IconButton } from '@mui/material'
 import { Chat as ChatIcon, Close as CloseIcon } from '@mui/icons-material'
 import VincentDIndyDashboard from './components/VincentDIndyDashboard'
@@ -219,6 +219,45 @@ function App() {
     setInstitutionsDropdownOpen(false)
   }, [effectiveRole])
 
+  // ⚡ Volets gardés en mémoire : un volet déjà ouvert reste monté (caché) au lieu
+  // d'être reconstruit et rechargé à chaque passage. Il garde ses propres
+  // rafraîchissements automatiques. Au retour, un volet CHARGÉ il y a plus de
+  // GARDE_VOLET_MS est reconstruit à neuf (jamais de données de plus de 5 min) ;
+  // un volet caché depuis plus longtemps que ce délai est libéré.
+  const GARDE_VOLET_MS = 5 * 60 * 1000
+  const neuf = (gen = 0) => { const t = Date.now(); return { vu: t, charge: t, gen } }
+  const [voletsGardes, setVoletsGardes] = useState(() => ({ role: effectiveRole, volets: { [currentView]: neuf() } }))
+  const vuePrecedente = useRef(currentView)
+  useEffect(() => {
+    const maintenant = Date.now()
+    setVoletsGardes((prev) => {
+      const volets = { ...prev.volets }
+      const anc = volets[vuePrecedente.current]
+      if (anc) volets[vuePrecedente.current] = { ...anc, vu: maintenant }
+      const p = volets[currentView]
+      volets[currentView] = !p ? neuf()
+        : maintenant - p.charge > GARDE_VOLET_MS ? neuf(p.gen + 1)  // recharge à neuf
+        : { ...p, vu: maintenant }
+      return { ...prev, volets }
+    })
+    vuePrecedente.current = currentView
+  }, [currentView])
+  useEffect(() => {
+    // Changement de rôle (simulé) : on repart à neuf, les volets dépendent du rôle.
+    setVoletsGardes((prev) => (prev.role === effectiveRole ? prev
+      : { role: effectiveRole, volets: { [vuePrecedente.current]: neuf() } }))
+  }, [effectiveRole])
+  useEffect(() => {
+    const t = setInterval(() => {
+      setVoletsGardes((prev) => {
+        const limite = Date.now() - GARDE_VOLET_MS
+        const garder = Object.entries(prev.volets).filter(([v, e]) => v === vuePrecedente.current || e.vu >= limite)
+        return garder.length === Object.keys(prev.volets).length ? prev : { ...prev, volets: Object.fromEntries(garder) }
+      })
+    }, 60000)
+    return () => clearInterval(t)
+  }, [])
+
   // DÉSACTIVÉ: Initialisation vue par défaut - causait des boucles de redirection
   // La vue par défaut est maintenant 'inventaire' dans useState ci-dessus
   // Les utilisateurs peuvent naviguer librement sans redirections automatiques
@@ -272,8 +311,8 @@ function App() {
   const roleReel = getUserRole(currentUser?.email, currentUser?.role)
   const decisionsVisible = roleReel === 'admin' || roleReel === 'nick'
 
-  const renderDashboard = () => {
-    if (currentView === 'decisions' && decisionsVisible) {
+  const renderDashboard = (vue) => {
+    if (vue === 'decisions' && decisionsVisible) {
       return (
         <ErrorBoundary componentName="Décisions">
           <DecisionsDashboard currentUser={currentUser} />
@@ -281,7 +320,7 @@ function App() {
       )
     }
     // ✅ Tâches : même vue pour toute l'équipe
-    if (currentView === 'taches' && tachesVisible) {
+    if (vue === 'taches' && tachesVisible) {
       return (
         <ErrorBoundary componentName="Tâches">
           <TachesDashboard currentUser={effectiveUser} role={effectiveRole} />
@@ -289,7 +328,7 @@ function App() {
       )
     }
     // 🚗 Frais partagés : ouvert directement depuis le menu de l'assistant
-    if (currentView === 'frais-partages') {
+    if (vue === 'frais-partages') {
       return (
         <ErrorBoundary componentName="Frais partagés">
           <SharedTravelFeeCalculator />
@@ -298,30 +337,30 @@ function App() {
     }
     switch (effectiveRole) {
       case 'nick':
-        // Nick: Navigation par currentView (comme admin)
-        if (currentView === 'inventaire') {
+        // Nick: Navigation par vue (comme admin)
+        if (vue === 'inventaire') {
           return <NickDashboard currentUser={effectiveUser} />
-        } else if (currentView === 'place-des-arts') {
+        } else if (vue === 'place-des-arts') {
           return <PlaceDesArtsDashboard currentUser={effectiveUser} />
-        } else if (currentView === 'vincent-dindy-v7') {
+        } else if (vue === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
               <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
             </ErrorBoundary>
           )
-        } else if (currentView === 'orford') {
+        } else if (vue === 'orford') {
           return (
             <ErrorBoundary componentName="Orford">
               <OrfordDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
-        } else if (currentView === 'chat') {
+        } else if (vue === 'chat') {
           return (
             <ErrorBoundary componentName="Ma Journée">
               <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'calculateur-frais') {
+        } else if (vue === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
               <div className="space-y-8">
@@ -344,20 +383,20 @@ function App() {
         )
       case 'louise':
       case 'margot':
-        // Louise & Margot: Navigation par currentView (comme admin)
-        if (currentView === 'inventaire') {
+        // Louise & Margot: Navigation par vue (comme admin)
+        if (vue === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
               <InventaireDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'chat') {
+        } else if (vue === 'chat') {
           return (
             <ErrorBoundary componentName="Ma Journée">
               <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'calculateur-frais') {
+        } else if (vue === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
               <div className="space-y-8">
@@ -371,13 +410,13 @@ function App() {
               </div>
             </ErrorBoundary>
           )
-        } else if (currentView === 'vincent-dindy-v7') {
+        } else if (vue === 'vincent-dindy-v7') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
               <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
             </ErrorBoundary>
           )
-        } else if (currentView === 'orford') {
+        } else if (vue === 'orford') {
           // Orford : utiliser VincentDIndyDashboard avec institution="orford"
           // pour que Louise/Margot aient la vue "A valider" avec timeline des services.
           return (
@@ -385,7 +424,7 @@ function App() {
               <VincentDIndyDashboard currentUser={effectiveUser} institution="orford" />
             </ErrorBoundary>
           )
-        } else if (currentView === 'place-des-arts') {
+        } else if (vue === 'place-des-arts') {
           return (
             <ErrorBoundary componentName="Place des Arts">
               <PlaceDesArtsDashboard currentUser={effectiveUser} />
@@ -400,7 +439,7 @@ function App() {
         )
       case 'jeanphilippe':
         // Jean-Philippe: Inventaire et Tournées (vue technicien)
-        if (currentView === 'inventaire') {
+        if (vue === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
               {/* Container style téléphone portable pour Jean-Philippe */}
@@ -411,7 +450,7 @@ function App() {
               </div>
             </ErrorBoundary>
           )
-        } else if (currentView === 'tournees') {
+        } else if (vue === 'tournees') {
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
               <VincentDIndyDashboard
@@ -420,7 +459,7 @@ function App() {
               />
             </ErrorBoundary>
           )
-        } else if (currentView === 'calculateur-frais') {
+        } else if (vue === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
               {/* Container style téléphone portable pour Jean-Philippe */}
@@ -439,7 +478,7 @@ function App() {
               </div>
             </ErrorBoundary>
           )
-        } else if (currentView === 'chat') {
+        } else if (vue === 'chat') {
           return (
             <ErrorBoundary componentName="Ma Journée">
               <MaJournee currentUser={effectiveUser} />
@@ -468,43 +507,43 @@ function App() {
       case 'admin':
       default:
         // Dashboard admin unifié V6
-        if (currentView === 'sync-dashboard' || currentView === 'tableau-de-bord' || currentView === 'dashboard') {
+        if (vue === 'sync-dashboard' || vue === 'tableau-de-bord' || vue === 'dashboard') {
           return (
             <ErrorBoundary componentName="Tableau de Bord">
               <SyncDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'inventaire') {
+        } else if (vue === 'inventaire') {
           return (
             <ErrorBoundary componentName="Inventaire Dashboard">
               <InventaireDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'tournees') {
+        } else if (vue === 'tournees') {
           return (
             <ErrorBoundary componentName="Nick Dashboard">
               <NickDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'place-des-arts') {
+        } else if (vue === 'place-des-arts') {
           return (
             <ErrorBoundary componentName="Place des Arts">
               <PlaceDesArtsDashboard currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'chat') {
+        } else if (vue === 'chat') {
           return (
             <ErrorBoundary componentName="Ma Journée">
               <MaJournee currentUser={effectiveUser} />
             </ErrorBoundary>
           )
-        } else if (currentView === 'chat-stats') {
+        } else if (vue === 'chat-stats') {
           return (
             <ErrorBoundary componentName="Chat Stats">
               <ChatStats />
             </ErrorBoundary>
           )
-        } else if (currentView === 'calculateur-frais') {
+        } else if (vue === 'calculateur-frais') {
           return (
             <ErrorBoundary componentName="Calculateur Frais">
               <div className="space-y-8">
@@ -518,20 +557,20 @@ function App() {
               </div>
             </ErrorBoundary>
           )
-        } else if (currentView === 'provenance') {
+        } else if (vue === 'provenance') {
           return (
             <ErrorBoundary componentName="Provenance">
               <ProvenanceReview />
             </ErrorBoundary>
           )
-        } else if (currentView === 'vincent-dindy-v7') {
+        } else if (vue === 'vincent-dindy-v7') {
           // Vincent d'Indy Dashboard (version restaurée, sans iframe)
           return (
             <ErrorBoundary componentName="Vincent d'Indy">
               <VincentDIndyDashboard currentUser={effectiveUser} institution="vincent-dindy" />
             </ErrorBoundary>
           )
-        } else if (currentView === 'orford') {
+        } else if (vue === 'orford') {
           // Orford Dashboard (utilise le même composant que Vincent d'Indy mais avec institution="orford")
           return (
             <ErrorBoundary componentName="Orford">
@@ -959,8 +998,16 @@ function App() {
         </div>
       </header>
 
-          {/* Contenu principal */}
-          {renderDashboard()}
+          {/* Contenu principal : le volet courant est affiché, les volets déjà ouverts restent prêts (cachés) */}
+          {(voletsGardes.role === effectiveRole
+            ? [...new Set([...Object.keys(voletsGardes.volets), currentView])]
+            : [currentView]  // rôle en train de changer : seulement le volet courant
+          ).map((vue) => (
+            <div key={`${effectiveRole}:${vue}:${voletsGardes.volets[vue]?.gen ?? 0}`}
+                 style={vue === currentView ? undefined : { display: 'none' }}>
+              {renderDashboard(vue)}
+            </div>
+          ))}
         </div>
       </ErrorBoundary>
 
