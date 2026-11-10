@@ -374,6 +374,72 @@ def execute_creer_soumission(**t) -> Dict[str, Any]:
             "message": "Brouillon créé dans Gazelle, rien n'a été envoyé au client."}
 
 
+AJOUTER_DEMANDE_PDA_TOOL = {
+    "name": "ajouter_demande_pda",
+    "description": ("Ajoute une demande dans l'onglet Place des Arts de l'assistant (comme l'import d'un "
+                    "courriel de PdA). Ne crée PAS de RV dans Gazelle : le RV se crée ensuite depuis la demande. "
+                    "D'abord confirme=false (aperçu + recherche de doublon), puis confirme=true après un oui, "
+                    "ou directement confirme=true si l'équipe a donné l'ordre explicite d'ajouter la demande."),
+    "input_schema": {"type": "object", "properties": {
+        "appointment_date": {"type": "string", "description": "Date du service AAAA-MM-JJ (le jour où le technicien y va)"},
+        "room": {"type": "string", "description": "Salle, au format de l'onglet : WP, TM, MS, 5E, TJD, SCL, « Salle D », « Salle F »…"},
+        "for_who": {"type": "string", "description": "Pour qui (ex. OSM, Opéra de Montréal) + événement si connu"},
+        "piano": {"type": "string", "description": "Piano demandé, tel qu'écrit dans la demande (ex. Steinway M 5'7'')"},
+        "diapason": {"type": "string", "description": "440, 442…"},
+        "time": {"type": "string", "description": "Heure ou contrainte (ex. « Avant 9h », « 10h »)"},
+        "requester": {"type": "string", "description": "Initiales du demandeur à PdA (ex. IC = Isabelle Clairoux, AJ = Annie Jenkins, EP = Erik Palardy)"},
+        "technicien": {"type": "string", "description": "Prénom du technicien à assigner (Nicolas, JP, Margot, Allan) ; vide = à attribuer"},
+        "notes": {"type": "string"},
+        "confirme": {"type": "boolean"},
+    }, "required": ["appointment_date", "room", "for_who"]},
+}
+
+_TECH_IDS = {"nicolas": "usr_HcCiFk7o0vZ9xAI0", "allan": "usr_ofYggsCDt2JAVeNP",
+             "jp": "usr_ReUSmIJmBF86ilY1", "jean-philippe": "usr_ReUSmIJmBF86ilY1",
+             "margot": "usr_bbt59aCUqUaDWA8n"}
+
+
+def execute_ajouter_demande_pda(**t) -> Dict[str, Any]:
+    from api.place_des_arts import get_storage, importer_demandes, ImportPreviewRequest
+    date_s = (t.get("appointment_date") or "")[:10]
+    tech_txt = (t.get("technicien") or "").strip().lower()
+    tech_id = _TECH_IDS.get(tech_txt) if tech_txt else None
+    if tech_txt and not tech_id:
+        return {"success": False, "error": f"Technicien inconnu : {t.get('technicien')}"}
+    item = {k: (t.get(k) or "") for k in ("room", "for_who", "piano", "diapason", "time", "requester", "notes")}
+    item["appointment_date"] = date_s
+    item["technician_id"] = tech_id
+    # Doublon : déjà une demande ce jour-là dans la même salle ?
+    storage = get_storage()
+    existantes = storage.client.table("place_des_arts_requests")\
+        .select("id,appointment_date,room,for_who,piano,time,status,appointment_id")\
+        .gte("appointment_date", date_s).lt("appointment_date", date_s + "T23:59:59")\
+        .execute().data or []
+    import re as _r
+    def _salle(x):  # « Salle F », « F », « salle f » → « f » ; « WP - Salle 1 » → « wp1 »
+        return _r.sub(r"[^a-z0-9]", "", _r.sub(r"\bsalle\b", "", (x or "").lower()))
+    def _qui(x):
+        return _r.sub(r"[^a-z0-9]", "", (x or "").lower())
+    meme_salle = [e for e in existantes
+                  if (e.get("status") or "").upper() not in ("CANCELLED", "CANCELED")
+                  and ((_salle(e.get("room")) and _salle(e.get("room")) == _salle(item["room"]))
+                       or (_qui(e.get("for_who")) and _qui(item["for_who"])
+                           and (_qui(e.get("for_who")) in _qui(item["for_who"]) or _qui(item["for_who"]) in _qui(e.get("for_who")))
+                           and _salle(e.get("room")) in ("", _salle(item["room"]), "confirmer")))]
+    if not t.get("confirme"):
+        return {"success": True, "apercu": item, "technicien": t.get("technicien") or "à attribuer",
+                "demandes_deja_ce_jour_la": existantes, "meme_salle": meme_salle,
+                "message": "Aperçu seulement : rien n'est ajouté. Redemande avec confirme=true."}
+    if meme_salle:
+        return {"success": False, "error": "Une demande semblable existe déjà ce jour-là (même salle ou même client) : rien n'a été ajouté, pour éviter un doublon. Montre-la à l'utilisateur.",
+                "meme_salle": meme_salle}
+    r = importer_demandes(ImportPreviewRequest(items=[item]))
+    if not r.get("imported"):
+        return {"success": False, "error": r.get("message") or "Aucune demande ajoutée."}
+    return {"success": True, "ajoutee": True, "id": (r.get("ids") or [None])[0], "demande": item,
+            "message": "Demande ajoutée dans l'onglet Place des Arts. Aucun RV Gazelle n'a été créé."}
+
+
 VERIFIER_PDA_TOOL = {
     "name": "verifier_services_pda",
     "description": ("Vérifie que TOUS les services Place des Arts faits ou prévus dans Gazelle (60 derniers "
@@ -410,7 +476,7 @@ def execute_verifier_pda() -> Dict[str, Any]:
                      "Place des Arts (bouton de vérification : « Ajouter » ou « Ignorer »).")}
 
 
-TOOLS = [VERIFIER_PDA_TOOL, CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+TOOLS = [VERIFIER_PDA_TOOL, AJOUTER_DEMANDE_PDA_TOOL, CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
          *_OUTILS_REGLES]
 
@@ -455,6 +521,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             )
         if name == "preparer_lien_reservation":
             return execute_lien_reservation(**tool_input)
+        if name == "ajouter_demande_pda":
+            return execute_ajouter_demande_pda(**tool_input)
         if name == "verifier_services_pda":
             return execute_verifier_pda()
         if name == "chercher_catalogue":
@@ -563,6 +631,11 @@ async def converse(req: ConverseRequest):
         "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n"
         "- preparer_lien_reservation : lien de réservation en ligne prérempli pour un client "
         "(coordonnées et piano, jamais le numéro civique) ; donne le lien tel quel.\n"
+        "- ajouter_demande_pda : ajouter une demande Place des Arts (courriel de PdA, OSM, Opéra…) dans l'onglet "
+        "Place des Arts. Sur ordre explicite (« ajoute la demande… »), fais-le directement avec confirme=true. "
+        "Prends date, salle, pour qui, piano, diapason, heure et demandeur dans le courriel du fil. Ne crée pas le RV "
+        "Gazelle en même temps (il se crée depuis la demande) et ne pose pas de question de facturation : "
+        "la facturation PdA/OSM se règle dans l'onglet au moment de facturer.\n"
         "- verifier_services_pda : « est-ce que tous les services de PdA sont dans l'assistant ? » — "
         "compare Gazelle et l'onglet Place des Arts. Réponds par oui/non d'abord, puis liste ce qui manque "
         "(date, heure, technicien, piano, fait ou à venir). Si rien ne manque, dis combien de RV ont été vérifiés.\n"

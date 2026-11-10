@@ -1317,6 +1317,12 @@ async def import_preview(payload: ImportPreviewRequest):
     Import depuis les données de preview (avec corrections manuelles).
     Utilise directement les données passées sans re-parser.
     """
+    return importer_demandes(payload)
+
+
+def importer_demandes(payload: ImportPreviewRequest) -> Dict[str, Any]:
+    """Corps de /import-preview, appelable aussi par Ivo (même règle de doublon,
+    même format de demande). Un technicien peut être fourni (technician_id)."""
     try:
         if not payload.items:
             return {"success": True, "imported": 0, "message": "Aucune demande à importer"}
@@ -1371,7 +1377,7 @@ async def import_preview(payload: ImportPreviewRequest):
                     "requester": item.get("requester") or "",
                     "piano": item.get("piano") or "",
                     "time": item.get("time") or "",
-                    "technician_id": None,
+                    "technician_id": item.get("technician_id") or None,
                     "status": "PENDING",
                     "notes": item.get("notes") or "",
                 }
@@ -1404,7 +1410,8 @@ async def import_preview(payload: ImportPreviewRequest):
             "success": True,
             "imported": result.get("inserted", 0),
             "message": f"{result.get('inserted', 0)} demande(s) importée(s)",
-            "duplicates_skipped": len(duplicates)
+            "duplicates_skipped": len(duplicates),
+            "ids": [r["id"] for r in rows],
         }
 
     except HTTPException:

@@ -84,7 +84,7 @@ def peut_modifier(prenom: Optional[str]) -> bool:
 # (ex. Margot dans Front) peuvent poser des questions à Ivo, mais pas déclencher ces actions.
 ACTIONS_RESERVEES = {"creer_client", "bloquer_technicien", "creer_rendez_vous", "create_joint_appointment",
                      "reactivate_estimate", "creer_soumission", "attach_email_photos_to_piano", "retenir_regle", "oublier_regle",
-                     "ajouter_courriel_client", "ajouter_piano", "changer_pianos_rv"}
+                     "ajouter_courriel_client", "ajouter_piano", "changer_pianos_rv", "ajouter_demande_pda"}
 MESSAGE_LECTURE_SEULE = ("Cette action est réservée à Allan, Nicolas et Louise : "
                          "je transmets la demande à Louise, qui peut l'autoriser dans ce fil.")
 APPROBATRICE = "info@piano-tek.com"  # Louise : c'est elle qui autorise les actions demandées par l'équipe
