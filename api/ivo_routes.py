@@ -1092,12 +1092,13 @@ def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
             vus += 1
             _traiter_sans_erreur(conv, cible.get("id"))
     _curseur["t"] = plus_recent
-    envois = 0
+    envois, erreur_envois = 0, None
     try:
         envois = _surveiller_envois(front, fenetre_s)
-    except Exception:
+    except Exception as e:
         _log.exception("Ivo : surveillance des envois impossible")
-    return {"evenements": len(evenements), "ivo": vus, "envois_compares": envois}
+        erreur_envois = str(e)[:300]
+    return {"evenements": len(evenements), "ivo": vus, "envois_compares": envois, "erreur_envois": erreur_envois}
 
 
 def _sans_citation(corps_html: str) -> str:
