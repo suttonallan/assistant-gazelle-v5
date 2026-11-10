@@ -149,6 +149,12 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
           <textarea rows={1} value={note} onChange={(e) => changerNote(e.target.value)}
             placeholder={d.question || 'Note (facultatif)'}
             className={`w-full text-[13.5px] border rounded-md px-2 py-1.5 resize-y min-h-[34px] bg-white ${d.question ? 'border-amber-500' : 'border-stone-300'}`} />
+          {/* Une note seule ne tranche pas : le dire, sinon le point reste « à trancher » sans qu'on comprenne pourquoi. */}
+          {note.trim() && !monVote && (d.statut === 'en_attente' || d.statut === 'a_discuter') && (
+            <p className="mt-1 text-[12.5px] font-semibold text-amber-800">
+              Note enregistrée — clique Approuver, À discuter ou Refuser pour trancher.
+            </p>
+          )}
         </div>
       )}
     </div>
