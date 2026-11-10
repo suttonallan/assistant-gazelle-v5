@@ -66,13 +66,16 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
   const minuterie = useRef(null)
   // Une note qui arrive du serveur ne doit pas écraser ce que la personne est en train d'écrire.
   useEffect(() => { if (!tape.current) setNote(d.votes?.[moi]?.note || '') }, [d.votes, moi])
-  const peutVoter = moi && votants.includes(moi)
+  // Un point déjà réalisé (ex. corrigé par Claude selon une règle fixe) n'est plus à trancher.
+  const fait = !!d.realisee_le
+  const peutVoter = moi && votants.includes(moi) && !fait
   const seul = votants.length === 1 ? NOMS[votants[0]] : null
   const st0 = STATUT[d.statut] || STATUT.en_attente
-  const st = seul && (d.statut === 'approuvee' || d.statut === 'refusee')
+  const st = fait ? { nom: 'Fait', cls: 'bg-green-50 text-green-800 border-green-300' }
+    : seul && (d.statut === 'approuvee' || d.statut === 'refusee')
     ? { ...st0, nom: `${d.statut === 'approuvee' ? 'Approuvé' : 'Refusé'} par ${seul}` }
     : seul && d.statut === 'en_attente' ? { ...st0, nom: `À trancher par ${seul}` } : st0
-  const attente = d.statut === 'en_attente' || d.statut === 'a_discuter' ? joursDepuis(d.created_at) : null
+  const attente = !fait && (d.statut === 'en_attente' || d.statut === 'a_discuter') ? joursDepuis(d.created_at) : null
   const enRetard = attente !== null && attente >= RETARD_JOURS
   const autres = votants.filter((p) => p !== moi)
 
@@ -84,11 +87,11 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
   }
 
   return (
-    <div className={`grid grid-cols-[30px_1fr] md:grid-cols-[34px_1fr_auto] gap-x-3.5 gap-y-1.5 py-3 border-b border-stone-200 ${d.question ? 'bg-amber-50/30' : ''}`}>
+    <div className={`grid grid-cols-[30px_1fr] md:grid-cols-[34px_1fr_auto] gap-x-3.5 gap-y-1.5 py-3 border-b border-stone-200 ${d.question && !fait ? 'bg-amber-50/30' : ''}`}>
       <div className="text-gray-500 font-semibold tabular-nums pt-0.5">{num}</div>
       <div className="min-w-0">
         <p className="font-semibold mb-1">{d.titre}</p>
-        {d.question && <p className="mb-1 text-[14px] font-semibold" style={{ color: '#b8860b' }}>Question : {d.question}</p>}
+        {d.question && !fait && <p className="mb-1 text-[14px] font-semibold" style={{ color: '#b8860b' }}>Question : {d.question}</p>}
         {d.type === 'revision_wp' && Array.isArray(d.changements) && d.changements.length > 0 ? (
           d.changements.map((c, i) => (
             <div key={i} className={i ? 'border-t border-dashed border-stone-200 pt-1 mt-1' : ''}>
@@ -100,7 +103,7 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
         )}
         {d.info && <p className="mt-1 text-[13px] text-amber-800 whitespace-pre-line">{d.info}</p>}
         {d.consigne && <p className="mt-1 text-[13px] text-green-700 font-semibold">{d.consigne}</p>}
-        {d.recommandation && <p className="mt-1 text-[13px] text-green-700 font-semibold">Recommandation : {d.recommandation}</p>}
+        {d.recommandation && !fait && <p className="mt-1 text-[13px] text-green-700 font-semibold">Recommandation : {d.recommandation}</p>}
         <div className="flex flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-[12.5px] text-gray-500">
           <span className={`px-1.5 py-0.5 rounded border text-[12px] font-semibold ${st.cls}`}>{st.nom}</span>
           {d.page && <span>{d.page}</span>}
@@ -208,9 +211,10 @@ export default function DecisionsDashboard({ currentUser }) {
   }
 
   const comptes = useMemo(() => {
-    const c = { moi: 0, autre: 0, a_discuter: 0, approuvee: 0, refusee: 0 }
+    const c = { moi: 0, autre: 0, a_discuter: 0, approuvee: 0, refusee: 0, faits: 0 }
     for (const d of liste) {
       if (d.mineur && !(d.votants || []).includes(moi)) continue
+      if (d.realisee_le) { c.faits++; continue }
       const ouvert = d.statut === 'en_attente' || d.statut === 'a_discuter'
       if (ouvert && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s) c.moi++
       if (ouvert && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))) c.autre++
@@ -223,6 +227,8 @@ export default function DecisionsDashboard({ currentUser }) {
     // Détail mineur (coquille, espace…) : seulement pour qui le tranche ; les autres le voient dans le rapport hebdo.
     if (d.mineur && !(d.votants || []).includes(moi)) return false
     if (filtre === 'tous') return true
+    if (filtre === 'faits') return !!d.realisee_le
+    if (d.realisee_le) return false // un point réalisé ne reste dans aucune liste à trancher
     if (filtre === 'moi') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votants || []).includes(moi) && !d.votes?.[moi]?.s
     if (filtre === 'autre') return (d.statut === 'en_attente' || d.statut === 'a_discuter') && moi && (d.votes?.[moi]?.s || !(d.votants || []).includes(moi))
     return d.statut === filtre
@@ -248,6 +254,7 @@ export default function DecisionsDashboard({ currentUser }) {
     ['a_discuter', `À discuter (${comptes.a_discuter})`],
     ['approuvee', `Approuvées (${comptes.approuvee})`],
     ['refusee', `Refusées (${comptes.refusee})`],
+    ['faits', `Faits (${comptes.faits})`],
     ['tous', 'Tous'],
   ]
 
