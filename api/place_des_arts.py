@@ -2645,6 +2645,78 @@ async def sync_completed_live(days: int = 45):
     }
 
 
+def detecter_services_orphelins(storage, sync_service, gazelle_appointments) -> List[Dict[str, Any]]:
+    """RV Gazelle « Place des Arts » (60 derniers jours et à venir) qui n'ont AUCUNE
+    demande correspondante dans l'assistant. Lecture seule : sert au tableau PdA
+    (check-completed) et à Ivo (« tous les services PdA sont-ils dans l'assistant ? »)."""
+    orphan_services = []
+    try:
+        # Récupérer TOUTES les demandes PDA (incluant COMPLETED/BILLED)
+        all_pda_result = storage.client.table('place_des_arts_requests')\
+            .select('appointment_id,appointment_date,for_who,room,time')\
+            .execute()
+        linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
+        # Garder aussi toutes les demandes pour le matching par scoring
+        all_pda_requests = all_pda_result.data or []
+
+        # Récupérer les orphelins ignorés
+        dismissed_ids = _get_dismissed_orphan_ids(storage)
+
+        for apt in gazelle_appointments:
+            title = (apt.get('title') or '').upper()
+            if 'PLACE DES ARTS' not in title:
+                continue
+            if apt.get('external_id') in linked_apt_ids:
+                continue
+            if apt.get('external_id') in dismissed_ids:
+                continue
+            # Vérifier si une demande existante correspond
+            from core.feature_flags import is_enabled
+            if is_enabled('pda_v6_matcher'):
+                from modules.pda_v6_matcher import matches_request
+                matched = any(matches_request(req, apt, allow_ai=False) for req in all_pda_requests)
+            else:
+                matched = sync_service._find_matching_appointment_for_orphan(apt, all_pda_requests)
+            if matched:
+                continue
+            orphan_services.append({
+                'appointment_id': apt.get('external_id'),
+                'date': (apt.get('appointment_date') or '')[:10],
+                'time': apt.get('appointment_time', ''),
+                'title': apt.get('title', ''),
+                'technician_id': apt.get('technicien'),
+                'status': apt.get('status', ''),
+                'description': apt.get('description') or apt.get('notes') or '',
+            })
+        # Détails lisibles : technicien, piano, fait / à venir
+        if orphan_services:
+            from modules.pda_v6_matcher import tech_name
+            pids_par_rv = {a.get('external_id'): (a.get('piano_ids') or []) for a in gazelle_appointments}
+            tous_pids = sorted({p for o in orphan_services for p in pids_par_rv.get(o['appointment_id'], [])})
+            pianos = {}
+            if tous_pids:
+                try:
+                    res = storage.client.table('gazelle_pianos')\
+                        .select('external_id,make,model,serial_number,location')\
+                        .in_('external_id', tous_pids).execute()
+                    pianos = {p['external_id']: p for p in (res.data or [])}
+                except Exception as e:
+                    logging.warning(f"Pianos des orphelins : {e}")
+            for o in orphan_services:
+                o['technicien_nom'] = tech_name(o.get('technician_id'))
+                o['termine'] = (o.get('status') or '').upper() in ('COMPLETE', 'COMPLETED')
+                o['pianos'] = [
+                    ' '.join(x for x in [p.get('make'), p.get('model'),
+                                         f"SN {p['serial_number']}" if p.get('serial_number') else '',
+                                         f"· {p['location']}" if p.get('location') else ''] if x)
+                    for p in (pianos.get(pid) for pid in pids_par_rv.get(o['appointment_id'], [])) if p
+                ]
+            logging.info(f"🔍 {len(orphan_services)} service(s) Gazelle PDA sans demande correspondante")
+    except Exception as e:
+        logging.warning(f"Erreur détection orphelins: {e}")
+    return orphan_services
+
+
 @router.post("/check-completed")
 async def check_completed_requests():
     """
@@ -2821,71 +2893,7 @@ async def check_completed_requests():
                 logging.warning(f"Erreur synchronisation techniciens en base: {e}")
         
         # Détecter les RV Gazelle PDA sans demande correspondante (orphelins)
-        orphan_services = []
-        try:
-            # Récupérer TOUTES les demandes PDA (incluant COMPLETED/BILLED)
-            all_pda_result = storage.client.table('place_des_arts_requests')\
-                .select('appointment_id,appointment_date,for_who,room,time')\
-                .execute()
-            linked_apt_ids = {r['appointment_id'] for r in (all_pda_result.data or []) if r.get('appointment_id')}
-            # Garder aussi toutes les demandes pour le matching par scoring
-            all_pda_requests = all_pda_result.data or []
-
-            # Récupérer les orphelins ignorés
-            dismissed_ids = _get_dismissed_orphan_ids(storage)
-
-            for apt in gazelle_appointments:
-                title = (apt.get('title') or '').upper()
-                if 'PLACE DES ARTS' not in title:
-                    continue
-                if apt.get('external_id') in linked_apt_ids:
-                    continue
-                if apt.get('external_id') in dismissed_ids:
-                    continue
-                # Vérifier si une demande existante correspond
-                from core.feature_flags import is_enabled
-                if is_enabled('pda_v6_matcher'):
-                    from modules.pda_v6_matcher import matches_request
-                    matched = any(matches_request(req, apt, allow_ai=False) for req in all_pda_requests)
-                else:
-                    matched = sync_service._find_matching_appointment_for_orphan(apt, all_pda_requests)
-                if matched:
-                    continue
-                orphan_services.append({
-                    'appointment_id': apt.get('external_id'),
-                    'date': (apt.get('appointment_date') or '')[:10],
-                    'time': apt.get('appointment_time', ''),
-                    'title': apt.get('title', ''),
-                    'technician_id': apt.get('technicien'),
-                    'status': apt.get('status', ''),
-                    'description': apt.get('description') or apt.get('notes') or '',
-                })
-            # Détails lisibles : technicien, piano, fait / à venir
-            if orphan_services:
-                from modules.pda_v6_matcher import tech_name
-                pids_par_rv = {a.get('external_id'): (a.get('piano_ids') or []) for a in gazelle_appointments}
-                tous_pids = sorted({p for o in orphan_services for p in pids_par_rv.get(o['appointment_id'], [])})
-                pianos = {}
-                if tous_pids:
-                    try:
-                        res = storage.client.table('gazelle_pianos')\
-                            .select('external_id,make,model,serial_number,location')\
-                            .in_('external_id', tous_pids).execute()
-                        pianos = {p['external_id']: p for p in (res.data or [])}
-                    except Exception as e:
-                        logging.warning(f"Pianos des orphelins : {e}")
-                for o in orphan_services:
-                    o['technicien_nom'] = tech_name(o.get('technician_id'))
-                    o['termine'] = (o.get('status') or '').upper() in ('COMPLETE', 'COMPLETED')
-                    o['pianos'] = [
-                        ' '.join(x for x in [p.get('make'), p.get('model'),
-                                             f"SN {p['serial_number']}" if p.get('serial_number') else '',
-                                             f"· {p['location']}" if p.get('location') else ''] if x)
-                        for p in (pianos.get(pid) for pid in pids_par_rv.get(o['appointment_id'], [])) if p
-                    ]
-                logging.info(f"🔍 {len(orphan_services)} service(s) Gazelle PDA sans demande correspondante")
-        except Exception as e:
-            logging.warning(f"Erreur détection orphelins: {e}")
+        orphan_services = detecter_services_orphelins(storage, sync_service, gazelle_appointments)
 
         return {
             "success": True,

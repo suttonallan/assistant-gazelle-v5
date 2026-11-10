@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 10 novembre
+- **Ivo vérifie que tous les services de Place des Arts sont dans l'assistant** : à la question « est-ce que tous les services de PdA sont bien dans l'assistant ? », Ivo compare les RV Place des Arts de Gazelle (60 derniers jours et à venir) avec l'onglet Place des Arts, répond oui ou non et liste ce qui manque (date, technicien, piano, fait ou à venir). Il signale aussi les demandes du mois dont la date est passée sans RV Gazelle. Lecture seule : rien n'est modifié.
+
 ### 9 novembre
 - **Volet Décisions plus facile à lire** : la question s'affiche maintenant juste sous le titre de chaque point, avant les explications et la recommandation (avant, on lisait la recommandation avant de savoir quelle était la question).
 - **Ivo crée des soumissions neuves** : « @Ivo fais une soumission pour <client> : <travaux>, avec les avertissements d'usage » crée directement le brouillon dans Gazelle, aux prix du catalogue, sans exiger une ancienne soumission. Rien n'est envoyé au client ; si un travail n'a pas de prix au catalogue, Ivo le dit au lieu de deviner.

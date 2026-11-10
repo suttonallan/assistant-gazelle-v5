@@ -374,7 +374,43 @@ def execute_creer_soumission(**t) -> Dict[str, Any]:
             "message": "Brouillon créé dans Gazelle, rien n'a été envoyé au client."}
 
 
-TOOLS = [CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
+VERIFIER_PDA_TOOL = {
+    "name": "verifier_services_pda",
+    "description": ("Vérifie que TOUS les services Place des Arts faits ou prévus dans Gazelle (60 derniers "
+                    "jours et à venir) ont bien leur demande dans l'assistant (onglet Place des Arts), et "
+                    "liste ceux qui manquent. Signale aussi les demandes de l'assistant dont la date est "
+                    "passée sans RV Gazelle lié. Lecture seule. À utiliser pour « est-ce que tous les "
+                    "services de PdA sont dans l'assistant ? »."),
+    "input_schema": {"type": "object", "properties": {}},
+}
+
+
+def execute_verifier_pda() -> Dict[str, Any]:
+    from api.place_des_arts import get_storage, detecter_services_orphelins
+    from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+    storage = get_storage()
+    svc = GazelleSyncService(storage)
+    rvs = svc._get_gazelle_appointments()
+    orphelins = detecter_services_orphelins(storage, svc, rvs)
+    manquants = [{k: o.get(k) for k in ("date", "time", "title", "technicien_nom", "termine", "pianos", "appointment_id")}
+                 for o in orphelins]
+    nb_pda = sum(1 for a in rvs if "PLACE DES ARTS" in (a.get("title") or "").upper())
+    hier = aujourdhui_montreal().isoformat()
+    sans_rv = storage.client.table("place_des_arts_requests")\
+        .select("appointment_date,room,for_who,piano,status")\
+        .is_("appointment_id", "null").lt("appointment_date", hier)\
+        .gte("appointment_date", (aujourdhui_montreal().replace(day=1)).isoformat())\
+        .order("appointment_date").execute().data or []
+    sans_rv = [d for d in sans_rv if (d.get("status") or "").upper() not in ("CANCELLED", "CANCELED")]
+    return {"success": True,
+            "rv_gazelle_pda_examines": nb_pda,
+            "services_gazelle_absents_de_l_assistant": manquants,
+            "demandes_du_mois_passees_sans_rv_gazelle": sans_rv,
+            "note": ("Période : 60 derniers jours et à venir. Les services absents se règlent dans l'onglet "
+                     "Place des Arts (bouton de vérification : « Ajouter » ou « Ignorer »).")}
+
+
+TOOLS = [VERIFIER_PDA_TOOL, CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
          *_OUTILS_REGLES]
 
@@ -419,6 +455,8 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
             )
         if name == "preparer_lien_reservation":
             return execute_lien_reservation(**tool_input)
+        if name == "verifier_services_pda":
+            return execute_verifier_pda()
         if name == "chercher_catalogue":
             return execute_catalogue(tool_input.get("mots") or [])
         if name == "creer_soumission":
@@ -525,6 +563,9 @@ async def converse(req: ConverseRequest):
         "« mes appels » sans préciser qui, utilise son prénom (indiqué ci-dessous).\n"
         "- preparer_lien_reservation : lien de réservation en ligne prérempli pour un client "
         "(coordonnées et piano, jamais le numéro civique) ; donne le lien tel quel.\n"
+        "- verifier_services_pda : « est-ce que tous les services de PdA sont dans l'assistant ? » — "
+        "compare Gazelle et l'onglet Place des Arts. Réponds par oui/non d'abord, puis liste ce qui manque "
+        "(date, heure, technicien, piano, fait ou à venir). Si rien ne manque, dis combien de RV ont été vérifiés.\n"
         "- attach_email_photos_to_piano : ajouter au dossier du piano d'un client les "
         "photos qu'il a envoyées par courriel.\n\n"
         "HEURES : toutes les heures que tu reçois sont déjà en heure de Montréal ; "
