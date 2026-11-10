@@ -514,6 +514,11 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
         return {"success": False, "error": ivo_regles.MESSAGE_LECTURE_SEULE}
     try:
         if name == "request_new_feature":
+            if _CANAL.get() == "ivo":
+                # Dans Front, Ivo relaie lui-même à Claude (transmettre_a_claude) : pas de courriel
+                # en double à asutton@ pour la même demande.
+                return {"success": False, "error": ("Pas de courriel à l'administrateur depuis Front : "
+                        "dis simplement que tu ne sais pas le faire ; Ivo transmettra la demande à Claude.")}
             return execute_feature_request(
                 summary=tool_input.get("summary", ""),
                 original_request=tool_input.get("original_request", ""),
