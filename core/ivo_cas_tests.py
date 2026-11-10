@@ -122,13 +122,19 @@ def _juger(c: Dict[str, Any], reponse: str) -> Dict[str, Any]:
                  "ok": {"type": "boolean"}, "raison": {"type": "string"}}}}
     for _ in range(2):
         rep = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"]).messages.create(
-            model=MODELE, max_tokens=600, tools=[outil], tool_choice={"type": "tool", "name": "verdict"},
+            model=MODELE, max_tokens=600, tools=[outil], tool_choice={"type": "auto"},
             system=("Tu juges la réponse d'un assistant de planification. ok=true seulement si TOUS les critères "
-                    "sont respectés ; raison = une phrase."),
+                    "sont respectés ; raison = une phrase. Appelle OBLIGATOIREMENT l'outil « verdict », sans autre texte."),
             messages=[{"role": "user", "content": f"CRITÈRES :\n{c['criteres']}\n\nRÉPONSE D'IVO :\n{reponse}"}])
         bloc = next((b for b in rep.content if getattr(b, "type", "") == "tool_use"), None)
         if bloc:
             return dict(bloc.input)
+        texte = "".join(getattr(b, "text", "") for b in rep.content)
+        if "{" in texte:
+            try:
+                return json.loads(texte[texte.index("{"):texte.rindex("}") + 1])
+            except Exception:
+                pass
     return {"ok": False, "raison": "le juge n'a pas rendu de verdict"}
 
 
