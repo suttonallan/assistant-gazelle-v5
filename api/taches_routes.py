@@ -1028,6 +1028,53 @@ def schema_type(nom: str = Query(...)):
     return GazelleAPIClient()._execute_query(q, {"n": nom})
 
 
+_Q_FACTURE_SOLDE = """query($id: String!) { invoice(id: $id) { id number status total
+  allInvoicePayments { nodes { id type amount paidAt notes } } } }"""
+
+_ADD_PAYMENT = """mutation($inv: String!, $amt: Int!, $type: InvoicePaymentType, $notes: String, $paid: CoreDateTime) {
+  addInvoicePayment(invoiceId: $inv, paymentAmount: $amt, paymentType: $type, paymentNotes: $notes, paymentPaidAt: $paid) {
+    invoice { id number status total allInvoicePayments { nodes { id type amount paidAt notes } } }
+    mutationErrors { fieldName messages } } }"""
+
+
+class PaiementIn(BaseModel):
+    montant: float                     # dollars
+    date_paiement: str                 # AAAA-MM-JJ (date du virement, heure de Montréal)
+    type: str = "ELECTRONIC_FUNDS_TRANSFER"
+    notes: Optional[str] = None
+
+
+@router.post("/gazelle/facture/{invoice_id}/paiement")
+def inscrire_paiement(invoice_id: str, p: PaiementIn):
+    """Inscrit un paiement reçu (ex. virement Interac) sur une facture Gazelle OUVERTE ou ÉCHUE.
+    Gazelle le transmet ensuite à QuickBooks. Garde-fous : jamais plus que le solde, refus si un
+    paiement du même montant à la même date existe déjà (anti-doublon). Rien n'est envoyé au client."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    inv = ((gz._execute_query(_Q_FACTURE_SOLDE, {"id": invoice_id}) or {}).get("data") or {}).get("invoice")
+    if not inv:
+        raise HTTPException(404, "Facture introuvable")
+    if inv.get("status") not in ("OPEN", "OVERDUE"):
+        raise HTTPException(409, f"Statut {inv.get('status')} — rien inscrit")
+    cents = int(round(p.montant * 100))
+    deja = inv["allInvoicePayments"]["nodes"]
+    solde = (inv.get("total") or 0) - sum(x.get("amount") or 0 for x in deja)
+    if cents <= 0 or cents > solde:
+        raise HTTPException(409, f"Montant {cents/100:.2f} $ refusé : solde de la facture {solde/100:.2f} $")
+    if any(x.get("amount") == cents and (x.get("paidAt") or "")[:10] == p.date_paiement for x in deja):
+        raise HTTPException(409, "Un paiement identique (montant et date) existe déjà — rien inscrit")
+    # Midi heure de Montréal : la date reste la bonne quel que soit le fuseau de lecture.
+    paye_le = f"{p.date_paiement}T17:00:00Z"
+    res = gz._execute_query(_ADD_PAYMENT, {"inv": invoice_id, "amt": cents, "type": p.type,
+                                           "notes": p.notes, "paid": paye_le})
+    payload = ((res or {}).get("data") or {}).get("addInvoicePayment") or {}
+    if res.get("errors") or payload.get("mutationErrors") or not payload.get("invoice"):
+        raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors') or res.get('errors')}")
+    i = payload["invoice"]
+    return {"numero": i.get("number"), "statut": i.get("status"), "total": _dollars(i.get("total")),
+            "paiements": i["allInvoicePayments"]["nodes"]}
+
+
 class LigneFacture(BaseModel):
     description: str
     montant: float  # dollars, quantité 1
