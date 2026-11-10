@@ -221,26 +221,38 @@ function App() {
 
   // ⚡ Volets gardés en mémoire : un volet déjà ouvert reste monté (caché) au lieu
   // d'être reconstruit et rechargé à chaque passage. Il garde ses propres
-  // rafraîchissements automatiques. Un volet pas revu depuis GARDE_VOLET_MS est
-  // libéré : au retour, il se recharge à neuf comme avant.
+  // rafraîchissements automatiques. Au retour, un volet CHARGÉ il y a plus de
+  // GARDE_VOLET_MS est reconstruit à neuf (jamais de données de plus de 5 min) ;
+  // un volet caché depuis plus longtemps que ce délai est libéré.
   const GARDE_VOLET_MS = 5 * 60 * 1000
-  const [voletsGardes, setVoletsGardes] = useState(() => ({ [currentView]: Date.now() }))
+  const neuf = (gen = 0) => { const t = Date.now(); return { vu: t, charge: t, gen } }
+  const [voletsGardes, setVoletsGardes] = useState(() => ({ role: effectiveRole, volets: { [currentView]: neuf() } }))
   const vuePrecedente = useRef(currentView)
   useEffect(() => {
     const maintenant = Date.now()
-    setVoletsGardes((prev) => ({ ...prev, [vuePrecedente.current]: maintenant, [currentView]: maintenant }))
+    setVoletsGardes((prev) => {
+      const volets = { ...prev.volets }
+      const anc = volets[vuePrecedente.current]
+      if (anc) volets[vuePrecedente.current] = { ...anc, vu: maintenant }
+      const p = volets[currentView]
+      volets[currentView] = !p ? neuf()
+        : maintenant - p.charge > GARDE_VOLET_MS ? neuf(p.gen + 1)  // recharge à neuf
+        : { ...p, vu: maintenant }
+      return { ...prev, volets }
+    })
     vuePrecedente.current = currentView
   }, [currentView])
   useEffect(() => {
     // Changement de rôle (simulé) : on repart à neuf, les volets dépendent du rôle.
-    setVoletsGardes({ [vuePrecedente.current]: Date.now() })
+    setVoletsGardes((prev) => (prev.role === effectiveRole ? prev
+      : { role: effectiveRole, volets: { [vuePrecedente.current]: neuf() } }))
   }, [effectiveRole])
   useEffect(() => {
     const t = setInterval(() => {
       setVoletsGardes((prev) => {
         const limite = Date.now() - GARDE_VOLET_MS
-        const garder = Object.entries(prev).filter(([v, quand]) => v === vuePrecedente.current || quand >= limite)
-        return garder.length === Object.keys(prev).length ? prev : Object.fromEntries(garder)
+        const garder = Object.entries(prev.volets).filter(([v, e]) => v === vuePrecedente.current || e.vu >= limite)
+        return garder.length === Object.keys(prev.volets).length ? prev : { ...prev, volets: Object.fromEntries(garder) }
       })
     }, 60000)
     return () => clearInterval(t)
@@ -987,8 +999,12 @@ function App() {
       </header>
 
           {/* Contenu principal : le volet courant est affiché, les volets déjà ouverts restent prêts (cachés) */}
-          {[...new Set([...Object.keys(voletsGardes), currentView])].map((vue) => (
-            <div key={`${effectiveRole}:${vue}`} style={vue === currentView ? undefined : { display: 'none' }}>
+          {(voletsGardes.role === effectiveRole
+            ? [...new Set([...Object.keys(voletsGardes.volets), currentView])]
+            : [currentView]  // rôle en train de changer : seulement le volet courant
+          ).map((vue) => (
+            <div key={`${effectiveRole}:${vue}:${voletsGardes.volets[vue]?.gen ?? 0}`}
+                 style={vue === currentView ? undefined : { display: 'none' }}>
               {renderDashboard(vue)}
             </div>
           ))}
