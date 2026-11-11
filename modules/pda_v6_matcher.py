@@ -135,6 +135,11 @@ def _hour_bounds(time_str):
     « avant 9h » -> [5, 9] ; « à 17h30 » -> [16, 18] ; « entre 12h et 13h »
     -> [11, 13] ; « après 18h » -> [18, 23] ; « 18h » -> [15, 19]."""
     t = (time_str or "").lower().strip()
+    # « Toute la journée (demandé : 15 nov. avant 9h…) » : aucune contrainte
+    # d'heure. Avant, le « 9h » entre parenthèses (qui parle d'un AUTRE jour)
+    # servait de fenêtre et écartait le vrai RV de 13 h 30 (OSM, 14 nov. 2026).
+    if t.startswith("toute") or t.startswith("journée") or t.startswith("journee"):
+        return None
     hours = [int(h) for h in re.findall(r"(\d{1,2})\s*h", t)]
     if not hours:
         return None

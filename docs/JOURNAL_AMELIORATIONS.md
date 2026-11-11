@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 11 novembre
+- **Place des Arts : « Synchroniser » relie aussi les demandes « toute la journée »** : quand la demande dit « Toute la journée », une heure mentionnée entre parenthèses (pour un autre jour) n'écarte plus le vrai RV Gazelle. La demande OSM du 14 nov., créée directement dans Gazelle par Louise à 13 h 30, restait « sans RV » pour cette raison.
+
 ### 10 novembre
 - **Ivo apprend de vos modifications de brouillon** : quand un courriel part d'un fil où Ivo avait préparé le brouillon, il compare la version envoyée à la sienne. S'il y a un changement de fond (prix, service proposé, offre, politique, fait), il laisse un seul commentaire : ce qui a changé et la règle qu'il propose de retenir. Il ne retient rien sans « @Ivo oui » d'Allan, Nicolas ou Louise ; une fois retenue, la règle devient aussi un cas de test rejoué chaque nuit. Les retouches de style, de ponctuation ou de politesse sont ignorées en silence.
 - **Ivo consulte l'horaire au lieu de le lire d'un bloc** : pour une question de disponibilités ou de secteur, Ivo interroge maintenant Gazelle en direct pour les dates en jeu : RV de chaque technicien avec ville et code postal, RV déjà prévus dans le secteur du client (pour jumeler) et plages libres calculées. Il a aussi pour consigne de vérifier avant d'affirmer qu'une information manque. Chaque nuit, une série de cas réels (dont celui de Mme Daoust à Lorraine) est rejouée sur un horaire figé ; Allan reçoit un courriel seulement si Ivo en rate un.
