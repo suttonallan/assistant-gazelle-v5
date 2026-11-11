@@ -1639,6 +1639,38 @@ class ReferenceClientIn(BaseModel):
     notes: Optional[str] = None
 
 
+class NomContactIn(BaseModel):
+    ancien_nom: str        # garde-fou : nom de famille actuel du contact principal
+    prenom: Optional[str] = None
+    nom: str
+
+
+@router.post("/gazelle/client/{client_id}/nom")
+def corriger_nom_contact(client_id: str, n: NomContactIn):
+    """Corrige le prénom/nom du contact principal (ex. « White » → « Esmonde-White »), seulement si
+    le nom actuel correspond à ancien_nom. Rien d'autre n'est modifié, aucun courriel."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    res = gz._execute_query("query($id: String!) { client(id: $id) { id defaultContact { id firstName lastName } } }",
+                            {"id": client_id})
+    dc = ((((res or {}).get("data") or {}).get("client") or {}).get("defaultContact")) or {}
+    if not dc.get("id"):
+        raise HTTPException(404, "Client ou contact principal introuvable")
+    if (dc.get("lastName") or "").strip().lower() != n.ancien_nom.strip().lower():
+        raise HTTPException(409, f"Le nom actuel est « {dc.get('firstName')} {dc.get('lastName')} » : rien modifié")
+    inp = {"lastName": n.nom.strip()}
+    if n.prenom:
+        inp["firstName"] = n.prenom.strip()
+    r = gz._execute_query("""mutation($id: String!, $i: PrivateContactInputWithoutNestedCollections!) {
+      updateContact(id: $id, input: $i) { contact { id firstName lastName } mutationErrors { fieldName messages } } }""",
+                          {"id": dc["id"], "i": inp})
+    p = ((r or {}).get("data") or {}).get("updateContact") or {}
+    if (r or {}).get("errors") or p.get("mutationErrors") or not p.get("contact"):
+        raise HTTPException(502, f"updateContact : {(r or {}).get('errors') or p.get('mutationErrors')}")
+    return {"avant": f"{dc.get('firstName')} {dc.get('lastName')}",
+            "apres": f"{p['contact'].get('firstName')} {p['contact'].get('lastName')}"}
+
+
 @router.post("/gazelle/client/{client_id}/reference")
 def inscrire_reference(client_id: str, r: ReferenceClientIn):
     """Inscrit « Référé par » dans la fiche Gazelle, SEULEMENT s'il est vide (jamais d'écrasement)."""
@@ -1836,7 +1868,7 @@ def completer_rv(eid: str, b: CompleterRvIn):
 
 
 # --- Ménage : supprimer un rendez-vous « Service: NOTE » créé par erreur par l'IA ---
-_Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start type status notes
+_Q_EVENEMENT = """query($id: String!) { event(eventId: $id) { id title start duration type status notes user { id }
   client { id } allEventPianos(first: 5) { nodes { piano { id } } } } }"""
 
 
@@ -1848,6 +1880,49 @@ def _evenement(gz, eid: str) -> Dict[str, Any]:
     if res.get("errors"):
         raise HTTPException(502, str(res["errors"]))
     return (res.get("data") or {}).get("event") or {}
+
+
+class ConversionBlocIn(BaseModel):
+    client_id: str
+    piano_ids: List[str] = []
+    accord: bool = True
+    notes: Optional[str] = None
+    par: Optional[str] = "Ivo (assistant IA) à la demande d'Allan"
+
+
+@router.post("/gazelle/evenement/{eid}/convertir-en-rv")
+def convertir_bloc_en_rv(eid: str, c: ConversionBlocIn):
+    """Transforme un bloc PERSONNEL futur (ex. « accorder fazioli à la maison trestler ») en vrai RV
+    client : même technicien, même jour, même heure, même durée. Le RV est créé d'abord ; le bloc
+    n'est supprimé qu'une fois le RV confirmé par Gazelle. Aucun courriel au client."""
+    from datetime import timedelta
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import MONTREAL_TZ
+    gz = GazelleAPIClient()
+    ev = _evenement(gz, eid)
+    if not ev:
+        raise HTTPException(404, f"Bloc {eid} introuvable")
+    if ev.get("type") != "PERSONAL":
+        raise HTTPException(409, f"« {ev.get('title')} » n'est pas un bloc personnel : rien modifié")
+    debut = datetime.fromisoformat(ev["start"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+    if debut < datetime.now(MONTREAL_TZ):
+        raise HTTPException(409, "Bloc passé : rien modifié")
+    duree = int(ev.get("duration") or 0)
+    uid = (ev.get("user") or {}).get("id")
+    if not uid or duree <= 0 or duree >= 24 * 60:
+        raise HTTPException(409, "Bloc sans technicien, sans durée ou d'une journée entière : rien modifié")
+    notes = "\n\n".join(x for x in ((c.notes or "").strip(), f"(Remplace le bloc « {ev.get('title') or ''} ».)") if x)
+    res = creer_rendez_vous(RendezVousIn(client_id=c.client_id, user_id=uid,
+                                         debut_montreal=debut.strftime("%Y-%m-%dT%H:%M"), duree_min=duree,
+                                         notes=notes, piano_ids=c.piano_ids, accord=c.accord, par=c.par))
+    nouveau = (res.get("evenement") or {}).get("id")
+    if not nouveau:
+        raise HTTPException(502, "Gazelle n'a pas confirmé le RV : bloc laissé en place")
+    r = gz._execute_query("""mutation($id: String!) { deleteEvent(id: $id) { mutationErrors { fieldName messages } } }""", {"id": eid})
+    err = (r or {}).get("errors") or (((r or {}).get("data") or {}).get("deleteEvent") or {}).get("mutationErrors")
+    return {"rv": res.get("evenement"), "bloc_supprime": not err,
+            "avertissement": f"RV créé, mais le bloc {eid} n'a pas pu être retiré : {err}" if err else None,
+            "fin": (debut + timedelta(minutes=duree)).strftime("%H:%M")}
 
 
 @router.get("/gazelle/evenement/{eid}")

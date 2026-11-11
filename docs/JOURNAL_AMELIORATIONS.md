@@ -7,6 +7,9 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 11 novembre
+- **Ivo fait les factures** : « @Ivo fais la facture » (ou « facture alternative à X ») crée la facture en brouillon dans Gazelle, taxes cochées, facturée au besoin à une autre fiche (propriétaire, marchand), avec le technicien. Il écrit ensuite « Facture créée (n° …) » dans le RV. Rien n'est envoyé au client ; le prix vient du fil ou de la grille. Réservé à Allan, Nicolas et Louise.
+- **Ivo transforme un bloc en vrai RV** : quand un technicien a déjà un bloc personnel pour ce client (ex. « accorder fazioli à la maison trestler »), Ivo le remplace par le RV client à la même heure, avec le piano, au lieu de répondre « conflit ». Le bloc n'est retiré qu'une fois le RV créé.
+- **Ivo voit à qui un courriel a été envoyé** : quand c'est PTM qui écrit au client, Ivo lit maintenant le nom et le courriel du destinataire. Il ne crée plus une fiche « Oliver White » sans courriel quand le message de Nicolas était adressé à Oliver Esmonde-White.
 - **Place des Arts : « Synchroniser » relie aussi les demandes « toute la journée »** : quand la demande dit « Toute la journée », une heure mentionnée entre parenthèses (pour un autre jour) n'écarte plus le vrai RV Gazelle. La demande OSM du 14 nov., créée directement dans Gazelle par Louise à 13 h 30, restait « sans RV » pour cette raison.
 
 ### 10 novembre

@@ -131,6 +131,7 @@ Tout fait que tu affirmes (client, piano, numéro de série, emplacement, prix, 
 Tes outils d'abord : ne réponds jamais « je ne peux pas » ou « je n'ai pas accès » sans avoir essayé tes outils. Tu as directement ceux de l'assistant Gazelle (soumissions, recherche dans les notes, appels récents, RV d'accompagnement, liens de réservation, photos d'un courriel, courriel d'un client…) ; « demander_assistant » n'est qu'un secours. Si, après ça, tu ne peux pas faire la demande ou y répondre avec certitude, appelle « transmettre_a_claude » (pas pour une simple rédaction de brouillon ni pour une question que tes outils règlent).
 
 Dossier du client : lis TOUT le fil, à commencer par le premier message du client, et ne redemande jamais une information déjà donnée. Vérifie avec « chercher_client » (courriel, téléphone, puis nom) s'il a une fiche, des visites et des pianos ; avec « dossier_front » (téléphone, courriel, nom), ses autres fils : messages vocaux, textos et résumés d'appel y sont souvent. Ne mélange jamais deux clients : un fil ou une fiche ne compte que s'il correspond au même téléphone, courriel ou nom.
+- Coordonnées : chaque message du fil indique son expéditeur et ses destinataires (« → à : Nom <courriel> »). Quand c'est PTM qui écrit, le client est dans les destinataires : prends son nom complet et son courriel de là pour la fiche, au lieu d'écrire qu'ils manquent.
 - Aucune fiche : crée-la avec « creer_client » (client potentiel), sans attendre qu'on te le demande, et dis-le dans ta note. Une fiche qui correspond déjà (même courriel, téléphone, ou nom et ville) : n'en crée pas, signale un doublon possible.
 - Le piano décrit par le client doit être dans sa fiche : sinon, « ajouter_piano » (marque, modèle, type) avant de créer le RV, et passe son id dans piano_ids. Une coquille évidente de modèle (ex. « BG-1 » pour un Yamaha GB1) : corrige-la et signale-le.
 - Client existant : reprends ce qui a été fait, le technicien habituel et les frais de déplacement DÉJÀ FACTURÉS ; un écart avec le calculateur se signale à l'équipe, et le brouillon garde [frais à confirmer] tant qu'elle n'a pas tranché. Provenance : un « accord de courtoisie <marchand> » dans une facture veut dire que ce marchand nous a envoyé le client.
@@ -149,6 +150,8 @@ Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86
 
 Actions :
 - Créer un RV : sur ordre explicite de l'équipe (« crée le RV », « oui », « vas-y ») et quand tu connais le client, le technicien, le jour, l'heure et la durée, crée-le DIRECTEMENT avec « creer_rendez_vous », avec des notes complètes pour le technicien, sans aperçu. S'il manque un élément, demande seulement celui-là. Jamais de confirmation automatique au client.
+- Un bloc personnel du technicien occupe déjà la plage pour CE client (ex. « accorder fazioli à la maison trestler ») : c'est la place réservée. Transforme-le en vrai RV avec « convertir_bloc_en_rv » au lieu de répondre qu'il y a un conflit.
+- Facture (« fais la facture », « facture alternative à X ») : « creer_facture » crée le brouillon dans Gazelle, avec la facturation alternative (facturer_a_client_id) et le technicien ; passe rv_id pour écrire « Facture créée » dans le RV. Le prix vient du fil ou de la grille. Ne dis jamais qu'aucun outil ne fait de facture.
 - Bloquer un technicien (« bloque JP mardi matin ») : « bloquer_technicien » crée un bloc personnel « RÉSERVÉ (à confirmer) », sans avis au client ; ce n'est jamais un vrai RV.
 - Tout ce que sait faire la case de l'assistant de Ma Journée : utilise l'outil correspondant et rapporte son résultat (action "reponse"). Repères : soumission NEUVE (pas de numéro de départ) → chercher_catalogue puis creer_soumission, sans demander de numéro existant ; reprice=true pour réactiver une soumission « à jour » (toujours un brouillon) ; « mes appels » sans nom = la personne qui t'écrit ; « le premier RV » : source_time_hint='premier' ; les heures rendues sont déjà en heure de Montréal ; un lien de réservation se donne tel quel ; frais partagés entre plusieurs clients : calculateur « Frais partagés » de l'assistant.
 
@@ -414,6 +417,10 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
             d = datetime.fromisoformat(f"{e['jour']}T{e['heure']}").replace(tzinfo=MONTREAL_TZ)
             f = d + timedelta(minutes=int(e.get("duree_min") or 0))
             if d < fin and debut < f:
+                if e.get("type") == "PERSONAL":
+                    return (f"Conflit : {tech} a déjà le bloc personnel « {e.get('titre')} » ({e.get('id')}) de "
+                            f"{d:%H:%M} à {f:%H:%M}. Si ce bloc est réservé pour CE client, utilise "
+                            "« convertir_bloc_en_rv » avec ce bloc : il devient le vrai RV. Sinon, propose une autre heure.")
                 return (f"Conflit : {tech} a déjà « {e.get('titre')} » de {d:%H:%M} à {f:%H:%M} ce jour-là. "
                         "Rien créé : propose une autre heure à l'équipe.")
     except Exception as e:
@@ -430,6 +437,40 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
     ev = res.get("evenement") or {}
     return (f"RV créé dans Gazelle ({ev.get('id')}) : {ev.get('title')}, {tech}, {debut:%A %d %B %Y} "
             f"de {debut:%H:%M} à {fin:%H:%M}. Aucune confirmation envoyée au client.")
+
+def _creer_facture(arg: Dict[str, Any]) -> str:
+    """Facture Gazelle en brouillon + facturation alternative + mention « Facture créée » dans le RV."""
+    from api.taches_routes import (creer_facture, FactureIn, LigneFacture, maj_facture, FactureMajIn,
+                                   modifier_rendez_vous, ModifRvIn)
+    lignes = [LigneFacture(description=l["description"], montant=float(l["montant"]),
+                           service_id=l.get("service_id"), piano_id=l.get("piano_id"))
+              for l in (arg.get("lignes") or []) if l.get("description") and l.get("montant") is not None]
+    if not lignes:
+        return "Aucune ligne avec description et montant : rien créé."
+    uid = _TECHS.get(arg.get("technicien") or "")
+    try:
+        f = creer_facture(FactureIn(client_id=arg["client_id"], lignes=lignes, assigne_a=uid))
+    except Exception as e:
+        return f"Gazelle a refusé la facture : {getattr(e, 'detail', e)}"
+    msg = [f"Facture n° {f.get('numero')} créée en BROUILLON ({f.get('id')}) : sous-total {f.get('sous_total')} $, "
+           f"total {f.get('total')} $ taxes incluses. Rien envoyé."]
+    alt = ""
+    if arg.get("facturer_a_client_id"):
+        try:
+            m = maj_facture(f["id"], FactureMajIn(facturer_a_client_id=arg["facturer_a_client_id"]))
+            alt = m.get("facture_a") or "la fiche demandée"
+            msg.append(f"Facturation alternative : {alt}.")
+        except Exception as e:
+            msg.append(f"⚠️ Facturation alternative NON appliquée : {getattr(e, 'detail', e)}")
+    if arg.get("rv_id"):
+        note = f"Facture créée (n° {f.get('numero')}, brouillon" + (f", facturée à {alt}" if alt else "") + ")."
+        try:
+            modifier_rendez_vous(arg["rv_id"], ModifRvIn(notes_ajout=note))
+            msg.append(f"Écrit dans le RV {arg['rv_id']} : « {note} »")
+        except Exception as e:
+            msg.append(f"⚠️ Note du RV non écrite : {getattr(e, 'detail', e)}")
+    return " ".join(msg)
+
 
 _NOMS_TECHS = {"usr_HcCiFk7o0vZ9xAI0": "Nicolas", "usr_ofYggsCDt2JAVeNP": "Allan", "usr_tndhXmnT0iakT4HF": "Allan",
                "usr_ReUSmIJmBF86ilY1": "JP", "usr_QmEpdeM2xMgZVkDS": "JP", "usr_bbt59aCUqUaDWA8n": "Margot",
@@ -670,6 +711,18 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return _transmettre_a_claude(arg)
         if nom == "creer_rendez_vous":
             return _creer_rv_direct(arg)
+        if nom == "convertir_bloc_en_rv":
+            from api.taches_routes import convertir_bloc_en_rv, ConversionBlocIn
+            prenom = (_CTX.get() or {}).get("prenom") or "l'équipe"
+            r = convertir_bloc_en_rv(arg["bloc_id"], ConversionBlocIn(
+                client_id=arg["client_id"], piano_ids=arg.get("piano_ids") or [], notes=arg.get("notes"),
+                par=f"Ivo (assistant IA) à la demande de {prenom}"))
+            ev = r.get("rv") or {}
+            return (f"RV créé ({ev.get('id')}) : {ev.get('title')}, à l'heure du bloc (fin {r.get('fin')}). "
+                    + ("Bloc retiré." if r.get("bloc_supprime") else f"⚠️ {r.get('avertissement')}")
+                    + " Aucune confirmation envoyée au client.")
+        if nom == "creer_facture":
+            return _creer_facture(arg)
         if nom == "chercher_client":
             from modules.assistant.services.queries import GazelleQueries
             from core.supabase_storage import SupabaseStorage
@@ -846,6 +899,30 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "notes": {"type": "string", "description": "Notes pour le technicien : service, prix connu, qui facturer, adresse, contacts, points à vérifier."},
              "piano_ids": {"type": "array", "items": {"type": "string"}},
              "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."}}}},
+        {"name": "convertir_bloc_en_rv",
+         "description": ("Transforme un bloc PERSONNEL déjà à l'horaire d'un technicien (ex. « accorder fazioli à la maison "
+                         "trestler ») en vrai RV client, à la même heure et pour la même durée, avec le piano. Le bloc est "
+                         "retiré une fois le RV créé. Aucun courriel au client. Seulement sur ordre explicite de l'équipe, "
+                         "et seulement si le bloc vise ce client (trouve son evt_… avec « consulter_horaire »)."),
+         "input_schema": {"type": "object", "required": ["bloc_id", "client_id", "notes"], "properties": {
+             "bloc_id": {"type": "string"}, "client_id": {"type": "string"},
+             "piano_ids": {"type": "array", "items": {"type": "string"}},
+             "notes": {"type": "string", "description": "Notes pour le technicien : service, prix convenu, qui facturer, contacts."}}}},
+        {"name": "creer_facture",
+         "description": ("Crée une facture Gazelle en BROUILLON (TPS/TVQ cochées, rien envoyé au client), avec au besoin une "
+                         "FACTURATION ALTERNATIVE (facturer une autre fiche que le client du piano, ex. le propriétaire, un "
+                         "marchand) et le technicien assigné. Si un RV est donné, écrit « Facture créée (n° …) » en tête "
+                         "de ses notes. Le montant doit venir du fil (prix convenu avec le client) ou de la grille des tarifs, "
+                         "jamais deviné. Sur ordre explicite de l'équipe seulement."),
+         "input_schema": {"type": "object", "required": ["client_id", "lignes"], "properties": {
+             "client_id": {"type": "string", "description": "Client du service (fiche du piano)."},
+             "lignes": {"type": "array", "items": {"type": "object", "required": ["description", "montant"], "properties": {
+                 "description": {"type": "string"}, "montant": {"type": "number", "description": "dollars avant taxes"},
+                 "service_id": {"type": ["string", "null"], "description": "mit_… de la grille, si applicable"},
+                 "piano_id": {"type": ["string", "null"]}}}},
+             "facturer_a_client_id": {"type": ["string", "null"], "description": "cli_… de la fiche à facturer (facturation alternative)."},
+             "technicien": {"type": ["string", "null"], "enum": ["Nicolas", "JP", "Margot", None]},
+             "rv_id": {"type": ["string", "null"], "description": "evt_… où écrire « Facture créée »."}}}},
         {"name": "ajouter_piano",
          "description": ("Ajoute à la fiche Gazelle d'un client le piano qu'il a décrit (refuse s'il a déjà un piano actif "
                          "de la même marque, et retourne alors celui-là). Retourne l'id du piano pour piano_ids."),
@@ -900,7 +977,10 @@ def _fil(messages: List[Dict]) -> str:
         imgs = [x.get("filename") or "photo" for x in (m.get("attachments") or [])
                 if _est_photo(x)]
         pj = f"\n[{len(imgs)} photo(s) jointe(s) : {', '.join(imgs[:8])} — outil analyser_photos]" if imgs else ""
-        lignes.append(f"--- {qui} {auteur} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}{pj}")
+        dest = ", ".join(f"{r.get('name') or ''} <{r.get('handle')}>".strip()
+                         for r in (m.get("recipients") or []) if r.get("role") in ("to", "cc") and r.get("handle"))
+        dest = f" → à : {dest}" if dest else ""
+        lignes.append(f"--- {qui} {auteur}{dest} ---\n{_texte(m.get('text') or m.get('body') or '')[:4000]}{pj}")
     # Le premier message du client (marque, modèle, adresse, demande) est toujours gardé
     if len(lignes) > 12:
         lignes = [lignes[0], "[… messages intermédiaires omis …]"] + lignes[-11:]
