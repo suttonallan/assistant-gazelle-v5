@@ -1142,7 +1142,7 @@ _Q_CLIENT_FACTURATION = """query($id: String!) { client(id: $id) { id companyNam
 
 _UPDATE_INVOICE = """mutation($id: String!, $input: PrivateUpdateInvoiceInput!) {
   updateInvoice(id: $id, input: $input) {
-    invoice { id number status subTotal total altBillingCompanyName assignedTo { id } }
+    invoice { id number status subTotal total altBillingCompanyName altBillingFirstName altBillingLastName assignedTo { id } }
     mutationErrors { fieldName messages } } }"""
 
 
@@ -1217,7 +1217,9 @@ def maj_facture(invoice_id: str, m: FactureMajIn):
         raise HTTPException(502, f"Gazelle a refusé : {payload.get('mutationErrors')} {res.get('errors') if isinstance(res, dict) else ''}")
     i = payload["invoice"]
     return {"numero": i.get("number"), "statut": i.get("status"), "sous_total": _dollars(i.get("subTotal")),
-            "total": _dollars(i.get("total")), "facture_a": i.get("altBillingCompanyName"),
+            "total": _dollars(i.get("total")),
+            "facture_a": i.get("altBillingCompanyName") or " ".join(
+                x for x in (i.get("altBillingFirstName"), i.get("altBillingLastName")) if x) or None,
             "assigne_a": (i.get("assignedTo") or {}).get("id")}
 
 
