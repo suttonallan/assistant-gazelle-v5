@@ -833,6 +833,44 @@ def rappels_a_risque_route(jours_avant: int = Query(7, ge=0, le=120), jours_apre
     return {"cas": rappels_a_risque(GazelleAPIClient(), jours_avant, jours_apres)}
 
 
+_CHAMPS_DISPO = ("id name startTime endTime startOfDayType preferredSlotPolicy preferredSlotTimes "
+                 "adjustPreferredSlots roundingMinutes recurrenceRule startDate endDate")
+
+
+@router.get("/gazelle/disponibilites")
+def disponibilites(user_id: str = Query(..., pattern=r"^usr_[A-Za-z0-9]+$")):
+    """LECTURE — disponibilités du planificateur Gazelle d'un technicien (heures préférées,
+    ajustement selon le déplacement, arrondi)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query(
+        "query($u: String!) { allSchedulerAvailabilities(userId: $u) { %s } }" % _CHAMPS_DISPO, {"u": user_id})
+    if res.get("errors"):
+        raise HTTPException(502, str(res["errors"]))
+    return {"disponibilites": (res.get("data") or {}).get("allSchedulerAvailabilities") or []}
+
+
+@router.post("/gazelle/disponibilite/{dispo_id}/ajuster-selon-deplacement")
+def dispo_ajuster(dispo_id: str, user_id: str = Query(..., pattern=r"^usr_[A-Za-z0-9]+$"), actif: bool = Query(True)):
+    """Coche (ou décoche) « Allow preferred time slots to be adjusted based on travel time » sur une
+    disponibilité. Seul ce réglage change ; on relit avant et après pour le prouver."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    q = "query($i: String!, $u: String!) { schedulerAvailability(id: $i, userId: $u) { %s } }" % _CHAMPS_DISPO
+    avant = ((gz._execute_query(q, {"i": dispo_id, "u": user_id}).get("data") or {}).get("schedulerAvailability"))
+    if not avant:
+        raise HTTPException(404, "Disponibilité introuvable pour ce technicien")
+    res = gz._execute_query("""mutation($i: String!, $in: PrivateSchedulerAvailabilityInput!) {
+      updateSchedulerAvailability(id: $i, input: $in) { availability { id } mutationErrors { fieldName messages } } }""",
+                            {"i": dispo_id, "in": {"adjustPreferredSlots": actif}})
+    m = (res.get("data") or {}).get("updateSchedulerAvailability") or {}
+    if res.get("errors") or m.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or m.get("mutationErrors")))
+    apres = ((gz._execute_query(q, {"i": dispo_id, "u": user_id}).get("data") or {}).get("schedulerAvailability")) or {}
+    autres_changes = [k for k in avant if k != "adjustPreferredSlots" and avant.get(k) != apres.get(k)]
+    return {"nom": avant.get("name"), "avant": avant.get("adjustPreferredSlots"),
+            "apres": apres.get("adjustPreferredSlots"), "autres_champs_modifies": autres_changes}
+
+
 @router.get("/gazelle/piano/{piano_id}/accord")
 def piano_accord(piano_id: str):
     """LECTURE — dates de dernier service (calculée, manuelle, par RV) et prochain accord prévu d'un piano."""
