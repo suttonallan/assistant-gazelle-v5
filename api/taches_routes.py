@@ -2518,3 +2518,25 @@ def lire_rapport_courtoisie(request: Request):
     if _restreint(request):
         raise HTTPException(403, "Réservé à la direction")
     return _rapport_courtoisie
+
+
+@router.get("/gazelle/schema-champs")
+def schema_champs(motif: str = Query("mail", min_length=3, max_length=30)):
+    """LECTURE (diagnostic temporaire) — champs de requête GraphQL Gazelle dont le nom contient `motif`,
+    avec arguments et type retourné, pour repérer le suivi des messages envoyés (ouvert, cliqué)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """{ __schema { queryType { fields { name args { name type { name kind ofType { name } } }
+      type { name kind ofType { name kind ofType { name } } } } } } }"""
+    res = GazelleAPIClient()._execute_query(q)
+    champs = (((res.get("data") or {}).get("__schema") or {}).get("queryType") or {}).get("fields") or []
+    m = motif.lower()
+    return {"champs": [c for c in champs if m in c["name"].lower()], "erreurs": res.get("errors")}
+
+
+@router.get("/gazelle/schema-type")
+def schema_type(nom: str = Query(..., min_length=3, max_length=60)):
+    """LECTURE (diagnostic temporaire) — champs d'un type GraphQL Gazelle."""
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """query($n: String!) { __type(name: $n) { name kind enumValues { name }
+      fields { name type { name kind ofType { name kind ofType { name } } } } } }"""
+    return GazelleAPIClient()._execute_query(q, {"n": nom})
