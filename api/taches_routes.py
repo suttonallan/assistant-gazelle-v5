@@ -790,6 +790,54 @@ def changer_prix_service(service_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]
             "apres": ((m.get("masterServiceItem") or {}).get("amount") or 0) / 100}
 
 
+@router.post("/gazelle/service-accord")
+def cocher_service_accord(service_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]+$"),
+                          accord: bool = Query(True)):
+    """Coche (ou décoche) « accord » (isTuning) sur un article de la Master Service List.
+    Un RV avec un service coché « accord » retient les rappels « piano dû » et met à jour
+    la date du dernier accord quand il est complété. Rien d'autre n'est modifié."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    lire = "query { allMasterServiceItems { id name isTuning isArchived } }"
+    avant = next((i for i in ((gz._execute_query(lire).get("data") or {}).get("allMasterServiceItems") or [])
+                  if i["id"] == service_id), None)
+    if not avant:
+        raise HTTPException(404, "Article introuvable dans la Master Service List")
+    res = gz._execute_query("""mutation($id: String!, $i: PrivateMasterServiceItemInput!) {
+      updateMasterServiceItem(id: $id, input: $i) { masterServiceItem { id isTuning } mutationErrors { fieldName messages } } }""",
+                            {"id": service_id, "i": {"isTuning": accord}})
+    m = (res.get("data") or {}).get("updateMasterServiceItem") or {}
+    if res.get("errors") or m.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or m.get("mutationErrors")))
+    return {"article": _nom_i18n(avant.get("name")), "avant": bool(avant.get("isTuning")),
+            "apres": bool((m.get("masterServiceItem") or {}).get("isTuning"))}
+
+
+@router.get("/gazelle/accords-non-comptes")
+def accords_non_comptes(jours_avant: int = Query(30, ge=0, le=365), jours_apres: int = Query(90, ge=0, le=365)):
+    """LECTURE — services d'accord non cochés « accord » dans la Master Service List, et RV
+    contenant un accord où rien n'est coché « accord » (le rappel « piano dû » partirait)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from modules.data_quality.accords_non_comptes import services_accord_non_coches, rv_accord_non_compte
+    gz = GazelleAPIClient()
+    return {"services": services_accord_non_coches(gz),
+            "rendez_vous": rv_accord_non_compte(gz, jours_avant, jours_apres)}
+
+
+@router.get("/gazelle/piano/{piano_id}/accord")
+def piano_accord(piano_id: str):
+    """LECTURE — dates de dernier service (calculée, manuelle, par RV) et prochain accord prévu d'un piano."""
+    from core.gazelle_api_client import GazelleAPIClient
+    res = GazelleAPIClient()._execute_query("""query($p: String!) { piano(id: $p) { id make model status
+      serviceIntervalMonths calculatedLastService manualLastService eventLastService calculatedNextService
+      nextTuningScheduled { id start } client { id } } }""", {"p": piano_id})
+    if res.get("errors"):
+        res = GazelleAPIClient()._execute_query("""query($p: String!) { piano(id: $p) { id make model status
+          serviceIntervalMonths calculatedLastService manualLastService eventLastService calculatedNextService client { id } } }""",
+                                                {"p": piano_id})
+    return {"piano": (res.get("data") or {}).get("piano"), "erreurs": res.get("errors")}
+
+
 @router.post("/gazelle/service-copie")
 def copier_service(source_id: str = Query(..., pattern=r"^mit_[A-Za-z0-9]+$"),
                    nom_fr: str = Query(..., min_length=2, max_length=120),

@@ -219,7 +219,11 @@ def build_replacement_item(
         'duration': total_duration,
         'type': replacement_msl.get('type') or 'LABOR_FIXED_RATE',
         'isTaxable': bool(replacement_msl.get('isTaxable', True)),
-        'isTuning': bool(replacement_msl.get('isTuning', False)),
+        # Un accord reste un accord : si un des services remplacés était coché « accord »,
+        # le nouveau l'est aussi. Sinon Gazelle croit qu'aucun accord n'est prévu, envoie le
+        # rappel « piano dû » et ne met pas à jour la date du dernier accord (cas H. Desjardins).
+        'isTuning': bool(replacement_msl.get('isTuning', False))
+                    or any(bool(it.get('isTuning')) for it in trigger_items),
     }
     if piano_id:
         payload['pianoId'] = piano_id

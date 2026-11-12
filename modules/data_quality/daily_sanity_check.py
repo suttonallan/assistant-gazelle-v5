@@ -424,7 +424,37 @@ def check_pda_coherence(storage) -> list:
     return anomalies
 
 
-CHECKS = [check_pda_parking, check_pls_note_contradiction, check_pda_coherence]
+# ════════════════════════════════════════════════════════════════════
+# CHECK 4 — Accords qui ne comptent pas comme accords dans Gazelle
+# ════════════════════════════════════════════════════════════════════
+# Un RV d'accord sans rien de coché « accord » laisse partir le rappel « piano dû »
+# et ne remet pas à jour la date du dernier accord (cas Hélène Desjardins, nov. 2026).
+
+def check_accords_non_comptes(storage) -> list:
+    from core.gazelle_api_client import GazelleAPIClient
+    from modules.data_quality.accords_non_comptes import services_accord_non_coches, rv_accord_non_compte
+    gz = GazelleAPIClient()
+    anomalies = []
+    for s in services_accord_non_coches(gz):
+        anomalies.append({
+            "check": "accord_non_coche", "severity": "warning",
+            "title": f"Service d'accord non coché « accord » — {s['nom'][:70]}",
+            "detail": f"{s['id']} : dans la Master Service List, cocher « accord » (sinon les RV avec ce "
+                      "service n'arrêtent pas les rappels et ne mettent pas à jour la date du dernier accord).",
+        })
+    for r in rv_accord_non_compte(gz, jours_avant=7, jours_apres=60):
+        pianos = ", ".join(p["piano"] or p["id"] for p in r["pianos"]) or "aucun piano sur le RV"
+        anomalies.append({
+            "check": "rv_accord_non_compte", "severity": "warning",
+            "title": f"RV d'accord qui ne compte pas — {r['client']} ({(r['debut'] or '')[:10]})",
+            "detail": f"{r['event_id']} ({r['statut']}, {r['technicien'] or '?'}) — {pianos}. Aucun service ni "
+                      "piano coché « accord » : le client peut recevoir « piano dû » et la date du dernier accord "
+                      "ne se mettra pas à jour.",
+        })
+    return anomalies
+
+
+CHECKS = [check_pda_parking, check_pls_note_contradiction, check_pda_coherence, check_accords_non_comptes]
 
 
 # ════════════════════════════════════════════════════════════════════

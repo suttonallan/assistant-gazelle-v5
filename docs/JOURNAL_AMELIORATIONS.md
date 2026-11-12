@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 12 novembre
+- **Les accords « Extra-propre » et « Premium + PLS » comptent de nouveau comme des accords** : la veille du RV, l'assistant remplaçait le service réservé en ligne par sa version détaillée, mais celle-ci n'était pas cochée « accord » dans Gazelle. Résultat : le client recevait « votre piano est dû » la veille de sa visite, et la date du dernier accord ne se mettait pas à jour (cas d'Hélène Desjardins). C'est corrigé, et le vérificateur quotidien signale désormais tout RV d'accord qui ne compte pas comme un accord.
 - **Kilomètres d'Allan plus justes** : quand il a plus d'une demi-heure entre deux arrêts, le calculateur compte un retour à la maison, comme il le fait vraiment. On peut aussi ajouter un bloc personnel avec lieu sans client (ex. déjeuner d'affaires) pour qu'il soit compté. Les déjeuners avec Nicolas inscrits dans l'agenda de Nicolas sont ajoutés tout seuls au rapport de déplacement d'Allan.
 - **On sait si le client a ouvert nos courriels** : l'assistant lit maintenant la section « Messages » de Gazelle (envoyé, ouvert, cliqué, non livré, désabonné). Ma Journée l'indique pour les soumissions en attente (ex. « envoyée le 2024-05-28, OUVERTE par le client »).
 - **Historique complet d'un client sur demande** : « @Ivo résume-moi ce client » ou la même question dans la case de l'assistant donne d'un coup la fiche, la chronologie, les factures, les soumissions (ouvertes ou non) et les courriels reçus. Un désabonnement ou une adresse qui ne fonctionne plus est signalé.
