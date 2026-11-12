@@ -183,6 +183,12 @@ RETOUR_MAISON_SI_BATTEMENT_MIN = {
 }
 
 
+# Déjeuners d'affaires d'Allan avec Nicolas : lus dans l'agenda de Nicolas (copié dans Gazelle).
+DEJEUNERS_DANS_AGENDA_DE = {
+    'usr_ofYggsCDt2JAVeNP': ['usr_HcCiFk7o0vZ9xAI0'],  # Allan ← agenda de Nicolas
+}
+
+
 def _inserer_retours_maison(rv_jour: List[Dict[str, Any]], technician_id: str) -> List[Dict[str, Any]]:
     """Insère un arrêt « maison » entre deux RV quand le battement dépasse le seuil du technicien.
     rv_jour doit être trié par heure ; chaque RV a 'start_time' (datetime) et 'duration' (min)."""
@@ -294,6 +300,31 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
                 .execute()
 
             all_appointments = result.data
+
+            # Déjeuners d'affaires : Nicolas envoie l'invitation depuis son agenda, qui est copié
+            # dans Gazelle sur SON horaire seulement. On les ajoute à la journée d'Allan (avec le
+            # lieu de l'invitation), sauf s'il a déjà un bloc à la même heure ce jour-là.
+            if travel_mode != "BICYCLING":
+                for org_id in DEJEUNERS_DANS_AGENDA_DE.get(request.technician_id, []):
+                    try:
+                        dej = supabase.table('gazelle_appointments').select('*') \
+                            .gte('appointment_date', date_start_str).lte('appointment_date', date_end_str) \
+                            .eq('technicien', org_id) \
+                            .or_('title.ilike.*déjeuner*,title.ilike.*dejeuner*') \
+                            .execute().data or []
+                    except Exception as e:
+                        print(f"⚠️ Déjeuners de {org_id} non lus : {e}")
+                        dej = []
+                    for d in dej:
+                        if not (d.get('location') or '').strip():
+                            continue
+                        h = str(d.get('appointment_time') or '')[:5]
+                        deja = any(a.get('appointment_date') == d.get('appointment_date')
+                                   and str(a.get('appointment_time') or '')[:5] == h for a in all_appointments)
+                        if not deja:
+                            all_appointments.append({**d, 'client_external_id': None,
+                                                     'title': f"{d.get('title') or 'Déjeuner'} (agenda de Nicolas)"})
+                all_appointments.sort(key=lambda a: (str(a.get('appointment_date')), str(a.get('appointment_time'))))
 
             # Récupérer les adresses (city + postal_code) depuis gazelle_clients
             client_ids = list(set([apt.get('client_external_id') for apt in all_appointments if apt.get('client_external_id')]))
