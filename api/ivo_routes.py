@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "2026-11-10-apprentissage-brouillons"
+VERSION = "2026-11-11-sans-voix-elevenlabs"
 MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -1250,73 +1250,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 def sante():
     return {"ok": True, "version": VERSION, "modele": MODELE,
             "cle_ia": bool(os.getenv("ANTHROPIC_API_KEY")), "cle_front": bool(os.getenv("FRONT_API_KEY")),
-            "cle_voix": bool(os.getenv("ELEVENLABS_API_KEY")),
             "cahier": bool(__import__("core.ivo_regles", fromlist=["x"]).cahier_pour_ia())}
-
-
-# ─── Voix d'Ivo (ElevenLabs) — narration des présentations ───
-# Bornée : 60 appels par démarrage du serveur, 2500 caractères par appel. Jamais la voix clonée d'Allan.
-_voix_compteur = {"n": 0}
-
-
-@router.get("/voix/catalogue")
-def voix_catalogue():
-    """Voix ElevenLabs du compte (nom, étiquettes) — sans les voix clonées."""
-    from fastapi import HTTPException
-    cle = os.getenv("ELEVENLABS_API_KEY")
-    if not cle:
-        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
-    r = requests.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": cle}, timeout=60)
-    return [{"id": v["voice_id"], "nom": v["name"], "categorie": v.get("category"), "labels": v.get("labels")}
-            for v in r.json().get("voices", []) if v.get("category") != "cloned"]
-
-
-class VoixIn(__import__("pydantic").BaseModel):
-    texte: str
-    voix_id: str
-    stabilite: float = 0.45
-    style: float = 0.35
-
-
-@router.post("/voix")
-def voix(v: VoixIn):
-    from fastapi import HTTPException, Response
-    cle = os.getenv("ELEVENLABS_API_KEY")
-    if not cle:
-        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
-    if _voix_compteur["n"] >= 60 or len(v.texte) > 2500:
-        raise HTTPException(429, "limite")
-    _voix_compteur["n"] += 1
-    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{v.voix_id[:40]}?output_format=mp3_44100_128",
-                      headers={"xi-api-key": cle}, timeout=180,
-                      json={"text": v.texte, "model_id": "eleven_multilingual_v2",
-                            "voice_settings": {"stability": v.stabilite, "similarity_boost": 0.8,
-                                               "style": v.style, "use_speaker_boost": True}})
-    if r.status_code >= 400:
-        raise HTTPException(502, r.text[:300])
-    return Response(content=r.content, media_type="audio/mpeg")
-
-
-@router.post("/voix/minutage")
-def voix_minutage(v: VoixIn):
-    """Même chose, avec le minutage de chaque caractère (pour les sous-titres) : audio en base64 + alignement."""
-    from fastapi import HTTPException
-    cle = os.getenv("ELEVENLABS_API_KEY")
-    if not cle:
-        raise HTTPException(503, "ELEVENLABS_API_KEY absente sur le serveur")
-    if _voix_compteur["n"] >= 60 or len(v.texte) > 2500:
-        raise HTTPException(429, "limite")
-    _voix_compteur["n"] += 1
-    r = requests.post(f"https://api.elevenlabs.io/v1/text-to-speech/{v.voix_id[:40]}/with-timestamps"
-                      "?output_format=mp3_44100_128", headers={"xi-api-key": cle}, timeout=180,
-                      json={"text": v.texte, "model_id": "eleven_multilingual_v2",
-                            "voice_settings": {"stability": v.stabilite, "similarity_boost": 0.8,
-                                               "style": v.style, "use_speaker_boost": True}})
-    if r.status_code >= 400:
-        raise HTTPException(502, r.text[:300])
-    d = r.json()
-    return {"audio_base64": d.get("audio_base64"), "alignement": d.get("alignment")}
-
 
 
 @router.post("/surveiller")
