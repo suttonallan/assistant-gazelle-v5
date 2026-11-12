@@ -432,7 +432,8 @@ def check_pda_coherence(storage) -> list:
 
 def check_accords_non_comptes(storage) -> list:
     from core.gazelle_api_client import GazelleAPIClient
-    from modules.data_quality.accords_non_comptes import services_accord_non_coches, rv_accord_non_compte
+    from modules.data_quality.accords_non_comptes import (services_accord_non_coches, rv_accord_non_compte,
+                                                          rappels_a_risque)
     gz = GazelleAPIClient()
     anomalies = []
     for s in services_accord_non_coches(gz):
@@ -450,6 +451,17 @@ def check_accords_non_comptes(storage) -> list:
             "detail": f"{r['event_id']} ({r['statut']}, {r['technicien'] or '?'}) — {pianos}. Aucun service ni "
                       "piano coché « accord » : le client peut recevoir « piano dû » et la date du dernier accord "
                       "ne se mettra pas à jour.",
+        })
+    deja = {a["detail"].split(" ")[0] for a in anomalies}
+    for r in rappels_a_risque(gz, jours_avant=7, jours_apres=21):
+        if r["event_id"] in deja and r["type"] == "piano_du_malgre_rv" and "pas coché" in r["detail"]:
+            continue  # déjà signalé plus haut
+        titre = ("Rappel « piano dû » possible malgré un RV" if r["type"] == "piano_du_malgre_rv"
+                 else "Date du dernier accord pas mise à jour")
+        anomalies.append({
+            "check": r["type"], "severity": "warning",
+            "title": f"{titre} — {r['client']} ({r['jour']})",
+            "detail": f"{r['event_id']} ({r['technicien'] or '?'}) — {r['piano']} ({r['piano_id']}) : {r['detail']}",
         })
     return anomalies
 

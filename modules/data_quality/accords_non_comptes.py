@@ -55,14 +55,14 @@ def services_accord_non_coches(gz) -> List[Dict[str, Any]]:
             if not i.get("isArchived") and not i.get("isTuning") and _ACCORD.search(_nom(i.get("name")))]
 
 
-def _rv_fenetre(gz, debut: date, fin: date) -> List[Dict]:
-    res = gz._execute_query(_Q_RV, {"start": debut.isoformat(), "end": fin.isoformat()}) or {}
+def _rv_fenetre(gz, debut: date, fin: date, requete: str = None) -> List[Dict]:
+    res = gz._execute_query(requete or _Q_RV, {"start": debut.isoformat(), "end": fin.isoformat()}) or {}
     if res.get("errors"):
         raise RuntimeError(f"Gazelle : {res['errors']}")
     noeuds = ((res.get("data") or {}).get("allEventsBatched") or {}).get("nodes") or []
     if len(noeuds) >= 200 and (fin - debut).days > 1:  # fenêtre trop pleine : on la coupe en deux
         milieu = debut + timedelta(days=(fin - debut).days // 2)
-        return _rv_fenetre(gz, debut, milieu) + _rv_fenetre(gz, milieu, fin)
+        return _rv_fenetre(gz, debut, milieu, requete) + _rv_fenetre(gz, milieu, fin, requete)
     return noeuds
 
 
@@ -103,3 +103,79 @@ def rv_accord_non_compte(gz, jours_avant: int = 30, jours_apres: int = 90,
             })
         d = f
     return sorted(out, key=lambda r: r["debut"] or "")
+
+
+# ════════════════════════════════════════════════════════════════════
+# Surveillance élargie : « piano dû » malgré un RV, et date d'accord pas mise à jour
+# ════════════════════════════════════════════════════════════════════
+# Gazelle n'envoie pas le rappel « piano dû » si le PIANO a un accord prévu
+# (nextTuningScheduled). Il le laisse partir si le piano n'est pas sur le RV
+# (oublié, autre piano du client), ou si rien n'est coché accord. Après la visite,
+# la date du dernier accord doit avancer ; sinon le rappel reviendra.
+
+_Q_RV_LARGE = """query($start: CoreDate!, $end: CoreDate!) {
+  allEventsBatched(first: 200, filters: {startOn: $start, endOn: $end}) {
+    nodes { id start type status
+      client { id companyName defaultContact { firstName lastName }
+        allPianos(first: 20, status: [ACTIVE]) { nodes { id make model calculatedLastService calculatedNextService nextTuningScheduled { id } } } }
+      user { firstName }
+      allEventPianos(first: 20) { nodes { isTuning piano { id make model calculatedLastService } } } } } }"""
+
+
+def _nom_client(c) -> str:
+    dc = (c or {}).get("defaultContact") or {}
+    return (c or {}).get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()
+
+
+def _piano_txt(p) -> str:
+    return f"{p.get('make') or ''} {p.get('model') or ''}".strip() or p.get("id", "")
+
+
+def rappels_a_risque(gz, jours_avant: int = 7, jours_apres: int = 21, aujourd_hui: date = None) -> List[Dict[str, Any]]:
+    """1) RV à venir : piano du client en retard (ou dû avant le RV) que Gazelle ne relie à
+          aucun accord prévu -> le client peut recevoir « piano dû » malgré son RV.
+       2) RV complétés récents avec accord coché, mais date du dernier accord pas avancée."""
+    from core.timezone_utils import aujourdhui_montreal
+    jour = aujourd_hui or aujourdhui_montreal()
+    debut, fin = jour - timedelta(days=jours_avant), jour + timedelta(days=jours_apres)
+    evs, d = [], debut
+    while d < fin:
+        f = min(d + timedelta(days=7), fin)
+        evs += _rv_fenetre(gz, d, f, _Q_RV_LARGE)
+        d = f
+    out, vus, signales = [], set(), set()
+    for ev in sorted(evs, key=lambda e: e.get("start") or ""):
+        if ev["id"] in vus or ev.get("type") != "APPOINTMENT" or ev.get("status") == "CANCELLED":
+            continue
+        vus.add(ev["id"])
+        c = ev.get("client") or {}
+        jour_rv = _jour_montreal(ev.get("start"))
+        ev_pianos = (ev.get("allEventPianos") or {}).get("nodes") or []
+        base = {"event_id": ev["id"], "jour": jour_rv, "statut": ev.get("status"), "client_id": c.get("id"),
+                "client": _nom_client(c), "technicien": (ev.get("user") or {}).get("firstName")}
+        if ev.get("status") == "COMPLETE":
+            for n in ev_pianos:
+                p = n.get("piano") or {}
+                if n.get("isTuning") and (p.get("calculatedLastService") or "") < jour_rv:
+                    out.append({**base, "type": "date_pas_mise_a_jour", "piano_id": p.get("id"), "piano": _piano_txt(p),
+                                "detail": f"Accord coché et RV complété le {jour_rv}, mais dernier accord = "
+                                          f"{p.get('calculatedLastService') or 'aucun'}."})
+            continue
+        if jour_rv < jour.isoformat():
+            continue  # RV passé pas encore complété : hors sujet ici
+        sur_rv = {(n.get("piano") or {}).get("id") for n in ev_pianos}
+        for p in ((c.get("allPianos") or {}).get("nodes") or []):
+            prochain = p.get("calculatedNextService") or ""
+            if not prochain or prochain > jour_rv or p.get("nextTuningScheduled") or (c.get("id"), p["id"]) in signales:
+                continue
+            signales.add((c.get("id"), p["id"]))
+            if not ev_pianos:
+                pourquoi = "le RV n'a aucun piano attaché"
+            elif p["id"] in sur_rv:
+                pourquoi = "le piano est sur le RV mais pas coché « accord »"
+            else:
+                pourquoi = "ce piano n'est pas sur le RV (autre piano du client ?)"
+            out.append({**base, "type": "piano_du_malgre_rv", "piano_id": p["id"], "piano": _piano_txt(p),
+                        "detail": f"Accord dû le {prochain}, RV le {jour_rv}, mais Gazelle ne voit aucun accord prévu "
+                                  f"pour ce piano : {pourquoi}. Le client peut recevoir « piano dû »."})
+    return out

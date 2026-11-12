@@ -824,6 +824,15 @@ def accords_non_comptes(jours_avant: int = Query(30, ge=0, le=365), jours_apres:
             "rendez_vous": rv_accord_non_compte(gz, jours_avant, jours_apres)}
 
 
+@router.get("/gazelle/rappels-a-risque")
+def rappels_a_risque_route(jours_avant: int = Query(7, ge=0, le=120), jours_apres: int = Query(21, ge=0, le=120)):
+    """LECTURE — pianos qui peuvent recevoir « piano dû » malgré un RV prévu, et RV d'accord
+    complétés dont la date du dernier accord n'a pas avancé."""
+    from core.gazelle_api_client import GazelleAPIClient
+    from modules.data_quality.accords_non_comptes import rappels_a_risque
+    return {"cas": rappels_a_risque(GazelleAPIClient(), jours_avant, jours_apres)}
+
+
 @router.get("/gazelle/piano/{piano_id}/accord")
 def piano_accord(piano_id: str):
     """LECTURE — dates de dernier service (calculée, manuelle, par RV) et prochain accord prévu d'un piano."""
