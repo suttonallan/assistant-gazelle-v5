@@ -189,8 +189,29 @@ DEJEUNERS_DANS_AGENDA_DE = {
 }
 
 
-def _inserer_retours_maison(rv_jour: List[Dict[str, Any]], technician_id: str) -> List[Dict[str, Any]]:
-    """Insère un arrêt « maison » entre deux RV quand le battement dépasse le seuil du technicien.
+# Temps minimum à la maison pour que l'aller-retour vaille la peine (Allan, 12 nov. 2026 : 15 min).
+TEMPS_MIN_A_LA_MAISON_MIN = 15
+_cache_trajets: Dict[tuple, int] = {}
+
+
+def _duree_trajet_min(origine: str, destination: str, mode: str) -> Optional[int]:
+    """Durée du trajet en minutes (Google Maps), mise en cache. None si incalculable."""
+    cle = (origine.strip().lower(), destination.strip().lower(), mode)
+    if cle not in _cache_trajets:
+        from modules.assistant.services.distance_calculator import google_distance_with_duration
+        try:
+            _cache_trajets[cle] = round(google_distance_with_duration(origine, destination, google_mode=mode)['duration_seconds'] / 60)
+        except Exception as e:
+            print(f"⚠️ Trajet incalculable {origine} → {destination} : {e}")
+            return None
+    return _cache_trajets[cle]
+
+
+def _inserer_retours_maison(rv_jour: List[Dict[str, Any]], technician_id: str,
+                            mode: str = "driving") -> List[Dict[str, Any]]:
+    """Insère un arrêt « maison » entre deux RV quand le battement dépasse le seuil du technicien
+    ET laisse au moins TEMPS_MIN_A_LA_MAISON_MIN minutes à la maison une fois les deux trajets comptés.
+    Si un trajet est incalculable, on n'ajoute rien (on ne surestime pas les kilomètres).
     rv_jour doit être trié par heure ; chaque RV a 'start_time' (datetime) et 'duration' (min)."""
     seuil = RETOUR_MAISON_SI_BATTEMENT_MIN.get(technician_id)
     if not seuil or len(rv_jour) < 2:
@@ -205,9 +226,13 @@ def _inserer_retours_maison(rv_jour: List[Dict[str, Any]], technician_id: str) -
         debut_prec, debut_suiv = precedent.get('start_time'), suivant.get('start_time')
         if isinstance(debut_prec, datetime) and isinstance(debut_suiv, datetime):
             fin_prec = debut_prec + timedelta(minutes=int(precedent.get('duration') or 0))
-            if (debut_suiv - fin_prec) > timedelta(minutes=seuil):
-                resultat.append({'start_time': fin_prec, 'duration': 0,
-                                 'client_address': maison, 'client_name': 'Retour maison (battement)'})
+            battement = (debut_suiv - fin_prec).total_seconds() / 60
+            if battement > seuil:
+                aller = _duree_trajet_min(precedent.get('client_address') or '', maison, mode)
+                retour = _duree_trajet_min(maison, suivant.get('client_address') or '', mode)
+                if aller is not None and retour is not None and battement - aller - retour >= TEMPS_MIN_A_LA_MAISON_MIN:
+                    resultat.append({'start_time': fin_prec, 'duration': 0,
+                                     'client_address': maison, 'client_name': 'Retour maison (battement)'})
         resultat.append(suivant)
     return resultat
 
@@ -441,7 +466,7 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         for jour in sorted(rv_par_jour):
             rv_jour = rv_par_jour[jour]
             rv_jour.sort(key=lambda a: str(a.get('start_time', '')))
-            rv_jour = _inserer_retours_maison(rv_jour, request.technician_id)
+            rv_jour = _inserer_retours_maison(rv_jour, request.technician_id, google_mode)
             route_jour = calculate_day_route(rv_jour, request.technician_id, travel_mode=google_mode)
             for seg in route_jour['segments']:
                 seg['date'] = jour
