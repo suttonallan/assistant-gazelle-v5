@@ -2520,23 +2520,52 @@ def lire_rapport_courtoisie(request: Request):
     return _rapport_courtoisie
 
 
-@router.get("/gazelle/schema-champs")
-def schema_champs(motif: str = Query("mail", min_length=3, max_length=30)):
-    """LECTURE (diagnostic temporaire) — champs de requête GraphQL Gazelle dont le nom contient `motif`,
-    avec arguments et type retourné, pour repérer le suivi des messages envoyés (ouvert, cliqué)."""
-    from core.gazelle_api_client import GazelleAPIClient
-    q = """{ __schema { queryType { fields { name args { name type { name kind ofType { name } } }
-      type { name kind ofType { name kind ofType { name } } } } } } }"""
-    res = GazelleAPIClient()._execute_query(q)
-    champs = (((res.get("data") or {}).get("__schema") or {}).get("queryType") or {}).get("fields") or []
-    m = motif.lower()
-    return {"champs": [c for c in champs if m in c["name"].lower()], "erreurs": res.get("errors")}
+
+_STATUTS_MSG = {"SENT": "envoyé", "ACCEPTED": "accepté", "DELIVERED": "livré", "OPENED": "ouvert",
+                "CLICKED": "cliqué", "BOUNCED": "rejeté", "DROPPED": "abandonné", "FAILED": "échec",
+                "UNDELIVERED": "non livré", "COMPLAINED": "signalé comme pourriel",
+                "UNSUBSCRIBED": "désabonné", "PENDING": "en attente", "QUEUED": "en file",
+                "RECEIVED": "reçu", "SCHEDULED": "planifié"}
 
 
-@router.get("/gazelle/schema-type")
-def schema_type(nom: str = Query(..., min_length=3, max_length=60)):
-    """LECTURE (diagnostic temporaire) — champs d'un type GraphQL Gazelle."""
+@router.get("/gazelle/messages")
+def messages_gazelle(q: Optional[str] = Query(None, max_length=80), client_id: Optional[str] = Query(None),
+                     limite: int = Query(25, ge=1, le=100)):
+    """LECTURE — messages envoyés/planifiés par Gazelle (section « Messages ») avec leur statut de suivi :
+    ouvert, cliqué, livré, rejeté… `q` = recherche Gazelle (ex. numéro de soumission ou de facture, nom);
+    `client_id` filtre sur un client. Heures en Montréal."""
+    if not q and not client_id:
+        raise HTTPException(400, "Fournir q (recherche) ou client_id")
     from core.gazelle_api_client import GazelleAPIClient
-    q = """query($n: String!) { __type(name: $n) { name kind enumValues { name }
-      fields { name type { name kind ofType { name kind ofType { name } } } } } }"""
-    return GazelleAPIClient()._execute_query(q, {"n": nom})
+    from zoneinfo import ZoneInfo
+    gz = GazelleAPIClient()
+    requete = """query($f: PrivateAllSentOrScheduledMessagesFilter, $after: String) {
+      allSentOrScheduledMessages(first: 100, after: $after, filters: $f) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id type status deliveryType sentOrScheduledAt shortSummary recipientName
+          relatedId relatedType client { id companyName } } } }"""
+    filtre = {"search": q} if q else {}
+    out, after = [], None
+    for _ in range(10 if client_id else 1):
+        res = gz._execute_query(requete, {"f": filtre, "after": after})
+        if res.get("errors"):
+            raise HTTPException(502, str(res["errors"]))
+        bloc = ((res.get("data") or res).get("allSentOrScheduledMessages")) or {}
+        for n in bloc.get("nodes") or []:
+            if client_id and (n.get("client") or {}).get("id") != client_id:
+                continue
+            quand = n.get("sentOrScheduledAt")
+            if quand:
+                try:
+                    quand = datetime.fromisoformat(quand.replace("Z", "+00:00")).astimezone(
+                        ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            n["quand_montreal"] = quand
+            n["statut_fr"] = _STATUTS_MSG.get(n.get("status"), n.get("status"))
+            out.append(n)
+        pi = bloc.get("pageInfo") or {}
+        if len(out) >= limite or not pi.get("hasNextPage"):
+            break
+        after = pi.get("endCursor")
+    return {"messages": out[:limite]}
