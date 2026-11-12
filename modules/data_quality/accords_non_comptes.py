@@ -122,6 +122,10 @@ _Q_RV_LARGE = """query($start: CoreDate!, $end: CoreDate!) {
       allEventPianos(first: 20) { nodes { isTuning piano { id make model calculatedLastService } } } } } }"""
 
 
+# Vincent-d'Indy, Place des Arts, Orford (+ tout client de 4 pianos actifs ou plus)
+_INSTITUTIONS = {"cli_9UMLkteep8EsISbG", "cli_HbEwl9rN11pSuDEU", "cli_PmqPUBTbPFeCMGmz"}
+
+
 def _nom_client(c) -> str:
     dc = (c or {}).get("defaultContact") or {}
     return (c or {}).get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()
@@ -164,7 +168,10 @@ def rappels_a_risque(gz, jours_avant: int = 7, jours_apres: int = 21, aujourd_hu
         if jour_rv < jour.isoformat():
             continue  # RV passé pas encore complété : hors sujet ici
         sur_rv = {(n.get("piano") or {}).get("id") for n in ev_pianos}
-        for p in ((c.get("allPianos") or {}).get("nodes") or []):
+        pianos_client = (c.get("allPianos") or {}).get("nodes") or []
+        if c.get("id") in _INSTITUTIONS or len(pianos_client) >= 4:
+            continue  # institutions : accords à la demande, pas de rappels « piano dû » utiles
+        for p in pianos_client:
             prochain = p.get("calculatedNextService") or ""
             if not prochain or prochain > jour_rv or p.get("nextTuningScheduled") or (c.get("id"), p["id"]) in signales:
                 continue
