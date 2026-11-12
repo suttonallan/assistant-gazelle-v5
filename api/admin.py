@@ -176,6 +176,36 @@ async def calculate_shared_travel_fees(request: SharedTravelFeeRequest) -> Dict[
         raise HTTPException(status_code=500, detail=f"Erreur calcul frais partagés: {str(e)}")
 
 
+# Techniciens qui retournent chez eux quand ils ont plus de X minutes entre deux arrêts
+# (règle donnée par Allan, 12 nov. 2026 : « plus qu'une demi-heure de battement → je retourne chez moi »).
+RETOUR_MAISON_SI_BATTEMENT_MIN = {
+    'usr_ofYggsCDt2JAVeNP': 30,  # Allan
+}
+
+
+def _inserer_retours_maison(rv_jour: List[Dict[str, Any]], technician_id: str) -> List[Dict[str, Any]]:
+    """Insère un arrêt « maison » entre deux RV quand le battement dépasse le seuil du technicien.
+    rv_jour doit être trié par heure ; chaque RV a 'start_time' (datetime) et 'duration' (min)."""
+    seuil = RETOUR_MAISON_SI_BATTEMENT_MIN.get(technician_id)
+    if not seuil or len(rv_jour) < 2:
+        return rv_jour
+    from datetime import timedelta
+    from modules.assistant.services.distance_calculator import HOME_ADDRESSES
+    maison = HOME_ADDRESSES.get(technician_id)
+    if not maison:
+        return rv_jour
+    resultat = [rv_jour[0]]
+    for precedent, suivant in zip(rv_jour, rv_jour[1:]):
+        debut_prec, debut_suiv = precedent.get('start_time'), suivant.get('start_time')
+        if isinstance(debut_prec, datetime) and isinstance(debut_suiv, datetime):
+            fin_prec = debut_prec + timedelta(minutes=int(precedent.get('duration') or 0))
+            if (debut_suiv - fin_prec) > timedelta(minutes=seuil):
+                resultat.append({'start_time': fin_prec, 'duration': 0,
+                                 'client_address': maison, 'client_name': 'Retour maison (battement)'})
+        resultat.append(suivant)
+    return resultat
+
+
 @router.post("/kilometers/calculate", response_model=KilometersResponse)
 async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse:
     """
@@ -380,6 +410,7 @@ async def calculate_kilometers(request: KilometersRequest) -> KilometersResponse
         for jour in sorted(rv_par_jour):
             rv_jour = rv_par_jour[jour]
             rv_jour.sort(key=lambda a: str(a.get('start_time', '')))
+            rv_jour = _inserer_retours_maison(rv_jour, request.technician_id)
             route_jour = calculate_day_route(rv_jour, request.technician_id, travel_mode=google_mode)
             for seg in route_jour['segments']:
                 seg['date'] = jour
