@@ -9,6 +9,7 @@
 Tout est en LECTURE seule, en direct de Gazelle, heures de Montréal.
 """
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -31,9 +32,21 @@ _Q_MESSAGES = """query($f: PrivateAllSentOrScheduledMessagesFilter, $after: Stri
       relatedId relatedType client { id } } } }"""
 
 
+_GZ = None
+
+
 def _gz():
-    from core.gazelle_api_client import GazelleAPIClient
-    return GazelleAPIClient()
+    """Un seul client Gazelle réutilisé (évite de relire le jeton à chaque appel)."""
+    global _GZ
+    if _GZ is None:
+        from core.gazelle_api_client import GazelleAPIClient
+        _GZ = GazelleAPIClient()
+    return _GZ
+
+
+def _de_la_soumission(m: Dict[str, Any], numero: Any) -> bool:
+    """Le message porte-t-il exactement ce numéro (« #116 » ne doit pas trouver « #11608 ») ?"""
+    return bool(re.search(rf"#{re.escape(str(numero))}(?!\d)", m.get("shortSummary") or ""))
 
 
 def _data(res: Dict[str, Any]) -> Dict[str, Any]:
@@ -94,8 +107,8 @@ def suivi_soumission(numero: Any, client_id: Optional[str] = None) -> Optional[D
         msgs = messages_gazelle(q=str(numero), client_id=client_id, limite=10)
     except Exception as e:
         _log.warning("Suivi soumission %s indisponible : %s", numero, e)
-        return None
-    msgs = [m for m in msgs if f"#{numero}" in (m.get("shortSummary") or "")]
+        return {"erreur": True}
+    msgs = [m for m in msgs if _de_la_soumission(m, numero)]
     if not msgs:
         return None
     # Le plus « avancé » des envois (ouvert > livré > envoyé), puis le plus récent.
@@ -106,6 +119,8 @@ def suivi_soumission(numero: Any, client_id: Optional[str] = None) -> Optional[D
 
 def phrase_suivi(s: Optional[Dict[str, Any]]) -> str:
     """Phrase courte pour un briefing : « envoyée le 2024-05-28, ouverte par le client »."""
+    if s and s.get("erreur"):
+        return "suivi du courriel indisponible pour le moment"
     if not s:
         return "jamais envoyée au client par Gazelle"
     jour = (s.get("quand") or "")[:10]
@@ -114,11 +129,22 @@ def phrase_suivi(s: Optional[Dict[str, Any]]) -> str:
     return f"envoyée le {jour}, statut « {s.get('statut_fr')} » (pas d'ouverture détectée)"
 
 
+def _etat_soumission(est: Dict[str, Any]) -> str:
+    if est.get("isArchived"):
+        return "archivée"
+    exp = est.get("expiresOn") or ""
+    from core.timezone_utils import aujourdhui_montreal
+    if exp and exp < aujourdhui_montreal().isoformat():
+        return f"expirée depuis le {exp}"
+    return f"active, expire le {exp}" if exp else "active"
+
+
 def dossier_client(client_id: str) -> str:
     """Dossier complet d'un client, en texte, pour répondre à « que sait-on de ce client ? »."""
     gz = _gz()
     parties: List[str] = []
     fiche: Dict[str, Any] = {}
+    premiere_trace = ""
     try:
         fiche = _nom_client(client_id)
         dc = fiche.get("defaultContact") or {}
@@ -135,6 +161,7 @@ def dossier_client(client_id: str) -> str:
         lignes = []
         for e in (res.get("allTimelineEntries") or {}).get("edges") or []:
             n = e["node"]
+            premiere_trace = min(filter(None, [premiere_trace, (n.get("occurredAt") or "")[:10]]), default="")
             texte = " — ".join(x for x in (n.get("summary"), n.get("comment")) if x)
             if not texte or n.get("type") == "SYSTEM_MESSAGE" and "fusionn" in texte:
                 continue
@@ -142,7 +169,7 @@ def dossier_client(client_id: str) -> str:
             lignes.append(f"[{_montreal(n.get('occurredAt'))}] {n.get('type')}"
                           + (f" ({p.get('make')} {p.get('model') or ''})".rstrip() if p else "")
                           + f" : {texte[:350]}")
-        parties.append("CHRONOLOGIE (plus récent d'abord) :\n" + ("\n".join(lignes[:60]) or "(vide)"))
+        parties.append("CHRONOLOGIE (plus récent d'abord) :\n" + ("\n".join(lignes[:45]) or "(vide)"))
     except Exception as e:
         parties.append(f"CHRONOLOGIE : non disponible ({e})")
 
@@ -164,7 +191,7 @@ def dossier_client(client_id: str) -> str:
         lignes = []
         for est in (res.get("allEstimates") or {}).get("nodes") or []:
             num = est.get("number")
-            envois = [m for m in msgs if f"#{num}" in (m.get("shortSummary") or "")]
+            envois = [m for m in msgs if _de_la_soumission(m, num)]
             if envois:
                 m = sorted(envois, key=lambda m: (m.get("status") in VUS, m.get("sentOrScheduledAt") or ""),
                            reverse=True)[0]
@@ -173,7 +200,7 @@ def dossier_client(client_id: str) -> str:
             else:
                 suivi = phrase_suivi(suivi_soumission(num, client_id))
             lignes.append(f"#{num} du {est.get('estimatedOn')} — {(est.get('recommendedTierTotal') or 0) / 100:.2f} $ — "
-                          f"{'archivée' if est.get('isArchived') else 'active'}, expire le {est.get('expiresOn')} — {suivi}")
+                          f"{_etat_soumission(est)} — {suivi}")
         parties.append("SOUMISSIONS :\n" + ("\n".join(lignes) or "(aucune)"))
     except Exception as e:
         parties.append(f"SOUMISSIONS : non disponibles ({e})")
@@ -188,4 +215,10 @@ def dossier_client(client_id: str) -> str:
         if rejet:
             alerte += f"\n⚠️ Courriel non livré le {rejet[0]['quand_montreal'][:10]} : adresse peut-être invalide."
         parties.append("MESSAGES GAZELLE (courriels/textos envoyés, avec suivi) :\n" + "\n".join(lignes) + alerte)
-    return "\n\n".join(parties)[:20000]
+    ordre = ("FICHE", "SOUMISSIONS", "MESSAGES", "FACTURES", "CHRONOLOGIE")
+    parties.sort(key=lambda t: next((i for i, o in enumerate(ordre) if t.startswith(o)), len(ordre)))
+    if premiere_trace and parties and parties[0].startswith("FICHE") and fiche.get("createdAt") \
+            and premiere_trace < fiche["createdAt"][:10]:
+        parties[0] += f"\n(Historique dans Gazelle depuis le {premiere_trace} — fiche recréée ou fusionnée ensuite.)"
+    # Ivo coupe un résultat d'outil à 12 000 caractères : la chronologie, en dernier, absorbe la coupe.
+    return "\n\n".join(parties)[:12000]

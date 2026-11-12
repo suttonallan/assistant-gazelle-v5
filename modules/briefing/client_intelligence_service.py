@@ -1547,7 +1547,7 @@ class NarrativeBriefingService:
                 # Suivi du courriel (envoyée ? ouverte ?) pour les 3 plus récentes actives.
                 try:
                     from core.historique_client import suivi_soumission, phrase_suivi
-                    for s in [x for x in summaries if not x.get("is_archived")][:3]:
+                    for s in [x for x in summaries if not x.get("is_archived")][:2]:
                         s["suivi_courriel"] = phrase_suivi(suivi_soumission(s.get("number"), cid))
                 except Exception as exc:
                     print(f"⚠️  Suivi courriel soumissions {cid}: {exc}")
