@@ -1300,7 +1300,7 @@ def envoyer_facture_alt(invoice_id: str, e: EnvoiFactureIn):
 
 # --- Rendez-vous Gazelle (créé à la demande d'Allan depuis une conversation Claude) ---
 class RendezVousIn(BaseModel):
-    client_id: str
+    client_id: Optional[str] = None    # facultatif pour un bloc PERSONAL (ex. déjeuner d'affaires, retour maison)
     user_id: str                       # technicien (1 event = 1 technicien)
     debut_montreal: str                # "2026-12-20T12:00" — heure de Montréal
     duree_min: int = 120
@@ -1393,6 +1393,10 @@ def creer_rendez_vous(r: RendezVousIn):
         local = local.replace(tzinfo=MONTREAL_TZ)
     start = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     gz = GazelleAPIClient()
+    if r.type not in ("APPOINTMENT", "PERSONAL"):
+        raise HTTPException(400, "type : APPOINTMENT ou PERSONAL")
+    if not r.client_id and (r.type != "PERSONAL" or not r.titre):
+        raise HTTPException(400, "client_id requis (sauf bloc PERSONAL avec un titre)")
     titre = r.titre
     if not titre:
         res = gz._execute_query("query($id: String!) { client(id: $id) { id companyName "
@@ -1400,16 +1404,16 @@ def creer_rendez_vous(r: RendezVousIn):
         c = (res.get("data") or {}).get("client") or {}
         dc = c.get("defaultContact") or {}
         titre = c.get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()
-    if r.type not in ("APPOINTMENT", "PERSONAL"):
-        raise HTTPException(400, "type : APPOINTMENT ou PERSONAL")
     inp = {"title": titre, "start": start, "duration": r.duree_min, "type": r.type,
-           "travelMode": "DRIVING", "userId": r.user_id, "clientId": r.client_id}
+           "travelMode": "DRIVING", "userId": r.user_id}
+    if r.client_id:
+        inp["clientId"] = r.client_id
     if r.lieu:
         inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
     notes = r.notes or ""
     if r.type == "APPOINTMENT" and r.par:
         notes = f"Planifié par {r.par}." + ("\n\n" + notes if notes else "")
-    if (r.type == "APPOINTMENT" and "« Référé par »" not in notes and client_recent(r.client_id)
+    if (r.type == "APPOINTMENT" and r.client_id and "« Référé par »" not in notes and client_recent(r.client_id)
             and not est_institution(r.client_id) and faut_demander(r.client_id)):
         rappel = RAPPEL_NOUVEAU_CLIENT if est_nouveau_client(r.client_id) else RAPPEL_PROVENANCE_EXISTANT
         notes = (notes + "\n\n" if notes else "") + rappel
