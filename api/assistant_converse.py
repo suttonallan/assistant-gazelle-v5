@@ -476,9 +476,21 @@ def execute_verifier_pda() -> Dict[str, Any]:
                      "Place des Arts (bouton de vérification : « Ajouter » ou « Ignorer »).")}
 
 
+
+DOSSIER_CLIENT_TOOL = {
+    "name": "dossier_client",
+    "description": ("Historique COMPLET d'un client Gazelle, en direct : fiche, chronologie (services, notes, "
+                    "appels), factures, soumissions avec le suivi du courriel (envoyée ? ouverte par le client ?) "
+                    "et tous les messages Gazelle envoyés avec leur statut (ouvert, cliqué, livré, rejeté, "
+                    "désabonné). À utiliser pour « résume-moi ce client », « a-t-il ouvert la soumission ? », "
+                    "« a-t-il reçu son rappel ? » — vérifier ici avant d'affirmer qu'un client n'a rien vu ou rien reçu."),
+    "input_schema": {"type": "object", "required": ["client_id"],
+                     "properties": {"client_id": {"type": "string", "description": "ID Gazelle cli_…"}}},
+}
+
 TOOLS = [VERIFIER_PDA_TOOL, AJOUTER_DEMANDE_PDA_TOOL, CATALOGUE_TOOL, CREER_SOUMISSION_TOOL, AJOUTER_COURRIEL_TOOL, LIEN_RESERVATION_TOOL, REACTIVATE_ESTIMATE_TOOL, REVIEW_ESTIMATE_TOOL, SEARCH_KEYWORD_TOOL,
          JOINT_APPOINTMENT_TOOL, CREER_RV_TOOL, LIST_CALLS_TOOL, ATTACH_PHOTOS_TOOL, FEATURE_REQUEST_TOOL,
-         *_OUTILS_REGLES]
+         DOSSIER_CLIENT_TOOL, *_OUTILS_REGLES]
 
 
 # ── Garde-fou heures ─────────────────────────────────────────────────
@@ -524,6 +536,9 @@ def _run_tool(name: str, tool_input: Dict[str, Any],
                 original_request=tool_input.get("original_request", ""),
                 user_first_name=user_first_name,
             )
+        if name == "dossier_client":
+            from core.historique_client import dossier_client
+            return {"success": True, "dossier": dossier_client(tool_input.get("client_id") or "")}
         if name == "preparer_lien_reservation":
             return execute_lien_reservation(**tool_input)
         if name == "ajouter_demande_pda":

@@ -7,6 +7,8 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 12 novembre
+- **On sait si le client a ouvert nos courriels** : l'assistant lit maintenant la section « Messages » de Gazelle (envoyé, ouvert, cliqué, non livré, désabonné). Ma Journée l'indique pour les soumissions en attente (ex. « envoyée le 28 mai 2024, ouverte par le client »).
+- **Historique complet d'un client sur demande** : « @Ivo résume-moi ce client » ou la même question dans la case de l'assistant donne d'un coup la fiche, la chronologie, les factures, les soumissions (ouvertes ou non) et les courriels reçus. Un désabonnement ou une adresse qui ne fonctionne plus est signalé.
 - **D'où viennent les visites de la réservation en ligne** : le bilan quotidien sépare maintenant les visiteurs arrivés par le rappel annuel (courriel Gazelle), par le site web PTM, par un lien personnalisé envoyé par l'équipe, par le chat ou directement. Chaque demande de RV indique aussi sa provenance (ex. « Provenance : rappel annuel »).
 
 ### 11 novembre

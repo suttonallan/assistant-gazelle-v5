@@ -2521,51 +2521,27 @@ def lire_rapport_courtoisie(request: Request):
 
 
 
-_STATUTS_MSG = {"SENT": "envoyé", "ACCEPTED": "accepté", "DELIVERED": "livré", "OPENED": "ouvert",
-                "CLICKED": "cliqué", "BOUNCED": "rejeté", "DROPPED": "abandonné", "FAILED": "échec",
-                "UNDELIVERED": "non livré", "COMPLAINED": "signalé comme pourriel",
-                "UNSUBSCRIBED": "désabonné", "PENDING": "en attente", "QUEUED": "en file",
-                "RECEIVED": "reçu", "SCHEDULED": "planifié"}
-
 
 @router.get("/gazelle/messages")
 def messages_gazelle(q: Optional[str] = Query(None, max_length=80), client_id: Optional[str] = Query(None),
                      limite: int = Query(25, ge=1, le=100)):
     """LECTURE — messages envoyés/planifiés par Gazelle (section « Messages ») avec leur statut de suivi :
     ouvert, cliqué, livré, rejeté… `q` = recherche Gazelle (ex. numéro de soumission ou de facture, nom);
-    `client_id` filtre sur un client. Heures en Montréal."""
+    `client_id` filtre sur un client (sans `q`, on cherche par le nom du client). Heures de Montréal."""
     if not q and not client_id:
         raise HTTPException(400, "Fournir q (recherche) ou client_id")
-    from core.gazelle_api_client import GazelleAPIClient
-    from zoneinfo import ZoneInfo
-    gz = GazelleAPIClient()
-    requete = """query($f: PrivateAllSentOrScheduledMessagesFilter, $after: String) {
-      allSentOrScheduledMessages(first: 100, after: $after, filters: $f) {
-        pageInfo { hasNextPage endCursor }
-        nodes { id type status deliveryType sentOrScheduledAt shortSummary recipientName
-          relatedId relatedType client { id companyName } } } }"""
-    filtre = {"search": q} if q else {}
-    out, after = [], None
-    for _ in range(10 if client_id else 1):
-        res = gz._execute_query(requete, {"f": filtre, "after": after})
-        if res.get("errors"):
-            raise HTTPException(502, str(res["errors"]))
-        bloc = ((res.get("data") or res).get("allSentOrScheduledMessages")) or {}
-        for n in bloc.get("nodes") or []:
-            if client_id and (n.get("client") or {}).get("id") != client_id:
-                continue
-            quand = n.get("sentOrScheduledAt")
-            if quand:
-                try:
-                    quand = datetime.fromisoformat(quand.replace("Z", "+00:00")).astimezone(
-                        ZoneInfo("America/Montreal")).strftime("%Y-%m-%d %H:%M")
-                except ValueError:
-                    pass
-            n["quand_montreal"] = quand
-            n["statut_fr"] = _STATUTS_MSG.get(n.get("status"), n.get("status"))
-            out.append(n)
-        pi = bloc.get("pageInfo") or {}
-        if len(out) >= limite or not pi.get("hasNextPage"):
-            break
-        after = pi.get("endCursor")
-    return {"messages": out[:limite]}
+    from core import historique_client as hc
+    try:
+        if q:
+            return {"messages": hc.messages_gazelle(q=q, client_id=client_id, limite=limite, pages=5 if client_id else 1)}
+        return {"messages": hc.messages_du_client(client_id, limite=limite)}
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@router.get("/gazelle/historique")
+def historique_gazelle(client_id: str = Query(...)):
+    """LECTURE — dossier complet d'un client : fiche, chronologie, factures, soumissions (avec suivi
+    d'ouverture du courriel) et messages Gazelle avec leur statut."""
+    from core.historique_client import dossier_client
+    return {"client_id": client_id, "dossier": dossier_client(client_id)}

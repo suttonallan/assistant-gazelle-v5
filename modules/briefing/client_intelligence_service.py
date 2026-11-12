@@ -726,6 +726,8 @@ class NarrativeBriefingService:
                 items_str = " + ".join(items[:3]) if items else "contenu non détaillé"
                 status = "archivée" if est.get("is_archived") else "active"
                 line = f"  - Soumission #{number} ({est_date}) — {total}$ — {items_str} — {status}"
+                if est.get("suivi_courriel"):
+                    line += f" — courriel : {est['suivi_courriel']}"
                 if include_completion and est.get("completion_signal"):
                     line += f" — ✅ {est['completion_signal']}"
                 return line
@@ -740,7 +742,8 @@ class NarrativeBriefingService:
                     + "\nRÈGLE : mentionne au moins la plus récente/pertinente en UNE phrase : "
                     "\"Soumission de [mois année] à [total]$ pour [items principaux].\" "
                     "NE PAS demander au client si les travaux ont été faits. "
-                    "Simplement mentionner l'existence de la soumission.\n"
+                    "Simplement mentionner l'existence de la soumission. "
+                    "Si la ligne indique que le courriel a été OUVERT par le client, ajoute « (le client l'a ouverte) » : il connaît déjà les travaux.\n"
                 )
 
             if pending_non_critical:
@@ -1541,6 +1544,13 @@ class NarrativeBriefingService:
                         summaries.append(s)
                 # Trier par date desc (plus récent en premier)
                 summaries.sort(key=lambda s: s.get("estimated_on") or "", reverse=True)
+                # Suivi du courriel (envoyée ? ouverte ?) pour les 3 plus récentes actives.
+                try:
+                    from core.historique_client import suivi_soumission, phrase_suivi
+                    for s in [x for x in summaries if not x.get("is_archived")][:3]:
+                        s["suivi_courriel"] = phrase_suivi(suivi_soumission(s.get("number"), cid))
+                except Exception as exc:
+                    print(f"⚠️  Suivi courriel soumissions {cid}: {exc}")
                 result[cid] = summaries
             except Exception as exc:
                 print(f"⚠️  Fetch estimates Gazelle pour {cid}: {exc}")
