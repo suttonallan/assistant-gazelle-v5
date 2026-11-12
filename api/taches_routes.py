@@ -849,26 +849,59 @@ def disponibilites(user_id: str = Query(..., pattern=r"^usr_[A-Za-z0-9]+$")):
     return {"disponibilites": (res.get("data") or {}).get("allSchedulerAvailabilities") or []}
 
 
+_LIEU = "type addressLine manualLat manualLng coordinates { latitude longitude } what3words { what3words }"
+_DISPO_COMPLETE = (_CHAMPS_DISPO + " endOfDayType isExclusive maxAppointmentsPerDay includeDates excludeDates "
+                   "serviceArea { id } floatingDowntimeRules { startTime endTime duration } "
+                   "startOfDayLocation { %s } endOfDayLocation { %s }" % (_LIEU, _LIEU))
+
+
+def _lieu_input(l: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"type": l.get("type")}
+    if l.get("addressLine"):
+        out["addressLine"] = l["addressLine"]
+    if (l.get("coordinates") or {}).get("latitude"):
+        out["coordinates"] = {"latitude": l["coordinates"]["latitude"], "longitude": l["coordinates"]["longitude"]}
+    if (l.get("what3words") or {}).get("what3words"):
+        out["what3words"] = {"what3words": l["what3words"]["what3words"]}
+    return out
+
+
 @router.post("/gazelle/disponibilite/{dispo_id}/ajuster-selon-deplacement")
 def dispo_ajuster(dispo_id: str, user_id: str = Query(..., pattern=r"^usr_[A-Za-z0-9]+$"), actif: bool = Query(True)):
     """Coche (ou décoche) « Allow preferred time slots to be adjusted based on travel time » sur une
-    disponibilité. Seul ce réglage change ; on relit avant et après pour le prouver."""
+    disponibilité. Gazelle exige la disponibilité complète : on renvoie tous les réglages existants
+    tels quels, puis on relit et compare champ par champ (rien d'autre ne doit changer)."""
     from core.gazelle_api_client import GazelleAPIClient
     gz = GazelleAPIClient()
-    q = "query($i: String!, $u: String!) { schedulerAvailability(id: $i, userId: $u) { %s } }" % _CHAMPS_DISPO
-    avant = ((gz._execute_query(q, {"i": dispo_id, "u": user_id}).get("data") or {}).get("schedulerAvailability"))
+    q = "query($i: String!, $u: String!) { schedulerAvailability(id: $i, userId: $u) { %s } }" % _DISPO_COMPLETE
+    r0 = gz._execute_query(q, {"i": dispo_id, "u": user_id})
+    avant = (r0.get("data") or {}).get("schedulerAvailability")
     if not avant:
-        raise HTTPException(404, "Disponibilité introuvable pour ce technicien")
+        raise HTTPException(404, f"Disponibilité introuvable : {r0.get('errors')}")
+    for cle in ("startOfDayLocation", "endOfDayLocation"):
+        if (avant.get(cle) or {}).get("manualLat") or (avant.get(cle) or {}).get("manualLng"):
+            raise HTTPException(409, "Lieu avec position manuelle : non modifiable sans risque par l'API, à faire dans Gazelle")
+    if bool(avant.get("adjustPreferredSlots")) == actif:
+        return {"nom": avant.get("name"), "change": False, "apres": actif}
+    entree = {k: avant.get(k) for k in ("name", "startDate", "endDate", "startOfDayType", "startTime", "endOfDayType",
+                                         "endTime", "recurrenceRule", "includeDates", "excludeDates",
+                                         "preferredSlotPolicy", "preferredSlotTimes", "isExclusive",
+                                         "maxAppointmentsPerDay", "roundingMinutes")}
+    entree.update({"adjustPreferredSlots": actif, "serviceAreaId": (avant.get("serviceArea") or {}).get("id"),
+                   "startOfDayLocation": _lieu_input(avant.get("startOfDayLocation") or {}),
+                   "endOfDayLocation": _lieu_input(avant.get("endOfDayLocation") or {}),
+                   "floatingDowntimeRules": avant.get("floatingDowntimeRules") or []})
     res = gz._execute_query("""mutation($i: String!, $in: PrivateSchedulerAvailabilityInput!) {
       updateSchedulerAvailability(id: $i, input: $in) { availability { id } mutationErrors { fieldName messages } } }""",
-                            {"i": dispo_id, "in": {"adjustPreferredSlots": actif}})
+                            {"i": dispo_id, "in": entree})
     m = (res.get("data") or {}).get("updateSchedulerAvailability") or {}
     if res.get("errors") or m.get("mutationErrors"):
         raise HTTPException(502, str(res.get("errors") or m.get("mutationErrors")))
     apres = ((gz._execute_query(q, {"i": dispo_id, "u": user_id}).get("data") or {}).get("schedulerAvailability")) or {}
-    autres_changes = [k for k in avant if k != "adjustPreferredSlots" and avant.get(k) != apres.get(k)]
-    return {"nom": avant.get("name"), "avant": avant.get("adjustPreferredSlots"),
-            "apres": apres.get("adjustPreferredSlots"), "autres_champs_modifies": autres_changes}
+    autres = [k for k in avant if k != "adjustPreferredSlots" and avant.get(k) != apres.get(k)]
+    return {"nom": avant.get("name"), "change": True, "avant": avant.get("adjustPreferredSlots"),
+            "apres": apres.get("adjustPreferredSlots"), "autres_champs_modifies": autres,
+            "detail_ecarts": {k: [avant.get(k), apres.get(k)] for k in autres}}
 
 
 @router.get("/gazelle/piano/{piano_id}/accord")
