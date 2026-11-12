@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 12 novembre
+- **D'où viennent les visites de la réservation en ligne** : le bilan quotidien sépare maintenant les visiteurs arrivés par le rappel annuel (courriel Gazelle), par le site web PTM, par un lien personnalisé envoyé par l'équipe, par le chat ou directement. Chaque demande de RV indique aussi sa provenance (ex. « Provenance : rappel annuel »).
+
 ### 11 novembre
 - **Ivo fait les factures** : « @Ivo fais la facture » (ou « facture alternative à X ») crée la facture en brouillon dans Gazelle, taxes cochées, facturée au besoin à une autre fiche (propriétaire, marchand), avec le technicien. Il écrit ensuite « Facture créée (n° …) » dans le RV. Rien n'est envoyé au client ; le prix vient du fil ou de la grille. Réservé à Allan, Nicolas et Louise.
 - **Ivo transforme un bloc en vrai RV** : quand un technicien a déjà un bloc personnel pour ce client (ex. « accorder fazioli à la maison trestler »), Ivo le remplace par le RV client à la même heure, avec le piano, au lieu de répondre « conflit ». Le bloc n'est retiré qu'une fois le RV créé.

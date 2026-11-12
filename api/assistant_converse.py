@@ -125,11 +125,11 @@ LIEN_RESERVATION_TOOL = {
 
 
 def execute_lien_reservation(**champs) -> Dict[str, Any]:
-    from core.lien_reservation import CHAMPS, PAGE_RESERVATION, client_gazelle_par_courriel, construire_lien
+    from core.lien_reservation import CHAMPS, client_gazelle_par_courriel, construire_lien, lien_personnel
     infos = {c: str(champs.get(c) or "").strip() for c in CHAMPS}
     connu = client_gazelle_par_courriel(infos["courriel"])
     if connu:
-        return {"success": True, "lien": PAGE_RESERVATION + connu["external_id"], "client_gazelle": True}
+        return {"success": True, "lien": lien_personnel(connu["external_id"]), "client_gazelle": True}
     return {"success": True, "lien": construire_lien(infos), "client_gazelle": False}
 
 

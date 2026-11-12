@@ -103,6 +103,12 @@ def client_gazelle_par_courriel(courriel: str) -> Optional[Dict[str, Any]]:
     return lignes[0] if lignes else None
 
 
+def lien_personnel(client_id: str) -> str:
+    """Lien personnel d'un client connu. ?source= le distingue des rappels annuels Gazelle
+    (même adresse /cli_…) dans le bilan quotidien de la réservation en ligne."""
+    return PAGE_RESERVATION + client_id + "?source=lien-personnalise"
+
+
 def construire_lien(infos: Dict[str, str]) -> str:
     fragment = {"source": "courriel", **{c: infos[c] for c in CHAMPS if infos.get(c)}}
     return PAGE_RESERVATION + "#" + urlencode(fragment, quote_via=quote)
@@ -152,7 +158,7 @@ class LienReservation:
         dernier = max(entrants, key=lambda m: m.get("created_at") or 0)
         infos = extraire_renseignements(_texte_message(dernier), _expediteur(dernier))
         connu = client_gazelle_par_courriel(infos["courriel"])
-        lien = PAGE_RESERVATION + connu["external_id"] if connu else construire_lien(infos)
+        lien = lien_personnel(connu["external_id"]) if connu else construire_lien(infos)
         self.front.add_comment(conversation_id, commentaire(infos, lien, connu), AUTEUR_COMMENTAIRE)
         return {"conversation": conversation_id, "statut": "ok", "client_connu": bool(connu), "lien": lien}
 
