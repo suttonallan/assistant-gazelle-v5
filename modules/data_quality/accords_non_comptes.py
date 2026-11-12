@@ -18,7 +18,7 @@ import re
 from datetime import date, timedelta
 from typing import Any, Dict, List
 
-_ACCORD = re.compile(r"\baccord|\btuning\b", re.I)
+_ACCORD = re.compile(r"\baccord(?!\s+instable)|\btuning\b(?!\s+stability)", re.I)
 
 _Q_MSL = "query { allMasterServiceItems { id name isTuning isArchived } }"
 
@@ -35,6 +35,18 @@ def _nom(n) -> str:
     if isinstance(n, dict):
         return n.get("fr_CA") or n.get("en_US") or ""
     return n or ""
+
+
+def _jour_montreal(iso) -> str:
+    """Date (AAAA-MM-JJ) à Montréal d'un horodatage UTC de Gazelle."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Montreal")).date().isoformat()
+    except ValueError:
+        return iso[:10]
 
 
 def services_accord_non_coches(gz) -> List[Dict[str, Any]]:
@@ -72,8 +84,12 @@ def rv_accord_non_compte(gz, jours_avant: int = 30, jours_apres: int = 90,
             pianos = (ev.get("allEventPianos") or {}).get("nodes") or []
             if not any(_ACCORD.search(s.get("name") or "") for s in services):
                 continue
-            if any(s.get("isTuning") for s in services) or any(p.get("isTuning") for p in pianos):
+            if not pianos or any(s.get("isTuning") for s in services) or any(p.get("isTuning") for p in pianos):
                 continue
+            jour_rv = _jour_montreal(ev.get("start"))
+            if ev.get("status") == "COMPLETE" and all(
+                    ((p.get("piano") or {}).get("calculatedLastService") or "") >= jour_rv for p in pianos):
+                continue  # déjà corrigé à la main (date du dernier accord à jour)
             c = ev.get("client") or {}
             dc = c.get("defaultContact") or {}
             nom = c.get("companyName") or f"{dc.get('firstName', '')} {dc.get('lastName', '')}".strip()

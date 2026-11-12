@@ -1831,6 +1831,34 @@ def _rv_pianos(gz, eid: str) -> Dict[str, Any]:
     return ev
 
 
+@router.post("/gazelle/rendez-vous/{eid}/accord")
+def cocher_accord_rv(eid: str):
+    """Coche « accord » sur tous les pianos d'un RV (rien d'autre ne change, aucun courriel au client).
+    Sert quand un RV d'accord ne compte pas comme accord : sinon Gazelle envoie « piano dû »
+    et ne met pas à jour la date du dernier accord à la fin du RV."""
+    from core.gazelle_api_client import GazelleAPIClient
+    if not eid.startswith("evt_"):
+        raise HTTPException(400, "Identifiant de RV invalide (evt_…)")
+    gz = GazelleAPIClient()
+    avant = _rv_pianos(gz, eid)
+    noeuds = (avant.get("allEventPianos") or {}).get("nodes") or []
+    ids = [((n.get("piano") or {}).get("id")) for n in noeuds if (n.get("piano") or {}).get("id")]
+    if not ids:
+        raise HTTPException(400, "Ce RV n'a aucun piano attaché")
+    if all(n.get("isTuning") for n in noeuds):
+        return {"change": False, "message": "Déjà coché accord"}
+    mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
+      event { id } mutationErrors { fieldName messages } } }"""
+    res = gz._execute_query(mut, {"id": eid, "input": {"pianos": [{"pianoId": i, "isTuning": True} for i in ids]}})
+    payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
+    if (isinstance(res, dict) and res.get("errors")) or payload.get("mutationErrors"):
+        raise HTTPException(502, str(res.get("errors") or payload.get("mutationErrors")))
+    apres = _rv_pianos(gz, eid)
+    return {"change": True, "pianos": [{"id": (n.get("piano") or {}).get("id"), "accord": bool(n.get("isTuning"))}
+                                       for n in (apres.get("allEventPianos") or {}).get("nodes") or []],
+            "heure_inchangee": apres.get("start") == avant.get("start"), "duree_inchangee": apres.get("duration") == avant.get("duration")}
+
+
 @router.post("/gazelle/rendez-vous/{eid}/pianos")
 def changer_pianos_rv(eid: str, b: PianosRvIn):
     """Remplace un ou des pianos d'un RV existant (ex. Steinway B → Steinway D). Les autres pianos
