@@ -1117,6 +1117,42 @@ def factures_client(client_id: str = Query(...)):
     return res
 
 
+_Q_FACTURES_HISTO = """query($c: String, $after: String) { allInvoices(first: 100, after: $after, filters: {clientId: $c}) {
+  pageInfo { hasNextPage endCursor }
+  nodes { id number status createdAt
+    allInvoiceItems { nodes { description quantity amount } } } } }"""
+
+
+@router.get("/gazelle/factures-recherche")
+def factures_recherche(client_id: str = Query(...), q: str = Query(..., min_length=2)):
+    """LECTURE — tout l'historique de facturation d'un client : lignes dont la description
+    contient un des mots de q (séparés par des virgules), avec le prix facturé.
+    Sert à reprendre le prix déjà facturé à ce client (ex. housse, chariot)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    mots = [m.strip().lower() for m in q.split(",") if m.strip()]
+    gz = GazelleAPIClient()
+    lignes, after, nb = [], None, 0
+    for _ in range(30):
+        res = gz._execute_query(_Q_FACTURES_HISTO, {"c": client_id, "after": after})
+        if res.get("errors"):
+            raise HTTPException(502, str(res["errors"]))
+        page = (res.get("data") or {}).get("allInvoices") or {}
+        for f in page.get("nodes") or []:
+            nb += 1
+            for it in (f.get("allInvoiceItems") or {}).get("nodes") or []:
+                d = (it.get("description") or "")
+                if any(m in d.lower() for m in mots):
+                    lignes.append({"facture": f.get("number"), "date": (f.get("createdAt") or "")[:10],
+                                   "statut": f.get("status"), "description": d,
+                                   "quantite": (it.get("quantity") or 0) / 100,
+                                   "montant": (it.get("amount") or 0) / 100})
+        if not (page.get("pageInfo") or {}).get("hasNextPage"):
+            break
+        after = page["pageInfo"]["endCursor"]
+    lignes.sort(key=lambda l: l["date"], reverse=True)
+    return {"factures_examinees": nb, "lignes": lignes}
+
+
 _Q_FACTURES_ECHUES = """query($f: PrivateAllInvoicesFilter, $after: String) {
   allInvoices(first: 100, after: $after, filters: $f) {
     pageInfo { hasNextPage endCursor }
