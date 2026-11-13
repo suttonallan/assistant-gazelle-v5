@@ -193,6 +193,8 @@ async def verrou_api_middleware(request, call_next):
     if auth.lower().startswith("bearer ") and verrou_api.verifier_jeton(auth[7:]):
         return await call_next(request)
     if verrou_api.cle_service_valide(request.headers.get("x-cle-service")):
+        if verrou_api.est_cle_claude(request.headers.get("x-cle-service")):
+            verrou_api.noter_usage_cle_claude(chemin)
         return await call_next(request)
     if verrou_api.secret_reservation_valide(chemin, request.headers.get("x-reservation-secret")):
         return await call_next(request)

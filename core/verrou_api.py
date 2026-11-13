@@ -276,8 +276,16 @@ def _verifiee_par_supabase(cle: str) -> bool:
 EMPREINTE_CLE_CLAUDE = "5a612717e61eb7aa41684509b005a13ac198ee64cacf66528bd5a602a21608e6"
 
 
+DERNIER_USAGE_CLE_CLAUDE: Dict[str, Any] = {"quand": None, "chemin": None}
+
+
 def est_cle_claude(cle: Optional[str]) -> bool:
     return bool(cle) and hmac.compare_digest(hashlib.sha256(cle.encode()).hexdigest(), EMPREINTE_CLE_CLAUDE)
+
+
+def noter_usage_cle_claude(chemin: str) -> None:
+    """Preuve que la clé de Claude arrive bien (ajoutée par le proxy des sessions Claude)."""
+    DERNIER_USAGE_CLE_CLAUDE.update({"quand": time.strftime("%Y-%m-%d %H:%M:%S"), "chemin": chemin})
 
 
 def cle_service_valide(cle: Optional[str]) -> bool:

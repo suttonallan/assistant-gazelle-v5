@@ -79,7 +79,8 @@ def journal(request: Request):
     from core.feature_flags import is_enabled
     routes = verrou_api.journal()
     return {"verrou_actif": is_enabled("api_verrou", default=False),
-            "depuis": verrou_api._journal_etat.get("depuis"), "sans_jeton": routes}
+            "depuis": verrou_api._journal_etat.get("depuis"), "sans_jeton": routes,
+            "cle_claude_derniere_utilisation": verrou_api.DERNIER_USAGE_CLE_CLAUDE}
 
 
 
