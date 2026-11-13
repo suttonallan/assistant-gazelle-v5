@@ -98,6 +98,9 @@ def _diagnostic_stat(api, H, http, apt, jour: str) -> str:
         return f"(diagnostic indisponible : {e})"
 
 
+# Mot « stat » / « stationnement » / « parking » (pas « thermostat », « constat »…)
+_MOT_STAT = re.compile(r"(?<![a-zà-ÿ])(stat|stationn\w*|parking)(?![a-zà-ÿ])", re.IGNORECASE)
+
 # Louise écrit parfois la note « stat » à la demande d'un technicien.
 LOUISE_ID = "usr_tndhXmnT0iakT4HF"
 
@@ -180,11 +183,26 @@ def check_pda_parking(storage) -> list:
             notes = http.get(f"{api}/gazelle_timeline_entries", params=params, headers=H, timeout=20).json()
             notes = notes if isinstance(notes, list) else []
         ecrit = 0.0
+        sans_montant = []  # « stat » écrit sans chiffre : cause la plus fréquente d'écart
         for n in notes:
             m = extract_parking_amount(n.get("title") or "") or extract_parking_amount(n.get("description") or "")
             if m:
                 ecrit += float(m)
-        if abs(ecrit - total_rapporte) > 0.009:
+            else:
+                texte = " ".join(x for x in (n.get("title"), n.get("description")) if x)
+                if _MOT_STAT.search(texte):
+                    sans_montant.append(texte.strip()[:80])
+        if abs(ecrit - total_rapporte) > 0.009 and sans_montant:
+            manque = total_rapporte - ecrit
+            anomalies.append({
+                "check": "pda_parking", "severity": "warning",
+                "title": f"Stationnement : montant manquant dans la note — {jour}",
+                "detail": (f"Note « stat » sans montant : « " + " » / « ".join(sans_montant) + " ». "
+                           f"Ajouter le montant du reçu dans la note"
+                           + (f" (il manque {manque:.2f} $ pour arriver aux {total_rapporte:.2f} $ des demandes)" if manque > 0 else "")
+                           + ". Demande(s) : " + " | ".join(demandes[(jour, tech)])),
+            })
+        elif abs(ecrit - total_rapporte) > 0.009:
             anomalies.append({
                 "check": "pda_parking", "severity": "warning",
                 "title": f"Stationnement à vérifier — {jour}",

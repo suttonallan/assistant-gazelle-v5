@@ -719,7 +719,7 @@ def schema_notes():
     q = """{ __schema { mutationType { fields { name args { name type { name kind ofType { name } } } } } } }"""
     res = api._execute_query(q, {})
     champs = ((res.get("data") or {}).get("__schema") or {}).get("mutationType", {}).get("fields", [])
-    mots = ("note", "timeline", "comment", "history", "delete", "event")
+    mots = ("note", "timeline", "comment", "history", "delete", "event", "log")
     garder = [f for f in champs if any(m in f["name"].lower() for m in mots)]
     types = {}
     for nom in ("PrivatePianoNoteInput", "PrivateTimelineEntryInput", "PrivateNoteInput", "PrivateCreateNoteInput"):
