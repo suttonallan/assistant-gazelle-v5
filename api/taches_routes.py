@@ -2255,6 +2255,53 @@ def retirer_copie_timeline(external_id: str):
     return {"retire": external_id, "titre": r.get("title"), "type": r.get("entry_type")}
 
 
+class StatMontantIn(BaseModel):
+    client_id: str
+    piano_id: str
+    montant: float   # montant du reçu de stationnement
+
+
+@router.post("/gazelle/timeline/{entry_id}/montant-stat")
+def completer_montant_stat(entry_id: str, m: StatMontantIn):
+    """Ajoute le montant à une note de service qui dit « stat » SANS montant
+    (ex. « Accord pour adisq stat » → « Accord pour adisq stat 20 »). Ne touche rien
+    d'autre dans la note, garde sa date, et refuse si la note a déjà un montant."""
+    import re as _re
+    from core.gazelle_api_client import GazelleAPIClient
+    from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
+    if not (0 < m.montant < 200):
+        raise HTTPException(400, "Montant invalide")
+    entrees = timeline_piano_gazelle(client_id=m.client_id, piano_id=m.piano_id, limite=50)["entrees"]
+    e = next((x for x in entrees if x["id"] == entry_id), None)
+    if not e:
+        raise HTTPException(404, "Entrée introuvable pour ce piano")
+    texte = e.get("comment") or ""
+    if extract_parking_amount(texte):
+        raise HTTPException(409, "Cette note a déjà un montant de stationnement : rien n'a été changé")
+    mot = _re.search(r"(?<![a-zà-ÿ])stat(?![a-zà-ÿ])", texte, _re.IGNORECASE)
+    if not mot:
+        raise HTTPException(409, "Pas de « stat » dans cette note : rien n'a été changé")
+    montant = f"{m.montant:g}"
+    nouveau = texte[:mot.end()] + f" {montant}" + texte[mot.end():]
+    gz = GazelleAPIClient()
+    entree = {"comment": nouveau}
+    if e.get("occurredAt"):
+        entree["createdAt"] = e["occurredAt"]
+    try:
+        res = gz._execute_query("""mutation($id: String!, $c: String!, $input: PrivateClientLogInput!) {
+          updateClientLog(id: $id, clientId: $c, input: $input) { mutationErrors { fieldName messages } } }""",
+                                {"id": e.get("relatedId") or entry_id, "c": m.client_id, "input": entree})
+    except Exception as ex:
+        raise HTTPException(502, f"Gazelle : {ex}")
+    err = ((res.get("data") or {}).get("updateClientLog") or {}).get("mutationErrors") or res.get("errors")
+    if err:
+        raise HTTPException(502, str(err))
+    # Copie locale : le vérificateur du matin lit Supabase
+    requests.patch(f"{_db().api_url}/gazelle_timeline_entries?external_id=eq.{entry_id}",
+                   headers=_db()._get_headers(), json={"description": nouveau}, timeout=15)
+    return {"entree": entry_id, "avant": texte, "apres": nouveau}
+
+
 @router.delete("/gazelle/timeline/{entry_id}")
 def supprimer_entree_ia(entry_id: str, client_id: str = Query(...), piano_id: str = Query(...)):
     """Supprime une entrée de timeline Gazelle SEULEMENT si elle a été écrite par l'IA
