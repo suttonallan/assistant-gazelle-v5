@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 13 novembre
+- **Mettre une heure précise sur un RV « toute la journée »** : l'assistant peut maintenant fixer l'heure et la durée d'un rendez-vous inscrit par erreur sur toute la journée dans Gazelle, sans toucher au reste et sans courriel au client.
 - **Rappel du code de porte dans le rendez-vous** : quand l'assistant ou Ivo crée un RV pour une institution (ex. salle de répétition 1 à Wilfrid-Pelletier), la note du RV dit au technicien de demander le code avant d'arriver, parce que les codes changent souvent. Elle donne aussi le dernier code connu et les infos d'accès du mémo du piano dans Gazelle (salle, entrée, étage). Le mémo du piano reste la seule place où l'on met le code à jour.
 - **Les photos s'affichent dans le volet Décisions** : quand un point porte sur une photo du site (ex. sa description pour Google et les lecteurs d'écran), la photo apparaît directement dans le point, pour juger sans ouvrir le site.
 
