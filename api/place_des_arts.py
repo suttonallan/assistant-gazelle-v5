@@ -2060,8 +2060,13 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
     inp = {"title": _titre_rv_pda(demande), "start": start, "duration": body.duree_min,
            "type": "APPOINTMENT", "travelMode": "DRIVING",
            "userId": body.technician_id, "clientId": PDA_CLIENT_ID}
-    if (demande.get('diapason') or '').strip():
-        inp["notes"] = demande['diapason'].strip()
+    notes_rv = (demande.get('diapason') or '').strip()
+    if piano_id:
+        # Code de porte, salle, entrée : recopiés du mémo du piano dans Gazelle
+        from core.acces_piano import note_acces_pianos, ajouter_acces
+        notes_rv = ajouter_acces(notes_rv, note_acces_pianos(api_client, [piano_id]))
+    if notes_rv:
+        inp["notes"] = notes_rv
     if piano_id:
         inp["pianos"] = [{"pianoId": piano_id, "isTuning": True}]
 

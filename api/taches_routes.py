@@ -1545,6 +1545,10 @@ def creer_rendez_vous(r: RendezVousIn):
             and not est_institution(r.client_id) and faut_demander(r.client_id)):
         rappel = RAPPEL_NOUVEAU_CLIENT if est_nouveau_client(r.client_id) else RAPPEL_PROVENANCE_EXISTANT
         notes = (notes + "\n\n" if notes else "") + rappel
+    if r.type == "APPOINTMENT" and r.client_id and r.piano_ids and est_institution(r.client_id):
+        # Institutions : code de porte, salle, entrée recopiés du mémo du piano dans Gazelle
+        from core.acces_piano import note_acces_pianos, ajouter_acces
+        notes = ajouter_acces(notes, note_acces_pianos(gz, r.piano_ids))
     if notes:
         inp["notes"] = notes
     if r.piano_ids:
