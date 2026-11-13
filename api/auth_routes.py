@@ -52,11 +52,30 @@ def changer_pin(c: ChangerPinIn, request: Request):
     return {"ok": True}
 
 
+def _allan_ou_claude(request: Request) -> str:
+    """Allan (jeton de personne) ou Claude (sa clé réservée)."""
+    if verrou_api.est_cle_claude(request.headers.get("x-cle-service")):
+        return "claude"
+    if _qui(request) != "allan":
+        raise HTTPException(403, "Réservé à Allan")
+    return "allan"
+
+
+@router.post("/verrou")
+def basculer_verrou(request: Request, actif: bool):
+    """Active (ou désactive, en cas de pépin) le verrou : sans jeton ni clé, l'API répond 401.
+    Réservé à Allan ou à Claude."""
+    qui = _allan_ou_claude(request)
+    verrou_api._storage().save_system_setting("flag_api_verrou", "true" if actif else "false")
+    from core import feature_flags
+    feature_flags._cache_time = 0  # relire tout de suite
+    return {"verrou_actif": feature_flags.is_enabled("api_verrou", default=False), "par": qui}
+
+
 @router.get("/journal")
 def journal(request: Request):
     """Appels reçus sans jeton valide (mode observation), cumulés même après un redémarrage."""
-    if _qui(request) != "allan":
-        raise HTTPException(403, "Réservé à Allan")
+    _allan_ou_claude(request)
     from core.feature_flags import is_enabled
     routes = verrou_api.journal()
     return {"verrou_actif": is_enabled("api_verrou", default=False),

@@ -271,9 +271,20 @@ def _verifiee_par_supabase(cle: str) -> bool:
     return False
 
 
+# Clé réservée à Claude (conversations d'Allan) : seule son empreinte SHA-256 est ici,
+# jamais la clé (le dépôt est public). Pour la changer : nouvelle clé, nouvelle empreinte.
+EMPREINTE_CLE_CLAUDE = "5a612717e61eb7aa41684509b005a13ac198ee64cacf66528bd5a602a21608e6"
+
+
+def est_cle_claude(cle: Optional[str]) -> bool:
+    return bool(cle) and hmac.compare_digest(hashlib.sha256(cle.encode()).hexdigest(), EMPREINTE_CLE_CLAUDE)
+
+
 def cle_service_valide(cle: Optional[str]) -> bool:
     if not cle:
         return False
+    if est_cle_claude(cle):
+        return True
     if any(hmac.compare_digest(cle, a) for a in _cles_service()):
         return True
     return _role_jwt(cle) == "service_role" and _verifiee_par_supabase(cle)
