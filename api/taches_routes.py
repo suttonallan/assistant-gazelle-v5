@@ -1870,15 +1870,30 @@ def envoyer_confirmation(eid: str):
 class ModifRvIn(BaseModel):
     user_id: Optional[str] = None      # réassigner à un technicien
     notes_ajout: Optional[str] = None  # ajouté EN TÊTE des notes existantes (rien n'est effacé)
+    debut_montreal: Optional[str] = None  # « AAAA-MM-JJTHH:MM » heure de Montréal ; retire le « toute la journée »
+    duree_min: Optional[int] = None
 
 
 @router.post("/gazelle/rendez-vous/{eid}/modifier")
 def modifier_rendez_vous(eid: str, m: ModifRvIn):
-    """Réassigne un RV et/ou ajoute une précision aux notes. Ne touche ni à l'heure, ni au
-    client, ni au titre ; aucun courriel n'est envoyé au client."""
+    """Réassigne un RV, ajoute une précision aux notes et/ou fixe une heure précise
+    (debut_montreal + duree_min ; un RV « toute la journée » devient un RV à heure fixe).
+    Ne touche ni au client ni au titre ; aucun courriel n'est envoyé au client."""
     from core.gazelle_api_client import GazelleAPIClient
+    from core.timezone_utils import MONTREAL_TZ
     gz = GazelleAPIClient()
     inp: Dict[str, Any] = {}
+    if m.debut_montreal:
+        try:
+            local = datetime.fromisoformat(m.debut_montreal)
+        except ValueError:
+            raise HTTPException(400, "debut_montreal invalide (attendu AAAA-MM-JJTHH:MM)")
+        if local.tzinfo is None:
+            local = local.replace(tzinfo=MONTREAL_TZ)
+        inp["start"] = local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        inp["isAllDay"] = False
+    if m.duree_min:
+        inp["duration"] = m.duree_min
     if m.user_id:
         inp["userId"] = m.user_id
     if m.notes_ajout:
@@ -1888,7 +1903,7 @@ def modifier_rendez_vous(eid: str, m: ModifRvIn):
     if not inp:
         raise HTTPException(400, "Rien à modifier")
     mut = """mutation($id: String!, $input: PrivateEventInput!) { updateEvent(id: $id, input: $input) {
-      event { id title start notes user { id firstName } } mutationErrors { fieldName messages } } }"""
+      event { id title start duration isAllDay notes user { id firstName } } mutationErrors { fieldName messages } } }"""
     res = gz._execute_query(mut, {"id": eid, "input": inp})
     payload = ((res or {}).get("data") or {}).get("updateEvent") or {}
     if (isinstance(res, dict) and res.get("errors")) or payload.get("mutationErrors"):
