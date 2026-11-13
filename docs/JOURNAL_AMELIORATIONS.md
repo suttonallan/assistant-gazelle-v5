@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 13 novembre
+- **Les photos s'affichent dans le volet Décisions** : quand un point porte sur une photo du site (ex. sa description pour Google et les lecteurs d'écran), la photo apparaît directement dans le point, pour juger sans ouvrir le site.
+
 ### 12 novembre
 - **Les accords « Extra-propre » et « Premium + PLS » comptent de nouveau comme des accords** : la veille du RV, l'assistant remplaçait le service réservé en ligne par sa version détaillée, mais celle-ci n'était pas cochée « accord » dans Gazelle. Résultat : le client recevait « votre piano est dû » la veille de sa visite, et la date du dernier accord ne se mettait pas à jour (cas d'Hélène Desjardins). C'est corrigé, et le vérificateur quotidien signale désormais tout RV d'accord qui ne compte pas comme un accord.
 - **Kilomètres d'Allan plus justes** : quand il a plus d'une demi-heure entre deux arrêts et qu'il lui reste au moins 15 minutes à la maison une fois les trajets comptés, le calculateur compte un retour à la maison, comme il le fait vraiment. On peut aussi ajouter un bloc personnel avec lieu sans client (ex. déjeuner d'affaires) pour qu'il soit compté. Les déjeuners avec Nicolas inscrits dans l'agenda de Nicolas sont ajoutés tout seuls au rapport de déplacement d'Allan.

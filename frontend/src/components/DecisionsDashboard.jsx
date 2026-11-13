@@ -101,6 +101,12 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
         ) : (
           <AvantApres avant={d.avant} apres={d.apres} />
         )}
+        {/* Un point qui porte sur une photo (ex. sa description) la montre, pour juger sans quitter le volet. */}
+        {/\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(d.lien || '') && (
+          <a href={d.lien} target="_blank" rel="noopener noreferrer" className="block mt-2">
+            <img src={d.lien} alt="" loading="lazy" className="max-h-64 max-w-full rounded border border-stone-300" />
+          </a>
+        )}
         {d.info && <p className="mt-1 text-[13px] text-amber-800 whitespace-pre-line">{d.info}</p>}
         {d.consigne && <p className="mt-1 text-[13px] text-green-700 font-semibold">{d.consigne}</p>}
         {d.recommandation && !fait && <p className="mt-1 text-[13px] text-green-700 font-semibold">Recommandation : {d.recommandation}</p>}
@@ -111,7 +117,7 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
             <span className={enRetard ? 'text-red-700 font-semibold' : ''}>En attente depuis {attente} j</span>
           )}
           {d.decidee_le && (d.statut === 'approuvee' || d.statut === 'refusee') && <span>Décidée le {dateCourte(d.decidee_le)}</span>}
-          {d.lien && <a className="font-semibold hover:underline" style={{ color: '#b8860b' }} href={d.lien} target="_blank" rel="noopener noreferrer">Voir sur le site ↗</a>}
+          {d.lien && <a className="font-semibold hover:underline" style={{ color: '#b8860b' }} href={d.lien} target="_blank" rel="noopener noreferrer">{/\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(d.lien) ? 'Voir la photo ↗' : 'Voir sur le site ↗'}</a>}
         </div>
         {d.type === 'revision_wp' && d.lien_wp && (
           <a href={d.lien_wp} target="_blank" rel="noopener noreferrer"
