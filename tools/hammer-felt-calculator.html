@@ -32,6 +32,31 @@
   .calc-input button { background: #e94560; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: 600; }
   .calc-input button:hover { background: #c73e54; }
 
+  /* Dual side layout (balancier + enfoncement) */
+  .calc-head { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .calc-head label { font-size: 13px; color: #aaa; display: block; margin-bottom: 4px; }
+  .calc-head input { width: 100%; background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 10px 14px; border-radius: 6px; font-size: 15px; }
+  .dual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .side-card { background: #131c33; border: 1px solid #0f3460; border-radius: 10px; padding: 16px; }
+  .side-card.bal { border-top: 3px solid #4ecca3; }
+  .side-card.enf { border-top: 3px solid #e94560; }
+  .side-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .side-card.bal .side-title, .side-results.bal .side-title { color: #4ecca3; }
+  .side-card.enf .side-title, .side-results.enf .side-title { color: #e94560; }
+  .side-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .side-fields .fg-full { grid-column: 1 / -1; }
+  .side-fields label { font-size: 12px; color: #aaa; display: block; margin-bottom: 4px; }
+  .side-fields input, .side-fields select { width: 100%; background: #16213e; border: 1px solid #0f3460; color: #eee; padding: 10px 12px; border-radius: 6px; font-size: 16px; }
+  .calc-actions { display: flex; gap: 12px; margin: 20px 0 24px; }
+  .calc-actions button { padding: 12px 28px; border-radius: 6px; border: none; cursor: pointer; font-size: 16px; font-weight: 600; }
+  .side-results .rec-tiles { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .side-results .rec-tiles .felt-tile { grid-column: 1 / -1; }
+  .side-results .rec-tile.felt-tile .tile-value { font-size: 36px; }
+  .side-results .feedback-grid { grid-template-columns: 1fr 1fr; }
+  .side-results .feedback-grid .fg.wide { grid-column: 1 / -1; }
+  .side-results .bounds-bar { flex-wrap: wrap; gap: 12px; }
+  .side-empty { background: #16213e; border: 1px dashed #0f3460; border-radius: 10px; padding: 24px; text-align: center; color: #666; font-size: 13px; }
+
   /* Recommendation Tiles */
   .rec-tiles { display: grid; grid-template-columns: 2.5fr 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
   .rec-tile { background: #16213e; border-radius: 10px; padding: 16px; border: 2px solid #0f3460; text-align: center; }
@@ -139,6 +164,8 @@
     .form-grid { grid-template-columns: 1fr; }
     .calc-input { flex-direction: column; }
     .calc-input input, .calc-input select { width: 100%; }
+    .dual-grid, .calc-head { grid-template-columns: 1fr; }
+    .side-results .rec-tiles, .side-results .feedback-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -164,37 +191,83 @@
 
   <!-- CALCULATEUR -->
   <div id="calc" class="panel active">
-    <div class="calc-input">
+
+    <!-- Client / Piano communs aux deux côtés -->
+    <div class="calc-head">
       <div>
-        <label data-t="calc_pin_label">Taille de la pointe (pouces)</label>
-        <input type="number" id="pinSize" step="0.001" min="0.05" max="0.25" placeholder=".146">
-      </div>
-      <div>
-        <label data-t="calc_sizing_label">Sizing / Mortaise</label>
-        <select id="sizingSelect" onchange="onSizingSelect()">
-          <option value="" data-t="opt_choose">-- Choisir --</option>
-          <option value="MS-125">MS-125 (.208)</option>
-          <option value="MS-137">MS-137 (.217)</option>
-          <option value="MS-146">MS-146 (.227)</option>
-          <option value="MS-162">MS-162 (.241)</option>
-          <option value="custom" data-t="opt_custom">Mesure custom</option>
-        </select>
-      </div>
-      <div id="customSizingDiv" style="display:none;">
-        <label data-t="calc_custom_label">Largeur mesurée (pouces)</label>
-        <input type="number" id="customSizingWidth" step="0.001" min="0.1" max="0.3" placeholder=".227">
+        <label data-t="lbl_client">Client</label>
+        <input type="text" id="calcClient" data-ph="ph_client" placeholder="Ex: Lamontagne">
       </div>
       <div>
-        <label data-t="calc_type_label">Type de pointe</label>
-        <select id="pinType">
-          <option value="any" data-t="opt_all_types">Tous types</option>
-          <option value="balance">Balance</option>
-          <option value="enfoncement" data-t="opt_enfoncement">Enfoncement</option>
-        </select>
+        <label data-t="lbl_piano">Piano (nom/modèle)</label>
+        <input type="text" id="calcPiano" data-ph="ph_piano" placeholder="Ex: Steinway D">
       </div>
-      <button onclick="calculate()" data-t="btn_calculate">Calculer</button>
     </div>
-    <div id="calcResults"></div>
+
+    <!-- Les deux côtés, côte à côte -->
+    <div class="dual-grid">
+
+      <div class="side-card bal">
+        <div class="side-title" data-t="side_bal">Balancier</div>
+        <div class="side-fields">
+          <div>
+            <label data-t="calc_pin_label">Taille de la pointe (pouces)</label>
+            <input type="number" id="pinSize_bal" step="0.001" min="0.05" max="0.25" placeholder=".146" onchange="autoCalc()">
+          </div>
+          <div>
+            <label data-t="calc_sizing_label">Sizing / Mortaise</label>
+            <select id="sizingSelect_bal" onchange="onSizingSelect('bal'); autoCalc()">
+              <option value="" data-t="opt_choose">-- Choisir --</option>
+              <option value="MS-125">MS-125 (.208)</option>
+              <option value="MS-137">MS-137 (.217)</option>
+              <option value="MS-146">MS-146 (.227)</option>
+              <option value="MS-162">MS-162 (.241)</option>
+              <option value="custom" data-t="opt_custom">Mesure custom</option>
+            </select>
+          </div>
+          <div class="fg-full" id="customSizingDiv_bal" style="display:none;">
+            <label data-t="calc_custom_label">Largeur mesurée (pouces)</label>
+            <input type="number" id="customSizingWidth_bal" step="0.001" min="0.1" max="0.3" placeholder=".227" onchange="autoCalc()">
+          </div>
+        </div>
+      </div>
+
+      <div class="side-card enf">
+        <div class="side-title" data-t="side_enf">Enfoncement</div>
+        <div class="side-fields">
+          <div>
+            <label data-t="calc_pin_label">Taille de la pointe (pouces)</label>
+            <input type="number" id="pinSize_enf" step="0.001" min="0.05" max="0.25" placeholder=".146" onchange="autoCalc()">
+          </div>
+          <div>
+            <label data-t="calc_sizing_label">Sizing / Mortaise</label>
+            <select id="sizingSelect_enf" onchange="onSizingSelect('enf'); autoCalc()">
+              <option value="" data-t="opt_choose">-- Choisir --</option>
+              <option value="MS-125">MS-125 (.208)</option>
+              <option value="MS-137">MS-137 (.217)</option>
+              <option value="MS-146">MS-146 (.227)</option>
+              <option value="MS-162">MS-162 (.241)</option>
+              <option value="custom" data-t="opt_custom">Mesure custom</option>
+            </select>
+          </div>
+          <div class="fg-full" id="customSizingDiv_enf" style="display:none;">
+            <label data-t="calc_custom_label">Largeur mesurée (pouces)</label>
+            <input type="number" id="customSizingWidth_enf" step="0.001" min="0.1" max="0.3" placeholder=".227" onchange="autoCalc()">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="calc-actions">
+      <button class="btn-primary" onclick="calculate()" data-t="btn_calculate">Calculer</button>
+      <button class="btn-secondary" onclick="clearCalc()" data-t="btn_clear">Effacer</button>
+    </div>
+
+    <div class="dual-grid">
+      <div class="side-results bal" id="calcResults_bal"></div>
+      <div class="side-results enf" id="calcResults_enf"></div>
+    </div>
   </div>
 
   <!-- SAISIE -->
@@ -401,6 +474,11 @@ const TRANSLATIONS = {
   calc_custom_label:  { fr: 'Largeur mesurée (pouces)', en: 'Measured width (inches)' },
   calc_type_label:    { fr: 'Type de pointe', en: 'Pin type' },
   btn_calculate:      { fr: 'Calculer', en: 'Calculate' },
+  side_bal:           { fr: 'Balancier', en: 'Balance pin' },
+  side_enf:           { fr: 'Enfoncement', en: 'Front pin' },
+  side_empty:         { fr: 'Entrez la taille de pointe de ce côté pour voir la recommandation.', en: 'Enter this side’s pin size to see the recommendation.' },
+  toast_need_a_pin:   { fr: 'Entrez au moins une taille de pointe (balancier ou enfoncement)', en: 'Enter at least one pin size (balance or front pin)' },
+  fb_title_side:      { fr: 'Résultat réel — ', en: 'Actual result — ' },
 
   // Dropdowns — common
   opt_choose:         { fr: '-- Choisir --', en: '-- Select --' },
@@ -419,11 +497,13 @@ const TRANSLATIONS = {
   tile_sizing:        { fr: 'Sizing', en: 'Sizing' },
   tile_inter:         { fr: 'Cale Inter', en: 'Inter Caul' },
   tile_final:         { fr: 'Cale Finale', en: 'Final Caul' },
-  conf_high:          { fr: 'Confiance élevée', en: 'High confidence' },
-  conf_medium:        { fr: 'Confiance moyenne', en: 'Medium confidence' },
-  conf_low_formula:   { fr: 'Formule directe', en: 'Direct formula' },
+  conf_high:          { fr: 'Confiance élevée (≥3 parfaits)', en: 'High confidence (≥3 perfect)' },
+  conf_medium:        { fr: 'À confirmer', en: 'To confirm' },
+  conf_low_formula:   { fr: 'Formule seule — à valider', en: 'Formula only — unverified' },
   conf_low_theo:      { fr: 'Estimation théorique', en: 'Theoretical estimate' },
   conf_none:          { fr: 'Entrez la largeur de mortaise', en: 'Enter mortise width' },
+  conflict_title:     { fr: 'Données contradictoires pour cette configuration', en: 'Contradictory data for this configuration' },
+  conflict_hint:      { fr: 'La recommandation est donc incertaine — fie-toi à ton jugement, et corrige le verdict d\'un job si besoin.', en: 'The recommendation is therefore unreliable — use your judgment, and fix a job’s verdict if needed.' },
   src_formula:        { fr: 'Formule directe', en: 'Direct formula' },
   src_theo:           { fr: 'Théorique (Spurlock)', en: 'Theoretical (Spurlock)' },
   src_hist:           { fr: 'Historique', en: 'History' },
@@ -540,12 +620,11 @@ function applyTranslations() {
     el.placeholder = t(el.getAttribute('data-ph'));
   });
   // Re-render dynamic content if visible
-  const calcResults = document.getElementById('calcResults');
-  if (calcResults && calcResults.innerHTML) {
-    // Re-run calculation if results are showing
-    const pin = parseFloat(document.getElementById('pinSize').value);
-    if (pin) calculate();
-  }
+  const shown = ['bal', 'enf'].some(s => {
+    const el = document.getElementById('calcResults_' + s);
+    return el && el.innerHTML;
+  });
+  if (shown) calculate();
   renderTable();
   renderStock();
 }
@@ -734,115 +813,169 @@ function computeRecommendations(pin, type, mortiseWidth) {
 
   const spurlock = getClosestSpurlock(pin);
 
-  // --- FELT recommendation ---
-  let felt = { value: null, source: '', confidence: 'none' };
+  // --- FELT recommendation (formula-anchored + learned compression margin) ---
+  // Principe : une mortaise plus large DOIT toujours donner un feutre plus épais.
+  // On ancre sur le jeu géométrique (mortaise - pointe)/2 et on ajoute une marge de
+  // compression APPRISE des vrais jobs. Le résultat reste donc monotone (plus la
+  // mortaise est large, plus le feutre est épais) et colle à la réalité de l'atelier.
+  let felt = { value: null, source: '', confidence: 'none', offset: 0 };
 
-  // Theoretical: direct formula if mortise width is known
+  // Baseline géométrique (par côté), en mm
   let theoretical = null;
   if (mortiseWidth > 0) {
-    // Direct calculation: (mortise - pin) / 2, converted to mm
     theoretical = roundToNearest005((mortiseWidth - pin) / 2 * 25.4);
-    if (theoretical <= 0) theoretical = null; // invalid
+    if (theoretical <= 0) theoretical = null; // invalide
   } else if (spurlock.sizing) {
-    // Fallback: use Spurlock sizing caul thickness
+    // Repli : épaisseur du sizing caul Spurlock
     const sizingCaul = DEFAULT_CAULS.find(c => c.id === spurlock.sizing);
     if (sizingCaul) {
       theoretical = roundToNearest005((sizingCaul.thickness - pin) / 2 * 25.4);
     }
   }
 
-  if (parfait.length > 0) {
-    const weightedSum = parfait.reduce((s, h) => s + h.felt * 3, 0) + ok.reduce((s, h) => s + h.felt, 0);
-    const weightedCount = parfait.length * 3 + ok.length;
-    const histAvg = weightedSum / weightedCount;
-    felt.value = roundToNearest005(histAvg);
-    felt.source = `${parfait.length} parfait, ${ok.length} ok`;
-    felt.confidence = 'high';
-  } else if (ok.length > 0) {
-    const histAvg = ok.reduce((s, h) => s + h.felt, 0) / ok.length;
-    if (theoretical) {
-      felt.value = roundToNearest005(histAvg * 0.8 + theoretical * 0.2);
-      felt.source = `${ok.length} ok + formule`;
-    } else {
-      felt.value = roundToNearest005(histAvg);
-      felt.source = `${ok.length} ok`;
-    }
-    felt.confidence = 'medium';
-  } else if (theoretical) {
+  // Marge de compression apprise = feutre réel − jeu géométrique. On la calcule sur le
+  // jeu de jobs le PLUS SPÉCIFIQUE disponible, pour que la marge (et le nombre affiché)
+  // corresponde aux « entrées correspondantes » montrées plus bas :
+  //   1) jobs même pointe ET même mortaise  → rappel précis de ce qui a marché
+  //   2) sinon, même pointe (toutes mortaises)
+  //   3) sinon, même type (global)
+  // Largeur de mortaise effective : si le champ est vide, on la déduit du nom de la cale
+  // (ex. MS-137 → .217). Évite qu'un job saisi sans largeur soit écarté du calcul.
+  const caulW = id => { const c = DEFAULT_CAULS.find(c => c.id === id); return c ? c.thickness : 0; };
+  const effW = h => h.sizingWidth > 0 ? h.sizingWidth : caulW(h.sizing);
+  const rawTheo = h => (effW(h) - h.pinSize) / 2 * 25.4;
+  const goodOf = arr => arr.filter(h => effW(h) > 0 && rawTheo(h) > 0 && (h.verdict === 'parfait' || h.verdict === 'ok'));
+  const MORTISE_TOL2 = 0.008;
+  const mortiseMatched = mortiseWidth > 0
+    ? allRelevant.filter(h => effW(h) > 0 && Math.abs(effW(h) - mortiseWidth) <= MORTISE_TOL2)
+    : [];
+  const goodMortise = goodOf(mortiseMatched);
+  const goodPin = goodOf(allRelevant);
+  const goodType = goodOf(history.filter(h => !h.outlier && h.felt > 0 && (type === 'any' || h.pinType === type)));
+  const marginSet = goodMortise.length ? goodMortise : (goodPin.length ? goodPin : goodType);
+  let offset = null;
+  if (marginSet.length > 0) {
+    let ws = 0, wc = 0;
+    marginSet.forEach(h => { const w = h.verdict === 'parfait' ? 3 : 1; ws += (h.felt - rawTheo(h)) * w; wc += w; });
+    offset = ws / wc;
+  }
+
+  const nParf = marginSet.filter(h => h.verdict === 'parfait').length;
+  const nOk = marginSet.filter(h => h.verdict === 'ok').length;
+  // Le RÉEL (jobs même pointe + même mortaise) prime. La formule n'est qu'un repli.
+  const fromReal = goodMortise.length > 0;
+  const setLabel = `${nParf} parfait, ${nOk} ok`;
+  if (theoretical != null && offset != null) {
+    felt.offset = roundToNearest005(offset);
+    felt.value = Math.max(theoretical, roundToNearest005(theoretical + offset));
+    felt.source = fromReal ? `réel (${setLabel})`
+                : goodPin.length > 0 ? `formule + marge pointe (${setLabel})`
+                : `formule + marge type (${setLabel})`;
+    felt.confidence = fromReal ? (nParf >= 3 ? 'high' : 'medium') : ((nParf + nOk) >= 2 ? 'medium' : 'low');
+  } else if (theoretical != null) {
+    // Aucune donnée pour apprendre la marge → formule nue, simple suggestion à valider
     felt.value = theoretical;
-    felt.source = mortiseWidth > 0 ? 'Formule directe' : 'Théorique (Spurlock)';
-    felt.confidence = mortiseWidth > 0 ? 'medium' : 'low';
+    felt.source = mortiseWidth > 0 ? 'Formule seule — à valider' : 'Théorique (Spurlock)';
+    felt.confidence = 'low';
+  } else if (nParf + nOk > 0) {
+    // Pas de largeur de mortaise → moyenne réelle pondérée
+    const wsum = marginSet.reduce((s, h) => s + h.felt * (h.verdict === 'parfait' ? 3 : 1), 0);
+    const wcnt = nParf * 3 + nOk;
+    felt.value = roundToNearest005(wsum / wcnt);
+    felt.source = `réel (${setLabel})`;
+    felt.confidence = nParf >= 3 ? 'high' : 'medium';
   }
 
   // Bounds
   felt.maxLache = lache.length > 0 ? Math.max(...lache.map(h => h.felt)) : null;
   felt.minSerre = serre.length > 0 ? Math.min(...serre.map(h => h.felt)) : null;
 
-  // --- SIZING recommendation ---
-  let sizing = { value: null, label: '', source: '' };
-  // Check history: most used sizing with good results
-  const goodWithSizing = good.filter(h => h.sizing && h.sizing.startsWith('MS-'));
-  if (goodWithSizing.length > 0) {
-    const counts = {};
-    goodWithSizing.forEach(h => { counts[h.sizing] = (counts[h.sizing] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
-    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-    sizing.value = best;
-    sizing.label = caulLabel(best);
-    sizing.source = `Historique (${goodWithSizing.length} jobs)`;
-  } else if (spurlock.sizing) {
-    sizing.value = spurlock.sizing;
-    sizing.label = caulLabel(spurlock.sizing);
-    sizing.source = 'Spurlock';
-  }
-
-  // --- INTER CAUL recommendation ---
-  let inter = { value: null, label: '', source: '' };
-  const goodWithInter = good.filter(h => h.interCaul && h.interCaul.startsWith('#'));
-  if (goodWithInter.length > 0) {
-    const counts = {};
-    goodWithInter.forEach(h => { counts[h.interCaul] = (counts[h.interCaul] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
-    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-    inter.value = best;
-    inter.label = caulLabel(best);
-    inter.source = `Historique (${goodWithInter.length} jobs)`;
-  } else {
-    inter.value = spurlock.inter;
-    inter.label = caulLabel(spurlock.inter);
-    inter.source = 'Spurlock';
-  }
-
-  // --- FINAL CAUL recommendation ---
-  let final_ = { value: null, label: '', source: '' };
-  const goodWithFinal = good.filter(h => h.finalCaul && (h.finalCaul.startsWith('#') || h.finalCaul.startsWith('DS-')));
-  if (goodWithFinal.length > 0) {
-    const counts = {};
-    goodWithFinal.forEach(h => { counts[h.finalCaul] = (counts[h.finalCaul] || 0) + (h.verdict === 'parfait' ? 3 : 1); });
-    const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
-    final_.value = best;
-    final_.label = caulLabel(best);
-    final_.source = `Historique (${goodWithFinal.length} jobs)`;
-  } else {
-    final_.value = spurlock.final;
-    final_.label = caulLabel(spurlock.final);
-    final_.source = 'Spurlock';
-    if (spurlock.finalAlt) {
-      final_.label += ` ${t('or')} ${caulLabelShort(spurlock.finalAlt)}`;
+  // La recommandation DOIT respecter les bornes mesurées : strictement au-dessus de ce
+  // qui a été jugé trop lâche, strictement en dessous de ce qui a été jugé trop serré.
+  // Sinon on suggérerait un feutre déjà déclaré mauvais pour cette config.
+  if (felt.value != null) {
+    if (felt.maxLache != null && felt.value <= felt.maxLache) {
+      felt.value = roundToNearest005(felt.maxLache + 0.05);
+      felt.source = `> seuil lâche (${felt.maxLache.toFixed(2)} mm)`;
+      if (felt.confidence === 'low') felt.confidence = 'medium';
+    }
+    if (felt.minSerre != null && felt.value >= felt.minSerre) {
+      const capped = roundToNearest005(felt.minSerre - 0.05);
+      if (felt.maxLache == null || capped > felt.maxLache) {
+        felt.value = capped;
+        felt.source = `< seuil serré (${felt.minSerre.toFixed(2)} mm)`;
+      }
     }
   }
+
+  // Détection de contradictions dans les données de CETTE config (jobs correspondants).
+  // Physique : plus de feutre = plus serré. Donc un feutre jugé "bon" ne peut pas être
+  // ≤ un feutre jugé "trop lâche", ni ≥ un feutre jugé "trop serré".
+  felt.conflicts = [];
+  const goodHere = relevant.filter(h => h.verdict === 'parfait' || h.verdict === 'ok').map(h => h.felt);
+  const looseHere = lache.map(h => h.felt);
+  const tightHere = serre.map(h => h.felt);
+  goodHere.forEach(g => {
+    const L = looseHere.filter(x => x >= g - 1e-9);
+    if (L.length) felt.conflicts.push(`${g.toFixed(2)} mm jugé bon, mais ${Math.max(...L).toFixed(2)} mm jugé trop lâche`);
+    const S = tightHere.filter(x => x <= g + 1e-9);
+    if (S.length) felt.conflicts.push(`${g.toFixed(2)} mm jugé bon, mais ${Math.min(...S).toFixed(2)} mm jugé trop serré`);
+  });
+  if (felt.maxLache != null && felt.minSerre != null && felt.maxLache >= felt.minSerre) {
+    felt.conflicts.push(`seuil trop lâche (${felt.maxLache.toFixed(2)}) ≥ seuil trop serré (${felt.minSerre.toFixed(2)})`);
+  }
+  felt.conflicts = [...new Set(felt.conflicts)];
+
+  // --- CALES (sizing / inter / final) ---
+  // LE RÉEL PRIME. Dès qu'un vrai job existe pour cette config (pointe + mortaise), sa
+  // cale l'emporte. Spurlock n'est qu'une SUGGESTION de repli, étiquetée comme telle.
+  const selSizingId = mortiseWidth > 0
+    ? (DEFAULT_CAULS.find(c => c.id.startsWith('MS-') && Math.abs(c.thickness - mortiseWidth) < 0.002) || {}).id
+    : null;
+  const modeCaul = (jobs, field, pred) => {
+    const counts = {};
+    jobs.forEach(h => { const v = h[field]; if (v && pred(v)) { if (!counts[v]) counts[v] = { n: 0, w: 0 }; counts[v].n++; counts[v].w += (h.verdict === 'parfait' ? 3 : 1); } });
+    const e = Object.entries(counts).sort((a, b) => b[1].w - a[1].w);
+    return e.length ? { value: e[0][0], jobs: e[0][1].n } : null;
+  };
+  const realLabel = r => `Réel (${r.jobs} job${r.jobs > 1 ? 's' : ''})`;
+
+  // --- SIZING : réel > mortaise choisie > Spurlock ---
+  let sizing = { value: null, label: '', source: '' };
+  const rSizing = modeCaul(goodMortise, 'sizing', v => v.startsWith('MS-'));
+  if (rSizing) { sizing.value = rSizing.value; sizing.label = caulLabel(rSizing.value); sizing.source = realLabel(rSizing); }
+  else if (selSizingId) { sizing.value = selSizingId; sizing.label = caulLabel(selSizingId); sizing.source = 'Mortaise choisie'; }
+  else if (spurlock.sizing) { sizing.value = spurlock.sizing; sizing.label = caulLabel(spurlock.sizing); sizing.source = 'Spurlock (suggestion)'; }
+
+  // --- INTER : réel > Spurlock ---
+  let inter = { value: spurlock.inter, label: caulLabel(spurlock.inter), source: 'Spurlock (suggestion)' };
+  const rInter = modeCaul(goodMortise, 'interCaul', v => v.startsWith('#'));
+  if (rInter) { inter.value = rInter.value; inter.label = caulLabel(rInter.value); inter.source = realLabel(rInter); }
+
+  // --- FINAL : réel > Spurlock ---
+  let final_ = { value: spurlock.final, label: caulLabel(spurlock.final), source: 'Spurlock (suggestion)' };
+  if (spurlock.finalAlt) { final_.label += ` ${t('or')} ${caulLabelShort(spurlock.finalAlt)}`; }
+  const rFinal = modeCaul(goodMortise, 'finalCaul', v => v.startsWith('#') || v.startsWith('DS-'));
+  if (rFinal) { final_.value = rFinal.value; final_.label = caulLabel(rFinal.value); final_.source = realLabel(rFinal); }
 
   return { felt, sizing, inter, final: final_, relevant, allRelevant, spurlock, theoretical, mortiseWidth };
 }
 
-function onSizingSelect() {
-  const sel = document.getElementById('sizingSelect').value;
-  const customDiv = document.getElementById('customSizingDiv');
-  customDiv.style.display = sel === 'custom' ? 'block' : 'none';
+// Les deux côtés du calculateur : 'bal' = balancier, 'enf' = enfoncement
+const SIDES = [
+  { key: 'bal', type: 'balance', labelKey: 'side_bal' },
+  { key: 'enf', type: 'enfoncement', labelKey: 'side_enf' },
+];
+
+function onSizingSelect(side) {
+  const sel = document.getElementById('sizingSelect_' + side).value;
+  document.getElementById('customSizingDiv_' + side).style.display = sel === 'custom' ? 'block' : 'none';
 }
 
-function getMortiseWidth() {
-  const sel = document.getElementById('sizingSelect').value;
+function getMortiseWidth(side) {
+  const sel = document.getElementById('sizingSelect_' + side).value;
   if (sel === 'custom') {
-    return parseFloat(document.getElementById('customSizingWidth').value) || 0;
+    return parseFloat(document.getElementById('customSizingWidth_' + side).value) || 0;
   } else if (sel) {
     const caul = DEFAULT_CAULS.find(c => c.id === sel);
     return caul ? caul.thickness : 0;
@@ -850,49 +983,90 @@ function getMortiseWidth() {
   return 0;
 }
 
-function calculate() {
-  const pin = parseFloat(document.getElementById('pinSize').value);
-  const type = document.getElementById('pinType').value;
-  const mortiseWidth = getMortiseWidth();
-  if (!pin || pin < 0.05 || pin > 0.25) {
-    showToast(t('toast_invalid_pin'));
-    return;
-  }
-
-  const recs = computeRecommendations(pin, type, mortiseWidth);
-  const results = document.getElementById('calcResults');
-  let html = '';
-
-  // 1. Four recommendation tiles
-  html += renderTiles(pin, type, recs);
-
-  // 2. Bounds bar
-  html += renderBoundsBar(recs.felt);
-
-  // 3. Range bar (compact)
-  html += renderRangeBar(pin, type);
-
-  // 4. History matches (collapsible)
-  html += renderHistoryDetail(recs.relevant);
-
-  // 5. Feedback form
-  html += renderFeedbackForm(pin, type, recs);
-
-  results.innerHTML = html;
-
-  // Populate feedback dropdowns
-  populateFeedbackDropdowns(recs);
+function renderConflictWarning(felt) {
+  if (!felt.conflicts || felt.conflicts.length === 0) return '';
+  const items = felt.conflicts.map(c => `<li style="margin:2px 0;">${c}</li>`).join('');
+  return `<div style="background:#3a1d1d; border:1px solid #e94560; border-radius:10px; padding:12px 16px; margin-bottom:16px; color:#ffc9c9;">
+    <div style="font-weight:700; color:#ff6b6b; margin-bottom:6px;">⚠ ${t('conflict_title')}</div>
+    <ul style="margin:0; padding-left:18px; font-size:13px;">${items}</ul>
+    <div style="font-size:12px; color:#d99; margin-top:8px;">${t('conflict_hint')}</div>
+  </div>`;
 }
 
-function renderTiles(pin, type, recs) {
+function calculate() {
+  let anyValid = false;
+  let badPin = false;
+  const pending = [];
+
+  SIDES.forEach(({ key, type, labelKey }) => {
+    const container = document.getElementById('calcResults_' + key);
+    const raw = document.getElementById('pinSize_' + key).value;
+    const pin = parseFloat(raw);
+
+    // Côté vide → placeholder discret, l'autre côté se calcule quand même
+    if (!raw) {
+      container.innerHTML = `<div class="side-title">${t(labelKey)}</div><div class="side-empty">${t('side_empty')}</div>`;
+      return;
+    }
+    if (!pin || pin < 0.05 || pin > 0.25) {
+      badPin = true;
+      container.innerHTML = `<div class="side-title">${t(labelKey)}</div><div class="side-empty">${t('toast_invalid_pin')}</div>`;
+      return;
+    }
+
+    anyValid = true;
+    const recs = computeRecommendations(pin, type, getMortiseWidth(key));
+
+    let html = `<div class="side-title">${t(labelKey)} — .${pin.toFixed(3).slice(2)}"</div>`;
+    html += renderConflictWarning(recs.felt);          // 0. contradictions
+    html += renderTiles(pin, type, recs, true);        // 1. tuiles de recommandation
+    html += renderBoundsBar(recs.felt);                // 2. bornes lâche / serré
+    html += renderRangeBar(pin, type);                 // 3. plage testée
+    html += renderHistoryDetail(recs.relevant);        // 4. historique proche
+    html += renderFeedbackForm(pin, type, recs, key);  // 5. saisie du résultat réel
+
+    container.innerHTML = html;
+    pending.push({ recs, key });
+  });
+
+  pending.forEach(({ recs, key }) => populateFeedbackDropdowns(recs, key));
+
+  if (!anyValid && !badPin) showToast(t('toast_need_a_pin'));
+  else if (!anyValid && badPin) showToast(t('toast_invalid_pin'));
+}
+
+// Recalcul silencieux dès qu'une mesure change (pas de toast si tout est vide)
+function autoCalc() {
+  const filled = SIDES.some(({ key }) => document.getElementById('pinSize_' + key).value);
+  if (filled) calculate();
+}
+
+function clearCalc() {
+  ['calcClient', 'calcPiano'].forEach(id => { document.getElementById(id).value = ''; });
+  SIDES.forEach(({ key }) => {
+    document.getElementById('pinSize_' + key).value = '';
+    document.getElementById('sizingSelect_' + key).value = '';
+    document.getElementById('customSizingWidth_' + key).value = '';
+    document.getElementById('customSizingDiv_' + key).style.display = 'none';
+    document.getElementById('calcResults_' + key).innerHTML = '';
+  });
+}
+
+function renderTiles(pin, type, recs, hideType) {
   const { felt, sizing, inter, final: final_ } = recs;
-  const typeLabel = type === 'any' ? '' : type === 'balance' ? ` ${t('type_bal')}` : ` ${t('type_enf')}`;
+  const typeLabel = (hideType || type === 'any') ? '' : type === 'balance' ? ` ${t('type_bal')}` : ` ${t('type_enf')}`;
 
   let html = `<div class="rec-tiles">`;
 
   // FELT tile (big, red)
   const mortise = recs.mortiseWidth;
-  const formulaLine = mortise > 0 ? `(.${mortise.toFixed(3).slice(2)} - .${pin.toFixed(3).slice(2)}) / 2 × 25.4 = ${recs.theoretical ? recs.theoretical.toFixed(2) : '?'} mm` : '';
+  let formulaLine = '';
+  if (mortise > 0 && recs.theoretical != null) {
+    formulaLine = `(.${mortise.toFixed(3).slice(2)} - .${pin.toFixed(3).slice(2)}) / 2 × 25.4 = ${recs.theoretical.toFixed(2)} mm`;
+    if (felt.offset && felt.offset > 0) {
+      formulaLine += ` + ${felt.offset.toFixed(2)} marge → ${felt.value.toFixed(2)} mm`;
+    }
+  }
   const confText = felt.confidence === 'high' ? t('conf_high')
     : felt.confidence === 'medium' ? t('conf_medium')
     : felt.confidence === 'low' ? (mortise > 0 ? t('conf_low_formula') : t('conf_low_theo'))
@@ -906,7 +1080,7 @@ function renderTiles(pin, type, recs) {
   </div>`;
 
   // SIZING tile
-  html += `<div class="rec-tile ${sizing.source.includes('Historique') || sizing.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+  html += `<div class="rec-tile ${sizing.source.includes('Réel') ? 'confidence-high' : sizing.source.includes('Mortaise') ? 'confidence-medium' : 'confidence-low'}">
     <div class="tile-label">${t('tile_sizing')}</div>
     <div class="tile-value">${sizing.value || '?'}</div>
     <div class="tile-sub">${sizing.value ? caulThickness(sizing.value) : ''}</div>
@@ -914,7 +1088,7 @@ function renderTiles(pin, type, recs) {
   </div>`;
 
   // INTER tile
-  html += `<div class="rec-tile ${inter.source.includes('Historique') || inter.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+  html += `<div class="rec-tile ${inter.source.includes('Réel') ? 'confidence-high' : 'confidence-low'}">
     <div class="tile-label">${t('tile_inter')}</div>
     <div class="tile-value">${inter.value || '?'}</div>
     <div class="tile-sub">${inter.value ? caulThickness(inter.value) : ''}</div>
@@ -922,7 +1096,7 @@ function renderTiles(pin, type, recs) {
   </div>`;
 
   // FINAL tile
-  html += `<div class="rec-tile ${final_.source.includes('Historique') || final_.source.includes('History') ? 'confidence-medium' : 'confidence-low'}">
+  html += `<div class="rec-tile ${final_.source.includes('Réel') ? 'confidence-high' : 'confidence-low'}">
     <div class="tile-label">${t('tile_final')}</div>
     <div class="tile-value">${final_.value || '?'}</div>
     <div class="tile-sub">${final_.value ? caulThickness(final_.value) : ''}</div>
@@ -938,6 +1112,7 @@ function translateSource(src) {
   if (currentLang === 'fr') return src; // already in French
   // Translate source strings that come from computeRecommendations
   return src
+    .replace('formule + marge', 'formula + margin')
     .replace('Formule directe', t('src_formula'))
     .replace('Théorique (Spurlock)', t('src_theo'))
     .replace(/Historique \((\d+) jobs\)/, (_, n) => `${t('src_hist')} (${n} ${t('jobs')})`)
@@ -1024,53 +1199,32 @@ function renderHistoryDetail(relevant) {
   return html;
 }
 
-function renderFeedbackForm(pin, type, recs) {
+function renderFeedbackForm(pin, type, recs, side) {
   const feltOptions = [];
   for (let f = 0.80; f <= 1.60; f += 0.05) {
     feltOptions.push(`<option value="${f.toFixed(2)}" ${recs.felt.value && Math.abs(f - recs.felt.value) < 0.01 ? 'selected' : ''}>${f.toFixed(2)} mm</option>`);
   }
 
+  // Pré-sélectionne la MORTAISE réellement choisie (pas la cale recommandée), pour que
+  // la saisie reflète le job réel et n'enregistre pas une mauvaise largeur de mortaise.
+  const usedSizing = (DEFAULT_CAULS.find(c => c.id.startsWith('MS-') && Math.abs(c.thickness - recs.mortiseWidth) < 0.002) || {}).id || '';
   const sizingOptions = ['', 'MS-125', 'MS-137', 'MS-146', 'MS-162'].map(s =>
-    `<option value="${s}" ${s === (recs.sizing.value || '') ? 'selected' : ''}>${s || `-- ${currentLang === 'fr' ? 'Aucun' : 'None'} --`}</option>`
+    `<option value="${s}" ${s === usedSizing ? 'selected' : ''}>${s || `-- ${currentLang === 'fr' ? 'Aucun' : 'None'} --`}</option>`
   ).join('');
 
+  const p = id => `fb_${side}_${id}`;
+  const sideLabel = side === 'bal' ? t('side_bal') : t('side_enf');
+
   return `<div class="feedback-form">
-    <h3>${t('fb_title')}</h3>
+    <h3>${t('fb_title_side')}${sideLabel}</h3>
     <div class="feedback-grid">
       <div class="fg">
-        <label>${t('lbl_client')}</label>
-        <input type="text" id="fb_client" placeholder="${t('lbl_client')}">
-      </div>
-      <div class="fg">
-        <label>Piano</label>
-        <input type="text" id="fb_piano" placeholder="Piano">
-      </div>
-      <div class="fg">
-        <label>${t('lbl_type')}</label>
-        <select id="fb_type">
-          <option value="enfoncement" ${type === 'enfoncement' ? 'selected' : ''}>${t('lbl_enfoncement')}</option>
-          <option value="balance" ${type === 'balance' ? 'selected' : ''}>Balance</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label>${t('lbl_pin')}</label>
-        <input type="number" id="fb_pin" step="0.001" value="${pin}" readonly style="opacity:0.7">
-      </div>
-      <div class="fg">
         <label>${t('lbl_felt_star')}</label>
-        <select id="fb_felt"><option value="">${t('opt_choose')}</option>${feltOptions.join('')}</select>
-      </div>
-      <div class="fg">
-        <label>Sizing</label>
-        <select id="fb_sizing">${sizingOptions}</select>
-      </div>
-      <div class="fg">
-        <label>${t('lbl_sizing_w')}</label>
-        <input type="number" id="fb_sizingWidth" step="0.001" placeholder=".227">
+        <select id="${p('felt')}"><option value="">${t('opt_choose')}</option>${feltOptions.join('')}</select>
       </div>
       <div class="fg">
         <label>${t('lbl_verdict')}</label>
-        <select id="fb_verdict">
+        <select id="${p('verdict')}">
           <option value="">${t('opt_choose')}</option>
           <option value="parfait">${t('opt_parfait')}</option>
           <option value="ok">OK</option>
@@ -1079,49 +1233,54 @@ function renderFeedbackForm(pin, type, recs) {
         </select>
       </div>
       <div class="fg">
+        <label>Sizing</label>
+        <select id="${p('sizing')}">${sizingOptions}</select>
+      </div>
+      <div class="fg">
+        <label>${t('lbl_sizing_w')}</label>
+        <input type="number" id="${p('sizingWidth')}" step="0.001" placeholder=".227" value="${recs.mortiseWidth > 0 ? recs.mortiseWidth.toFixed(3) : ''}">
+      </div>
+      <div class="fg">
         <label>${t('lbl_inter_caul')}</label>
-        <select id="fb_inter"></select>
+        <select id="${p('inter')}"></select>
       </div>
       <div class="fg">
         <label>${t('lbl_final_caul')}</label>
-        <select id="fb_final"></select>
+        <select id="${p('final')}"></select>
       </div>
       <div class="fg wide">
         <label>${t('lbl_notes')}</label>
-        <input type="text" id="fb_notes" placeholder="${t('fb_observations')}">
+        <input type="text" id="${p('notes')}" placeholder="${t('fb_observations')}">
       </div>
+      <input type="hidden" id="${p('pin')}" value="${pin}">
+      <input type="hidden" id="${p('type')}" value="${type}">
     </div>
     <div class="feedback-actions">
-      <button class="btn btn-save" onclick="saveFeedback()">${t('btn_save_feedback')}</button>
+      <button class="btn btn-save" onclick="saveFeedback('${side}')">${t('btn_save_feedback')}</button>
     </div>
   </div>`;
 }
 
-function populateFeedbackDropdowns(recs) {
-  const caulOptions = DEFAULT_CAULS
+function populateFeedbackDropdowns(recs, side) {
+  const opts = (selected) => DEFAULT_CAULS
     .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
-    .map(c => `<option value="${c.id}" ${c.id === (recs.inter.value || '') ? 'selected' : ''}>${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
+    .map(c => `<option value="${c.id}" ${c.id === (selected || '') ? 'selected' : ''}>${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
     .join('');
-  const interHtml = '<option value="">-- Aucune --</option>' + caulOptions;
 
-  const finalCaulOptions = DEFAULT_CAULS
-    .filter(c => !c.id.startsWith('MS-') && !c.id.startsWith('Mark'))
-    .map(c => `<option value="${c.id}" ${c.id === (recs.final.value || '') ? 'selected' : ''}>${c.id} (.${c.thickness.toFixed(3).slice(2)})</option>`)
-    .join('');
-  const finalHtml = '<option value="">-- Aucune --</option>' + finalCaulOptions;
-
-  const interEl = document.getElementById('fb_inter');
-  const finalEl = document.getElementById('fb_final');
-  if (interEl) interEl.innerHTML = interHtml;
-  if (finalEl) finalEl.innerHTML = finalHtml;
+  const interEl = document.getElementById(`fb_${side}_inter`);
+  const finalEl = document.getElementById(`fb_${side}_final`);
+  if (interEl) interEl.innerHTML = `<option value="">${t('opt_none')}</option>` + opts(recs.inter.value);
+  if (finalEl) finalEl.innerHTML = `<option value="">${t('opt_none')}</option>` + opts(recs.final.value);
 }
 
-function saveFeedback() {
-  const piano = document.getElementById('fb_piano').value.trim();
-  const client = document.getElementById('fb_client').value.trim();
-  const verdict = document.getElementById('fb_verdict').value;
-  const felt = parseFloat(document.getElementById('fb_felt').value) || 0;
-  const pin = parseFloat(document.getElementById('fb_pin').value);
+function saveFeedback(side) {
+  const v = id => { const el = document.getElementById(`fb_${side}_${id}`); return el ? el.value : ''; };
+
+  const piano = document.getElementById('calcPiano').value.trim();
+  const client = document.getElementById('calcClient').value.trim();
+  const verdict = v('verdict');
+  const felt = parseFloat(v('felt')) || 0;
+  const pin = parseFloat(v('pin'));
 
   if (!piano) { showToast(t('toast_enter_piano')); return; }
   if (!verdict) { showToast(t('toast_choose_verdict')); return; }
@@ -1131,22 +1290,22 @@ function saveFeedback() {
     id: nextId++,
     client,
     piano,
-    pinType: document.getElementById('fb_type').value,
+    pinType: v('type'),
     pinSize: pin,
-    sizing: document.getElementById('fb_sizing').value,
-    sizingWidth: parseFloat(document.getElementById('fb_sizingWidth').value) || 0,
+    sizing: v('sizing'),
+    sizingWidth: parseFloat(v('sizingWidth')) || 0,
     felt,
-    interCaul: document.getElementById('fb_inter').value,
-    finalCaul: document.getElementById('fb_final').value,
+    interCaul: v('inter'),
+    finalCaul: v('final'),
     verdict,
-    notes: document.getElementById('fb_notes').value.trim(),
+    notes: v('notes').trim(),
     outlier: false,
   });
 
   saveData();
   showToast(t('toast_saved'));
 
-  // Re-calculate to show updated recommendations
+  // Recalcule les deux côtés pour refléter la nouvelle donnée
   setTimeout(() => calculate(), 300);
 }
 
