@@ -1325,3 +1325,30 @@ def relais_traite(rid: str, f: RelaisFait):
 def regles():
     """Règles de réponse retenues par Ivo au fil des consignes."""
     return {"regles": _regles()}
+
+
+@router.get("/courriel/etat")
+def etat_courriel_assistant():
+    """LECTURE — la boîte « Assistant » (assistant@piano-tek.com) est-elle visible par le
+    jeton Front du serveur, et combien de conversations attendent une réponse ?"""
+    from core.assistant_courriel import AssistantCourriel, NOM_BOITE
+    try:
+        ac = AssistantCourriel()
+        noms = [b.get("name") for b in ac.front.list_inboxes()]
+        boite = ac._boite()
+        ouvertes = ac._conversations_ouvertes(boite) if boite else []
+        return {"boite_cherchee": NOM_BOITE, "boites_visibles": noms, "boite_id": boite,
+                "conversations_ouvertes": [{"id": c.get("id"), "sujet": c.get("subject"),
+                                            "statut": c.get("status")} for c in ouvertes]}
+    except Exception as e:
+        return {"erreur": str(e)[:300]}
+
+
+@router.post("/courriel/traiter")
+def traiter_courriel_assistant():
+    """Fait tout de suite le passage des 2 minutes (répond aux courriels de l'équipe)."""
+    from core.scheduler import task_assistant_courriel
+    try:
+        return task_assistant_courriel()
+    except Exception as e:
+        return {"erreur": str(e)[:300]}
