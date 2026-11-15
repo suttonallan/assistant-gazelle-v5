@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 15 novembre
+- **L'alerte « piano dû malgré un RV » va au technicien du RV** : quand le vérificateur du matin repère un RV qui risque de laisser partir l'avis « piano dû » (ex. un deuxième piano du client pas inscrit sur le RV), le courriel va maintenant au technicien qui a ce RV (ex. Nicolas), puisque c'est lui qui l'a en main. Allan ne reçoit plus que ses propres RV et les autres anomalies.
 - **Ivo répond par courriel à assistant@piano-tek.com** : écrivez-lui (ou répondez à ses questions) à cette adresse ; il a maintenant les mêmes capacités qu'avec @Ivo dans Front (horaire des techniciens en direct, rendez-vous, pianos, dossier client). S'il prépare un courriel pour un client, il le dépose en brouillon dans info@ pour relecture.
 - **Le vérificateur du matin synchronise avant de vérifier** : il relit d'abord les RV Gazelle et met à jour les demandes Place des Arts, puis vérifie. Il ne signale plus un écart qu'une synchro aurait réglé toute seule (idée d'Allan).
 - **Place des Arts : le technicien de la demande suit Gazelle** : quand on change le technicien d'un RV PdA dans Gazelle, la demande dans le tableau suit maintenant toute seule, même si le RV a été créé directement dans Gazelle (avant, elle restait à l'ancien nom et le vérificateur signalait un « technicien discordant »).

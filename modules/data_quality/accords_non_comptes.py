@@ -26,7 +26,7 @@ _Q_RV = """query($start: CoreDate!, $end: CoreDate!) {
   allEventsBatched(first: 200, filters: {startOn: $start, endOn: $end}) {
     nodes { id start type status
       client { id companyName defaultContact { firstName lastName } }
-      user { firstName }
+      user { id firstName }
       allEventPianos(first: 20) { nodes { isTuning piano { id make model calculatedLastService } } }
       allServiceItems(first: 30) { nodes { name isTuning masterServiceItem { id } } } } } }"""
 
@@ -96,6 +96,7 @@ def rv_accord_non_compte(gz, jours_avant: int = 30, jours_apres: int = 90,
             out.append({
                 "event_id": ev["id"], "debut": ev.get("start"), "statut": ev.get("status"),
                 "client_id": c.get("id"), "client": nom, "technicien": (ev.get("user") or {}).get("firstName"),
+                "technicien_id": (ev.get("user") or {}).get("id"),
                 "services": [(s.get("name") or "")[:80] for s in services],
                 "pianos": [{"id": (p.get("piano") or {}).get("id"),
                             "piano": f"{(p.get('piano') or {}).get('make') or ''} {(p.get('piano') or {}).get('model') or ''}".strip(),
@@ -118,7 +119,7 @@ _Q_RV_LARGE = """query($start: CoreDate!, $end: CoreDate!) {
     nodes { id start type status
       client { id companyName defaultContact { firstName lastName }
         allPianos(first: 20, status: [ACTIVE]) { nodes { id make model calculatedLastService calculatedNextService nextTuningScheduled { id } } } }
-      user { firstName }
+      user { id firstName }
       allEventPianos(first: 20) { nodes { isTuning piano { id make model calculatedLastService } } } } } }"""
 
 
@@ -156,7 +157,8 @@ def rappels_a_risque(gz, jours_avant: int = 7, jours_apres: int = 21, aujourd_hu
         jour_rv = _jour_montreal(ev.get("start"))
         ev_pianos = (ev.get("allEventPianos") or {}).get("nodes") or []
         base = {"event_id": ev["id"], "jour": jour_rv, "statut": ev.get("status"), "client_id": c.get("id"),
-                "client": _nom_client(c), "technicien": (ev.get("user") or {}).get("firstName")}
+                "client": _nom_client(c), "technicien": (ev.get("user") or {}).get("firstName"),
+                "technicien_id": (ev.get("user") or {}).get("id")}
         if ev.get("status") == "COMPLETE":
             for n in ev_pianos:
                 p = n.get("piano") or {}

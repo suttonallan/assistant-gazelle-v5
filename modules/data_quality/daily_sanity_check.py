@@ -473,6 +473,7 @@ def check_accords_non_comptes(storage) -> list:
             "detail": f"{r['event_id']} ({r['statut']}, {r['technicien'] or '?'}) — {pianos}. Aucun service ni "
                       "piano coché « accord » : le client peut recevoir « piano dû » et la date du dernier accord "
                       "ne se mettra pas à jour.",
+            "tech_id": r.get("technicien_id"),
         })
     deja = {a["detail"].split(" ")[0] for a in anomalies}
     for r in rappels_a_risque(gz, jours_avant=7, jours_apres=21):
@@ -484,6 +485,7 @@ def check_accords_non_comptes(storage) -> list:
             "check": r["type"], "severity": "warning",
             "title": f"{titre} — {r['client']} ({r['jour']})",
             "detail": f"{r['event_id']} ({r['technicien'] or '?'}) — {r['piano']} ({r['piano_id']}) : {r['detail']}",
+            "tech_id": r.get("technicien_id"),
         })
     return anomalies
 
@@ -505,6 +507,22 @@ def run_checks(storage) -> list:
                           "title": f"Le check {check.__name__} a échoué",
                           "detail": str(e)[:300]})
     return found
+
+
+def _destinataire(a: dict) -> str:
+    """Une anomalie liée au RV d'un technicien va à ce technicien : c'est lui qui a le RV
+    en main. Tout le reste (et les RV d'Allan ou sans technicien connu) va à Allan."""
+    tech = a.get("tech_id")
+    if not tech:
+        return RECIPIENT
+    try:
+        from config.techniciens_config import TECHNICIENS_LISTE
+        for t in TECHNICIENS_LISTE:
+            if t.get("gazelle_id") == tech and t.get("email"):
+                return t["email"]
+    except Exception:
+        pass
+    return RECIPIENT
 
 
 def build_email(anomalies: list):
@@ -560,17 +578,25 @@ def main() -> int:
         print("Rien a signaler — aucun courriel envoye.")
         return 0
 
-    subject, html, plain = build_email(anomalies)
-    if dry_run:
-        print("\n--- DRY RUN (aucun courriel) ---")
-        print(plain)
-        return 0
+    par_dest = {}
+    for a in anomalies:
+        par_dest.setdefault(_destinataire(a), []).append(a)
 
-    from core.email_notifier import get_email_notifier
-    ok = get_email_notifier().send_email(
-        to_emails=[RECIPIENT], subject=subject, html_content=html, plain_content=plain)
-    print("Courriel envoye." if ok else "Echec envoi courriel.")
-    return 0 if ok else 1
+    notifier = None
+    ok_tous = True
+    for dest, lot in par_dest.items():
+        subject, html, plain = build_email(lot)
+        if dry_run:
+            print(f"\n--- DRY RUN (aucun courriel) — pour {dest} ---")
+            print(plain)
+            continue
+        if notifier is None:
+            from core.email_notifier import get_email_notifier
+            notifier = get_email_notifier()
+        ok = notifier.send_email(to_emails=[dest], subject=subject, html_content=html, plain_content=plain)
+        print(f"Courriel envoye a {dest}." if ok else f"Echec envoi courriel a {dest}.")
+        ok_tous = ok_tous and ok
+    return 0 if ok_tous else 1
 
 
 if __name__ == "__main__":

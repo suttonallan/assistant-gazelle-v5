@@ -1,7 +1,8 @@
 name: Verificateur quotidien des donnees
 
 # Detecte des anomalies (stationnement double, contradictions PLS, etc.) et envoie
-# un courriel a Allan UNIQUEMENT s'il y a quelque chose a signaler.
+# un courriel UNIQUEMENT s'il y a quelque chose a signaler : a Allan, sauf les alertes
+# liees au RV d'un autre technicien, qui vont a ce technicien.
 
 on:
   schedule:
