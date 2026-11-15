@@ -87,8 +87,17 @@ class AssistantCourriel:
             raise RuntimeError(f"Front {r.status_code}: {r.text[:200]}")
 
     def _repondre(self, conversation_id: str, a: str, texte: str) -> None:
-        self.front._post(f"/conversations/{conversation_id}/messages",
-                         {"author_id": f"alt:email:{AUTEUR}", "to": [a], "body": _en_html(texte)})
+        corps = {"author_id": f"alt:email:{AUTEUR}", "to": [a], "body": _en_html(texte)}
+        # Jeton séparé, limité à l'envoi (le jeton principal ne peut pas envoyer de courriel)
+        cle_envoi = os.getenv("FRONT_API_KEY_ENVOI")
+        if not cle_envoi:
+            self.front._post(f"/conversations/{conversation_id}/messages", corps)
+            return
+        r = requests.post(f"{self.front.BASE_URL}/conversations/{conversation_id}/messages",
+                          headers={"Authorization": f"Bearer {cle_envoi}", "Content-Type": "application/json"},
+                          json=corps, timeout=20)
+        if r.status_code >= 400:
+            raise RuntimeError(f"Front {r.status_code}: {r.text[:200]}")
 
     def _demander_au_moteur(self, fil: List[Dict[str, str]], prenom: str) -> str:
         from api.assistant_converse import ConverseRequest, ConverseMessage, converse
