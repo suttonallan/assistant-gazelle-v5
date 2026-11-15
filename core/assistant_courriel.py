@@ -87,7 +87,9 @@ class AssistantCourriel:
             raise RuntimeError(f"Front {r.status_code}: {r.text[:200]}")
 
     def _repondre(self, conversation_id: str, a: str, texte: str) -> None:
-        corps = {"author_id": f"alt:email:{AUTEUR}", "to": [a], "body": _en_html(texte)}
+        # sender_name : le courriel affiche « Ivo » et non le nom du coéquipier auteur
+        corps = {"author_id": f"alt:email:{AUTEUR}", "sender_name": "Ivo (Piano Technique Montréal)",
+                 "to": [a], "body": _en_html(texte)}
         # Jeton séparé, limité à l'envoi (le jeton principal ne peut pas envoyer de courriel)
         cle_envoi = os.getenv("FRONT_API_KEY_ENVOI")
         if not cle_envoi:
