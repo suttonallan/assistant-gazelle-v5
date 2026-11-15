@@ -2291,6 +2291,30 @@ def retirer_copie_timeline(external_id: str):
     return {"retire": external_id, "titre": r.get("title"), "type": r.get("entry_type")}
 
 
+def _entree_timeline_paginee(client_id: str, piano_id: str, entry_id: str, pages: int = 30):
+    """Cherche une entrée de timeline Gazelle d'un client en paginant (les institutions ont
+    des milliers d'entrées : les 100 plus récentes ne suffisent pas pour une note de 2 semaines)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    curseur = None
+    for _ in range(pages):
+        v = {"c": client_id}
+        if curseur:
+            v["a"] = curseur
+        res = gz._execute_query("""query($c: String!, $a: String) { allTimelineEntries(clientId: $c, first: 100, after: $a) {
+          edges { node { id occurredAt type summary comment relatedId relatedType piano { id } } }
+          pageInfo { hasNextPage endCursor } } }""", v)
+        d = (res.get("data") or {}).get("allTimelineEntries") or {}
+        for ed in d.get("edges") or []:
+            n = ed["node"]
+            if n["id"] == entry_id and (n.get("piano") or {}).get("id") == piano_id:
+                return n
+        if not (d.get("pageInfo") or {}).get("hasNextPage"):
+            return None
+        curseur = d["pageInfo"]["endCursor"]
+    return None
+
+
 class StatMontantIn(BaseModel):
     client_id: str
     piano_id: str
@@ -2310,8 +2334,7 @@ def completer_montant_stat(entry_id: str, m: StatMontantIn):
     from modules.place_des_arts.services.gazelle_sync import extract_parking_amount
     if not (0 < m.montant < 200):
         raise HTTPException(400, "Montant invalide")
-    entrees = timeline_piano_gazelle(client_id=m.client_id, piano_id=m.piano_id, limite=50)["entrees"]
-    e = next((x for x in entrees if x["id"] == entry_id), None)
+    e = _entree_timeline_paginee(m.client_id, m.piano_id, entry_id)
     if not e:
         raise HTTPException(404, "Entrée introuvable pour ce piano")
     texte = e.get("comment") or ""
