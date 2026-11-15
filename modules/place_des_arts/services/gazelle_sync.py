@@ -337,7 +337,27 @@ class GazelleSyncService:
                             # Lien CONFIRMÉ (RV créé avec le bouton, ou choisi par la
                             # coordonnatrice) : Gazelle fait foi (oct. 2026, Allan).
                             _lien = liens_confirmes.get(request_id) or {}
-                            if _lien.get('rv') and _lien.get('rv') == apt_id:
+                            _confirme = bool(_lien.get('rv') and _lien.get('rv') == apt_id)
+                            # Lien PROUVÉ (salle ou événement écrit dans le RV) : le choix du
+                            # technicien est verrouillé dans le tableau dès qu'un RV est lié
+                            # (« changer dans Gazelle, l'assistant suivra ») → Gazelle fait foi
+                            # aussi pour le technicien (cas 15 nov. 2026 : demande restée à
+                            # Nicolas alors que le RV prouvé était passé à Allan).
+                            if not _confirme and gazelle_tech and gazelle_tech != current_tech \
+                                    and current_tech not in (None, '', 'usr_HihJsEgkmpTEziJo') \
+                                    and gazelle_tech != 'usr_HihJsEgkmpTEziJo' \
+                                    and _mr(request, gazelle_apt, allow_ai=False):
+                                print(f"🔄 Technicien suivi depuis Gazelle (lien prouvé) : {appointment_date} - {room}")
+                                if not dry_run:
+                                    try:
+                                        self.storage.client.table('place_des_arts_requests').update({
+                                            'technician_id': gazelle_tech, 'updated_at': datetime.now().isoformat()
+                                        }).eq('id', request_id).execute()
+                                        tech_sync_count += 1
+                                    except Exception as e:
+                                        logger.warning(f"Suivi technicien impossible ({request_id}): {e}")
+                                current_tech = gazelle_tech
+                            if _confirme:
                                 if gazelle_status in ('CANCELLED', 'CANCELED'):
                                     # RV annulé → la demande redevient « Nouveau » (le bouton
                                     # « Créer le RV » réapparaît) ; le RV annulé est écarté.

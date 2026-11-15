@@ -2295,6 +2295,9 @@ class StatMontantIn(BaseModel):
     client_id: str
     piano_id: str
     montant: float   # montant du reçu de stationnement
+    # Chiffre lu à tort comme montant (ex. « stat 22, 44 » = 22°, 44 % écrits juste après « stat »).
+    # Doit être exactement ce que l'assistant lit aujourd'hui ; sinon rien n'est changé.
+    montant_lu_errone: Optional[float] = None
 
 
 @router.post("/gazelle/timeline/{entry_id}/montant-stat")
@@ -2312,13 +2315,18 @@ def completer_montant_stat(entry_id: str, m: StatMontantIn):
     if not e:
         raise HTTPException(404, "Entrée introuvable pour ce piano")
     texte = e.get("comment") or ""
-    if extract_parking_amount(texte):
-        raise HTTPException(409, "Cette note a déjà un montant de stationnement : rien n'a été changé")
+    lu = extract_parking_amount(texte)
+    if lu and (m.montant_lu_errone is None or abs(float(lu) - m.montant_lu_errone) > 0.009):
+        raise HTTPException(409, f"Cette note a déjà un montant de stationnement ({lu}) : rien n'a été changé")
     mot = _re.search(r"(?<![a-zà-ÿ])stat(?![a-zà-ÿ])", texte, _re.IGNORECASE)
     if not mot:
         raise HTTPException(409, "Pas de « stat » dans cette note : rien n'a été changé")
     montant = f"{m.montant:g}"
-    nouveau = texte[:mot.end()] + f" {montant}" + texte[mot.end():]
+    # Chiffre mal lu (température/humidité collées à « stat ») : on insère le vrai montant
+    # devant, suivi d'une virgule — « stat 22, 44 » devient « stat 13, 22, 44 ».
+    nouveau = texte[:mot.end()] + f" {montant}" + ("," if lu else "") + texte[mot.end():]
+    if lu and abs(float(extract_parking_amount(nouveau) or 0) - m.montant) > 0.009:
+        raise HTTPException(409, "Le montant ne serait pas lu correctement après correction : rien n'a été changé")
     gz = GazelleAPIClient()
     entree = {"comment": nouveau}
     if e.get("occurredAt"):

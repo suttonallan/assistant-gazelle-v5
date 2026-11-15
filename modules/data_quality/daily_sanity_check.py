@@ -184,10 +184,13 @@ def check_pda_parking(storage) -> list:
             notes = notes if isinstance(notes, list) else []
         ecrit = 0.0
         sans_montant = []  # « stat » écrit sans chiffre : cause la plus fréquente d'écart
+        comptees = []      # notes comptées, citées dans l'alerte (ex. « stat 22, 44 » = 22°, 44 %, pas 22 $)
         for n in notes:
             m = extract_parking_amount(n.get("title") or "") or extract_parking_amount(n.get("description") or "")
             if m:
                 ecrit += float(m)
+                texte = " ".join(x for x in (n.get("title"), n.get("description")) if x).replace("\n", " ")
+                comptees.append(f"{float(m):.2f} $ lus dans « {texte.strip()[:80]} »")
             else:
                 texte = " ".join(x for x in (n.get("title"), n.get("description")) if x)
                 if _MOT_STAT.search(texte):
@@ -209,7 +212,8 @@ def check_pda_parking(storage) -> list:
                 "detail": (f"{total_rapporte:.2f} $ rapporté sur les demandes PdA, "
                            f"{ecrit:.2f} $ de « stat » écrits ce jour-là dans les notes de service "
                            f"(dossiers : Place des Arts{', + client du RV lié' if len(cl) > 1 else ''}). "
-                           f"Demande(s) : " + " | ".join(demandes[(jour, tech)])),
+                           + (f"Notes comptées : " + " / ".join(comptees) + ". " if comptees else "")
+                           + f"Demande(s) : " + " | ".join(demandes[(jour, tech)])),
             })
     return anomalies
 
