@@ -30,8 +30,14 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null)
   // Vue courante persistée : un rafraîchissement revient à la section où on était
   // (défaut 'chat' = Ma Journée si rien de sauvegardé).
+  // Un lien direct ?vue=calculateur-frais (ex. raccourci sur l'écran d'accueil de l'iPad)
+  // ouvre directement cette section ; sinon, la dernière section mémorisée.
   const [currentView, setCurrentView] = useState(() => {
-    try { return localStorage.getItem('currentView') || 'chat' } catch { return 'chat' }
+    try {
+      const vueLien = new URLSearchParams(window.location.search).get('vue')
+      if (vueLien) return vueLien
+      return localStorage.getItem('currentView') || 'chat'
+    } catch { return 'chat' }
   })
 
   // Navigation demandée depuis un composant enfant (ex. menu de l'assistant)
