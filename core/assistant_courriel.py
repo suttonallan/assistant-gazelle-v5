@@ -121,7 +121,14 @@ class AssistantCourriel:
             else:
                 fil.append({"role": role, "content": contenu})
         if fil[0]["role"] != "user":
-            fil = fil[1:]
+            # Fil lancé par l'assistant lui-même (question posée à l'équipe, ex. « réponds 1, 2
+            # ou 3 ») : on garde sa question comme contexte au lieu de la perdre, pour qu'il
+            # comprenne la réponse et fasse la suite.
+            question = fil.pop(0)["content"]
+            if fil:
+                fil[0]["content"] = ("Tu as envoyé ce courriel à l'équipe et tu attendais sa réponse pour agir :\n"
+                                     f"---\n{question}\n---\nVoici la réponse reçue. Fais la suite annoncée.\n\n"
+                                     + fil[0]["content"])
         if not fil[0]["content"].startswith(CONSIGNE_COURRIEL):
             fil[0]["content"] = f"{CONSIGNE_COURRIEL}\n\n{fil[0]['content']}"
 
