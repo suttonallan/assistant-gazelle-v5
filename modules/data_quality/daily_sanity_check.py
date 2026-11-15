@@ -525,8 +525,30 @@ def build_email(anomalies: list):
     return f"[PTM] Vérificateur quotidien — {n} anomalie(s)", "".join(html), "\n".join(plain)
 
 
+def synchro_avant_verification():
+    """Idée d'Allan (15 nov. 2026) : synchroniser AVANT de vérifier, pour ne pas signaler
+    un écart que la prochaine synchro aurait réglé tout seul (ex. technicien changé dans
+    Gazelle). 1) on demande au serveur de relire les RV Gazelle (en arrière-plan, ~5 min)
+    et de relier les demandes PdA ; 2) on attend la relecture ; 3) on relie de nouveau
+    avec les RV frais. Un échec ne bloque jamais la vérification."""
+    import time
+    import requests as http
+    api = os.getenv("ASSISTANT_API_URL", "https://assistant-gazelle-v5-api.onrender.com")
+    url = f"{api}/api/place-des-arts/sync-manual"
+    try:
+        r = http.post(url, json={"auto": False}, timeout=180)
+        print(f"Synchro PdA (1/2) : {r.status_code}")
+        time.sleep(int(os.getenv("ATTENTE_RELECTURE_S", "360")))
+        r = http.post(url, json={"auto": True}, timeout=180)
+        print(f"Synchro PdA (2/2) : {r.status_code} {str(r.json().get('message', ''))[:120] if r.ok else r.text[:200]}")
+    except Exception as e:
+        print(f"Synchro avant vérification impossible (on vérifie quand même) : {e}")
+
+
 def main() -> int:
     dry_run = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
+    if os.getenv("SANS_SYNCHRO", "").lower() not in ("1", "true", "yes"):
+        synchro_avant_verification()
     storage = SupabaseStorage(silent=True)
     anomalies = run_checks(storage)
 
