@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 15 novembre
+- **Ivo répond par courriel à assistant@piano-tek.com** : écrivez-lui (ou répondez à ses questions) à cette adresse ; il a maintenant les mêmes capacités qu'avec @Ivo dans Front (horaire des techniciens en direct, rendez-vous, pianos, dossier client). S'il prépare un courriel pour un client, il le dépose en brouillon dans info@ pour relecture.
 - **Le vérificateur du matin synchronise avant de vérifier** : il relit d'abord les RV Gazelle et met à jour les demandes Place des Arts, puis vérifie. Il ne signale plus un écart qu'une synchro aurait réglé toute seule (idée d'Allan).
 - **Place des Arts : le technicien de la demande suit Gazelle** : quand on change le technicien d'un RV PdA dans Gazelle, la demande dans le tableau suit maintenant toute seule, même si le RV a été créé directement dans Gazelle (avant, elle restait à l'ancien nom et le vérificateur signalait un « technicien discordant »).
 - **Alerte de stationnement qui montre sa source** : quand les montants ne concordent pas, le vérificateur cite les notes qu'il a comptées (ex. « stat 22, 44 » où 22 et 44 étaient la température et l'humidité).

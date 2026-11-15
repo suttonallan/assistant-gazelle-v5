@@ -105,6 +105,44 @@ class AssistantCourriel:
         res = asyncio.run(converse(req))
         return (res.get("reply") or "").strip() or "Je n'ai pas de réponse à donner."
 
+    def _demander_a_ivo(self, messages: List[Dict[str, Any]], sujet: str, prenom: str,
+                        adresse: str, cid: str) -> str:
+        """Même moteur que @Ivo dans Front (horaire en direct, RV, pianos, dossier client…),
+        pour qu'Ivo par courriel sache faire tout ce qu'il sait faire dans Front."""
+        from api import ivo_routes as ivo
+        lignes = []
+        for m in messages[-10:]:
+            qui = f"ÉQUIPE ({EQUIPE.get(_expediteur(m), _expediteur(m))})" if m.get("is_inbound") \
+                else "IVO (toi, depuis assistant@piano-tek.com)"
+            lignes.append(f"--- {qui} ---\n{_texte(m)[:4000]}")
+        fil = f"Objet : {sujet}\n\n" + "\n\n".join(lignes)
+        consigne = (
+            f"{prenom} t'écrit PAR COURRIEL à assistant@piano-tek.com (dernier message du fil ci-dessus). "
+            "Si le fil commence par un courriel que TU as envoyé (question à l'équipe), sa réponse te dit quoi "
+            "faire : fais la suite que tu avais annoncée. Le client éventuel n'est pas ton interlocuteur. "
+            "Appelle « repondre » avec action « reponse » : le champ note sera envoyé tel quel par courriel à "
+            f"{prenom} (texte simple, court, en français, sans markdown, signé « Ivo »). "
+            "Si on te demande de préparer un courriel à un client, mets son texte dans « brouillon » et "
+            "commence la note par « DESTINATAIRE: adresse@client » avec l'adresse telle qu'elle figure dans "
+            "Gazelle ou Front (jamais devinée) ; il sera déposé en brouillon dans info@ pour relecture.")
+        ivo._CTX.set({"photos": [], "historique": [], "fil": fil, "prenom": prenom,
+                      "bloques": [], "conversation_id": cid})
+        res = ivo._rediger(consigne, fil, "", ivo._regles(), "")
+        note = (res.get("note") or "").strip()
+        brouillon = (res.get("brouillon") or "").strip()
+        if brouillon:
+            m = re.match(r"\s*DESTINATAIRE\s*:\s*([^\s@]+@[^\s,;]*[^\s.,;])", note + " ")
+            note = re.sub(r"^\s*DESTINATAIRE\s*:\s*\S+\s*", "", note).strip()
+            if m:
+                canal = self.front.channel_pour("info@piano-tek.com")
+                self.front.create_draft_new(canal, _en_html(brouillon), AUTEUR, [m.group(1)],
+                                            f"Piano Technique Montréal — {sujet.replace('Re: ', '')[:80]}")
+                note += ("\n\nLe courriel au client est prêt en brouillon dans info@ (Front), "
+                         f"adressé à {m.group(1)} : à relire avant l'envoi.")
+            else:
+                note += "\n\nProposition de courriel au client (adresse à confirmer) :\n\n" + brouillon
+        return note or "Je n'ai pas de réponse à donner. Ivo"
+
     def traiter_conversation(self, conv: Dict[str, Any]) -> Dict[str, Any]:
         cid = conv["id"]
         messages = sorted(self.front.list_messages(cid, limit=30), key=lambda m: m.get("created_at") or 0)
@@ -141,7 +179,11 @@ class AssistantCourriel:
         if not fil[0]["content"].startswith(CONSIGNE_COURRIEL):
             fil[0]["content"] = f"{CONSIGNE_COURRIEL}\n\n{fil[0]['content']}"
 
-        reponse = self._demander_au_moteur(fil, prenom)
+        try:
+            reponse = self._demander_a_ivo(messages, sujet, prenom, adresse, cid)
+        except Exception as e:  # repli : l'ancien moteur (Ma Journée), pour ne jamais rester muet
+            print(f"assistant@ : moteur d'Ivo indisponible ({e}), repli sur Ma Journée")
+            reponse = self._demander_au_moteur(fil, prenom)
         self._repondre(cid, adresse, reponse)
         self._archiver(cid)
         return {"conversation": cid, "statut": "répondu", "a": prenom}
