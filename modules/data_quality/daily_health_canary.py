@@ -40,7 +40,7 @@ ENDPOINTS = [
 ]
 
 # Mode leger (CANARY_LIGHT=1) : ne garder que les endpoints rapides qui TOUCHENT
-# Supabase, pour un check frequent (toutes les 15 min) sans marteler le briefing
+# Supabase, pour un check frequent (chaque heure) sans marteler le briefing
 # ni la liste PDA. Suffit a detecter une panne comme la cle Supabase revoquee.
 if os.getenv("CANARY_LIGHT", "").lower() in ("1", "true", "yes"):
     _LIGHT_PATHS = ("/health", "/api/institutions/list", "/api/system/status")

@@ -1,11 +1,13 @@
-name: Canari de sante (7h-21h, /15 min)
+name: Canari de sante (7h-21h, chaque heure)
 
 on:
   schedule:
-    # Toutes les 15 min dans la fenetre UTC couvrant 7h-21h Montreal (EST + EDT).
+    # Une fois l'heure (a :07) dans la fenetre UTC couvrant 7h-21h Montreal (EST + EDT).
     # 7h EST = 12h UTC ; 21h EDT = 1h UTC. On couvre large (11h-2h UTC) et le
     # script/gate interne restreint a 7h-21h Montreal pour ne pas alerter la nuit.
-    - cron: '*/15 11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2 * * *'
+    # Etait aux 15 min ; ramene a l'heure (nov. 2026) pour limiter les minutes
+    # GitHub Actions. Dans les faits GitHub ne lancait deja que 3-4 passages par jour.
+    - cron: '7 11,12,13,14,15,16,17,18,19,20,21,22,23,0,1,2 * * *'
   workflow_dispatch:
     inputs:
       force:

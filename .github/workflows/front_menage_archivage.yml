@@ -1,9 +1,11 @@
 name: Front - menage des vieilles conversations
 
-# Menage UNIQUE (date limite fixe dans le script : 7 oct. 2026).
+# Menage UNIQUE (date limite fixe dans le script : 7 oct. 2026), TERMINE.
 # Archive les conversations ouvertes sans activite depuis cette date dans
-# info@ et asutton@. Archiver n'efface rien. Relance chaque heure jusqu'a ce
-# qu'il ne reste rien ; ensuite ce workflow ne trouve plus rien et peut etre retire.
+# info@ et asutton@. Archiver n'efface rien.
+# Le gros du travail s'est fait du 4 au 6 nov. 2026 ; depuis, chaque passage
+# archivait 0 conversation. Le declencheur horaire est donc retire (nov. 2026).
+# Lancement manuel toujours possible (workflow_dispatch) s'il faut le refaire.
 # Cle : secret FRONT_API_KEY (jeton « Assistant Gazelle », oct. 2026).
 
 on:
@@ -12,8 +14,6 @@ on:
     paths:
       - scripts/archiver_vieilles_conversations_front.py
       - .github/workflows/front_menage_archivage.yml
-  schedule:
-    - cron: '17 * * * *'
   workflow_dispatch:
 
 concurrency:

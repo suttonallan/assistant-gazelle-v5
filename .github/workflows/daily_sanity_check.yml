@@ -42,5 +42,5 @@ jobs:
       # (endpoint au-dessus de son seuil de latence, blip transitoire, etc.) il
       # sortait en exit 1 -> echec. La vraie anomalie matinale n'a pas ete
       # confirmee (logs Actions en 403). Le canari vit maintenant dans son propre
-      # workflow `health_canary.yml` (mode leger, /15 min en journee, Slack +
+      # workflow `health_canary.yml` (mode leger, chaque heure en journee, Slack +
       # courriel), qui LUI peut livrer l'alerte au lieu de rougir en silence.
