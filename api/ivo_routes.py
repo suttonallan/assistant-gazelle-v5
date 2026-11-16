@@ -390,6 +390,29 @@ def _dossier_front(arg: Dict[str, Any]) -> str:
 _TECHS = {"Nicolas": "usr_HcCiFk7o0vZ9xAI0", "JP": "usr_ReUSmIJmBF86ilY1", "Margot": "usr_bbt59aCUqUaDWA8n"}
 
 
+def _brouillon_nouveau_courriel(arg: Dict[str, Any]) -> str:
+    """Brouillon d'un nouveau courriel (jamais envoyé) depuis asutton@ ou info@ ; lien vers le fil d'origine."""
+    a = (arg.get("a") or "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", a):
+        return "Adresse invalide ou absente : demande l'adresse exacte à l'équipe (ne la devine pas)."
+    auteur_email = ((_CTX.get() or {}).get("auteur_email") or "").lower()
+    allan = auteur_email == "asutton@piano-tek.com"
+    boite = arg.get("boite") or ("asutton" if allan else "info")
+    if boite == "asutton" and not allan:
+        return "Seul Allan peut faire écrire depuis asutton@ : utilise la boîte « info »."
+    adresse = {"asutton": "asutton@piano-tek.com", "info": "info@piano-tek.com"}.get(boite, "info@piano-tek.com")
+    front = get_front_client()
+    canal = next((ch["id"] for ch in front._get("/channels").get("_results", [])
+                  if (ch.get("address") or "").lower() == adresse), None)
+    if not canal:
+        return f"Boîte {adresse} introuvable dans Front : brouillon non créé."
+    auteur = adresse if boite == "asutton" else (auteur_email or "info@piano-tek.com")
+    res = front.create_draft_new(canal, _en_html(arg.get("corps") or ""), auteur, [a], arg.get("objet") or "")
+    cid = ((res.get("_links") or {}).get("related") or {}).get("conversation", "").rstrip("/").rsplit("/", 1)[-1]
+    lien = f" https://app.frontapp.com/open/{cid}" if cid.startswith("cnv_") else ""
+    return f"Brouillon créé dans {adresse} pour {a} (non envoyé).{lien}"
+
+
 def _creer_rv_direct(arg: Dict[str, Any]) -> str:
     from datetime import datetime, timedelta
     from core.timezone_utils import MONTREAL_TZ
@@ -698,6 +721,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return f"Piano {etat} : {pi.get('make')} {pi.get('model') or ''} ({pi.get('type')}), id {pi.get('id')}."
         if nom == "dossier_front":
             return _dossier_front(arg)
+        if nom == "brouillon_nouveau_courriel":
+            return _brouillon_nouveau_courriel(arg)
         if nom == "lire_rv":
             return _lire_rv(arg)
         if nom == "changer_pianos_rv":
@@ -886,6 +911,16 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
          "input_schema": {"type": "object", "properties": {
              "telephones": {"type": "array", "items": {"type": "string"}},
              "courriel": {"type": ["string", "null"]}, "nom": {"type": ["string", "null"]}}}},
+        {"name": "brouillon_nouveau_courriel",
+         "description": ("Prépare un BROUILLON (jamais envoyé) d'un NOUVEAU courriel dans Front, quand l'équipe demande "
+                         "d'écrire à quelqu'un qui n'est pas dans ce fil (ex. dans une discussion de tâche : « demande à "
+                         "X… »). L'adresse du destinataire doit venir d'une source vérifiée (dossier_front, fiche "
+                         "Gazelle, fil) — sinon ne l'invente pas : demande-la. Boîte : « asutton » (courriel personnel "
+                         "d'Allan, défaut quand Allan le demande) ou « info » (clients). Pas de signature dans le corps "
+                         "(Front l'ajoute) ; termine par la formule de politesse."),
+         "input_schema": {"type": "object", "required": ["a", "objet", "corps"], "properties": {
+             "a": {"type": "string"}, "objet": {"type": "string"}, "corps": {"type": "string"},
+             "boite": {"type": "string", "enum": ["asutton", "info"]}}}},
         {"name": "creer_rendez_vous",
          "description": ("Crée DIRECTEMENT un RV client dans Gazelle (sans confirmation au client). Seulement sur un "
                          "ordre explicite de l'équipe (« crée le RV », « oui ») quand client, technicien, jour, heure "
@@ -1050,9 +1085,13 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
             for x in (m.get("attachments") or []):
                 if _est_photo(x):
                     photos.append(x)
-        _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": [], "conversation_id": conversation_id})
+        _CTX.set({"photos": photos[:8], "historique": historique, "fil": fil, "prenom": _PRENOMS.get(auteur_email), "bloques": [], "conversation_id": conversation_id, "auteur_email": auteur_email})
         echanges = "\n".join(f"{'Équipe' if r == 'user' else 'Ivo'} : {t[:600]}" for r, t in historique)
         res = _rediger(consigne, fil, texte_brouillon, _regles(), echanges)
+        if not messages and res.get("action") != "reponse":
+            # Discussion interne (ex. fil d'une tâche) : pas de courriel auquel répondre → commentaire
+            res = {"action": "reponse", "note": "\n\n".join(x for x in [(res.get("note") or "").strip(),
+                                                                       (res.get("brouillon") or "").strip()] if x)}
         if res.get("action") == "reponse":
             note = re.sub(r"^\s*(🤖\s*)?(Ivo\s*:\s*)?(🤖\s*)?", "", res.get("note") or "") or "je n'ai pas de réponse."
             front.add_comment(conversation_id, PREFIXE_REPONSE + note,
@@ -1172,13 +1211,75 @@ def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
             vus += 1
             _traiter_sans_erreur(conv, cible.get("id"))
     _curseur["t"] = plus_recent
+    discussions, erreur_discussions = 0, None
+    try:
+        discussions = _surveiller_discussions_taches(front)
+    except Exception as e:
+        _log.exception("Ivo : surveillance des discussions de tâches impossible")
+        erreur_discussions = str(e)[:300]
     envois, erreur_envois = 0, None
     try:
         envois = _surveiller_envois(front, fenetre_s)
     except Exception as e:
         _log.exception("Ivo : surveillance des envois impossible")
         erreur_envois = str(e)[:300]
-    return {"evenements": len(evenements), "ivo": vus, "envois_compares": envois, "erreur_envois": erreur_envois}
+    return {"evenements": len(evenements), "ivo": vus, "envois_compares": envois, "erreur_envois": erreur_envois,
+            "discussions_taches": discussions, "erreur_discussions": erreur_discussions}
+
+
+_dernier_balayage_taches: Dict[str, float] = {}
+
+
+def _surveiller_discussions_taches(front, intervalle_s: int = 90, fenetre_s: int = 86400, plafond: int = 20) -> int:
+    """Les discussions Front des tâches (sans boîte) n'apparaissent pas dans /events :
+    on relit directement le fil de chaque tâche active et on traite les « @Ivo » récents.
+
+    Balayage au plus toutes les 90 s, au plus `plafond` fils par passage (en rotation). traiter() écarte ce qui a déjà une réponse d'Ivo.
+    """
+    import time
+    maintenant = time.time()
+    if maintenant - _dernier_balayage_taches.get("t", 0) < intervalle_s:
+        return 0
+    _dernier_balayage_taches["t"] = maintenant
+    from api.taches_routes import _db
+    db = _db()
+    rep = requests.get(f"{db.api_url}/taches", headers=db._get_headers(), timeout=15,
+                       params={"select": "front_discussion,statut,fait_le",
+                               "front_discussion": "not.is.null"})
+    if rep.status_code >= 400:
+        raise RuntimeError(f"Supabase {rep.status_code}: {rep.text[:200]}")
+    limite_fait = maintenant - 7 * 86400
+    fils = []
+    for t in rep.json():
+        if t.get("statut") == "fait":
+            from datetime import datetime
+            try:
+                if datetime.fromisoformat(str(t.get("fait_le")).replace("Z", "+00:00")).timestamp() < limite_fait:
+                    continue
+            except Exception:
+                continue
+        cid = t.get("front_discussion")
+        if cid and str(cid).startswith("cnv_") and cid not in fils:
+            fils.append(cid)
+    traites = 0
+    if len(fils) > plafond:
+        debut = int(_dernier_balayage_taches.get("rang", 0)) % len(fils)
+        fils = (fils[debut:] + fils[:debut])[:plafond]
+        _dernier_balayage_taches["rang"] = debut + plafond
+    for cid in fils:
+        try:
+            coms = front.list_comments(cid, limit=100)
+        except Exception as e:
+            _log.warning("Ivo : fil de tâche %s illisible : %s", cid, e)
+            continue
+        for c in sorted(coms, key=lambda x: x.get("posted_at") or 0):
+            if (c.get("posted_at") or 0) < maintenant - fenetre_s or c.get("id") in _deja_traites:
+                continue
+            if consigne_ivo(c.get("body") or "") is None or not ((c.get("author") or {}).get("email")):
+                continue
+            traites += 1
+            _traiter_sans_erreur(cid, c.get("id"))
+    return traites
 
 
 def _sans_citation(corps_html: str) -> str:
