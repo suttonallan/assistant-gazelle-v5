@@ -338,13 +338,14 @@ def duplicate_estimate(number: int, dry_run: bool = False,
                                            for i in (t.get("allUngroupedEstimateTierItems") or [])],
         })
 
+    from api.taches_routes import locale_gazelle
     today = aujourdhui_montreal()
     # Étape 1 : createEstimate MINIMAL — jamais les tiers ici (ne déclenche pas
     # le calcul des taxes ; l'ancienne note "crash Ruby" pointe la même règle).
     create_input = {
         "clientId": client.get("id"),
         "pianoId": piano.get("id"),
-        "locale": src.get("locale") or "fr",
+        "locale": locale_gazelle(src.get("locale")),
         "estimatedOn": today.isoformat(),
         "expiresOn": (today + timedelta(days=30)).isoformat(),
     }

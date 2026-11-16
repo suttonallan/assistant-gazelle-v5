@@ -965,6 +965,15 @@ class LigneSoumission(BaseModel):
     service_id: Optional[str] = None  # MasterServiceItem : reprend son nom officiel
 
 
+def locale_gazelle(locale: Optional[str]) -> str:
+    """Gazelle attend une langue complète (fr_CA / en_US). Une langue courte « fr » crée
+    une soumission que l'app mobile ne peut pas envoyer (« missing date formatter for fr »)."""
+    l = (locale or "").strip().replace("-", "_")
+    if l.lower().startswith("en"):
+        return "en_US"
+    return "fr_CA"
+
+
 class SoumissionIn(BaseModel):
     client_id: str
     piano_id: str
@@ -1012,7 +1021,7 @@ def creer_soumission(s: SoumissionIn):
             raise HTTPException(502, f"updateEstimate : {e}")
         return {"numero": (r or {}).get("number"), "id": s.completer_id, "total_avant_taxes": sum(l.montant for l in s.lignes)}
     today = aujourdhui_montreal()
-    create_input = {"clientId": s.client_id, "pianoId": s.piano_id, "locale": s.locale,
+    create_input = {"clientId": s.client_id, "pianoId": s.piano_id, "locale": locale_gazelle(s.locale),
                     "estimatedOn": today.isoformat(), "expiresOn": (today + timedelta(days=30)).isoformat()}
     if s.notes:
         create_input["notes"] = s.notes
@@ -1086,13 +1095,28 @@ def soumissions_client(client_id: str = Query(...)):
     notes, options (tiers), lignes groupées et non groupées (nom, description, montant)."""
     from core.gazelle_api_client import GazelleAPIClient
     q = """query($c: String) { allEstimates(first: 20, filters: {clientId: $c}) {
-      nodes { id number estimatedOn isArchived recommendedTierTotal notes
+      nodes { id number estimatedOn isArchived recommendedTierTotal notes locale
         allEstimateTiers { sequenceNumber isPrimary subtotal taxTotal total
           allUngroupedEstimateTierItems { name description amount quantity }
           allEstimateTierGroups { name
             allEstimateTierItems { name description amount quantity } } } } } }"""
     try:
         res = GazelleAPIClient()._execute_query(q, {"c": client_id})
+    except Exception as e:
+        raise HTTPException(502, str(e))
+    return res
+
+
+@router.post("/gazelle/soumission/{estimate_id}/langue")
+def corriger_langue_soumission(estimate_id: str, locale: str = Query("fr")):
+    """Répare une soumission créée avec une langue courte (« fr ») : la remet en fr_CA / en_US
+    pour que l'app mobile Gazelle puisse l'envoyer. Ne touche à rien d'autre."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    m = """mutation($id: String!, $input: PrivateUpdateEstimateInput!) {
+      updateEstimate(id: $id, input: $input) { estimate { id number locale } mutationErrors { fieldName messages } } }"""
+    try:
+        res = gz._execute_query(m, {"id": estimate_id, "input": {"locale": locale_gazelle(locale)}})
     except Exception as e:
         raise HTTPException(502, str(e))
     return res
