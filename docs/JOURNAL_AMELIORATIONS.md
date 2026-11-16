@@ -7,7 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 16 novembre
-- **Les soumissions créées par l'assistant s'envoient depuis l'app mobile** : elles étaient enregistrées avec une langue incomplète (« fr » au lieu de « français canadien »), et l'app iPhone de Gazelle refusait de les envoyer (« missing date formatter for fr »). Les nouvelles sont correctes. La soumission #12037 de Françoise Dubé a été réparée.
+- **Les soumissions créées par l'assistant s'envoient depuis l'app mobile** : elles étaient enregistrées avec une langue incomplète (« fr » au lieu de « français canadien »), et l'app iPhone de Gazelle refusait de les envoyer (« missing date formatter for fr »). Les nouvelles sont correctes. La soumission #12037 de Françoise Dubé a été réparée, ainsi que quatre autres (#12014 Polyvalente Sainte-Thérèse, #12036 et #12039 Vincent-d'Indy, #12038 CHSLD Providence Notre-Dame de Lourdes).
 
 ### 15 novembre
 - **L'alerte « piano dû malgré un RV » va au technicien du RV** : quand le vérificateur du matin repère un RV qui risque de laisser partir l'avis « piano dû » (ex. un deuxième piano du client pas inscrit sur le RV), le courriel va maintenant au technicien qui a ce RV (ex. Nicolas), puisque c'est lui qui l'a en main. Allan ne reçoit plus que ses propres RV et les autres anomalies.
