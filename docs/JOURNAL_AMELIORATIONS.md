@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 16 novembre
+- **Les soumissions créées par l'assistant s'envoient depuis l'app mobile** : elles étaient enregistrées avec une langue incomplète (« fr » au lieu de « français canadien »), et l'app iPhone de Gazelle refusait de les envoyer (« missing date formatter for fr »). Les nouvelles sont correctes. La soumission #12037 de Françoise Dubé a été réparée.
+
 ### 15 novembre
 - **L'alerte « piano dû malgré un RV » va au technicien du RV** : quand le vérificateur du matin repère un RV qui risque de laisser partir l'avis « piano dû » (ex. un deuxième piano du client pas inscrit sur le RV), le courriel va maintenant au technicien qui a ce RV (ex. Nicolas), puisque c'est lui qui l'a en main. Allan ne reçoit plus que ses propres RV et les autres anomalies.
 - **Ivo répond par courriel à assistant@piano-tek.com** : écrivez-lui (ou répondez à ses questions) à cette adresse ; il a maintenant les mêmes capacités qu'avec @Ivo dans Front (horaire des techniciens en direct, rendez-vous, pianos, dossier client). S'il prépare un courriel pour un client, il le dépose en brouillon dans info@ pour relecture.
