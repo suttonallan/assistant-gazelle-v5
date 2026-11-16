@@ -45,7 +45,7 @@ TECHS = {
 _CHAMPS = """id number status total createdAt
       client { id companyName defaultContact { firstName lastName } }
       assignedTo { id }
-      allInvoiceItems { nodes { description } }"""
+      allInvoiceItems { nodes { description amount } }"""
 
 _Q_FILTRE = """query($f: PrivateAllInvoicesFilter, $cursor: String) {
   allInvoices(first: 100, after: $cursor, filters: $f) {
@@ -118,6 +118,19 @@ def _annulee(f: Dict[str, Any]) -> bool:
     return "CANCEL" in s or "VOID" in s or "DELETED" in s
 
 
+_MOTS_DEPOT = ("dépôt", "depot", "acompte", "deposit")
+
+
+def _deduit_un_depot(f: Dict[str, Any]) -> bool:
+    """Facture de solde : une ligne négative « dépôt payé… » déduit un dépôt déjà facturé.
+    (Cas réel 2026-11-16 : dépôt de 50 % puis solde, même montant par coïncidence.)"""
+    for it in (f.get("allInvoiceItems") or {}).get("nodes") or []:
+        d = (it.get("description") or "").lower()
+        if (it.get("amount") or 0) < 0 and any(m in d for m in _MOTS_DEPOT):
+            return True
+    return False
+
+
 def trouver_doublons(factures: List[Dict[str, Any]], maintenant: datetime) -> List[Dict[str, Any]]:
     par_client: Dict[str, List[Dict]] = {}
     for f in factures:
@@ -138,6 +151,8 @@ def trouver_doublons(factures: List[Dict[str, Any]], maintenant: datetime) -> Li
                 continue
             ta, tb = a.get("total") or 0, b.get("total") or 0
             if max(ta, tb) <= 0 or abs(ta - tb) > ECART_MAX * max(ta, tb):
+                continue
+            if _deduit_un_depot(a) or _deduit_un_depot(b):  # dépôt + solde : légitime
                 continue
             a, b = sorted((a, b), key=lambda f: f.get("createdAt") or "")
             paires.append({"client": _nom(a), "cle": f"{a['id']}:{b['id']}", "factures": [a, b]})
@@ -248,12 +263,20 @@ def verifier_doublons(envoyer: bool = True) -> Dict[str, Any]:
     intro = ("Même client, deux factures rapprochées avec des montants semblables. "
              "Vérifier dans Gazelle et annuler celle de trop s'il y a lieu "
              "(rien n'a été modifié automatiquement).")
-    ok = n.send_email(
-        to_emails=[DESTINATAIRE], subject=sujet,
-        html_content=f"<p>{intro}</p>" + "".join(blocs_html)
-        + "<p style='color:#666;font-size:12px'>Assistant Gazelle V5</p>",
-        plain_content=intro + "\n\n" + "\n\n".join(blocs_txt),
-    )
+    html_corps = (f"<p>{intro}</p>" + "".join(blocs_html)
+                  + "<p>Répondez à ce courriel pour demander quelque chose à Ivo "
+                    "(ex. « c'est un dépôt et le solde, c'est correct »).</p>")
+    # Envoyé depuis assistant@ pour qu'on puisse répondre ; sinon ancien envoi Gmail
+    from core.assistant_courriel import envoyer_avis_depuis_assistant
+    ok = envoyer_avis_depuis_assistant(DESTINATAIRE, sujet, html_corps)
+    stats["expediteur"] = "assistant@" if ok else "gmail"
+    if not ok:
+        ok = n.send_email(
+            to_emails=[DESTINATAIRE], subject=sujet,
+            html_content=f"<p>{intro}</p>" + "".join(blocs_html)
+            + "<p style='color:#666;font-size:12px'>Assistant Gazelle V5</p>",
+            plain_content=intro + "\n\n" + "\n\n".join(blocs_txt),
+        )
     if ok:
         db.save_system_setting(CLE_SIGNALES, (deja + [p["cle"] for p in nouvelles])[-500:])
     stats["envoi"] = "ok" if ok else "échec"

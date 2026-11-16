@@ -212,3 +212,37 @@ class AssistantCourriel:
                 except Exception:
                     pass
         return {"traitees": len(resultats), "resultats": resultats}
+
+
+ADRESSE_ASSISTANT = "assistant@piano-tek.com"
+
+
+def envoyer_avis_depuis_assistant(a: str, sujet: str, html_corps: str) -> bool:
+    """Avis automatique envoyé DEPUIS assistant@piano-tek.com (canal Front de la boîte
+    « Assistant »), pour qu'on puisse y répondre : la réponse revient dans la boîte
+    Assistant et Ivo fait la suite. Retourne False si le canal ou le jeton d'envoi
+    manque (l'appelant retombe alors sur l'ancien envoi Gmail)."""
+    cle_envoi = os.getenv("FRONT_API_KEY_ENVOI")
+    if not cle_envoi:
+        return False
+    try:
+        front = get_front_client()
+        canal = None
+        for ch in front._get("/channels").get("_results", []):
+            adresses = {(ch.get("address") or "").lower(), (ch.get("send_as") or "").lower()}
+            if ADRESSE_ASSISTANT in adresses:
+                canal = ch["id"]
+                break
+        if not canal:  # jamais de repli sur un autre canal : l'avis partirait d'une autre adresse
+            return False
+        r = requests.post(f"{front.BASE_URL}/channels/{canal}/messages",
+                          headers={"Authorization": f"Bearer {cle_envoi}", "Content-Type": "application/json"},
+                          json={"author_id": f"alt:email:{AUTEUR}", "sender_name": "Ivo (Piano Technique Montréal)",
+                                "to": [a], "subject": sujet, "body": html_corps}, timeout=20)
+        if r.status_code >= 400:
+            print(f"⚠️ Envoi depuis assistant@ refusé : Front {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"⚠️ Envoi depuis assistant@ impossible : {e}")
+        return False
