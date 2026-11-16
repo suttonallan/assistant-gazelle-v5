@@ -1122,6 +1122,41 @@ def corriger_langue_soumission(estimate_id: str, locale: str = Query("fr")):
     return res
 
 
+@router.get("/gazelle/soumissions/langue-courte")
+def soumissions_langue_courte(corriger: bool = Query(False)):
+    """Repère les soumissions dont la langue est incomplète (« fr », « en »…) — l'app mobile
+    ne peut pas les envoyer. Avec corriger=true, les remet en fr_CA / en_US (rien d'autre ne change)."""
+    from core.gazelle_api_client import GazelleAPIClient
+    gz = GazelleAPIClient()
+    q = """query($a: String) { allEstimates(first: 100, after: $a) {
+      nodes { id number estimatedOn locale isArchived client { companyName } }
+      pageInfo { hasNextPage endCursor } } }"""
+    m = """mutation($id: String!, $input: PrivateUpdateEstimateInput!) {
+      updateEstimate(id: $id, input: $input) { estimate { id locale } mutationErrors { fieldName messages } } }"""
+    trouvees, apres, total = [], None, 0
+    for _ in range(300):
+        res = gz._execute_query(q, {"a": apres})
+        if res.get("errors"):
+            raise HTTPException(502, str(res["errors"]))
+        bloc = (res.get("data") or {}).get("allEstimates") or {}
+        for n in bloc.get("nodes") or []:
+            total += 1
+            if "_" not in (n.get("locale") or ""):
+                trouvees.append({"id": n["id"], "numero": n.get("number"), "date": n.get("estimatedOn"),
+                                 "client": (n.get("client") or {}).get("companyName"),
+                                 "archivee": n.get("isArchived"), "langue": n.get("locale")})
+        info = bloc.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            break
+        apres = info.get("endCursor")
+    if corriger:
+        for t in trouvees:
+            r = gz._execute_query(m, {"id": t["id"], "input": {"locale": locale_gazelle(t["langue"])}})
+            est = (((r or {}).get("data") or {}).get("updateEstimate") or {}).get("estimate") or {}
+            t["corrigee"] = est.get("locale")
+    return {"soumissions_lues": total, "a_corriger": len(trouvees), "soumissions": trouvees}
+
+
 # --- Factures : lecture d'un client + création en BROUILLON (jamais envoyée) ---
 _Q_FACTURES_CLIENT = """query($c: String) { allInvoices(first: 10, filters: {clientId: $c}) {
   nodes { id number status createdAt dueOn subTotal total notes topNotes taxPricingMode
