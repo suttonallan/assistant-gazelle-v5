@@ -1095,7 +1095,7 @@ def soumissions_client(client_id: str = Query(...)):
     notes, options (tiers), lignes groupées et non groupées (nom, description, montant)."""
     from core.gazelle_api_client import GazelleAPIClient
     q = """query($c: String) { allEstimates(first: 20, filters: {clientId: $c}) {
-      nodes { id number estimatedOn isArchived recommendedTierTotal notes locale
+      nodes { id number estimatedOn isArchived recommendedTierTotal notes clientUrl locale
         allEstimateTiers { sequenceNumber isPrimary subtotal taxTotal total
           allUngroupedEstimateTierItems { name description amount quantity }
           allEstimateTierGroups { name
