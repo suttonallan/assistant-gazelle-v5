@@ -215,17 +215,20 @@ def execute_creer_rv(**t) -> Dict[str, Any]:
         return {"success": True, "apercu": apercu, "cree": False,
                 "message": "Aperçu seulement : rien n'est créé. Demande confirmation."}
     qui = _PRENOM.get() or "l'équipe"
-    par_ivo = _CANAL.get() == "ivo"
     res = creer_rendez_vous(RendezVousIn(
         client_id=client_id, user_id=user_id, debut_montreal=debut,
         duree_min=apercu["duree_min"], notes=apercu["notes"] or None,
         piano_ids=[p["external_id"] for p in pianos], accord=apercu["accord"],
-        # Case de l'assistant : confirmation Gazelle au client comme avant. Ivo : jamais
-        # automatique (décision d'Allan, 4 nov. 2026) — l'équipe relit puis envoie.
-        confirmation_client=not par_ivo,
+        # Jamais de confirmation automatique au client, ni dans Front ni dans la case de
+        # l'appli (décisions d'Allan, 4 et 16 nov. 2026) : l'équipe relit le RV dans
+        # Gazelle puis envoie elle-même la confirmation.
+        confirmation_client=False,
         par=f"Ivo (assistant IA) à la demande de {qui}"))
     return {"success": True, "cree": True, "apercu": apercu,
-            "evenement_id": (res.get("evenement") or {}).get("id")}
+            "evenement_id": (res.get("evenement") or {}).get("id"),
+            "message": ("RV créé. Aucune confirmation envoyée au client : dis à la personne "
+                        "de relire le RV dans Gazelle et d'envoyer elle-même la confirmation "
+                        "depuis Gazelle.")}
 
 
 from core.ivo_regles import OUTILS as _OUTILS_REGLES

@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 16 novembre
+- **Plus aucune confirmation automatique au client pour un RV créé par Ivo, peu importe où** : avant, un RV créé depuis la case Ivo de l'appli envoyait encore la confirmation Gazelle au client (seul @Ivo dans Front ne l'envoyait pas). Maintenant, c'est pareil partout : Ivo crée le RV, puis rappelle de le relire dans Gazelle et d'envoyer soi-même la confirmation depuis Gazelle.
 - **Avis de factures en double : on peut maintenant y répondre, et moins de fausses alertes** : l'avis part désormais de assistant@piano-tek.com (Ivo) ; une réponse revient à Ivo, qui fait la suite. Une facture de solde qui déduit un dépôt (« dépôt payé… ») n'est plus prise pour un doublon de la facture de dépôt, même quand les deux montants sont identiques (cas de Sophie Larochelle, n° 7501 et 7544).
 - **Les soumissions créées par l'assistant s'envoient depuis l'app mobile** : elles étaient enregistrées avec une langue incomplète (« fr » au lieu de « français canadien »), et l'app iPhone de Gazelle refusait de les envoyer (« missing date formatter for fr »). Les nouvelles sont correctes. La soumission #12037 de Françoise Dubé a été réparée, ainsi que quatre autres (#12014 Polyvalente Sainte-Thérèse, #12036 et #12039 Vincent-d'Indy, #12038 CHSLD Providence Notre-Dame de Lourdes).
 
