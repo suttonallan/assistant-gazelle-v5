@@ -6,7 +6,8 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
-- 19 nov. — Un résumé d'appel Zoom que Gazelle refuse (ex. accès coupé) n'est plus perdu : il arrive dans info@ pour être classé à la main.
+### 19 novembre
+- **Un résumé d'appel Zoom que Gazelle refuse (ex. accès coupé) n'est plus perdu : il arrive dans info@ pour être classé à la main.**
 
 ### 16 novembre
 - **Plus aucune confirmation automatique au client pour un RV créé par Ivo, peu importe où** : avant, un RV créé depuis la case Ivo de l'appli envoyait encore la confirmation Gazelle au client (seul @Ivo dans Front ne l'envoyait pas). Maintenant, c'est pareil partout : Ivo crée le RV, puis rappelle de le relire dans Gazelle et d'envoyer soi-même la confirmation depuis Gazelle.
