@@ -633,9 +633,22 @@ def retraiter_numero(numero: str, jours: int = 2, minutes: int = 0) -> Dict[str,
             cid = str(a.get("call_id") or a.get("id") or "")
             if cid in deja:
                 continue
-            try:
-                resume = recuperer_resume({"call_id": cid, "call_log_id": a.get("id")})
-            except Exception:
+            resume, erreurs = None, []
+            uid = a.get("user_id") or (a.get("owner") or {}).get("id") if isinstance(a.get("owner"), dict) else a.get("user_id")
+            for ident in [x for x in (a.get("id"), cid) if x]:
+                try:
+                    detail = _zoom_get(f"/phone/call_history_detail/{ident}", token)
+                    sid = _premiere_valeur(detail, "ai_call_summary_id", "summary_id")
+                    u = uid or _premiere_valeur(detail, "user_id", "owner_id")
+                    if sid and u:
+                        resume = _zoom_get(f"/phone/user/{u}/ai_call_summary/{sid}", token)
+                        resume["_ids"] = {"ai_call_summary_id": sid, "user_id": u, "call_id": cid}
+                        break
+                    erreurs.append(f"{ident}: pas d'identifiant de résumé (champs {sorted(detail.keys())[:30]})")
+                except Exception as e:
+                    erreurs.append(f"{ident}: {str(e)[:200]}")
+            if not resume:
+                bilan.setdefault("sans_resume", []).append(erreurs)
                 continue
             r = reecrire_resume(resume, cl)
             bilan["resultats"].append(classer_note(r, nums, cl, _signature(resume) + ":reprise"))

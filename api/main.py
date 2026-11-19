@@ -681,7 +681,7 @@ async def zoom_webhook_health():
         # Clés de l'app Zoom Server-to-Server (API téléphone : résumés d'appel, contacts)
         "zoom_api_configured": all(os.getenv(k) for k in ('ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET', 'ZOOM_ACCOUNT_ID')),
         "sms_forward_recipient": SMS_FORWARD_EMAIL,
-        "retraiter_appels": 3
+        "retraiter_appels": 4
     }
 
 
