@@ -580,23 +580,23 @@ def classer_note(r: Dict[str, Any], numeros: List[str], client: Optional[Dict[st
         return {"ok": False, "erreur": str(e)}
 
 
-def retraiter_numero(numero: str, jours: int = 2) -> Dict[str, Any]:
+def retraiter_numero(numero: str, jours: int = 2, minutes: int = 0) -> Dict[str, Any]:
     """Reprend les appels récents d'un numéro (résumés IA et enregistrements), même déjà
     marqués traités, et les classe à nouveau (fiche Gazelle, sinon courriel à info@).
     Sert quand une note s'est perdue (ex. accès Gazelle coupé)."""
     from datetime import timezone, timedelta
     cible = _chiffres(numero)
     bilan: Dict[str, Any] = {"numero": cible, "resumes": 0, "transcriptions": 0, "resultats": []}
-    if len(cible) != 10:
-        return {"erreur": "numéro invalide"}
+    if len(cible) != 10 and not minutes:
+        return {"erreur": "numéro invalide (ou donner « minutes » pour les appels récents)"}
     token = get_zoom_access_token()
-    client = trouver_client([cible])
+    client = trouver_client([cible]) if cible else None
 
     # 1. Enregistrements (transcription complète, la source la plus fiable)
     deja = set()
     try:
         from core.zoom_transcriptions import enregistrements_recents, telecharger_transcription, _numeros_externes
-        for rec in enregistrements_recents(jours=jours):
+        for rec in (enregistrements_recents(jours=jours) if cible else []):
             if cible not in _numeros_externes(rec):
                 continue
             texte = telecharger_transcription(rec, token)
@@ -618,9 +618,18 @@ def retraiter_numero(numero: str, jours: int = 2) -> Dict[str, Any]:
     try:
         fin = datetime.now(timezone.utc).date()
         hist = _zoom_get(f"/phone/call_history?page_size=100&from={fin - timedelta(days=jours)}&to={fin}", token)
+        limite = datetime.now(timezone.utc) - timedelta(minutes=minutes) if minutes else None
         for a in hist.get("call_logs") or hist.get("call_history") or []:
-            if cible not in _numeros(a):
-                continue
+            if cible:
+                if cible not in _numeros(a):
+                    continue
+                nums, cl = [cible], client
+            else:
+                debut = _date_iso(a.get("start_time") or a.get("answer_time"))
+                if not debut or debut < limite or not _numeros(a):
+                    continue
+                nums = _numeros(a)
+                cl = trouver_client(nums)
             cid = str(a.get("call_id") or a.get("id") or "")
             if cid in deja:
                 continue
@@ -628,8 +637,8 @@ def retraiter_numero(numero: str, jours: int = 2) -> Dict[str, Any]:
                 resume = recuperer_resume({"call_id": cid, "call_log_id": a.get("id")})
             except Exception:
                 continue
-            r = reecrire_resume(resume, client)
-            bilan["resultats"].append(classer_note(r, [cible], client, _signature(resume) + ":reprise"))
+            r = reecrire_resume(resume, cl)
+            bilan["resultats"].append(classer_note(r, nums, cl, _signature(resume) + ":reprise"))
             bilan["resumes"] += 1
     except Exception as e:
         bilan["erreur_historique"] = str(e)[:200]

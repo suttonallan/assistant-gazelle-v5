@@ -637,11 +637,11 @@ async def zoom_contacts_lancer(background_tasks: BackgroundTasks, maximum: Optio
 
 
 @app.post("/api/zoom/retraiter")
-async def zoom_retraiter(numero: str, jours: int = 2):
+async def zoom_retraiter(numero: str = "", jours: int = 2, minutes: int = 0):
     """Reprend les appels récents d'un numéro (note perdue) : fiche Gazelle, sinon courriel à info@.
     Ne renvoie aucun contenu d'appel."""
     from core.zoom_resumes_appels import retraiter_numero
-    return await asyncio.to_thread(retraiter_numero, numero, max(1, min(jours, 7)))
+    return await asyncio.to_thread(retraiter_numero, numero, max(1, min(jours, 7)), max(0, min(minutes, 720)))
 
 
 @app.get("/api/zoom/webhook/health")
@@ -655,7 +655,7 @@ async def zoom_webhook_health():
         # Clés de l'app Zoom Server-to-Server (API téléphone : résumés d'appel, contacts)
         "zoom_api_configured": all(os.getenv(k) for k in ('ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET', 'ZOOM_ACCOUNT_ID')),
         "sms_forward_recipient": SMS_FORWARD_EMAIL,
-        "retraiter_appels": True
+        "retraiter_appels": 2
     }
 
 
