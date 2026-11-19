@@ -851,7 +851,8 @@ async def gazelle_oauth_callback(code: Optional[str] = None, state: Optional[str
         assistant_ok, detail = False, str(e)[:300]
     # Le singleton du serveur garde l'ancien jeton en mémoire : le recharger
     try:
-        get_api_client().token_data = GazelleAPIClient()._load_token()
+        from api.place_des_arts import get_api_client as _gac
+        _gac().token_data = GazelleAPIClient()._load_token()
     except Exception:
         pass
     if direct_ok and assistant_ok:
