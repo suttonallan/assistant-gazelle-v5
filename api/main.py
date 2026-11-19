@@ -781,10 +781,17 @@ def _exchange_code_for_token(code: str, redirect_uri: str) -> Dict[str, Any]:
     # Sauvegarder dans Supabase system_settings (persistant sur cloud)
     storage = SupabaseStorage()
     try:
-        storage.save_system_setting("gazelle_oauth_token", data)
+        # save_system_setting renvoie False (sans lever) en cas d'échec : le vérifier,
+        # sinon l'ancien jeton reste en place sans que personne le sache.
+        if not storage.save_system_setting("gazelle_oauth_token", data):
+            raise RuntimeError("Supabase a refusé l'enregistrement")
+        relu = storage.get_system_setting("gazelle_oauth_token") or {}
+        if relu.get("access_token") != data.get("access_token"):
+            raise RuntimeError("le jeton relu dans Supabase n'est pas le nouveau")
         print(f"✅ Token sauvegardé dans Supabase system_settings")
     except Exception as e:
         print(f"⚠️ Erreur sauvegarde Supabase: {e}")
+        data["_erreur_enregistrement"] = str(e)
         # Fallback: sauvegarder localement aussi
         os.makedirs(CONFIG_DIR, exist_ok=True)
         token_path = Path(CONFIG_DIR) / "token.json"
@@ -823,17 +830,56 @@ async def gazelle_oauth_callback(code: Optional[str] = None, state: Optional[str
     from fastapi.responses import HTMLResponse
     if not code:
         raise HTTPException(status_code=400, detail="Paramètre code manquant")
-    _exchange_code_for_token(code, REDIRECT_URI_DEFAULT)
-    # Vérification immédiate : une vraie lecture dans Gazelle avec le nouveau jeton
+    result = _exchange_code_for_token(code, REDIRECT_URI_DEFAULT)
+    jeton = result["token"]
+    import html as _html
+    # 1) Le nouveau jeton, essayé directement (sans passer par Supabase)
+    r = requests.post("https://gazelleapp.io/graphql/private/",
+                      json={"query": "query { allClients(first: 1) { nodes { id } } }"},
+                      headers={"Authorization": f"Bearer {jeton.get('access_token')}", "Content-Type": "application/json"},
+                      timeout=30)
     try:
-        res = GazelleAPIClient()._execute_query("query { allClients(first: 1) { nodes { id } } }")
-        ok = bool(((res.get("data") or {}).get("allClients") or {}).get("nodes") is not None)
-        detail = ""
+        corps = r.json()
+    except Exception:
+        corps = {"brut": r.text[:300]}
+    direct_ok = r.status_code == 200 and not corps.get("errors")
+    # 2) Le jeton tel que l'assistant le relit dans Supabase
+    try:
+        GazelleAPIClient()._execute_query("query { allClients(first: 1) { nodes { id } } }")
+        assistant_ok, detail = True, ""
     except Exception as e:
-        ok, detail = False, str(e)[:300]
-    if ok:
+        assistant_ok, detail = False, str(e)[:300]
+    # Le singleton du serveur garde l'ancien jeton en mémoire : le recharger
+    try:
+        get_api_client().token_data = GazelleAPIClient()._load_token()
+    except Exception:
+        pass
+    if direct_ok and assistant_ok:
         return HTMLResponse("<h2>✅ L'assistant est reconnecté à Gazelle.</h2><p>Vous pouvez fermer cette page.</p>")
-    return HTMLResponse(f"<h2>❌ Jeton reçu, mais Gazelle refuse encore la lecture.</h2><p>{detail}</p>", status_code=502)
+    lignes = [
+        f"Jeton essayé directement : {'✅ accepté' if direct_ok else '❌ refusé'} (HTTP {r.status_code}, portée « {_html.escape(str(jeton.get('scope')))} ») "
+        + ("" if direct_ok else _html.escape(str(corps)[:300])),
+        f"Enregistrement dans Supabase : {'❌ ' + _html.escape(jeton['_erreur_enregistrement']) if jeton.get('_erreur_enregistrement') else '✅'}",
+        f"Lecture par l'assistant : {'✅' if assistant_ok else '❌ ' + _html.escape(detail)}",
+    ]
+    return HTMLResponse("<h2>❌ Connexion incomplète</h2><ul>" + "".join(f"<li>{l}</li>" for l in lignes) + "</ul>", status_code=502)
+
+
+@app.get("/gazelle/jeton-etat")
+async def gazelle_jeton_etat():
+    """LECTURE SEULE — nature du jeton Gazelle enregistré (jamais sa valeur) et essai de lecture."""
+    from core.supabase_storage import SupabaseStorage
+    t = SupabaseStorage().get_system_setting("gazelle_oauth_token") or {}
+    acces = t.get("access_token") or ""
+    etat = {"type": "oauth" if (t.get("refresh_token") and len(acces) >= 50) else ("cle_api" if acces else "aucun"),
+            "longueur": len(acces), "cree_le": t.get("created_at"), "expire_dans_s": t.get("expires_in"),
+            "portee": t.get("scope"), "a_refresh_token": bool(t.get("refresh_token"))}
+    try:
+        GazelleAPIClient()._execute_query("query { allClients(first: 1) { nodes { id } } }")
+        etat["lecture"] = "ok"
+    except Exception as e:
+        etat["lecture"] = str(e)[:300]
+    return etat
 
 
 @app.get("/gazelle/check-appointments")

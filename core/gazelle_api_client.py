@@ -156,8 +156,9 @@ class GazelleAPIClient:
         self.token_data = token_data
         try:
             from core.supabase_storage import SupabaseStorage
-            SupabaseStorage().save_system_setting("gazelle_oauth_token", token_data)
-            return
+            if SupabaseStorage().save_system_setting("gazelle_oauth_token", token_data):
+                return
+            print("⚠️ Supabase a refusé l'enregistrement du jeton Gazelle")
         except Exception as e:
             print(f"⚠️ Jeton Gazelle non enregistré dans Supabase : {e}")
         try:
@@ -328,15 +329,17 @@ class GazelleAPIClient:
                 error_messages = [err.get('message', 'Unknown error') for err in result['errors']]
                 # Jeton refusé (« access violation ») : Gazelle répond 200 avec une erreur.
                 # Une seule reprise : jeton partagé plus récent, sinon renouvellement OAuth.
-                if (not deja_reessaye and self._est_oauth()
+                if (not deja_reessaye
                         and any('access violation' in (m or '').lower() for m in error_messages)):
                     ancien = self.token_data.get('access_token')
                     try:
                         partage = self._load_token()
-                        if self._est_oauth(partage) and partage.get('access_token') != ancien:
-                            self.token_data = partage
-                        else:
+                        if partage and partage.get('access_token') != ancien:
+                            self.token_data = partage  # jeton remplacé ailleurs (ex. reconnexion OAuth)
+                        elif self._est_oauth():
                             self._refresh_token()
+                        else:
+                            raise ValueError("clé API refusée et aucun jeton OAuth enregistré")
                         return self._execute_query_une_fois(query, variables, deja_reessaye=True)
                     except Exception as e:
                         print(f"❌ Reprise après refus du jeton impossible : {e}")
