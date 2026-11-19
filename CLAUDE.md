@@ -81,7 +81,7 @@ Key tables: `gazelle_clients`, `gazelle_pianos`, `gazelle_appointments`, `gazell
 These three fields are **not** sourced from Gazelle on sync and must be preserved:
 1. `gazelle_clients.tags` — manually assigned (e.g. `'institutional'`). If the Gazelle API response omits tags, keep the existing row's tags.
 2. `gazelle_pianos.dampp_chaser_installed` — populated by the PLS detection scan, not by sync.
-3. `system_settings.gazelle_oauth_token` — OAuth token; only the OAuth callback writes it.
+3. `system_settings.gazelle_oauth_token` — OAuth token; only the OAuth callback (`/gazelle_oauth_callback`) and the automatic OAuth refresh in `core/gazelle_api_client.py` write it.
 
 ### Sync Rules
 - Prefer **incremental** sync (future data, 2025+). Never run a full historical backfill without explicit instruction.

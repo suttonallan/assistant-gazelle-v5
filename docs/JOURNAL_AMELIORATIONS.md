@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 19 novembre
+- **Connexion à Gazelle par la méthode recommandée par Gazelle (OAuth2) : l'accès se renouvelle tout seul, sans coupure ; une page « /gazelle/connecter » permet de reconnecter l'assistant en un clic.**
 - **Un résumé d'appel Zoom que Gazelle refuse (ex. accès coupé) n'est plus perdu : il arrive dans info@ pour être classé à la main.**
 
 ### 16 novembre
