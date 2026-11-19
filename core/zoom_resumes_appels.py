@@ -566,4 +566,73 @@ def classer_note(r: Dict[str, Any], numeros: List[str], client: Optional[Dict[st
         import traceback
         traceback.print_exc()
         print(f"❌ Note d'appel non classée : {e}")
+        # Gazelle refuse la note (accès coupé, panne) : la note ne doit jamais se perdre.
+        # Elle part à info@ (Front) pour être ajoutée à la main à la bonne fiche.
+        note = (r or {}).get("note")
+        if note:
+            try:
+                qui = f" ({_nom_client(client)})" if client else ""
+                _courriel_secours(note, numeros, f"Note d'appel non versée dans Gazelle{qui} — Gazelle a refusé l'écriture ({str(e)[:120]})")
+                _marquer_traite(rid)
+                return {"ok": True, "raison": "secours_info", "erreur_gazelle": str(e)}
+            except Exception as e2:
+                print(f"❌ Courriel de secours impossible : {e2}")
         return {"ok": False, "erreur": str(e)}
+
+
+def retraiter_numero(numero: str, jours: int = 2) -> Dict[str, Any]:
+    """Reprend les appels récents d'un numéro (résumés IA et enregistrements), même déjà
+    marqués traités, et les classe à nouveau (fiche Gazelle, sinon courriel à info@).
+    Sert quand une note s'est perdue (ex. accès Gazelle coupé)."""
+    from datetime import timezone, timedelta
+    cible = _chiffres(numero)
+    bilan: Dict[str, Any] = {"numero": cible, "resumes": 0, "transcriptions": 0, "resultats": []}
+    if len(cible) != 10:
+        return {"erreur": "numéro invalide"}
+    token = get_zoom_access_token()
+    client = trouver_client([cible])
+
+    # 1. Enregistrements (transcription complète, la source la plus fiable)
+    deja = set()
+    try:
+        from core.zoom_transcriptions import enregistrements_recents, telecharger_transcription, _numeros_externes
+        for rec in enregistrements_recents(jours=jours):
+            if cible not in _numeros_externes(rec):
+                continue
+            texte = telecharger_transcription(rec, token)
+            if not texte.strip():
+                continue
+            appel = {"transcription": texte, "date": rec.get("date_time"), "duree_secondes": rec.get("duration"),
+                     "sens": rec.get("direction"),
+                     "employe_ptm": rec.get("owner", {}).get("name") if isinstance(rec.get("owner"), dict) else rec.get("owner_name"),
+                     "_ids": {"recording_id": rec.get("id")}}
+            if rec.get("call_id"):
+                deja.add(str(rec.get("call_id")))
+            r = reecrire_resume(appel, client)
+            bilan["resultats"].append(classer_note(r, [cible], client, f"enr:{rec.get('id')}:reprise"))
+            bilan["transcriptions"] += 1
+    except Exception as e:
+        bilan["erreur_enregistrements"] = str(e)[:200]
+
+    # 2. Appels sans enregistrement : résumé IA Zoom
+    try:
+        fin = datetime.now(timezone.utc).date()
+        hist = _zoom_get(f"/phone/call_history?page_size=100&from={fin - timedelta(days=jours)}&to={fin}", token)
+        for a in hist.get("call_logs") or hist.get("call_history") or []:
+            if cible not in _numeros(a):
+                continue
+            cid = str(a.get("call_id") or a.get("id") or "")
+            if cid in deja:
+                continue
+            try:
+                resume = recuperer_resume({"call_id": cid, "call_log_id": a.get("id")})
+            except Exception:
+                continue
+            r = reecrire_resume(resume, client)
+            bilan["resultats"].append(classer_note(r, [cible], client, _signature(resume) + ":reprise"))
+            bilan["resumes"] += 1
+    except Exception as e:
+        bilan["erreur_historique"] = str(e)[:200]
+    # Aucune donnée personnelle dans la réponse : seulement le classement
+    bilan["resultats"] = [{k: v for k, v in x.items() if k in ("ok", "raison", "client")} for x in bilan["resultats"]]
+    return bilan
