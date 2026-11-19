@@ -143,7 +143,8 @@ class GazelleAPIClient:
     # ------------------------------------------------------------------
     def _est_oauth(self, td: Optional[Dict[str, Any]] = None) -> bool:
         td = td if td is not None else self.token_data
-        return bool(td and td.get('refresh_token') and len(td.get('access_token') or '') >= 50)
+        # Un jeton OAuth arrive toujours avec un refresh_token (sa longueur varie : 43 car. en nov. 2026)
+        return bool(td and td.get('refresh_token') and td.get('access_token'))
 
     def _expire_bientot(self, td: Optional[Dict[str, Any]] = None, marge: int = 300) -> bool:
         td = td if td is not None else self.token_data
@@ -253,7 +254,7 @@ class GazelleAPIClient:
         
         # Si le token est court (< 50 chars), c'est probablement une API Key
         # Le navigateur l'envoie UNIQUEMENT via x-gazelle-api-key (pas de Bearer)
-        if len(access_token) < 50:
+        if not self._est_oauth() and len(access_token) < 50:
             headers = {
                 'x-gazelle-api-key': access_token,
                 'Content-Type': 'application/json'
@@ -288,7 +289,7 @@ class GazelleAPIClient:
                     new_access_token = self.token_data['access_token']
                     
                     # Reconstruire les headers selon le type de token
-                    if len(new_access_token) < 50:
+                    if not self._est_oauth() and len(new_access_token) < 50:
                         headers = {
                             'x-gazelle-api-key': new_access_token,
                             'Content-Type': 'application/json'

@@ -872,7 +872,7 @@ async def gazelle_jeton_etat():
     from core.supabase_storage import SupabaseStorage
     t = SupabaseStorage().get_system_setting("gazelle_oauth_token") or {}
     acces = t.get("access_token") or ""
-    etat = {"type": "oauth" if (t.get("refresh_token") and len(acces) >= 50) else ("cle_api" if acces else "aucun"),
+    etat = {"type": "oauth" if (t.get("refresh_token") and acces) else ("cle_api" if acces else "aucun"),
             "longueur": len(acces), "cree_le": t.get("created_at"), "expire_dans_s": t.get("expires_in"),
             "portee": t.get("scope"), "a_refresh_token": bool(t.get("refresh_token"))}
     try:
