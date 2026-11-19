@@ -33,8 +33,9 @@ OAUTH_AUTHORIZE_URL = "https://gazelleapp.io/developer/oauth/authorize"
 
 def get_credentials():
     """Récupère les credentials OAuth depuis .env ou config."""
-    client_id = os.getenv('GAZELLE_CLIENT_ID', 'yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE')
-    client_secret = os.getenv('GAZELLE_CLIENT_SECRET', 'CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc')
+    # Jamais de valeur en dur : dépôt public (voir core/gazelle_api_client.py).
+    client_id = os.getenv('GAZELLE_CLIENT_ID', '')
+    client_secret = os.getenv('GAZELLE_CLIENT_SECRET', '')
 
     return client_id, client_secret
 

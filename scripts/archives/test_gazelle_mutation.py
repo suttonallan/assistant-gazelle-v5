@@ -20,8 +20,8 @@ API_URL = "https://gazelleapp.io/graphql/private/"
 TOKEN_FILE = "data/gazelle_token.json"
 
 # OAuth2 credentials
-CLIENT_ID = "yCLgIwBusPMX9bZHtbzePvcNUisBQ9PeA4R93OwKwNE"
-CLIENT_SECRET = "CHiMzcYZ2cVgBCjQ7vDCxr3jIE5xkLZ_9v4VkU-O9Qc"
+CLIENT_ID = os.getenv("GAZELLE_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("GAZELLE_CLIENT_SECRET", "")
 
 current_tokens = {}
 

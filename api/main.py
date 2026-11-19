@@ -800,22 +800,40 @@ def _exchange_code_for_token(code: str, redirect_uri: str) -> Dict[str, Any]:
     }
 
 
+@app.get("/gazelle/connecter")
+async def gazelle_connecter():
+    """Point de départ pour (re)connecter l'assistant à Gazelle en OAuth2 :
+    renvoie vers la page d'autorisation de Gazelle ; Gazelle revient ensuite
+    sur /gazelle_oauth_callback, qui garde le jeton dans Supabase."""
+    from urllib.parse import urlencode
+    from fastapi.responses import RedirectResponse, HTMLResponse
+    client_id = os.getenv("GAZELLE_CLIENT_ID")
+    if not client_id or not os.getenv("GAZELLE_CLIENT_SECRET"):
+        return HTMLResponse("<h2>GAZELLE_CLIENT_ID / GAZELLE_CLIENT_SECRET manquants dans Render.</h2>", status_code=500)
+    params = urlencode({"client_id": client_id, "redirect_uri": REDIRECT_URI_DEFAULT, "response_type": "code"})
+    return RedirectResponse(f"https://gazelleapp.io/developer/oauth/authorize?{params}")
+
+
 @app.get("/gazelle_oauth_callback")
 async def gazelle_oauth_callback(code: Optional[str] = None, state: Optional[str] = None, request: Request = None):
     """
     Callback OAuth Gazelle.
     À configurer dans la console Gazelle : {REDIRECT_URI_DEFAULT}
     """
+    from fastapi.responses import HTMLResponse
     if not code:
         raise HTTPException(status_code=400, detail="Paramètre code manquant")
-    result = _exchange_code_for_token(code, REDIRECT_URI_DEFAULT)
-    return {
-        "success": True,
-        "message": "Token Gazelle sauvegardé dans Supabase",
-        "redirect_uri": REDIRECT_URI_DEFAULT,
-        "storage": result["storage"],
-        "expires_in_seconds": result["expires_in_seconds"]
-    }
+    _exchange_code_for_token(code, REDIRECT_URI_DEFAULT)
+    # Vérification immédiate : une vraie lecture dans Gazelle avec le nouveau jeton
+    try:
+        res = GazelleAPIClient()._execute_query("query { allClients(first: 1) { nodes { id } } }")
+        ok = bool(((res.get("data") or {}).get("allClients") or {}).get("nodes") is not None)
+        detail = ""
+    except Exception as e:
+        ok, detail = False, str(e)[:300]
+    if ok:
+        return HTMLResponse("<h2>✅ L'assistant est reconnecté à Gazelle.</h2><p>Vous pouvez fermer cette page.</p>")
+    return HTMLResponse(f"<h2>❌ Jeton reçu, mais Gazelle refuse encore la lecture.</h2><p>{detail}</p>", status_code=502)
 
 
 @app.get("/gazelle/check-appointments")

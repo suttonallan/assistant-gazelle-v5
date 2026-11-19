@@ -134,7 +134,51 @@ class GazelleAPIClient:
             json.dump(token_data, f, indent=2)
         
         self.token_data = token_data
-    
+
+    # ------------------------------------------------------------------
+    # OAuth2 (recommandé par Gazelle, nov. 2026 : les clés API cesseront
+    # de fonctionner). Le jeton d'accès expire ; on le renouvelle AVANT
+    # l'échéance et on garde le nouveau dans Supabase, partagé par l'API
+    # Render et les tâches GitHub Actions.
+    # ------------------------------------------------------------------
+    def _est_oauth(self, td: Optional[Dict[str, Any]] = None) -> bool:
+        td = td if td is not None else self.token_data
+        return bool(td and td.get('refresh_token') and len(td.get('access_token') or '') >= 50)
+
+    def _expire_bientot(self, td: Optional[Dict[str, Any]] = None, marge: int = 300) -> bool:
+        td = td if td is not None else self.token_data
+        if not td.get('created_at') or not td.get('expires_in'):
+            return False  # durée inconnue : on se fie au renouvellement sur refus
+        return time.time() >= td['created_at'] + td['expires_in'] - marge
+
+    def _garder_jeton(self, token_data: Dict[str, Any]) -> None:
+        """Enregistre le jeton dans Supabase (source partagée) ; fichier local en secours."""
+        self.token_data = token_data
+        try:
+            from core.supabase_storage import SupabaseStorage
+            SupabaseStorage().save_system_setting("gazelle_oauth_token", token_data)
+            return
+        except Exception as e:
+            print(f"⚠️ Jeton Gazelle non enregistré dans Supabase : {e}")
+        try:
+            self._save_token(token_data)
+        except Exception as e:
+            print(f"⚠️ Jeton Gazelle non enregistré localement : {e}")
+
+    def _assurer_jeton_frais(self) -> None:
+        """Avant chaque requête : si le jeton OAuth expire bientôt, prendre celui
+        qu'un autre processus a déjà renouvelé, sinon le renouveler soi-même."""
+        if not self._est_oauth() or not self._expire_bientot():
+            return
+        try:
+            partage = self._load_token()
+            if self._est_oauth(partage) and not self._expire_bientot(partage):
+                self.token_data = partage
+                return
+        except Exception:
+            pass
+        self._refresh_token()
+
     def _refresh_token(self) -> None:
         """
         Rafraîchit le token OAuth2 en utilisant le refresh_token.
@@ -166,10 +210,21 @@ class GazelleAPIClient:
             # Ajouter created_at pour tracking
             new_token_data['created_at'] = int(time.time())
 
-            self._save_token(new_token_data)
+            self._garder_jeton(new_token_data)
             print("✅ Token rafraîchi avec succès")
-            
+
         except requests.exceptions.RequestException as e:
+            # Un autre processus a peut-être déjà renouvelé (l'ancien refresh_token
+            # devient alors invalide) : reprendre le jeton partagé s'il est neuf.
+            try:
+                partage = self._load_token()
+                if (self._est_oauth(partage) and partage.get('access_token') != self.token_data.get('access_token')
+                        and not self._expire_bientot(partage)):
+                    self.token_data = partage
+                    print("✅ Jeton déjà renouvelé par un autre processus, repris de Supabase")
+                    return
+            except Exception:
+                pass
             raise ConnectionError(f"Erreur lors du rafraîchissement du token: {e}")
     
     def _execute_query(self, query: str, variables: Optional[Dict] = None) -> Dict[str, Any]:
@@ -186,10 +241,13 @@ class GazelleAPIClient:
         Raises:
             ConnectionError: Si l'API retourne une erreur
         """
-        # Skip expiration check - token is valid
-        # if self._is_token_expired(self.token_data):
-        #     self._refresh_token()
+        try:
+            self._assurer_jeton_frais()
+        except Exception as e:
+            print(f"⚠️ Renouvellement préventif du jeton Gazelle impossible : {e}")
+        return self._execute_query_une_fois(query, variables, deja_reessaye=False)
 
+    def _execute_query_une_fois(self, query: str, variables: Optional[Dict], deja_reessaye: bool) -> Dict[str, Any]:
         access_token = self.token_data['access_token']
         
         # Si le token est court (< 50 chars), c'est probablement une API Key
@@ -268,6 +326,20 @@ class GazelleAPIClient:
                         print(f"      Extensions: {err['extensions']}")
 
                 error_messages = [err.get('message', 'Unknown error') for err in result['errors']]
+                # Jeton refusé (« access violation ») : Gazelle répond 200 avec une erreur.
+                # Une seule reprise : jeton partagé plus récent, sinon renouvellement OAuth.
+                if (not deja_reessaye and self._est_oauth()
+                        and any('access violation' in (m or '').lower() for m in error_messages)):
+                    ancien = self.token_data.get('access_token')
+                    try:
+                        partage = self._load_token()
+                        if self._est_oauth(partage) and partage.get('access_token') != ancien:
+                            self.token_data = partage
+                        else:
+                            self._refresh_token()
+                        return self._execute_query_une_fois(query, variables, deja_reessaye=True)
+                    except Exception as e:
+                        print(f"❌ Reprise après refus du jeton impossible : {e}")
                 raise ValueError(f"Erreurs GraphQL: {', '.join(error_messages)}")
 
             return result
