@@ -644,6 +644,32 @@ async def zoom_retraiter(numero: str = "", jours: int = 2, minutes: int = 0):
     return await asyncio.to_thread(retraiter_numero, numero, max(1, min(jours, 7)), max(0, min(minutes, 720)))
 
 
+@app.get("/api/zoom/appels-du-jour")
+async def zoom_appels_du_jour(jours: int = 1):
+    """Diagnostic : appels récents vus par l'API Zoom (heure, sens, 4 derniers chiffres, durée, résumé IA ?).
+    Aucun contenu d'appel ni numéro complet."""
+    from core.zoom_sms import get_zoom_access_token, ZOOM_API_BASE_URL
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    token = get_zoom_access_token()
+    fin = _dt.now(_tz.utc).date() + _td(days=1)
+    out, champs = [], []
+    for chemin in ("/phone/call_history", "/phone/call_logs"):
+        r = requests.get(f"{ZOOM_API_BASE_URL}{chemin}", params={"page_size": 100, "from": str(fin - _td(days=jours + 1)), "to": str(fin)},
+                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        if r.status_code != 200:
+            out.append({"source": chemin, "http": r.status_code, "erreur": r.text[:200]})
+            continue
+        d = r.json()
+        appels = d.get("call_logs") or d.get("call_history") or []
+        champs = sorted(appels[0].keys()) if appels else champs
+        for a in appels:
+            nums = [str(a.get(k) or "") for k in ("caller_did_number", "callee_did_number", "caller_number", "callee_number", "caller_ext_number", "callee_ext_number")]
+            out.append({"source": chemin, "debut": a.get("start_time") or a.get("date_time"), "sens": a.get("direction"),
+                        "fins": sorted({n[-4:] for n in nums if len(n) >= 4}), "duree": a.get("duration"),
+                        "resume": bool(a.get("ai_call_summary_id") or a.get("has_ai_summary")), "id": a.get("id"), "call_id": a.get("call_id")})
+    return {"champs": champs, "appels": out}
+
+
 @app.get("/api/zoom/webhook/health")
 async def zoom_webhook_health():
     """Health check pour le webhook Zoom."""
@@ -655,7 +681,7 @@ async def zoom_webhook_health():
         # Clés de l'app Zoom Server-to-Server (API téléphone : résumés d'appel, contacts)
         "zoom_api_configured": all(os.getenv(k) for k in ('ZOOM_CLIENT_ID', 'ZOOM_CLIENT_SECRET', 'ZOOM_ACCOUNT_ID')),
         "sms_forward_recipient": SMS_FORWARD_EMAIL,
-        "retraiter_appels": 2
+        "retraiter_appels": 3
     }
 
 
