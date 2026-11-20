@@ -358,7 +358,7 @@ class GazelleSyncService:
                                         logger.warning(f"Suivi technicien impossible ({request_id}): {e}")
                                 current_tech = gazelle_tech
                             if _confirme:
-                                if gazelle_status in ('CANCELLED', 'CANCELED'):
+                                if gazelle_status in ('CANCELLED', 'CANCELED') and self._annulation_confirmee_gazelle(apt_id):
                                     # RV annulé → la demande redevient « Nouveau » (le bouton
                                     # « Créer le RV » réapparaît) ; le RV annulé est écarté.
                                     print(f"🚫 RV annulé dans Gazelle : {appointment_date} - {room} → demande remise à « Nouveau »")
@@ -479,6 +479,32 @@ class GazelleSyncService:
             }
     
     LIENS_CONFIRMES_KEY = 'pda_liens_confirmes'
+
+    def _annulation_confirmee_gazelle(self, apt_id: Optional[str]) -> bool:
+        """Le RV est-il VRAIMENT annulé ? On le demande à Gazelle en direct avant de
+        détacher une demande. Incident du 19 nov. 2026 (passage à OAuth) : la copie
+        locale a marqué « annulés » des RV bien actifs (absents d'une lecture
+        partielle de Gazelle) ; la synchro PdA a alors détaché les demandes et
+        écarté ces RV pour toujours (5E Natasha Kanapé, 20 nov.). En cas de doute
+        (Gazelle injoignable, réponse vide) : on ne détache rien."""
+        if not apt_id:
+            return False
+        try:
+            res = GazelleAPIClient()._execute_query(
+                "query($id:String!){ event(eventId:$id){ id status } }", {"id": apt_id})
+            if not isinstance(res, dict) or res.get("errors") or "data" not in res:
+                return False  # réponse douteuse : on ne détache rien
+            ev = (res.get("data") or {}).get("event")
+            if not ev:
+                logger.warning(f"RV {apt_id} non trouvé par Gazelle (réponse vide) — demande laissée reliée")
+                return False  # doute (jeton qui ne voit pas tout ?) : on ne détache rien
+            return str(ev.get("status") or "").upper() in ("CANCELLED", "CANCELED", "DELETED")
+        except Exception as e:
+            if (isinstance(e, ValueError) and str(e).startswith("Erreurs GraphQL")
+                    and "not found" in str(e).lower()):
+                return True   # Gazelle dit clairement que le RV n'existe plus
+            logger.warning(f"Annulation de {apt_id} non vérifiable dans Gazelle : {e} — demande laissée reliée")
+            return False
 
     def get_liens_confirmes(self) -> Dict[str, Dict]:
         """Choix de la coordonnatrice : {request_id: {"rv": evt_… ou None,

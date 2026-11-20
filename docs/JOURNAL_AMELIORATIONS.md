@@ -7,6 +7,8 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 20 novembre
+- **Les demandes Place des Arts ne se détachent plus de leur RV lors d'une panne de Gazelle** : le 19 novembre, pendant le changement de connexion à Gazelle, l'assistant a cru « annulés » des RV pourtant actifs (dont les deux de la 5E, Natasha Kanapé, du 20 nov.) et a détaché les demandes. Désormais, il demande à Gazelle en direct avant de détacher quoi que ce soit ; en cas de doute, il ne touche à rien.
+- **Un RV Place des Arts créé par Ivo se relie tout seul à sa demande** : avant, il portait seulement le titre « Place des Arts » et la demande restait en attente (impossible à terminer). Maintenant, s'il n'y a qu'une demande possible ce jour-là, le RV reçoit le titre habituel (ex. « Place des Arts ONJ (à 18h) ») et la demande est reliée.
 - **Les RV de dernière minute arrivent dans l'assistant à chaque heure (7 h à 21 h)** : la mise à jour des rendez-vous ne passait qu'environ 3 fois par jour au lieu de chaque heure ; elle tourne maintenant sur le serveur de l'assistant, à 5 minutes après chaque heure.
 
 ### 19 novembre
