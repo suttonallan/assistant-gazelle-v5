@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 20 novembre
+- **Les RV de dernière minute arrivent dans l'assistant à chaque heure (7 h à 21 h)** : la mise à jour des rendez-vous ne passait qu'environ 3 fois par jour au lieu de chaque heure ; elle tourne maintenant sur le serveur de l'assistant, à 5 minutes après chaque heure.
+
 ### 19 novembre
 - **Connexion à Gazelle par la méthode recommandée par Gazelle (OAuth2) : l'accès se renouvelle tout seul, sans coupure ; une page « /gazelle/connecter » permet de reconnecter l'assistant en un clic.**
 - **Un résumé d'appel Zoom que Gazelle refuse (ex. accès coupé) n'est plus perdu : il arrive dans info@ pour être classé à la main.**

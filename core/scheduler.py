@@ -596,27 +596,26 @@ def task_process_late_assignment_queue():
 
 def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
     """
-    16:30 - Sync Appointments uniquement
-    
+    Sync Appointments uniquement — aux heures, 7h05-21h05 (Montréal)
+
     Synchronise uniquement les rendez-vous pour capturer ceux créés/modifiés
-    dans la journée (jusqu'à 16:30).
-    
-    Utile pour voir les rendez-vous ajoutés après la sync matinale (01:00).
+    dans la journée (RV de dernière minute, changements de technicien),
+    puis lie les demandes PDA/OSM aux RV Gazelle.
     """
     from core.scheduler_logger import get_logger
     from modules.sync_gazelle.sync_to_supabase import GazelleToSupabaseSync
 
     logger = get_logger()
     log_id = logger.start_task(
-        task_name='sync_appointments_1630',
-        task_label='Sync Appointments (16:30)',
+        task_name='sync_appointments_horaire',
+        task_label='Sync Appointments (aux heures)',
         triggered_by=triggered_by,
         triggered_by_user=user_email
     )
 
     try:
         print("\n" + "="*70)
-        print("📅 SYNC APPOINTMENTS (16:30)")
+        print("📅 SYNC APPOINTMENTS (aux heures)")
         print("="*70)
 
         # Mode incrémental (7 derniers jours) pour performance
@@ -659,7 +658,7 @@ def task_sync_appointments_only(triggered_by='scheduler', user_email=None):
         return stats
 
     except Exception as e:
-        print(f"\n❌ Erreur lors de la sync appointments (16:30): {e}")
+        print(f"\n❌ Erreur lors de la sync appointments: {e}")
         import traceback
         traceback.print_exc()
         
@@ -1199,22 +1198,22 @@ def configure_jobs(scheduler: BackgroundScheduler):
     )
     print("   ✅ 09:00 - RELANCE LOUISE (J-7) configurée")
 
-    # 16:30 - Sync Appointments (pour capturer les RV créés dans la journée)
+    # Sync Appointments aux heures (7h05-21h05) — RAMENÉE sur Render le 20 nov. 2026
+    # (décision d'Allan). Confiée à GitHub Actions, elle ne tournait qu'environ
+    # 3 fois par jour au lieu de 15 (GitHub saute des créneaux cron), et les RV
+    # de dernière minute arrivaient en retard dans l'assistant. Remplace aussi
+    # l'ancien passage de 16:30 (le lien PDA/OSM se fait maintenant à chaque heure).
     scheduler.add_job(
         task_sync_appointments_only,
-        trigger=CronTrigger(hour=16, minute=30, timezone='America/Montreal'),
-        id='sync_appointments_1630',
-        name='Sync Appointments (16:30)',
+        trigger=CronTrigger(hour='7-21', minute=5, timezone='America/Montreal'),
+        id='sync_appointments_horaire',
+        name='Sync Appointments (aux heures, 7h05-21h05)',
         replace_existing=True,
-        max_instances=1
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=900
     )
-    print("   ✅ 16:30 - Sync Appointments configurée")
-
-    # Sync Appointments horaire (7h-21h) : RETIRE du scheduler Render.
-    # Deja couvert par GitHub Actions (hourly_appointments_sync.yml).
-    # Le sync 16:30 est CONSERVE ci-dessus car il fait aussi le lien PDA/OSM
-    # (unique, pas couvert par Actions).
-    print("   (retire) horaire 7h-21h - Sync Appointments -> deleguee a GitHub Actions")
+    print("   ✅ Aux heures (7h05-21h05) - Sync Appointments configurée")
 
     # RETIRÉ le 29 oct. 2026 (décision d'Allan) : scan Gmail PDA horaire.
     # Il ne faisait qu'annoncer « on a reçu une demande d'Isabelle » — redondant :
