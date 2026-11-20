@@ -459,7 +459,8 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
         return f"Gazelle a refusé le RV : {getattr(e, 'detail', e)}"
     ev = res.get("evenement") or {}
     return (f"RV créé dans Gazelle ({ev.get('id')}) : {ev.get('title')}, {tech}, {debut:%A %d %B %Y} "
-            f"de {debut:%H:%M} à {fin:%H:%M}. Aucune confirmation envoyée au client.")
+            f"de {debut:%H:%M} à {fin:%H:%M}. Aucune confirmation envoyée au client."
+            + (" Demande Place des Arts reliée dans l'assistant." if res.get("demande_pda_reliee") else ""))
 
 def _creer_facture(arg: Dict[str, Any]) -> str:
     """Facture Gazelle en brouillon + facturation alternative + mention « Facture créée » dans le RV."""

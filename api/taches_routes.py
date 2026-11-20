@@ -1602,6 +1602,59 @@ def nouveau_client(client_id: str = Query(...)):
             "premiers_rv": rv.json() if rv.status_code == 200 else rv.text[:200]}
 
 
+# --- Place des Arts : un RV créé hors de l'onglet PdA doit quand même être relié ---
+# Incident du 21 nov. 2026 (5E ONJ, Nicolas) : RV créé par cette route avec le titre
+# par défaut « Place des Arts », sans salle ni événement. La synchro n'exige une
+# preuve (salle ou événement dans le RV) : la demande est restée « en attente »,
+# donc impossible à terminer/facturer. Désormais, quand un RV PdA est créé ici et
+# qu'UNE SEULE demande PdA non reliée correspond (même jour, heure dans la fenêtre
+# demandée), on lui donne le titre PdA habituel et on relie la demande tout de
+# suite, comme l'onglet Place des Arts. S'il y en a zéro ou plusieurs : rien de
+# changé (la coordonnatrice choisit dans « À confirmer »).
+_PDA_CLIENTS = {"cli_HbEwl9rN11pSuDEU", "cli_gO9PL7gIVSQnQC4T", "cli_wUgiRqV88tUBTr66"}
+
+
+def _demande_pda_unique(client_id: Optional[str], local: datetime) -> Optional[Dict[str, Any]]:
+    """La demande PdA non reliée, sans ambiguïté, que ce RV vient couvrir — sinon None."""
+    if client_id not in _PDA_CLIENTS:
+        return None
+    try:
+        from modules.pda_v6_matcher import _hour_bounds
+        jour = local.strftime("%Y-%m-%d")
+        db = _db()
+        r = requests.get(f"{db.api_url}/place_des_arts_requests?select=*"
+                         f"&appointment_id=is.null&appointment_date=gte.{jour}T00:00:00"
+                         f"&appointment_date=lte.{jour}T23:59:59", headers=db._get_headers(), timeout=10)
+        lignes = [d for d in (r.json() if r.status_code == 200 else [])
+                  if (d.get("status") or "").upper() in ("PENDING", "ASSIGN_OK", "")]
+        bonnes = []
+        for d in lignes:
+            b = _hour_bounds(d.get("time"))
+            if b is None or b[0] <= local.hour <= b[1]:
+                bonnes.append(d)
+        return bonnes[0] if len(bonnes) == 1 else None
+    except Exception as e:
+        logging.warning(f"Demande PdA pour le RV du {local}: {e}")
+        return None
+
+
+def _relier_demande_pda(demande: Dict[str, Any], ev: Dict[str, Any], user_id: str, par: Optional[str]) -> Optional[str]:
+    """Relie la demande au RV créé (même effet que « Lier » dans l'onglet PdA)."""
+    try:
+        from modules.place_des_arts.services.gazelle_sync import GazelleSyncService
+        storage = _db()
+        maintenant = datetime.now(timezone.utc).isoformat()
+        storage.client.table("place_des_arts_requests").update(
+            {"appointment_id": ev["id"], "technician_id": user_id,
+             "status": "CREATED_IN_GAZELLE", "updated_at": maintenant}).eq("id", demande["id"]).execute()
+        GazelleSyncService(storage).save_lien_confirme(
+            demande["id"], {"rv": ev["id"], "rejetes": [], "par": par or "creer_rendez_vous", "le": maintenant})
+        return demande["id"]
+    except Exception as e:
+        logging.error(f"RV {ev.get('id')} créé mais demande PdA {demande.get('id')} non reliée : {e}")
+        return None
+
+
 @router.post("/gazelle/rendez-vous")
 def creer_rendez_vous(r: RendezVousIn):
     """Crée un APPOINTMENT dans Gazelle au format natif PTM (durée en minutes, start en UTC,
@@ -1621,6 +1674,17 @@ def creer_rendez_vous(r: RendezVousIn):
     if not r.client_id and (r.type != "PERSONAL" or not r.titre):
         raise HTTPException(400, "client_id requis (sauf bloc PERSONAL avec un titre)")
     titre = r.titre
+    demande_pda = _demande_pda_unique(r.client_id, local.astimezone(MONTREAL_TZ)) if r.type == "APPOINTMENT" else None
+    if demande_pda:
+        if not titre or titre.strip().lower() in ("place des arts", "pda"):
+            from api.place_des_arts import _titre_rv_pda
+            titre = _titre_rv_pda(demande_pda)
+        else:
+            # Titre personnalisé : relier seulement s'il nomme la salle ou l'événement de la demande
+            from modules.pda_v6_matcher import preuve
+            if preuve(demande_pda, {"title": titre, "notes": r.notes or "",
+                                    "appointment_date": local.strftime("%Y-%m-%d")}) <= 0:
+                demande_pda = None
     if not titre:
         res = gz._execute_query("query($id: String!) { client(id: $id) { id companyName "
                                 "defaultContact { firstName lastName } } }", {"id": r.client_id})
@@ -1664,7 +1728,8 @@ def creer_rendez_vous(r: RendezVousIn):
     if not ev:
         raise HTTPException(502, f"Gazelle a refusé le rendez-vous : {payload.get('mutationErrors')} "
                                  f"{res.get('errors') if isinstance(res, dict) else ''}")
-    return {"evenement": ev, "start_utc": start}
+    lien_pda = _relier_demande_pda(demande_pda, ev, r.user_id, r.par) if demande_pda else None
+    return {"evenement": ev, "start_utc": start, "demande_pda_reliee": lien_pda}
 
 
 class PianoClientIn(BaseModel):
