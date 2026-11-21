@@ -144,6 +144,11 @@ def mettre_a_jour_acces(notes: str, acces: str) -> str:
     b = _bornes_bloc(notes)
     if not b:
         return ajouter_acces(notes, acces)
-    if notes[b[0]:b[1]].replace("\r\n", "\n") == acces.replace("\r\n", "\n"):
+    ancien = notes[b[0]:b[1]].replace("\r\n", "\n")
+    if ancien == acces.replace("\r\n", "\n"):
+        return notes
+    if ancien.count("\n") != acces.count("\n"):
+        # Nombre de lignes différent (ligne « - … » ajoutée à la main sous le bloc, piano
+        # ajouté ou retiré) : on ne remplace pas, pour ne jamais effacer le texte de l'équipe.
         return notes
     return notes[:b[0]] + acces + notes[b[1]:]

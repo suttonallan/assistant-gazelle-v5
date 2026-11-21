@@ -29,7 +29,7 @@ from typing import Dict, List
 
 import requests
 
-from core.acces_piano import _CODE, mettre_a_jour_acces, note_acces_pianos
+from core.acces_piano import _CODE, mettre_a_jour_acces, note_acces_pianos, retirer_bloc_acces
 from core.timezone_utils import aujourdhui_montreal
 
 logger = logging.getLogger(__name__)
@@ -131,7 +131,9 @@ def traiter_rv(gz, ev: Dict, dry_run: bool) -> Dict:
         return rapport
     nouvelles = mettre_a_jour_acces(ev.get('notes') or '', acces)
     if nouvelles == (ev.get('notes') or ''):
-        rapport['raison'] = 'bloc d’accès déjà à jour'
+        rapport['raison'] = ('bloc d’accès déjà à jour' if retirer_bloc_acces(ev.get('notes') or '') != (ev.get('notes') or '')
+                             and acces.replace('\r\n', '\n') in (ev.get('notes') or '').replace('\r\n', '\n')
+                             else 'bloc d’accès modifié à la main (lignes ajoutées) — non remplacé, à vérifier')
         return rapport
     rapport['bloc'] = acces
     rapport['remplace'] = 'Accès (mémo du piano)' in (ev.get('notes') or '')
