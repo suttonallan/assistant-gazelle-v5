@@ -240,8 +240,9 @@ def _for_who_score(request_for_who, apt_text):
 def _build_search_text(apt):
     return _norm(" ".join([
         apt.get("title") or "",
-        apt.get("description") or "",
-        # Le bloc d'accès (recopié du mémo du piano) ne prouve pas la salle de la demande
+        # Le bloc d'accès (recopié du mémo du piano) ne prouve pas la salle de la demande.
+        # « description » = la note du RV dans la copie Supabase : même filtre.
+        retirer_bloc_acces(apt.get("description") or ""),
         retirer_bloc_acces(apt.get("notes") or ""),
         apt.get("location") or "",
     ]))

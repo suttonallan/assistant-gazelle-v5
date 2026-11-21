@@ -79,7 +79,6 @@ def ajouter_acces(notes: str, acces: str) -> str:
 
 
 _TETE_BLOC = "Accès (mémo du piano)"
-_LIGNE_VIDE = re.compile(r"\r?\n[ \t]*\r?\n")
 
 
 def _bornes_bloc(texte: str):
@@ -94,8 +93,36 @@ def _bornes_bloc(texte: str):
     j = t.rfind(AVIS_CODE, 0, i)
     if j >= 0 and not t[j + len(AVIS_CODE):i].strip():
         debut = j
-    m = _LIGNE_VIDE.search(t, i)   # Gazelle peut rendre des fins de ligne « \r\n »
-    return debut, (m.start() if m else len(t))
+    # Fin = format connu du bloc, jamais « jusqu'à la ligne vide » : une ligne tapée
+    # juste sous le bloc par l'équipe ne doit pas être avalée.
+    #  - un piano : la ligne « Accès (mémo du piano) : … » ;
+    #  - plusieurs : « Accès (mémo du piano) : » puis les lignes « - … ».
+    fin = _fin_de_ligne(t, i)
+    if t[i:fin].strip() == _TETE_BLOC + " :":
+        while True:
+            nxt = _ligne_suivante(t, fin)
+            if nxt >= len(t):
+                break
+            e = _fin_de_ligne(t, nxt)
+            if not t[nxt:e].startswith("- "):
+                break
+            fin = e
+    return debut, fin
+
+
+def _ligne_suivante(t: str, fin: int) -> int:
+    if t.startswith("\r\n", fin):
+        return fin + 2
+    if t.startswith("\n", fin):
+        return fin + 1
+    return len(t)
+
+
+def _fin_de_ligne(t: str, i: int) -> int:
+    j = t.find("\n", i)
+    if j < 0:
+        return len(t)
+    return j - 1 if j > 0 and t[j - 1] == "\r" else j
 
 
 def retirer_bloc_acces(texte: str) -> str:
@@ -117,6 +144,6 @@ def mettre_a_jour_acces(notes: str, acces: str) -> str:
     b = _bornes_bloc(notes)
     if not b:
         return ajouter_acces(notes, acces)
-    if notes[b[0]:b[1]] == acces:
+    if notes[b[0]:b[1]].replace("\r\n", "\n") == acces.replace("\r\n", "\n"):
         return notes
     return notes[:b[0]] + acces + notes[b[1]:]

@@ -149,8 +149,10 @@ def traiter_rv(gz, ev: Dict, dry_run: bool) -> Dict:
         if nouvelles == (avant.get('notes') or ''):
             rapport['raison'] = 'déjà à jour à la relecture'
             return rapport
-        res = gz._execute_query(M_MAJ, {"id": ev['id'], "input": {
-            "notes": nouvelles, "duration": avant.get('duration')}})
+        inp = {"notes": nouvelles}
+        if avant.get('duration') is not None:
+            inp["duration"] = avant['duration']   # durée gardée telle quelle
+        res = gz._execute_query(M_MAJ, {"id": ev['id'], "input": inp})
         payload = ((res or {}).get('data') or {}).get('updateEvent') or {}
         if not payload.get('event'):
             rapport.update(action='ERREUR', raison=f"Gazelle a refusé : {payload.get('mutationErrors') or (res or {}).get('errors')}")

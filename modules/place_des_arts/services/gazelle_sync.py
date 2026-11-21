@@ -788,7 +788,8 @@ class GazelleSyncService:
             return None
         apt_date = apt_date_str[:10]
         apt_title = (gazelle_apt.get('title') or '').upper()
-        apt_desc = (gazelle_apt.get('description') or '').upper()
+        from core.acces_piano import retirer_bloc_acces
+        apt_desc = retirer_bloc_acces(gazelle_apt.get('description') or '').upper()
         apt_text = apt_title + ' ' + apt_desc
 
         for req in pda_requests:
