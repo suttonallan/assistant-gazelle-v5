@@ -94,7 +94,10 @@ def run_pda_access_reminder() -> dict:
         piano_locs = ' '.join(
             ((p.get('piano') or {}).get('location') or '')
             for p in ((nd.get('allEventPianos') or {}).get('nodes') or []))
-        text = f"{nd.get('title') or ''} {nd.get('notes') or ''} {piano_locs}".lower()
+        # Sans le bloc d'accès recopié du mémo du piano (« Sécurité Maisonneuve » figure
+        # dans le mémo d'un piano de Wilfrid-Pelletier) : sinon faux rappel TM/JD.
+        from core.acces_piano import retirer_bloc_acces
+        text = f"{nd.get('title') or ''} {retirer_bloc_acces(nd.get('notes') or '')} {piano_locs}".lower()
         if not any(k in text for k in SALLE_KEYWORDS):
             continue
 

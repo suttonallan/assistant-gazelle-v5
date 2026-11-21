@@ -38,16 +38,22 @@ def lignes_acces(notes: str) -> List[str]:
     return garde
 
 
-def note_acces_pianos(gz, piano_ids: Iterable[str]) -> str:
+def note_acces_pianos(gz, piano_ids: Iterable[str], strict: bool = False) -> str:
     """Bloc « Accès » à ajouter à la note du RV ; chaîne vide si rien d'utile.
-    Ne bloque jamais la création du RV."""
+    Ne bloque jamais la création du RV. strict=True : lève une erreur si un mémo
+    ne peut pas être lu (la vérification du soir ne doit pas écrire un bloc incomplet)."""
     blocs = []
     for pid in [p for p in (piano_ids or []) if p]:
         try:
             res = gz._execute_query(
                 "query($id: String!) { piano(id: $id) { id make model notes } }", {"id": pid})
+            if strict and (not isinstance(res, dict) or res.get("errors")
+                           or not (res.get("data") or {}).get("piano")):
+                raise RuntimeError(f"mémo du piano {pid} illisible : {(res or {}).get('errors')}")
             p = ((res or {}).get("data") or {}).get("piano") or {}
         except Exception:
+            if strict:
+                raise
             continue
         lignes = lignes_acces(p.get("notes") or "")
         if lignes:
@@ -70,3 +76,47 @@ def ajouter_acces(notes: str, acces: str) -> str:
     if not acces or acces in (notes or ""):
         return notes or ""
     return acces + ("\n\n" + notes if notes else "")
+
+
+_TETE_BLOC = "Accès (mémo du piano)"
+_LIGNE_VIDE = re.compile(r"\r?\n[ \t]*\r?\n")
+
+
+def _bornes_bloc(texte: str):
+    """(début, fin) du bloc d'accès dans une note de RV, ou None.
+    Le bloc = avertissement facultatif + « Accès (mémo du piano) … » jusqu'à la
+    première ligne vide (ajouter_acces met toujours une ligne vide après)."""
+    t = texte or ""
+    i = t.find(_TETE_BLOC)
+    if i < 0:
+        return None
+    debut = i
+    j = t.rfind(AVIS_CODE, 0, i)
+    if j >= 0 and not t[j + len(AVIS_CODE):i].strip():
+        debut = j
+    m = _LIGNE_VIDE.search(t, i)   # Gazelle peut rendre des fins de ligne « \r\n »
+    return debut, (m.start() if m else len(t))
+
+
+def retirer_bloc_acces(texte: str) -> str:
+    """La note sans le bloc d'accès. Sert aux détecteurs de salle (rappel TM/JD,
+    appariement des demandes PdA) : « Sécurité Maisonneuve » dans le mémo d'un piano
+    de Wilfrid-Pelletier ne veut pas dire que le RV est au Théâtre Maisonneuve."""
+    b = _bornes_bloc(texte)
+    if not b:
+        return texte or ""
+    return (texte[:b[0]] + texte[b[1]:]).strip("\r\n")
+
+
+def mettre_a_jour_acces(notes: str, acces: str) -> str:
+    """Ajoute le bloc d'accès, ou remplace l'ancien s'il a changé (nouveau code dans le
+    mémo). Sans nouveau bloc, la note reste telle quelle (on n'efface jamais rien)."""
+    notes = notes or ""
+    if not acces:
+        return notes
+    b = _bornes_bloc(notes)
+    if not b:
+        return ajouter_acces(notes, acces)
+    if notes[b[0]:b[1]] == acces:
+        return notes
+    return notes[:b[0]] + acces + notes[b[1]:]

@@ -2962,3 +2962,18 @@ def historique_gazelle(client_id: str = Query(...)):
     d'ouverture du courriel) et messages Gazelle avec leur statut."""
     from core.historique_client import dossier_client
     return {"client_id": client_id, "dossier": dossier_client(client_id)}
+
+
+# --- Code de porte dans les RV d'institution (21 nov. 2026, Allan) ---
+@router.get("/gazelle/acces-rv/apercu")
+def acces_rv_apercu(jours: int = 7):
+    """LECTURE SEULE — ce que la vérification de 6 h / 21 h ajouterait aux RV d'institution."""
+    from modules.briefing.acces_rv_institutions import run
+    return run(dry_run=True, jours=max(1, min(jours, 14)))
+
+
+@router.post("/gazelle/acces-rv/appliquer")
+def acces_rv_appliquer(jours: int = 7):
+    """Lance tout de suite la vérification (même chose que la tâche de 6 h / 21 h)."""
+    from modules.briefing.acces_rv_institutions import run
+    return run(dry_run=False, jours=max(1, min(jours, 14)))

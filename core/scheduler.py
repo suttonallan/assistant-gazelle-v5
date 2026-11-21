@@ -334,6 +334,27 @@ def task_rv_item_enrichment():
         raise
 
 
+def task_acces_rv_institutions():
+    """6 h et 21 h Montréal — code de porte (mémo du piano) dans tous les RV
+    d'institution des 7 prochains jours, même créés directement dans Gazelle."""
+    from core.scheduler_logger import get_logger
+    from modules.briefing.acces_rv_institutions import run
+
+    logger = get_logger()
+    log_id = logger.start_task(task_name='acces_rv_institutions',
+                               task_label='Code de porte dans les RV d\'institution',
+                               triggered_by='scheduler')
+    try:
+        result = run(dry_run=False)
+        stats = {k: result.get(k) for k in ('total_rvs', 'modifies', 'erreurs')}
+        logger.complete_task(log_id=log_id, status='success' if not result.get('erreurs') else 'error',
+                             message=f"{stats['modifies']} RV complétés, {stats['erreurs']} erreurs", stats=stats)
+        return stats
+    except Exception as e:
+        logger.complete_task(log_id=log_id, status='error', message=str(e), stats={})
+        raise
+
+
 # NOTE (2026-08-14) : une seconde definition de task_scan_pda_emails() existait
 # ici et etait ecrasee par celle plus bas dans ce fichier (Python garde la
 # derniere). Elle appelait modules.pda_auto_scanner.scan_and_watch et portait le
@@ -1303,6 +1324,17 @@ def configure_jobs(scheduler: BackgroundScheduler):
         max_instances=1
     )
     print("   ✅ 22:00 - Enrichissement items RV du lendemain configuré")
+
+    # 06:00 et 21:00 - Code de porte (mémo du piano) dans les RV d'institution
+    scheduler.add_job(
+        task_acces_rv_institutions,
+        trigger=CronTrigger(hour='6,21', minute=0, timezone='America/Montreal'),
+        id='acces_rv_institutions',
+        name='Code de porte dans les RV d\'institution',
+        replace_existing=True,
+        max_instances=1
+    )
+    print("   ✅ 06:00 / 21:00 - Code de porte dans les RV d'institution configuré")
 
     # 03:30 - Cas de test d'Ivo (horaire figé)
     scheduler.add_job(

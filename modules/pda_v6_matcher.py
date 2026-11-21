@@ -17,6 +17,8 @@ logger = logging.getLogger("ptm.pda.v6matcher")
 # « Opéra de mtl » ne trouvait pas le RV « PDA Opera de Montréal » (é ≠ E,
 # MTL ≠ MONTRÉAL) et restait non liée.
 import unicodedata as _ud
+
+from core.acces_piano import retirer_bloc_acces
 _ABREVIATIONS = {"MTL": "MONTREAL"}
 
 
@@ -239,7 +241,8 @@ def _build_search_text(apt):
     return _norm(" ".join([
         apt.get("title") or "",
         apt.get("description") or "",
-        apt.get("notes") or "",
+        # Le bloc d'accès (recopié du mémo du piano) ne prouve pas la salle de la demande
+        retirer_bloc_acces(apt.get("notes") or ""),
         apt.get("location") or "",
     ]))
 

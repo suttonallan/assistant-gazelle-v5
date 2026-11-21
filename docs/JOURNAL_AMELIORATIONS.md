@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 21 novembre
+- **Le code de porte est maintenant dans tous les RV d'institution, peu importe qui les a créés** : avant, il n'était ajouté qu'aux RV créés par l'assistant ou par Ivo (Allan n'avait pas le code de la salle de répétition 1 le 21 nov.). Chaque jour à 6 h et à 21 h, l'assistant ajoute en tête de la note des RV des 7 prochains jours le dernier code connu (tiré du mémo du piano dans Gazelle) avec l'avertissement de le redemander, et le remplace si le mémo change. Le reste de la note n'est jamais touché.
+
 ### 20 novembre
 - **Les demandes Place des Arts ne se détachent plus de leur RV lors d'une panne de Gazelle** : le 19 novembre, pendant le changement de connexion à Gazelle, l'assistant a cru « annulés » des RV pourtant actifs (dont les deux de la 5E, Natasha Kanapé, du 20 nov.) et a détaché les demandes. Désormais, il demande à Gazelle en direct avant de détacher quoi que ce soit ; en cas de doute, il ne touche à rien.
 - **Un RV Place des Arts créé par Ivo se relie tout seul à sa demande** : avant, il portait seulement le titre « Place des Arts » et la demande restait en attente (impossible à terminer). Maintenant, s'il n'y a qu'une demande possible ce jour-là, le RV reçoit le titre habituel (ex. « Place des Arts ONJ (à 18h) ») et la demande est reliée.

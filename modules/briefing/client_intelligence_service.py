@@ -518,7 +518,8 @@ class NarrativeBriefingService:
             # Jean-Duceppe : ajoutée en tête des action items, visible dans Ma Journée.
             if getattr(self, '_pda_access_on', False):
                 from modules.briefing.pda_access_reminder import matches_tm_jd, BRIEFING_ACCESS_NOTE
-                _salle_txt = f"{appt.get('title', '')} {appt.get('description', '')} {piano.get('location', '') or ''}"
+                from core.acces_piano import retirer_bloc_acces
+                _salle_txt = f"{appt.get('title', '')} {retirer_bloc_acces(appt.get('description', '') or '')} {piano.get('location', '') or ''}"
                 if matches_tm_jd(_salle_txt) and BRIEFING_ACCESS_NOTE not in (action_items or []):
                     action_items = [BRIEFING_ACCESS_NOTE] + (action_items or [])
 
