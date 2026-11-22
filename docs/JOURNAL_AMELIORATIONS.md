@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 22 novembre
+- **Nouveau volet « 🔧 Outils » : on sait qui a pris quel outil** : chaque outil partagé (lève-piano, chariots, gros outils de réglage, etc.) reçoit une étiquette QR. On la scanne avec l'appareil photo du téléphone, l'appli s'ouvre sur l'outil et on touche « Je le prends » ou « Je le rapporte à l'atelier ». Le volet montre où est chaque outil et depuis quand ; Allan, Nicolas et Louise peuvent ajouter des outils et télécharger les étiquettes en fichier prêt pour le graveur laser.
+
 ### 21 novembre
 - **Le code de porte est maintenant dans tous les RV d'institution, peu importe qui les a créés** : avant, il n'était ajouté qu'aux RV créés par l'assistant ou par Ivo (Allan n'avait pas le code de la salle de répétition 1 le 21 nov.). Chaque jour à 6 h et à 21 h, l'assistant ajoute en tête de la note des RV des 7 prochains jours le dernier code connu (tiré du mémo du piano dans Gazelle) avec l'avertissement de le redemander, et le remplace si le mémo change. Le reste de la note n'est jamais touché.
 

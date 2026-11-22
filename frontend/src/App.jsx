@@ -21,6 +21,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import TachesDashboard from './components/TachesDashboard' // ✅ Tâches + campagnes
 import ProvenanceReview from './components/ProvenanceReview' // 🧭 « Référé par »
 import DecisionsDashboard from './components/DecisionsDashboard' // 🗳️ Décisions Allan–Nicolas
+import OutilsDashboard, { OutilScan } from './components/OutilsDashboard' // 🔧 Suivi des outils (QR)
 import { getUserRole, ROLES } from './config/roles'
 
 // V7 Imports - Master Template Vincent d'Indy (527 lignes)
@@ -28,6 +29,17 @@ import VDIInventoryWrapper from './components/VDIInventoryWrapper'
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null)
+  // 🔧 Étiquette QR d'un outil scannée : l'adresse contient ?o=<numéro>
+  const [outilScan, setOutilScan] = useState(() => {
+    try { const o = new URLSearchParams(window.location.search).get('o'); return o && /^\d+$/.test(o) ? o : null } catch { return null }
+  })
+  const fermerOutilScan = () => {
+    setOutilScan(null)
+    try {
+      const u = new URL(window.location.href); u.searchParams.delete('o')
+      window.history.replaceState(null, '', u.pathname + u.search + u.hash)
+    } catch {}
+  }
   // Vue courante persistée : un rafraîchissement revient à la section où on était
   // (défaut 'chat' = Ma Journée si rien de sauvegardé).
   const [currentView, setCurrentView] = useState(() => {
@@ -324,6 +336,14 @@ function App() {
       return (
         <ErrorBoundary componentName="Tâches">
           <TachesDashboard currentUser={effectiveUser} role={effectiveRole} />
+        </ErrorBoundary>
+      )
+    }
+    // 🔧 Outils : même vue pour l'équipe permanente
+    if (vue === 'outils' && ['admin', 'nick', 'louise', 'margot', 'jeanphilippe'].includes(roleReel)) {
+      return (
+        <ErrorBoundary componentName="Outils">
+          <OutilsDashboard role={roleReel} />
         </ErrorBoundary>
       )
     }
@@ -650,6 +670,17 @@ function App() {
                       📦 Inventaire
                     </button>
 
+                    <button
+                      onClick={() => setCurrentView('outils')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'outils'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🔧 Outils
+                    </button>
+
                     {/* Chat - Nick */}
                     <button
                       onClick={() => setCurrentView('chat')}
@@ -751,6 +782,17 @@ function App() {
                       📦 Inventaire
                     </button>
 
+                    <button
+                      onClick={() => setCurrentView('outils')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'outils'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🔧 Outils
+                    </button>
+
                     {/* Chat - Jean-Philippe */}
                     <button
                       onClick={() => setCurrentView('chat')}
@@ -849,6 +891,17 @@ function App() {
                       }`}
                     >
                       📦 Inventaire
+                    </button>
+
+                    <button
+                      onClick={() => setCurrentView('outils')}
+                      className={`px-4 py-2 text-sm rounded-lg transition-colors ${
+                        currentView === 'outils'
+                          ? 'bg-blue-100 text-blue-700 font-medium'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      🔧 Outils
                     </button>
 
                     {/* Chat - Louise et Margot */}
@@ -1010,6 +1063,8 @@ function App() {
           ))}
         </div>
       </ErrorBoundary>
+
+      {outilScan && <OutilScan oid={outilScan} role={roleReel} onFermer={fermerOutilScan} />}
 
       {/* Chat Intelligent Widget - Remplace l'ancien assistant v4 */}
       <AssistantWidget
