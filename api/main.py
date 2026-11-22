@@ -54,6 +54,11 @@ try:  # 🗳️ Décisions Allan–Nicolas — isolé comme les Tâches
 except Exception as _e_decisions:
     print(f"⚠️ Module Décisions désactivé (erreur au chargement) : {_e_decisions}")
     decisions_router = None
+try:  # 🔧 Suivi des outils (QR) — isolé comme les Tâches
+    from api.outils_routes import router as outils_suivi_router, router_court as outils_court_router
+except Exception as _e_outils:
+    print(f"⚠️ Module Outils désactivé (erreur au chargement) : {_e_outils}")
+    outils_suivi_router = outils_court_router = None
 from api.place_des_arts import router as place_des_arts_router
 from api.reports import router as reports_router
 from api.chat_routes import router as chat_router
@@ -266,6 +271,9 @@ if taches_router:
     app.include_router(taches_router)  # ✅ Tâches
 if decisions_router:
     app.include_router(decisions_router)  # 🗳️ Décisions
+if outils_suivi_router:
+    app.include_router(outils_suivi_router)  # 🔧 Outils
+    app.include_router(outils_court_router)  # 🔧 /o/<n> (étiquettes QR)
 app.include_router(auth_router)  # 🔒 Connexion PIN
 app.include_router(place_des_arts_router)
 app.include_router(reports_router)
@@ -307,6 +315,8 @@ if taches_router:
     app.include_router(taches_router, prefix="/api")  # ✅ Tâches
 if decisions_router:
     app.include_router(decisions_router, prefix="/api")  # 🗳️ Décisions
+if outils_suivi_router:
+    app.include_router(outils_suivi_router, prefix="/api")  # 🔧 Outils
 app.include_router(auth_router, prefix="/api")  # 🔒 Connexion PIN
 app.include_router(place_des_arts_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")

@@ -44,6 +44,7 @@ CHEMINS_OUVERTS = (
     "/gazelle/jeton-etat",  # nature du jeton seulement, jamais sa valeur
     "/gazelle/connecter",  # simple renvoi vers la page d'autorisation de Gazelle
     "/health",
+    "/o/",  # étiquettes QR des outils : simple renvoi vers l'appli, aucune donnée
     "/api/chat-public/rappel",  # protégé par son propre jeton (X-Chat-Secret)
     "/chat-public/rappel",
     # Réservation en ligne (ptm-reservation) : chaque route vérifie elle-même
