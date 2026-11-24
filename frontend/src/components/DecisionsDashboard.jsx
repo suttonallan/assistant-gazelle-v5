@@ -58,7 +58,7 @@ function AvantApres({ avant, apres }) {
   )
 }
 
-function Point({ d, num, moi, onVote, onNote, enCours }) {
+function Point({ d, num, moi, onVote, onNote, onSeul, enCours }) {
   const votants = d.votants || []
   const monVote = d.votes?.[moi]?.s || ''
   const [note, setNote] = useState(d.votes?.[moi]?.note || '')
@@ -78,6 +78,10 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
   const attente = !fait && (d.statut === 'en_attente' || d.statut === 'a_discuter') ? joursDepuis(d.created_at) : null
   const enRetard = attente !== null && attente >= RETARD_JOURS
   const autres = votants.filter((p) => p !== moi)
+  // Allan peut toujours trancher seul un point qui attend Nicolas (contrôle total) ; la décision reste à son nom.
+  const peutTrancherSeul = moi === 'allan' && peutVoter && votants.includes('nicolas') && d.type !== 'revision_wp'
+    && (d.statut === 'en_attente' || d.statut === 'a_discuter')
+  const [confirmeSeul, setConfirmeSeul] = useState(false)
 
   const changerNote = (v) => {
     tape.current = true
@@ -158,6 +162,27 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
           ))}
         </div>
       ) : <div className="hidden md:block" />}
+      {peutTrancherSeul && (
+        <div className="col-start-2 md:col-span-2 text-[12.5px]">
+          {!confirmeSeul ? (
+            <button type="button" disabled={enCours} onClick={() => setConfirmeSeul(true)}
+              className="font-semibold underline disabled:opacity-50" style={{ color: '#b8860b' }}>
+              Trancher seul, sans attendre Nicolas
+            </button>
+          ) : (
+            <span className="inline-flex flex-wrap items-center gap-2">
+              <span className="text-gray-700">
+                {monVote ? 'Ton vote devient la décision finale.' : 'Ensuite, ton vote seul décidera.'} Nicolas ne votera plus sur ce point.
+              </span>
+              <button type="button" disabled={enCours} onClick={() => { setConfirmeSeul(false); onSeul(d) }}
+                className="font-semibold text-white px-2.5 py-1 rounded-md disabled:opacity-50" style={{ background: '#b8860b' }}>
+                Confirmer
+              </button>
+              <button type="button" onClick={() => setConfirmeSeul(false)} className="text-gray-500 underline">Annuler</button>
+            </span>
+          )}
+        </div>
+      )}
       {peutVoter && (
         <div className="col-start-2 md:col-span-2">
           <textarea rows={1} value={note} onChange={(e) => changerNote(e.target.value)}
@@ -216,6 +241,24 @@ export default function DecisionsDashboard({ currentUser }) {
       setEtat('Enregistré.')
     } catch (e) {
       setEtat(`Échec de l'enregistrement : ${e.message || e}. Réessaie.`)
+    } finally {
+      setEnCours(null)
+    }
+  }
+
+  // « Trancher seul » : Allan devient le seul votant du point ; son vote (s'il y en a un) décide aussitôt.
+  const trancherSeul = async (d) => {
+    setEnCours(d.id)
+    try {
+      const r = await fetch(`${API_URL}/api/decisions/${d.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ votants: ['allan'] }),
+      })
+      if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.detail || `Erreur ${r.status}`)
+      const maj = await r.json()
+      setListe((l) => l.map((x) => (x.id === d.id ? { ...x, ...maj } : x)))
+      setEtat(maj.statut === 'approuvee' || maj.statut === 'refusee' ? 'Tranché par toi seul.' : 'À toi seul de trancher ce point : choisis Approuver, À discuter ou Refuser.')
+    } catch (e) {
+      setEtat(`Échec : ${e.message || e}. Réessaie.`)
     } finally {
       setEnCours(null)
     }
@@ -306,7 +349,8 @@ export default function DecisionsDashboard({ currentUser }) {
                 return (
                   <Point key={d.id} d={d} num={num} moi={moi} enCours={enCours === d.id}
                     onVote={(x, s2) => envoyer(x, { s: s2 })}
-                    onNote={(x, n) => envoyer(x, { note: n })} />
+                    onNote={(x, n) => envoyer(x, { note: n })}
+                    onSeul={trancherSeul} />
                 )
               })}
             </div>
