@@ -154,9 +154,6 @@ def check_pda_parking(storage) -> list:
                 + (f", statut {a.get('status')}" if a.get("status") not in (None, "ACTIVE", "COMPLETE", "COMPLETED") else ""))
         demandes[cle].append(f"{(r.get('appointment_date') or '')[:10]} {r.get('room') or ''} « {r.get('for_who') or ''} » "
                              f"{_norm_amount(r.get('parking'))} $ — {lien}")
-    if not rapporte:
-        return anomalies
-
     for (jour, tech), total_rapporte in sorted(rapporte.items()):
         debut, fin = bornes_journee_utc(jour)
         cl = sorted(clients[(jour, tech)] | {PDA})
@@ -215,6 +212,48 @@ def check_pda_parking(storage) -> list:
                            + (f"Notes comptées : " + " / ".join(comptees) + ". " if comptees else "")
                            + f"Demande(s) : " + " | ".join(demandes[(jour, tech)])),
             })
+
+    # Sens inverse (oubli du 20 et du 21 nov. 2026) : un « stat » écrit par un
+    # technicien dans une note PdA alors que RIEN n'est rapporté ce jour-là pour
+    # lui. La boucle ci-dessus ne voit que les journées déjà rapportées.
+    try:
+        from zoneinfo import ZoneInfo
+        from config.techniciens_config import GAZELLE_IDS
+        mtl = ZoneInfo("America/Montreal")
+        aujourd_hui = datetime.now(mtl).strftime("%Y-%m-%d")
+        debut_fenetre, _ = bornes_journee_utc(since)
+        fin_fenetre, _ = bornes_journee_utc(aujourd_hui)  # la journée en cours n'est pas encore synchronisée
+        notes = http.get(f"{api}/gazelle_timeline_entries",
+                         params=[("client_id", f"eq.{PDA}"), ("occurred_at", f"gte.{debut_fenetre}"),
+                                 ("occurred_at", f"lt.{fin_fenetre}"),
+                                 ("entry_type", "in.(SERVICE_ENTRY_MANUAL,SERVICE_ENTRY_AUTOMATED)"),
+                                 ("select", "occurred_at,user_id,title,description")],
+                         headers=H, timeout=20).json()
+        oublis = defaultdict(list)
+        for n in notes if isinstance(notes, list) else []:
+            tech = n.get("user_id")
+            if tech not in GAZELLE_IDS:
+                continue
+            texte = " ".join(x for x in (n.get("title"), n.get("description")) if x)
+            m = extract_parking_amount(n.get("title") or "") or extract_parking_amount(n.get("description") or "")
+            if not m:
+                continue
+            quand = datetime.fromisoformat(str(n.get("occurred_at")).replace("Z", "+00:00"))
+            jour = quand.astimezone(mtl).strftime("%Y-%m-%d")
+            if (jour, tech) not in rapporte:
+                oublis[(jour, tech)].append(f"{float(m):.2f} $ dans « {texte.replace(chr(10), ' ').strip()[:80]} »")
+        for (jour, tech), lus in sorted(oublis.items()):
+            anomalies.append({
+                "check": "pda_parking", "severity": "warning",
+                "title": f"Stationnement non reporté — {jour}",
+                "detail": ("« stat » écrit dans la note de service, mais aucun stationnement reporté "
+                           "sur les demandes PdA de ce jour-là : " + " / ".join(lus)
+                           + ". À entrer dans la colonne Stationnement de la demande."),
+            })
+    except Exception as e:
+        anomalies.append({"check": "pda_parking", "severity": "info",
+                          "title": "Vérification stationnement (sens inverse) impossible",
+                          "detail": str(e)[:200]})
     return anomalies
 
     apt_ids = [r["appointment_id"] for r in reqs if r.get("appointment_id")]

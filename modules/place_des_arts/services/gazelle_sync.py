@@ -442,6 +442,33 @@ class GazelleSyncService:
                             print(f"   {completed_count} demande(s) marquée(s) comme complétée(s)")
                         print()
 
+                # 5. Rattrapage du stationnement : une demande déjà COMPLETED n'est plus
+                # revue ci-dessus. Si la note « stat » arrive dans le système après la
+                # fermeture du RV, le montant n'était jamais repris (oubli du 20 et du
+                # 21 nov. 2026). On relit les demandes complétées récentes (pas celles
+                # déjà facturées) dont le stationnement est vide.
+                try:
+                    rv_par_id = {apt.get('external_id'): apt for apt in gazelle_appointments}
+                    depuis = (datetime.now() - timedelta(days=14)).strftime('%Y-%m-%d')
+                    a_revoir = self.storage.client.table('place_des_arts_requests')\
+                        .select('id,appointment_id,appointment_date,room')\
+                        .eq('status', 'COMPLETED').is_('parking', 'null')\
+                        .not_.is_('appointment_id', 'null')\
+                        .gte('appointment_date', depuis).execute().data or []
+                    for req in a_revoir:
+                        apt = rv_par_id.get(req.get('appointment_id'))
+                        if not apt:
+                            continue
+                        montant = self._extract_parking_from_appointment(apt, request_id=req.get('id'))
+                        if montant:
+                            print(f"   Stationnement rattrapé : {montant} $ — {(req.get('appointment_date') or '')[:10]} {req.get('room') or ''}")
+                            if not dry_run:
+                                self.storage.client.table('place_des_arts_requests').update({
+                                    'parking': montant, 'updated_at': datetime.now().isoformat()
+                                }).eq('id', req['id']).execute()
+                except Exception as e:
+                    logger.warning(f"Rattrapage stationnement impossible: {e}")
+
             print(f"\n{'='*70}")
             print(f"📊 RÉSULTAT SYNCHRONISATION")
             print(f"{'='*70}")
