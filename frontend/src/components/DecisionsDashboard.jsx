@@ -126,6 +126,11 @@ function Point({ d, num, moi, onVote, onNote, enCours }) {
             Ouvrir dans WordPress{d.rid ? ` (révision ${d.rid})` : ''} ↗
           </a>
         )}
+        {d.type === 'revision_wp' && d.rid && !fait && (
+          <p className="mt-1.5 text-[12.5px] text-stone-500">
+            Approuver publie la modification sur le site, à ton nom. Refuser la supprime (ta note sert de raison).
+          </p>
+        )}
         {/* Votes de l'autre personne */}
         {autres.map((p) => {
           const v = d.votes?.[p]

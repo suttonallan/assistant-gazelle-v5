@@ -16,7 +16,10 @@ Accès : Allan et Nicolas (jeton signé). Claude dépose les points et lit les
 résultats par l'API ; seul un jeton de personne peut voter (on vote en son nom).
 """
 import logging
+import os
+import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -165,6 +168,7 @@ class PointIn(BaseModel):
     cle_source: Optional[str] = None
     depuis: Optional[str] = None  # AAAA-MM-JJ
     mineur: Optional[bool] = None  # coquille : montré seulement à qui tranche
+    wp_version: Optional[str] = None  # révision WordPress : empreinte lue avec l'avant/après
 
 
 def _ligne(p: PointIn, qui: Optional[str]) -> Dict[str, Any]:
@@ -206,6 +210,106 @@ def creer(points: List[PointIn], request: Request):
     return {"crees": len(crees), "ignores": len(lignes) - len(nouvelles), "decisions": crees}
 
 
+# ─── Révisions WordPress : approuver / refuser directement dans WordPress ──
+#
+# Routes de Coloc (doc « ptm-api-agent.md », section 6) :
+#   GET  /ptm/v1/revisions/{id}            → version, modified, live_url…
+#   POST /ptm/v1/revisions/{id}/approve    { version }
+#   POST /ptm/v1/revisions/{id}/decline    { version, raison }
+# Authentification : mot de passe d'application « Tableau de bord » de la personne
+# qui clique (variables Render WP_DASH_ALLAN, WP_DASH_NICOLAS). L'approbation est
+# inscrite dans WordPress au nom de ce compte. Une seule approbation suffit.
+
+WP_API = "https://pianotechniquemontreal.com/wp-json/ptm/v1"
+_WP_LOGIN = {"allan": "allan", "nicolas": "nicolas"}  # identifiants WordPress (comptes 2 et 3)
+_dernier_appel_wp = [0.0]
+
+
+def _wp(methode: str, chemin: str, qui: str, data: Optional[Dict[str, Any]] = None) -> requests.Response:
+    mdp = os.getenv(f"WP_DASH_{qui.upper()}", "").strip()
+    if not mdp:
+        raise HTTPException(503, f"Mot de passe « Tableau de bord » de {PERSONNES[qui]} absent du serveur (variable WP_DASH_{qui.upper()} dans Render).")
+    login = os.getenv(f"WP_DASH_{qui.upper()}_USER", "").strip() or _WP_LOGIN[qui]
+    for essai in range(2):
+        attente = 1.1 - (time.time() - _dernier_appel_wp[0])  # une requête par seconde
+        if attente > 0:
+            time.sleep(attente)
+        _dernier_appel_wp[0] = time.time()
+        r = requests.request(methode, f"{WP_API}{chemin}", auth=(login, mdp), data=data, timeout=30)
+        if r.status_code == 429 and essai == 0:
+            time.sleep(min(float(r.headers.get("Retry-After", "2") or 2), 10))
+            continue
+        return r
+    return r
+
+
+def _wp_erreur(r: requests.Response) -> Dict[str, Any]:
+    try:
+        return r.json() or {}
+    except ValueError:
+        return {"message": r.text[:200]}
+
+
+def _modifiee_apres(modified: Optional[str], depot: Optional[str]) -> bool:
+    """La révision a-t-elle été modifiée après le dépôt du point (et donc de l'avant/après) ?
+    `modified` de WordPress est à l'heure du site (Montréal), sans fuseau."""
+    if not modified or not depot:
+        return True  # dans le doute, on ne publie pas
+    try:
+        m = datetime.fromisoformat(modified)
+        if m.tzinfo is None:
+            m = m.replace(tzinfo=ZoneInfo("America/Montreal"))
+        c = datetime.fromisoformat(depot.replace("Z", "+00:00"))
+        return m > c
+    except ValueError:
+        return True
+
+
+def _appliquer_dans_wordpress(d: Dict[str, Any], qui: str, choix: str, note: str) -> Dict[str, Any]:
+    """Approuve (choix ok) ou refuse (choix no) la révision dans WordPress. Retourne les
+    champs à enregistrer sur le point ; lève une HTTPException si rien n'a été fait."""
+    rid = d.get("rid")
+    if not rid:
+        raise HTTPException(400, "Ce point n'a pas de numéro de révision WordPress : utilise « Ouvrir dans WordPress ».")
+    r = _wp("GET", f"/revisions/{rid}", qui)
+    if r.status_code == 404:
+        raise HTTPException(409, "Cette proposition n'existe plus dans WordPress (déjà approuvée, refusée ou remplacée). Rien n'a été fait.")
+    if r.status_code in (401, 403):
+        e = _wp_erreur(r)
+        raise HTTPException(502, f"WordPress refuse le mot de passe « Tableau de bord » de {PERSONNES[qui]} ({e.get('code', r.status_code)}).")
+    if r.status_code >= 400:
+        raise HTTPException(502, f"WordPress {r.status_code} : {_wp_erreur(r).get('message', '')}")
+    live = r.json()
+    version = live.get("version")
+    attendue = d.get("wp_version")
+    if attendue:
+        if attendue != version:
+            raise HTTPException(409, "L'agent a modifié cette proposition depuis l'avant/après affiché. Rien n'a été fait : ouvre-la dans WordPress pour voir la version à jour.")
+    elif _modifiee_apres(live.get("modified"), d.get("created_at")):
+        raise HTTPException(409, "La proposition a été modifiée dans WordPress depuis l'avant/après affiché. Rien n'a été fait : ouvre-la dans WordPress.")
+    if choix == "ok":
+        r = _wp("POST", f"/revisions/{rid}/approve", qui, {"version": version})
+    else:
+        r = _wp("POST", f"/revisions/{rid}/decline", qui, {"version": version, "raison": (note or "")[:2000]})
+    if r.status_code == 409:
+        raise HTTPException(409, "L'agent vient de modifier cette proposition. Rien n'a été fait : ouvre-la dans WordPress pour voir la version à jour.")
+    if r.status_code >= 400:
+        e = _wp_erreur(r)
+        raise HTTPException(502, f"WordPress {r.status_code} ({e.get('code', '')}) : {e.get('message', '')} Rien n'a été fait.")
+    res = r.json()
+    maintenant = _maintenant()
+    if choix == "ok":
+        par = res.get("approved_by") or PERSONNES[qui]
+        suite = f"Approuvée et publiée dans WordPress par {par}." + (f" En ligne : {res.get('live_url') or live.get('live_url')}" if (res.get('live_url') or live.get('live_url')) else "")
+        statut = "approuvee"
+    else:
+        par = res.get("declined_by") or PERSONNES[qui]
+        suite = f"Refusée dans WordPress par {par} : la proposition de l'agent est supprimée (journal Révisions → Refus de l'agent)."
+        statut = "refusee"
+    _log.info("Décisions : révision WP %s %s par %s", rid, statut, qui)
+    return {"statut": statut, "decidee_le": maintenant, "realisee_le": maintenant, "suite": suite, "wp_version": version}
+
+
 # ─── Vote ────────────────────────────────────────────────────────
 
 class VoteIn(BaseModel):
@@ -231,6 +335,15 @@ def voter(did: str, v: VoteIn, request: Request):
         mien["note"] = v.note[:4000]
     mien["at"] = _maintenant()
     votes[qui] = mien
+    # Révision WordPress : un seul clic (Allan ou Nicolas) l'applique dans WordPress,
+    # au nom de la personne qui clique. Si WordPress refuse, le vote n'est pas enregistré.
+    if (d.get("type") == "revision_wp" and v.s in ("ok", "no") and not d.get("realisee_le")
+            and d.get("statut") not in ("approuvee", "refusee")):
+        maj = _appliquer_dans_wordpress(d, qui, v.s, mien.get("note") or "")
+        maj.update(votes=votes, updated_at=_maintenant())
+        rows = _check(requests.patch(_url(f"?id=eq.{did}"), headers=_h({"Prefer": "return=representation"}),
+                                     json=maj, timeout=15)) or []
+        return rows[0] if rows else {**d, **maj}
     statut = statut_de(votes, d.get("votants") or [])
     maj = {"votes": votes, "statut": statut, "updated_at": _maintenant()}
     if statut in ("approuvee", "refusee"):

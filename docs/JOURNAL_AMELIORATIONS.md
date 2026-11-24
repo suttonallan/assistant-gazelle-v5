@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 23 novembre
+- **Les révisions du site s'approuvent ou se refusent directement dans le volet Décisions** : un clic « Approuver » publie la proposition de l'agent sur le site, inscrite dans WordPress au nom de la personne qui clique (Allan ou Nicolas, une seule approbation suffit) ; « Refuser » la supprime, avec la note comme raison. Si l'agent a modifié la proposition depuis l'avant/après affiché, rien n'est fait et le volet le dit.
+
 ### 21 novembre
 - **Le code de porte est maintenant dans tous les RV d'institution, peu importe qui les a créés** : avant, il n'était ajouté qu'aux RV créés par l'assistant ou par Ivo (Allan n'avait pas le code de la salle de répétition 1 le 21 nov.). Chaque jour à 6 h et à 21 h, l'assistant ajoute en tête de la note des RV des 7 prochains jours le dernier code connu (tiré du mémo du piano dans Gazelle) avec l'avertissement de le redemander, et le remplace si le mémo change. Le reste de la note n'est jamais touché.
 
