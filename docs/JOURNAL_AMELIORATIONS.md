@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 24 novembre
+- **Boutique de la réservation en ligne : coupelles** : la fiche dit maintenant « feutre noir dessous » (« black felt underneath » en anglais), conforme aux coupelles réellement vendues ; elle disait « feutre vert ». La page affiche aussi une petite photo de chaque produit (ensemble Cory, traitement Piano Life Saver, coupelles noires et en bois).
+
 ### 23 novembre
 - **Les révisions du site s'approuvent ou se refusent directement dans le volet Décisions** : un clic « Approuver » publie la proposition de l'agent sur le site, inscrite dans WordPress au nom de la personne qui clique (Allan ou Nicolas, une seule approbation suffit) ; « Refuser » la supprime, avec la note comme raison. Si l'agent a modifié la proposition depuis l'avant/après affiché, rien n'est fait et le volet le dit.
 
