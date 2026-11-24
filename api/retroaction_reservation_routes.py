@@ -168,6 +168,45 @@ def client_pour_reservation(c: ClientReservation, x_reservation_secret: Optional
     return {"client_id": cid, "existant": False}
 
 
+class RetrouverClient(BaseModel):
+    identifiant: str = Field(..., min_length=6, max_length=200)  # courriel ou téléphone
+    code_postal: str = Field(..., min_length=6, max_length=12)
+
+
+@router.post("/client/retrouver")
+def retrouver_client(r: RetrouverClient, x_reservation_secret: Optional[str] = Header(None)):
+    """Case « Déjà client ? » de la réservation en ligne : retrouve une fiche EXISTANTE
+    par courriel ou téléphone, SEULEMENT si le code postal du dossier correspond aussi
+    (même protection que le lien personnel). Ne crée jamais de fiche."""
+    _verifier_jeton(x_reservation_secret)
+    ident = r.identifiant.strip()
+    cp = _cp(r.code_postal)
+    courriel = ident.lower() if "@" in ident else ""
+    tel = "" if courriel else _chiffres(ident)
+    if not (courriel or len(tel) == 10) or len(cp) != 6:
+        return {"client_id": None}
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """query($s: String) { allClients(first: 10, filters: {search: $s}) { nodes { id
+      defaultContact { defaultEmail { email } defaultPhone { phoneNumber }
+        defaultLocation { postalCode } } } } }"""
+    try:
+        res = GazelleAPIClient()._execute_query(q, {"s": courriel or tel})
+    except Exception as e:
+        _log.warning("Recherche « Déjà client ? » : %s", e)
+        return {"client_id": None}
+    trouves = []
+    for n in (((res.get("data") or {}).get("allClients") or {}).get("nodes") or []):
+        ct = n.get("defaultContact") or {}
+        if _cp((ct.get("defaultLocation") or {}).get("postalCode")) != cp:
+            continue
+        if courriel and ((ct.get("defaultEmail") or {}).get("email") or "").strip().lower() == courriel:
+            trouves.append(n["id"])
+        elif tel and _chiffres((ct.get("defaultPhone") or {}).get("phoneNumber") or "") == tel:
+            trouves.append(n["id"])
+    # Deux fiches possibles (doublon) : on ne choisit pas au hasard, la réservation continue normalement.
+    return {"client_id": trouves[0] if len(trouves) == 1 else None}
+
+
 class NoteReservation(BaseModel):
     client_id: str = Field(..., pattern=r"^cli_[A-Za-z0-9]{6,40}$")
     texte: str = Field(..., max_length=3000)

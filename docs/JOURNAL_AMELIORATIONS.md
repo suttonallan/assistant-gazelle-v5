@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 24 novembre
+- **Réservation en ligne : « Déjà client ? » dès la première étape** : un client qui arrive par le site (sans son lien personnel) peut inscrire son courriel ou son téléphone ; si le code postal correspond aussi à sa fiche Gazelle, la page le salue par son prénom, propose ses pianos et remplit ses coordonnées. Sans correspondance exacte, rien n'est montré et la réservation continue comme avant ; aucune fiche n'est créée à cette étape.
 - **Stationnement Place des Arts jamais oublié** : quand la note « stat » arrive après la fermeture du rendez-vous, l'assistant reprend maintenant le montant au passage suivant (14 derniers jours, jamais sur une demande déjà facturée). Le vérificateur du matin signale aussi un « stat » écrit dans une note sans montant reporté ; avant, il ne vérifiait que les journées où un montant était déjà entré (oubli du 20 et du 21 novembre, corrigé à la main).
 - **Boutique de la réservation en ligne : coupelles** : la fiche dit maintenant « feutre noir dessous » (« black felt underneath » en anglais), conforme aux coupelles réellement vendues ; elle disait « feutre vert ». La page affiche aussi une petite photo de chaque produit (ensemble Cory, traitement Piano Life Saver, coupelles noires et en bois).
 
