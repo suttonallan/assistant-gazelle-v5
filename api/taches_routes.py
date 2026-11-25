@@ -2325,7 +2325,7 @@ def supprimer_note_evenement(eid: str):
 
 
 @router.get("/gazelle/champs-battement")
-def champs_battement():
+def champs_battement(motif: str = Query("buffer", max_length=40)):
     """LECTURE SEULE — où Gazelle expose le battement (buffer) : champs du schéma dont le nom
     contient « buffer », pour appliquer aux RV créés par l'assistant le même réglage que Gazelle."""
     from core.gazelle_api_client import GazelleAPIClient
@@ -2336,7 +2336,7 @@ def champs_battement():
     for t in (((res or {}).get("data") or {}).get("__schema") or {}).get("types") or []:
         for genre in ("fields", "inputFields"):
             for f in t.get(genre) or []:
-                if "buffer" in (f.get("name") or "").lower():
+                if motif.lower() in (f.get("name") or "").lower() or motif.lower() in (t.get("name") or "").lower():
                     ty = f.get("type") or {}
                     sortie.append({"type": t["name"], "champ": f["name"],
                                    "valeur": ty.get("name") or (ty.get("ofType") or {}).get("name")})
