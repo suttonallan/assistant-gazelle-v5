@@ -2329,8 +2329,9 @@ def champs_battement(motif: str = Query("buffer", max_length=40)):
     """LECTURE SEULE — où Gazelle expose le battement (buffer) : champs du schéma dont le nom
     contient « buffer », pour appliquer aux RV créés par l'assistant le même réglage que Gazelle."""
     from core.gazelle_api_client import GazelleAPIClient
-    q = """{ __schema { types { name fields { name type { name kind ofType { name } } }
-              inputFields { name type { name kind ofType { name } } } } } }"""
+    q = """{ __schema { types { name fields { name args { name type { name kind ofType { name kind ofType { name ofType { name } } } } }
+              type { name kind ofType { name kind ofType { name ofType { name } } } } }
+              inputFields { name type { name kind ofType { name kind ofType { name ofType { name } } } } } } } }"""
     res = GazelleAPIClient()._execute_query(q, {})
     sortie = []
     for t in (((res or {}).get("data") or {}).get("__schema") or {}).get("types") or []:
@@ -2338,8 +2339,12 @@ def champs_battement(motif: str = Query("buffer", max_length=40)):
             for f in t.get(genre) or []:
                 if motif.lower() in (f.get("name") or "").lower() or motif.lower() in (t.get("name") or "").lower():
                     ty = f.get("type") or {}
-                    sortie.append({"type": t["name"], "champ": f["name"],
-                                   "valeur": ty.get("name") or (ty.get("ofType") or {}).get("name")})
+                    def nom(x):
+                        while x and not x.get("name"):
+                            x = x.get("ofType")
+                        return (x or {}).get("name")
+                    sortie.append({"type": t["name"], "champ": f["name"], "valeur": nom(ty),
+                                   "args": {a["name"]: nom(a.get("type")) for a in (f.get("args") or [])}})
     gz = GazelleAPIClient()
     _BATTEMENTS["le"] = 0.0
     battement_gazelle(gz, "usr_ofYggsCDt2JAVeNP")
