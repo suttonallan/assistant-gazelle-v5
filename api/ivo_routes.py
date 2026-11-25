@@ -189,6 +189,7 @@ Brouillon au client : langue du client, vouvoiement, pas de signature dans le co
 Principe premier : VÉRIFIE AVANT D'AFFIRMER. Tes outils lisent Gazelle et Front en direct ; ta mémoire et le cahier ne remplacent jamais une vérification. N'écris jamais qu'une information manque, qu'elle est inconnue ou qu'une chose est impossible sans avoir d'abord appelé l'outil qui la donne ; si un outil renvoie un résultat étrange, dis exactement ce qu'il a renvoyé au lieu de généraliser.
 
 Horaire : appelle « consulter_horaire » pour les dates en jeu (avec « secteur » = ville, quartier ou début de code postal du client et des villes voisines quand la géographie compte). Il donne chaque RV avec sa ville et son code postal, les RV déjà prévus dans le secteur (à jumeler) et les plages libres de chaque technicien. « Occupé » = bloc personnel, dont tu ne mentionnes jamais la nature. Raisonne sur la géographie et la route, propose concrètement qui, quel jour et à quelle heure, et dis quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot.
+Heure précise pour un client : « consulter_horaire » donne une vue d'ensemble (sans la route). Avant de proposer ou de créer une heure précise pour un client, appelle « chercher_plages_gazelle » : c'est le moteur de Gazelle lui-même (route et trafic, secteurs, heures de travail, pauses, battement, plages préférées). Propose seulement des plages qu'il a rendues, en commençant par les plages préférées, et passe son recherche_id à « creer_rendez_vous ». Une recherche coûte à Gazelle : une seule par demande, jamais pour « voir » ni en boucle ; s'il ne rend rien, dis-le et propose une autre date ou un autre technicien plutôt que de relancer sans fin.
 Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ».
 
 Actions :
@@ -480,6 +481,44 @@ def _brouillon_nouveau_courriel(arg: Dict[str, Any]) -> str:
     return f"Brouillon créé dans {adresse} pour {a} (non envoyé).{lien}"
 
 
+def _chercher_plages_gazelle(arg: Dict[str, Any]) -> str:
+    """Outil d'Ivo : une recherche du moteur de Gazelle, résumée pour l'équipe."""
+    from datetime import datetime
+    from core.gazelle_api_client import GazelleAPIClient
+    from core.recherche_gazelle import chercher_plages, RechercheRefusee
+    from core.timezone_utils import MONTREAL_TZ
+    techs = [t for t in (arg.get("techniciens") or ["Nicolas", "JP", "Margot"]) if t in _TECHS]
+    if not techs:
+        return "Technicien inconnu (Nicolas, JP ou Margot)."
+    try:
+        r = chercher_plages(GazelleAPIClient(), arg["date"], int(arg.get("duree_min") or 0) or 60,
+                            [_TECHS[t] for t in techs], client_id=arg.get("client_id"), adresse=arg.get("adresse"))
+    except RechercheRefusee as e:
+        return str(e)
+    except Exception as e:
+        _log.warning("Ivo : recherche Gazelle impossible : %s", e)
+        return f"La recherche Gazelle a échoué ({e}). Ne devine pas d'heure : dis-le à l'équipe."
+    noms = {v: k for k, v in _TECHS.items()}
+    lignes = []
+    for sl in r["plages"][:25]:
+        try:
+            d = datetime.fromisoformat(sl["startsAt"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
+        except Exception:
+            continue
+        extra = [f"route {sl.get('beforeTravelMinutes') or 0} min avant"]
+        if sl.get("isAPreferredSlot"):
+            extra.insert(0, "plage préférée")
+        if sl.get("outsideServiceAreaMinutes"):
+            extra.append(f"hors secteur ({sl['outsideServiceAreaMinutes']} min)")
+        lignes.append(f"{d:%Y-%m-%d %a %H:%M} — {noms.get(sl.get('technicianId'), sl.get('technicianId'))} "
+                      f"({', '.join(extra)})")
+    if not lignes:
+        return ("Gazelle ne trouve aucune plage autour de cette date pour " + ", ".join(techs) +
+                ". Propose une autre date ou un autre technicien." +
+                (f" Avertissements : {r['avertissements']}" if r["avertissements"] else ""))
+    return (f"PLAGES DE GAZELLE (recherche_id {r['search_id']}, heure de Montréal) :\n" + "\n".join(lignes))
+
+
 def _creer_rv_direct(arg: Dict[str, Any]) -> str:
     from datetime import datetime, timedelta
     from core.timezone_utils import MONTREAL_TZ
@@ -539,7 +578,8 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
         res = creer_rendez_vous(RendezVousIn(
             client_id=arg["client_id"], user_id=uid, debut_montreal=debut.strftime("%Y-%m-%dT%H:%M"),
             duree_min=duree, notes=arg.get("notes"), piano_ids=arg.get("piano_ids") or [],
-            lieu=arg.get("lieu"), par=f"Ivo (assistant IA) à la demande de {prenom}"))
+            lieu=arg.get("lieu"), par=f"Ivo (assistant IA) à la demande de {prenom}",
+            recherche_id=arg.get("recherche_id")))
     except Exception as e:
         return f"Gazelle a refusé le RV : {getattr(e, 'detail', e)}"
     ev = res.get("evenement") or {}
@@ -822,6 +862,8 @@ def _executer_outil(nom: str, arg: Dict[str, Any]) -> str:
             return _transmettre_a_claude(arg)
         if nom == "creer_rendez_vous":
             return _creer_rv_direct(arg)
+        if nom == "chercher_plages_gazelle":
+            return _chercher_plages_gazelle(arg)
         if nom == "convertir_bloc_en_rv":
             from api.taches_routes import convertir_bloc_en_rv, ConversionBlocIn
             prenom = (_CTX.get() or {}).get("prenom") or "l'équipe"
@@ -1021,7 +1063,20 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "notes": {"type": "string", "description": "Notes pour le technicien : service, prix connu, qui facturer, adresse, contacts, points à vérifier."},
              "piano_ids": {"type": "array", "items": {"type": "string"}},
              "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."},
+             "recherche_id": {"type": ["string", "null"], "description": "recherche_id rendu par chercher_plages_gazelle, si l'heure vient de là."},
              "hors_horaire": {"type": "boolean", "description": "Seulement si l'équipe a confirmé une exception aux heures de travail du technicien dans Gazelle."}}}},
+        {"name": "chercher_plages_gazelle",
+         "description": ("Plages libres calculées par le MOTEUR DE GAZELLE (comme « Trouver une plage » dans Gazelle) : "
+                         "route et trafic depuis le RV précédent, secteurs, heures de travail, pauses, battement, plages "
+                         "préférées. À appeler avant de proposer ou de créer une heure précise pour un client. Coûte une "
+                         "recherche à Gazelle : une seule par demande de l'équipe."),
+         "input_schema": {"type": "object", "required": ["date", "duree_min"], "properties": {
+             "client_id": {"type": ["string", "null"], "description": "Fiche du client (Gazelle prend son adresse)"},
+             "adresse": {"type": ["string", "null"], "description": "Adresse sur une ligne, si pas de fiche ou autre adresse"},
+             "date": {"type": "string", "description": "AAAA-MM-JJ : date visée ; Gazelle cherche autour"},
+             "duree_min": {"type": "integer"},
+             "techniciens": {"type": ["array", "null"], "items": {"type": "string", "enum": ["Nicolas", "JP", "Margot"]},
+                             "description": "Par défaut Nicolas, JP et Margot."}}}},
         {"name": "convertir_bloc_en_rv",
          "description": ("Transforme un bloc PERSONNEL déjà à l'horaire d'un technicien (ex. « accorder fazioli à la maison "
                          "trestler ») en vrai RV client, à la même heure et pour la même durée, avec le piano. Le bloc est "

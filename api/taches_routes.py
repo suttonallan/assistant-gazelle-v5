@@ -1537,6 +1537,7 @@ class RendezVousIn(BaseModel):
     # l'équipe relit le RV puis l'envoie (POST /gazelle/rendez-vous/{eid}/confirmation).
     confirmation_client: bool = False
     par: Optional[str] = "Ivo (assistant IA) à la demande d'Allan"  # mention en tête des notes du RV
+    recherche_id: Optional[str] = None  # schedulerV2SearchId : RV pris dans une recherche du moteur de Gazelle
 
 
 from core.provenance_client import (RAPPEL_PROVENANCE as RAPPEL_NOUVEAU_CLIENT, RAPPEL_PROVENANCE_EXISTANT,
@@ -1743,6 +1744,8 @@ def creer_rendez_vous(r: RendezVousIn):
         inp["notes"] = notes
     if r.piano_ids:
         inp["pianos"] = [{"pianoId": p, "isTuning": r.accord} for p in r.piano_ids]
+    if r.type == "APPOINTMENT" and r.recherche_id:
+        inp["schedulerV2SearchId"] = r.recherche_id
     if r.type == "APPOINTMENT" and r.confirmation_client:
         inp["isConfirmationEmailWanted"] = True
     mut = """mutation($input: PrivateEventInput!) { createEvent(input: $input) {

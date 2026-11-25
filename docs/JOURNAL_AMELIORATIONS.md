@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 25 novembre
+- **Ivo cherche les plages avec le moteur de Gazelle** : pour proposer ou créer une heure précise pour un client, Ivo lance la même recherche que « Trouver une plage » dans Gazelle (route et trafic, secteurs, heures de travail, pauses, battement, plages préférées) et ne propose que les plages que Gazelle rend. Une seule recherche par demande, jamais automatique.
 - **Ivo respecte les réglages Gazelle de chaque technicien** : ses plages libres suivent les jours et heures de travail réglés dans Gazelle (semaines alternées comprises) et tiennent compte du battement après chaque RV. Avant de créer un RV, il refuse s'il tombe hors des heures du technicien ou trop près d'un autre RV ; une exception reste possible si l'équipe la confirme.
 - **Les RV créés par l'assistant ou Ivo respectent le battement réglé dans Gazelle** : jusqu'ici ils arrivaient avec 0 min de battement entre deux visites ; ils prennent maintenant le battement par défaut du technicien, tel que réglé dans Gazelle (aussi pour les RV Place des Arts créés depuis l'assistant).
 - **Réservation en ligne : un client qui a plusieurs pianos doit choisir lequel** : rien n'est présélectionné. Ses pianos désactivés dans Gazelle sont aussi proposés (un piano désactivé pour les frais peut être son piano courant) ; s'il en choisit un, la réservation l'indique pour qu'on le réactive en approuvant.
