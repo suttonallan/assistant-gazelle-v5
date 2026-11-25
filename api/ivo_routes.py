@@ -189,7 +189,7 @@ Brouillon au client : langue du client, vouvoiement, pas de signature dans le co
 Principe premier : VÉRIFIE AVANT D'AFFIRMER. Tes outils lisent Gazelle et Front en direct ; ta mémoire et le cahier ne remplacent jamais une vérification. N'écris jamais qu'une information manque, qu'elle est inconnue ou qu'une chose est impossible sans avoir d'abord appelé l'outil qui la donne ; si un outil renvoie un résultat étrange, dis exactement ce qu'il a renvoyé au lieu de généraliser.
 
 Horaire : appelle « consulter_horaire » pour les dates en jeu (avec « secteur » = ville, quartier ou début de code postal du client et des villes voisines quand la géographie compte). Il donne chaque RV avec sa ville et son code postal, les RV déjà prévus dans le secteur (à jumeler) et les plages libres de chaque technicien. « Occupé » = bloc personnel, dont tu ne mentionnes jamais la nature. Raisonne sur la géographie et la route, propose concrètement qui, quel jour et à quelle heure, et dis quand c'est serré ou incertain. Allan ne fait plus de visites : propose Nicolas, JP (Jean-Philippe) ou Margot.
-Heure précise pour un client : « consulter_horaire » donne une vue d'ensemble (sans la route). Avant de proposer ou de créer une heure précise pour un client, appelle « chercher_plages_gazelle » : c'est le moteur de Gazelle lui-même (route et trafic, secteurs, heures de travail, pauses, battement, plages préférées). Propose seulement des plages qu'il a rendues, en commençant par les plages préférées, et passe son recherche_id à « creer_rendez_vous ». Une recherche coûte à Gazelle : une seule par demande, jamais pour « voir » ni en boucle ; s'il ne rend rien, dis-le et propose une autre date ou un autre technicien plutôt que de relancer sans fin.
+Heure précise pour un client : « consulter_horaire » donne une vue d'ensemble (sans la route). Avant de proposer ou de créer une heure précise pour un client, appelle « chercher_plages_gazelle » : c'est le moteur de Gazelle lui-même (route et trafic, secteurs, heures de travail, pauses, battement, plages préférées). Propose seulement des plages qu'il a rendues, en commençant par les plages préférées, et passe son recherche_id à « creer_rendez_vous ». Une recherche coûte à Gazelle : une seule par demande, jamais pour « voir » ni en boucle ; s'il ne rend rien, dis-le et propose une autre date ou un autre technicien plutôt que de relancer sans fin. Pendant un cas de test, cet outil est indisponible : propose alors l'heure à partir de « consulter_horaire ».
 Identifiants des techniciens : usr_HcCiFk7o0vZ9xAI0 = Nicolas ; usr_ReUSmIJmBF86ilY1 ou usr_QmEpdeM2xMgZVkDS = JP (Jean-Philippe) ; usr_bbt59aCUqUaDWA8n = Margot ; usr_ofYggsCDt2JAVeNP ou usr_tndhXmnT0iakT4HF = Allan ; usr_HihJsEgkmpTEziJo = « À attribuer ».
 
 Actions :
@@ -500,7 +500,7 @@ def _chercher_plages_gazelle(arg: Dict[str, Any]) -> str:
         return f"La recherche Gazelle a échoué ({e}). Ne devine pas d'heure : dis-le à l'équipe."
     noms = {v: k for k, v in _TECHS.items()}
     lignes = []
-    for sl in r["plages"][:25]:
+    for sl in sorted(r["plages"], key=lambda x: (not x.get("isAPreferredSlot"), x.get("startsAt") or ""))[:25]:
         try:
             d = datetime.fromisoformat(sl["startsAt"].replace("Z", "+00:00")).astimezone(MONTREAL_TZ)
         except Exception:

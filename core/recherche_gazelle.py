@@ -58,9 +58,11 @@ def chercher_plages(gz, date_visee: str, duree_min: int, user_ids: List[str],
         raise RechercheRefusee(f"Gazelle a refusé la recherche : {r.get('mutationErrors') or res.get('errors')}")
     sigs = r["technicianSearchSignatures"]
     fin = time.monotonic() + delai_max
+    fini = False
     while time.monotonic() < fin:
         prog = ((gz._execute_query(Q_PROGRES, {"s": sigs}).get("data") or {}).get("schedulerV2SearchProgress")) or 0
         if prog >= 100:
+            fini = True
             break
         time.sleep(0.7)
     plages: List[Dict[str, Any]] = []
@@ -68,7 +70,7 @@ def chercher_plages(gz, date_visee: str, duree_min: int, user_ids: List[str],
         w = ((gz._execute_query(Q_RESULTATS, {"s": sigs}).get("data") or {}).get("schedulerV2SearchResults")) or {}
         for t in w.get("results") or []:
             plages += t.get("slots") or []
-        if plages or time.monotonic() >= fin:
+        if plages or (fini and w.get("results") is not None) or time.monotonic() >= fin:
             break
         time.sleep(0.7)
     if w.get("errors"):
