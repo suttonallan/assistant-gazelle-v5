@@ -7,6 +7,7 @@ l'historique complet reste dans git.
 ## Novembre 2026
 
 ### 24 novembre
+- **Ivo comprend qu'on lui répond sans « @Ivo »** : quand Ivo termine un commentaire par une question, la personne à qui il parlait peut répondre dans le commentaire suivant sans retaper « @Ivo » (pendant 48 h). Ivo reste muet pour tout le reste : échanges entre collègues, commentaires avec une @mention, simples mercis.
 - **Volet Décisions : Allan peut trancher seul** : sous chaque point qui attend Nicolas, le lien « Trancher seul, sans attendre Nicolas » fait du vote d'Allan la décision finale (après confirmation). Le point indique ensuite « Approuvé par Allan » ou « Refusé par Allan ».
 - **Réservation en ligne : « Déjà client ? » dès la première étape** : un client qui arrive par le site (sans son lien personnel) peut inscrire son courriel ou son téléphone ; si le code postal correspond aussi à sa fiche Gazelle, la page le salue par son prénom, propose ses pianos et remplit ses coordonnées. Sans correspondance exacte, rien n'est montré et la réservation continue comme avant ; aucune fiche n'est créée à cette étape.
 - **Stationnement Place des Arts jamais oublié** : quand la note « stat » arrive après la fermeture du rendez-vous, l'assistant reprend maintenant le montant au passage suivant (14 derniers jours, jamais sur une demande déjà facturée). Le vérificateur du matin signale aussi un « stat » écrit dans une note sans montant reporté ; avant, il ne vérifiait que les journées où un montant était déjà entré (oubli du 20 et du 21 novembre, corrigé à la main).

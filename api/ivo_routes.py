@@ -31,7 +31,7 @@ from core.front_client import get_front_client
 router = APIRouter(prefix="/front/ivo", tags=["front-ivo"])
 _log = logging.getLogger(__name__)
 
-VERSION = "2026-11-11-sans-voix-elevenlabs"
+VERSION = "2026-11-24-reponse-sans-arobase"
 MODELE = os.getenv("IVO_MODELE_REDACTION", "claude-opus-5-5")
 CLE_REGLES = "ivo_regles_reponse"
 PREFIXE_REPONSE = "🤖 Ivo : "
@@ -81,6 +81,49 @@ def consigne_ivo(corps: str) -> Optional[str]:
     if not m:
         return None
     return t[m.end():].strip() or "Améliore ce brouillon."
+
+
+SUITE_DELAI_S = 48 * 3600   # une question d'Ivo reste « ouverte » 48 h
+_MENTION = re.compile(r"(^|\s)@[\w.\-]+", re.UNICODE)
+_REMERCIEMENT = re.compile(r"^\s*(ok\s*)?(merci|thanks|thank you)[\s!.,]*(ivo)?[\s!.]*$", re.IGNORECASE)
+
+
+def _candidat_suite(t: str) -> bool:
+    """Commentaire qui POURRAIT répondre à Ivo : non vide, pas d'Ivo/Claude, aucune @mention, pas un simple merci."""
+    t = (t or "").strip()
+    return bool(t) and not t.startswith("🤖") and not _MENTION.search(t) and not _REMERCIEMENT.match(t)
+
+
+def _email(c: Dict[str, Any]) -> str:
+    return ((c.get("author") or {}).get("email") or "").lower()
+
+
+def consigne_suite(com: Dict[str, Any], commentaires: List[Dict[str, Any]]) -> Optional[str]:
+    """Réponse à une question d'Ivo, sans « @Ivo » : retourne la consigne, sinon None.
+
+    Une seule règle, stricte, pour qu'Ivo ne se mêle pas des échanges entre collègues :
+    le commentaire précédent du fil est un commentaire d'Ivo qui se termine par une question
+    (moins de 48 h), et ce commentaire-ci vient de la personne à qui Ivo parlait (celle qui l'avait
+    interpellé, ou celle qu'il a @mentionnée), sans @mention ni simple merci.
+    """
+    t = _texte(com.get("body") or "").strip()
+    if not _candidat_suite(t):
+        return None
+    moment = com.get("posted_at") or 0
+    precedents = [c for c in commentaires if (c.get("posted_at") or 0) < moment and c.get("id") != com.get("id")]
+    if not precedents:
+        return None
+    dernier = max(precedents, key=lambda c: c.get("posted_at") or 0)
+    tp = _texte(dernier.get("body") or "").strip()
+    if not tp.startswith("🤖 Ivo") or moment - (dernier.get("posted_at") or 0) > SUITE_DELAI_S:
+        return None
+    if not re.search(r"\?[\s»\")]*$", re.sub(r"https?://\S+", "", tp).rstrip()):
+        return None  # Ivo n'a pas terminé par une question
+    qui = _email(com)
+    local = qui.split("@")[0]
+    if not qui or (qui != _email(dernier) and not (local and re.search(rf"@{re.escape(local)}\b", tp, re.IGNORECASE))):
+        return None  # quelqu'un d'autre parle dans le fil
+    return f"(Réponse de l'équipe à ta question précédente.) {t}"
 
 
 def _regles() -> List[str]:
@@ -1035,8 +1078,10 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
     if not cibles:
         return {"statut": "ignoré", "raison": "commentaire introuvable"}
     com = cibles[0]
-    consigne = consigne_ivo(com.get("body") or "")
+    consigne = consigne_ivo(com.get("body") or "") or consigne_suite(com, commentaires)
     if consigne is None:
+        with _verrou:
+            _deja_traites.add(com["id"])  # ne dépend que des commentaires antérieurs : inutile de le relire
         return {"statut": "ignoré", "raison": "pas un commentaire @Ivo"}
     auteur_email = ((com.get("author") or {}).get("email") or "").lower()
     if not auteur_email:
@@ -1068,11 +1113,14 @@ def traiter(conversation_id: str, comment_id: Optional[str]) -> Dict[str, Any]:
                 historique.append(("assistant", t))
             elif consigne_ivo(c.get("body") or "") is not None:
                 historique.append(("user", consigne_ivo(c.get("body") or "")))
+            elif consigne_suite(c, commentaires) is not None:
+                historique.append(("user", t))
         # Notes internes de l'équipe (commentaires Front qui ne s'adressent pas à Ivo) : Ivo doit les voir
         notes = []
         for c in anterieurs[-15:]:
             t = _texte(c.get("body") or "")
-            if t.startswith("🤖 Ivo") or consigne_ivo(c.get("body") or "") is not None or not t.strip():
+            if (t.startswith("🤖 Ivo") or consigne_ivo(c.get("body") or "") is not None or not t.strip()
+                    or consigne_suite(c, commentaires) is not None):
                 continue
             qui_c = ((c.get("author") or {}).get("first_name")) or ((c.get("author") or {}).get("email")) or "équipe"
             notes.append(f"- {qui_c} : {t[:800]}")
@@ -1178,6 +1226,8 @@ def _traiter_sans_erreur(conversation_id: str, comment_id: Optional[str]) -> Non
     except Exception as e:
         _log.exception("Ivo : échec du traitement")
         res = {"statut": "exception", "raison": f"{e}", "trace": traceback.format_exc()[-800:]}
+    if res.get("statut") == "ignoré" and res.get("raison") == "pas un commentaire @Ivo":
+        return  # commentaire ordinaire de l'équipe : rien à journaliser
     _derniers.append({"conversation": conversation_id, **res})
     del _derniers[:-10]
 
@@ -1205,8 +1255,9 @@ def surveiller(fenetre_s: int = 600) -> Dict[str, Any]:
     for e in evenements:
         plus_recent = max(plus_recent, float(e.get("emitted_at") or 0))
         cible = ((e.get("target") or {}).get("data")) or {}
-        if consigne_ivo(cible.get("body") or "") is None:
-            continue
+        if cible.get("id") in _deja_traites or (consigne_ivo(cible.get("body") or "") is None
+                                                and not _candidat_suite(_texte(cible.get("body") or ""))):
+            continue  # ni « @Ivo », ni réponse possible à une question d'Ivo (vérifiée dans traiter)
         conv = (e.get("conversation") or {}).get("id")
         if conv:
             vus += 1
@@ -1276,7 +1327,8 @@ def _surveiller_discussions_taches(front, intervalle_s: int = 90, fenetre_s: int
         for c in sorted(coms, key=lambda x: x.get("posted_at") or 0):
             if (c.get("posted_at") or 0) < maintenant - fenetre_s or c.get("id") in _deja_traites:
                 continue
-            if consigne_ivo(c.get("body") or "") is None or not ((c.get("author") or {}).get("email")):
+            if not ((c.get("author") or {}).get("email")) or (
+                    consigne_ivo(c.get("body") or "") is None and consigne_suite(c, coms) is None):
                 continue
             traites += 1
             _traiter_sans_erreur(cid, c.get("id"))
