@@ -2293,6 +2293,25 @@ def supprimer_note_evenement(eid: str):
     return {"supprime": eid, "titre": ev.get("title")}
 
 
+@router.get("/gazelle/champs-battement")
+def champs_battement():
+    """LECTURE SEULE — où Gazelle expose le battement (buffer) : champs du schéma dont le nom
+    contient « buffer », pour appliquer aux RV créés par l'assistant le même réglage que Gazelle."""
+    from core.gazelle_api_client import GazelleAPIClient
+    q = """{ __schema { types { name fields { name type { name kind ofType { name } } }
+              inputFields { name type { name kind ofType { name } } } } } }"""
+    res = GazelleAPIClient()._execute_query(q, {})
+    sortie = []
+    for t in (((res or {}).get("data") or {}).get("__schema") or {}).get("types") or []:
+        for genre in ("fields", "inputFields"):
+            for f in t.get(genre) or []:
+                if "buffer" in (f.get("name") or "").lower():
+                    ty = f.get("type") or {}
+                    sortie.append({"type": t["name"], "champ": f["name"],
+                                   "valeur": ty.get("name") or (ty.get("ofType") or {}).get("name")})
+    return {"champs": sortie, "erreurs": (res or {}).get("errors")}
+
+
 @router.get("/gazelle/charge")
 def charge_techniciens(debut: str = Query(...), fin: str = Query(...)):
     """LECTURE SEULE — charge par technicien et par jour (RV, blocs perso, source de la prise de RV).
@@ -2314,7 +2333,7 @@ def charge_techniciens(debut: str = Query(...), fin: str = Query(...)):
         cb = (e.get("createdBy") or {}).get("id")
         sortie.append({"id": e.get("id"), "jour": d.strftime("%Y-%m-%d"), "heure": d.strftime("%H:%M"), "tech": noms.get(uid, uid),
                        "type": e.get("type"), "titre": (e.get("title") or "")[:60], "duree_min": e.get("duration"),
-                       "journee": e.get("isAllDay"), "source": e.get("source"), "cree_par": noms.get(cb, cb),
+                       "journee": e.get("isAllDay"), "battement_min": e.get("buffer"), "source": e.get("source"), "cree_par": noms.get(cb, cb),
                        "cree_le": (e.get("createdAt") or "")[:10]})
     sortie.sort(key=lambda x: (x["jour"], x["tech"] or "", x["heure"]))
     return {"evenements": sortie}

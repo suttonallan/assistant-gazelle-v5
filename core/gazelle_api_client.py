@@ -615,6 +615,7 @@ class GazelleAPIClient:
               start
               duration
               isAllDay
+              buffer
               notes
               client { id }
               type
