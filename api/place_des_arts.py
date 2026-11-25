@@ -2060,6 +2060,10 @@ async def creer_rv_gazelle(request_id: str, body: CreerRvGazelleIn, background_t
     inp = {"title": _titre_rv_pda(demande), "start": start, "duration": body.duree_min,
            "type": "APPOINTMENT", "travelMode": "DRIVING",
            "userId": body.technician_id, "clientId": PDA_CLIENT_ID}
+    from api.taches_routes import battement_gazelle
+    b = battement_gazelle(api_client, body.technician_id)
+    if b is not None:
+        inp["buffer"] = b
     notes_rv = (demande.get('diapason') or '').strip()
     if piano_id:
         # Code de porte, salle, entrée : recopiés du mémo du piano dans Gazelle

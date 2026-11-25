@@ -1655,6 +1655,33 @@ def _relier_demande_pda(demande: Dict[str, Any], ev: Dict[str, Any], user_id: st
         return None
 
 
+_BATTEMENTS: Dict[str, Any] = {"le": 0.0, "par_tech": {}}
+
+
+def battement_gazelle(gz, user_id: Optional[str]) -> Optional[int]:
+    """Battement par défaut du technicien, tel que réglé dans Gazelle (PrivateUser.defaultBuffer).
+    createEvent ne l'applique pas tout seul (le RV arrivait avec 0 min) : on le passe nous-mêmes.
+    Lu au plus une fois l'heure. None si illisible (le RV est quand même créé)."""
+    if not user_id:
+        return None
+    if time.time() - _BATTEMENTS["le"] > 3600 or user_id not in _BATTEMENTS["par_tech"]:
+        for q in ("{ allUsers { id defaultBuffer } }", "{ allUsers { nodes { id defaultBuffer } } }"):
+            try:
+                res = gz._execute_query(q, {})
+            except Exception as e:
+                logging.warning(f"Battement Gazelle illisible ({q[:30]}) : {e}")
+                continue
+            u = ((res or {}).get("data") or {}).get("allUsers")
+            if isinstance(u, dict):
+                u = u.get("nodes")
+            if isinstance(u, list) and u:
+                _BATTEMENTS["par_tech"] = {x["id"]: x.get("defaultBuffer") for x in u if x.get("id")}
+                _BATTEMENTS["le"] = time.time()
+                break
+    b = _BATTEMENTS["par_tech"].get(user_id)
+    return b if isinstance(b, int) else None
+
+
 @router.post("/gazelle/rendez-vous")
 def creer_rendez_vous(r: RendezVousIn):
     """Crée un APPOINTMENT dans Gazelle au format natif PTM (durée en minutes, start en UTC,
@@ -1695,6 +1722,10 @@ def creer_rendez_vous(r: RendezVousIn):
            "travelMode": "DRIVING", "userId": r.user_id}
     if r.client_id:
         inp["clientId"] = r.client_id
+    if r.type == "APPOINTMENT":
+        b = battement_gazelle(gz, r.user_id)
+        if b is not None:
+            inp["buffer"] = b
     if r.lieu:
         inp["location"] = {"locationType": "SINGLE_LINE_ADDRESS", "singleLineAddress": r.lieu}
     notes = r.notes or ""
@@ -2309,7 +2340,10 @@ def champs_battement():
                     ty = f.get("type") or {}
                     sortie.append({"type": t["name"], "champ": f["name"],
                                    "valeur": ty.get("name") or (ty.get("ofType") or {}).get("name")})
-    return {"champs": sortie, "erreurs": (res or {}).get("errors")}
+    gz = GazelleAPIClient()
+    _BATTEMENTS["le"] = 0.0
+    battement_gazelle(gz, "usr_ofYggsCDt2JAVeNP")
+    return {"champs": sortie, "erreurs": (res or {}).get("errors"), "par_technicien": _BATTEMENTS["par_tech"]}
 
 
 @router.get("/gazelle/charge")
