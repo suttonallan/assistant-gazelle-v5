@@ -271,7 +271,8 @@ def _evenements(debut, fin) -> List[Dict[str, Any]]:
             d, fin_ev = d.replace(hour=0, minute=0), d.replace(hour=23, minute=59)
         sortie.append({"jour": d.date(), "debut": d, "fin": fin_ev, "journee": bool(e.get("isAllDay")),
                        "tech": _NOMS_TECH.get((e.get("user") or {}).get("id"), "?"), "client": client,
-                       "titre": (e.get("title") or "")[:40], "lieu": lieu})
+                       "titre": (e.get("title") or "")[:40], "lieu": lieu,
+                       "battement": int(e.get("buffer") or 0) if client else 0})
     return sorted(sortie, key=lambda x: (x["debut"], x["tech"]))
 
 
@@ -319,27 +320,50 @@ def _consulter_horaire(arg: Dict[str, Any]) -> str:
     sans_lieu = sum(1 for x in evs if x["client"] and not x["lieu"])
     if sans_lieu:
         parties.append(f"\n({sans_lieu} RV sans adresse dans Gazelle : ce sont des exceptions, pas tout l'horaire.)")
-    parties.append(f"\nPLAGES LIBRES ({h0}-{h1}, durée en minutes ; la route n'est pas déduite) :")
+    parties.append(f"\nPLAGES LIBRES (heures de travail réglées dans Gazelle pour chaque technicien, battement "
+                   f"après chaque RV déduit ; sinon {h0}-{h1} en semaine ; durée en minutes ; la route n'est pas déduite) :")
+    en_test = _EVTS_TEST.get() is not None
+    explicite = bool(arg.get("heure_debut") or arg.get("heure_fin"))
+    gz = None
+    if not en_test:
+        from core.gazelle_api_client import GazelleAPIClient
+        gz = GazelleAPIClient()
+    from core.dispo_technicien import heures_travail
     j = debut
     while j <= fin:
-        if j.weekday() < 5:
-            bornes = (datetime.combine(j, datetime.strptime(h0, "%H:%M").time(), MONTREAL_TZ),
-                      datetime.combine(j, datetime.strptime(h1, "%H:%M").time(), MONTREAL_TZ))
-            morceaux = []
-            for t in techs:
-                pris = sorted((max(x["debut"], bornes[0]), min(x["fin"], bornes[1]))
-                              for x in evs if x["tech"] == t and x["jour"] == j
-                              and x["fin"] > bornes[0] and x["debut"] < bornes[1])
-                libres, curseur = [], bornes[0]
-                for a, b in pris:
-                    if a > curseur:
-                        libres.append((curseur, a))
-                    curseur = max(curseur, b)
-                if curseur < bornes[1]:
-                    libres.append((curseur, bornes[1]))
-                txt = ", ".join(f"{a:%H:%M}-{b:%H:%M} ({int((b - a).total_seconds() // 60)})"
-                                for a, b in libres if (b - a).total_seconds() >= 1800)
-                morceaux.append(f"{t} : {txt or 'aucune'}")
+        defaut = (datetime.combine(j, datetime.strptime(h0, "%H:%M").time(), MONTREAL_TZ),
+                  datetime.combine(j, datetime.strptime(h1, "%H:%M").time(), MONTREAL_TZ))
+        morceaux = []
+        for t in techs:
+            connu, bornes = (False, None) if en_test or t not in _TECHS else heures_travail(gz, _TECHS[t], j, MONTREAL_TZ)
+            if connu and not bornes:
+                if j.weekday() < 5:
+                    morceaux.append(f"{t} : ne travaille pas ce jour-là (selon Gazelle)")
+                continue
+            if not connu:
+                if j.weekday() >= 5:
+                    continue
+                bornes = defaut
+            elif explicite:  # plage demandée par le client, dans les heures du technicien
+                bornes = (max(bornes[0], defaut[0]), min(bornes[1], defaut[1]))
+                if bornes[0] >= bornes[1]:
+                    morceaux.append(f"{t} : aucune")
+                    continue
+            pris = sorted((max(x["debut"], bornes[0]),
+                           min(x["fin"] + timedelta(minutes=x.get("battement") or 0), bornes[1]))
+                          for x in evs if x["tech"] == t and x["jour"] == j
+                          and x["fin"] > bornes[0] and x["debut"] < bornes[1])
+            libres, curseur = [], bornes[0]
+            for a, b in pris:
+                if a > curseur:
+                    libres.append((curseur, a))
+                curseur = max(curseur, b)
+            if curseur < bornes[1]:
+                libres.append((curseur, bornes[1]))
+            txt = ", ".join(f"{a:%H:%M}-{b:%H:%M} ({int((b - a).total_seconds() // 60)})"
+                            for a, b in libres if (b - a).total_seconds() >= 1800)
+            morceaux.append(f"{t} : {txt or 'aucune'}")
+        if morceaux:
             parties.append(f"{j:%Y-%m-%d %a} — " + " ; ".join(morceaux))
         j += timedelta(days=1)
     return "\n".join(parties)[:15000]
@@ -474,14 +498,32 @@ def _creer_rv_direct(arg: Dict[str, Any]) -> str:
     if duree <= 0:
         return "Durée manquante : rien créé (demande-la à l'équipe)."
     fin = debut + timedelta(minutes=duree)
-    # Garde-fou : aucun chevauchement avec l'horaire du technicien
+    # Garde-fou 1 : heures de travail réglées dans Gazelle pour ce technicien (sauf exception confirmée)
+    if not arg.get("hors_horaire"):
+        from core.gazelle_api_client import GazelleAPIClient
+        from core.dispo_technicien import heures_travail
+        connu, bornes = heures_travail(GazelleAPIClient(), uid, debut.date(), MONTREAL_TZ)
+        if connu and (not bornes or debut < bornes[0] or fin > bornes[1]):
+            quand = (f"travaille de {bornes[0]:%H:%M} à {bornes[1]:%H:%M}" if bornes else "ne travaille pas")
+            return (f"Hors horaire : selon ses disponibilités dans Gazelle, {tech} {quand} le "
+                    f"{debut:%A %d %B}. Rien créé. Propose une heure dans ses disponibilités ; si l'équipe confirme "
+                    "que c'est voulu (exception), rappelle « creer_rendez_vous » avec hors_horaire=true.")
+    # Garde-fou 2 : aucun chevauchement avec l'horaire du technicien, battements compris
     try:
+        from api.taches_routes import battement_gazelle
+        from core.gazelle_api_client import GazelleAPIClient as _GZ
+        mon_battement = battement_gazelle(_GZ(), uid) or 0
         jour = debut.strftime("%Y-%m-%d")
         for e in charge_techniciens(debut=jour, fin=jour).get("evenements") or []:
             if e.get("tech") != tech or e.get("journee"):
                 continue
             d = datetime.fromisoformat(f"{e['jour']}T{e['heure']}").replace(tzinfo=MONTREAL_TZ)
             f = d + timedelta(minutes=int(e.get("duree_min") or 0))
+            f_batt = f + timedelta(minutes=int(e.get("battement_min") or 0)) if e.get("type") == "APPOINTMENT" else f
+            if d < fin + timedelta(minutes=mon_battement) and debut < f_batt and not (d < fin and debut < f):
+                return (f"Trop serré : {tech} a « {e.get('titre')} » de {d:%H:%M} à {f:%H:%M} ; avec le battement "
+                        f"réglé dans Gazelle, il faut un écart d'au moins {int(e.get('battement_min') or 0) if debut >= f else mon_battement} min. "
+                        "Rien créé : propose une autre heure.")
             if d < fin and debut < f:
                 if e.get("type") == "PERSONAL":
                     return (f"Conflit : {tech} a déjà le bloc personnel « {e.get('titre')} » ({e.get('id')}) de "
@@ -968,7 +1010,8 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
         {"name": "creer_rendez_vous",
          "description": ("Crée DIRECTEMENT un RV client dans Gazelle (sans confirmation au client). Seulement sur un "
                          "ordre explicite de l'équipe (« crée le RV », « oui ») quand client, technicien, jour, heure "
-                         "et durée sont connus. Refuse s'il y a un conflit à l'horaire."),
+                         "et durée sont connus. Refuse s'il y a un conflit à l'horaire (battements compris) ou si c'est hors des "
+                         "heures de travail du technicien réglées dans Gazelle."),
          "input_schema": {"type": "object", "required": ["client_id", "technicien", "debut", "duree_min", "notes"],
                           "properties": {
              "client_id": {"type": "string"},
@@ -977,7 +1020,8 @@ def _rediger(consigne: str, fil: str, brouillon: str, regles: List[str], echange
              "duree_min": {"type": "integer"},
              "notes": {"type": "string", "description": "Notes pour le technicien : service, prix connu, qui facturer, adresse, contacts, points à vérifier."},
              "piano_ids": {"type": "array", "items": {"type": "string"}},
-             "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."}}}},
+             "lieu": {"type": ["string", "null"], "description": "Adresse si différente de la fiche ou absente de la fiche."},
+             "hors_horaire": {"type": "boolean", "description": "Seulement si l'équipe a confirmé une exception aux heures de travail du technicien dans Gazelle."}}}},
         {"name": "convertir_bloc_en_rv",
          "description": ("Transforme un bloc PERSONNEL déjà à l'horaire d'un technicien (ex. « accorder fazioli à la maison "
                          "trestler ») en vrai RV client, à la même heure et pour la même durée, avec le piano. Le bloc est "
