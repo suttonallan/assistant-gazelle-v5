@@ -8,7 +8,8 @@ l'historique complet reste dans git.
 
 ### 25 novembre
 - **Les RV créés par l'assistant ou Ivo respectent le battement réglé dans Gazelle** : jusqu'ici ils arrivaient avec 0 min de battement entre deux visites ; ils prennent maintenant le battement par défaut du technicien, tel que réglé dans Gazelle (aussi pour les RV Place des Arts créés depuis l'assistant).
-- **Réservation en ligne : un client qui a plusieurs pianos doit choisir lequel** : rien n'est présélectionné ; les pianos inactifs ne sont pas proposés. Un seul piano actif : il est choisi d'office.
+- **Réservation en ligne : un client qui a plusieurs pianos doit choisir lequel** : rien n'est présélectionné. Ses pianos désactivés dans Gazelle sont aussi proposés (un piano désactivé pour les frais peut être son piano courant) ; s'il en choisit un, la réservation l'indique pour qu'on le réactive en approuvant.
+- **Réservation en ligne : case « rappels par texto »** : cochée au départ ; la page ne retire plus les textos du dossier du client à chaque réservation.
 
 ### 24 novembre
 - **Ivo comprend qu'on lui répond sans « @Ivo »** : quand Ivo termine un commentaire par une question, la personne à qui il parlait peut répondre dans le commentaire suivant sans retaper « @Ivo » (pendant 48 h). Ivo reste muet pour tout le reste : échanges entre collègues, commentaires avec une @mention, simples mercis.
