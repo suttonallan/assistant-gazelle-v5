@@ -421,7 +421,7 @@ async def analyze_feedback(request: AnalyzeFeedbackRequest):
 
         client = Anthropic(api_key=api_key)
 
-        prompt = f"""Allan est le propriétaire de Piano Tek Musique, un service d'accordage et d'entretien de pianos à Montréal.
+        prompt = f"""Allan est le fondateur et copropriétaire de Piano Technique Montréal (PTM), un service d'accordage et d'entretien de pianos à Montréal.
 Il vient de lire le briefing quotidien généré par l'IA pour un technicien, et il a écrit ce commentaire pour corriger ou améliorer l'intelligence du système.
 
 CLIENT CONCERNÉ: {request.client_name or request.client_id}
@@ -444,6 +444,12 @@ Retourne UNIQUEMENT ce JSON (pas de markdown):
   ]
 }}
 
+RÈGLE ABSOLUE — NE RIEN INVENTER:
+- Chaque action doit découler DIRECTEMENT du commentaire d'Allan. N'ajoute aucun fait (défaut, problème, réparation, date, pièce) qui n'est pas écrit dans le commentaire ou dans le briefing ci-dessus.
+- VOCABULAIRE: chez PTM, « les notes du piano », « les notes du client », « les notes de service » désignent les NOTES ÉCRITES dans Gazelle (historique d'entretien, notes de visite, notes de facture). Ce ne sont PAS des notes de musique. Ne parle de touches ou de notes de musique défectueuses QUE si le commentaire le dit explicitement.
+- Si le commentaire est une consigne sur la façon de travailler (ex. « il faut lire les notes du piano »), reformule fidèlement cette consigne, sans l'interpréter ni l'enrichir.
+- En cas de doute sur le sens, reprends les mots d'Allan presque tels quels.
+
 IMPORTANT:
 - Propose 1 à 3 actions maximum, seulement celles qui sont pertinentes
 - Une action "client" corrige un fait spécifique à ce client
@@ -452,8 +458,8 @@ IMPORTANT:
 - Formule les notes de façon actionable pour une IA qui génère des briefings"""
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            model=os.getenv("IVO_MODELE", "claude-sonnet-5-5"),
+            max_tokens=800,
             messages=[{"role": "user", "content": prompt}],
         )
 

@@ -6,6 +6,9 @@ l'historique complet reste dans git.
 
 ## Novembre 2026
 
+### 26 novembre
+- **« Ajuster l'Intelligence » n'invente plus de problèmes** : quand Allan écrit une consigne (ex. « il faut lire les notes du piano »), les actions suggérées reprennent fidèlement sa consigne au lieu d'inventer un défaut. « Les notes du piano » s'entend comme les notes écrites dans Gazelle, pas des notes de musique défectueuses.
+
 ### 25 novembre
 - **Ivo cherche les plages avec le moteur de Gazelle** : pour proposer ou créer une heure précise pour un client, Ivo lance la même recherche que « Trouver une plage » dans Gazelle (route et trafic, secteurs, heures de travail, pauses, battement, plages préférées) et ne propose que les plages que Gazelle rend. Une seule recherche par demande, jamais automatique.
 - **Ivo respecte les réglages Gazelle de chaque technicien** : ses plages libres suivent les jours et heures de travail réglés dans Gazelle (semaines alternées comprises) et tiennent compte du battement après chaque RV. Avant de créer un RV, il refuse s'il tombe hors des heures du technicien ou trop près d'un autre RV ; une exception reste possible si l'équipe la confirme.
